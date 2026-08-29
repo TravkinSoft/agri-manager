@@ -18,6 +18,7 @@ export type WeighbridgeTicketPaperLabels = {
   trailer?: string | null;
   trailerPlate?: string | null;
   driver?: string | null;
+  combineOperator?: string | null;
 };
 
 export type WeighbridgeTicketWeightEditor = {
@@ -156,6 +157,7 @@ export function WeighbridgeTicketPaper({
   const trailer = first(labels.trailer, ticket.trailer_name_snapshot);
   const trailerPlate = first(labels.trailerPlate, ticket.trailer_plate_snapshot);
   const driver = first(labels.driver, ticket.driver_name_snapshot);
+  const combineOperator = first(labels.combineOperator, ticket.combine_operator_person_name);
   const operatorFacts = ticketOperatorFacts(ticket);
   const crop = first(mainLine?.product_name, mainLine?.product_name_snapshot, ticket.crop_name_snapshot);
   const variety = first(mainLine?.variety_name, mainLine?.variety_name_snapshot, ticket.variety_name_snapshot);
@@ -212,6 +214,7 @@ export function WeighbridgeTicketPaper({
             <Fact label="Культура" value={crop} />
             <Fact label="Сорт" value={variety} />
             <Fact label="Репродукция" value={reproduction} />
+            <Fact label="Комбайнер" value={combineOperator} strong />
           </div>
         </PaperSection>
       ) : (

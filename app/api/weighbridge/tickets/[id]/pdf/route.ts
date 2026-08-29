@@ -146,6 +146,9 @@ export async function GET(
         (drivers || []).find((x: any) => x.id === ticket.driver_id)?.email ||
         "-"
       : "-";
+    const combineOperatorName = ticket.combine_operator_person_id
+      ? (people || []).find((x: any) => x.id === ticket.combine_operator_person_id)?.full_name || "-"
+      : "-";
     const vehicle: any = ticket.vehicle_id
       ? (vehicles || []).find((x: any) => x.id === ticket.vehicle_id) ||
         (machines || []).find((x: any) => x.id === ticket.vehicle_id)
@@ -228,6 +231,7 @@ export async function GET(
       ...(isHarvest ? [`Crop: ${productName(line)}`] : []),
       ...(isHarvest && varietyName !== "-" ? [`Variety: ${varietyName}`] : []),
       ...(isHarvest && reproductionName !== "-" ? [`Reproduction: ${reproductionName}`] : []),
+      ...(isHarvest ? [`Combine operator: ${combineOperatorName}`] : []),
       `Driver: ${driverName}`,
       `Vehicle: ${vehicleName}`,
       `Trailer: ${trailerName}`,

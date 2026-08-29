@@ -15,6 +15,7 @@ import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
 import { isWeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
 import { isCargoTractor, isCargoVehicle, isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
+import { enrichTicketCombineOperators, validateActiveCombineOperator } from "@/lib/server/weighbridge-combine-operator";
 
 function buildTicketNo(companyId: string): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -294,8 +295,9 @@ export async function GET(request: NextRequest) {
     const attributedTickets = await enrichTicketOperatorAttribution(supabase, companyId, tickets, {
       includeTechnicalAudit: actor.role === "global_admin",
     });
+    const enrichedTickets = await enrichTicketCombineOperators(supabase, companyId, attributedTickets);
 
-    return NextResponse.json({ tickets: attributedTickets, historyHasMore });
+    return NextResponse.json({ tickets: enrichedTickets, historyHasMore });
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) {
@@ -408,7 +410,12 @@ export async function POST(request: NextRequest) {
           ticket.company_id,
           [existingTicket]
         );
-        return NextResponse.json({ ticket: attributedExistingTicket, idempotent_replay: true });
+        const [enrichedExistingTicket] = await enrichTicketCombineOperators(
+          supabase,
+          ticket.company_id,
+          [attributedExistingTicket]
+        );
+        return NextResponse.json({ ticket: enrichedExistingTicket, idempotent_replay: true });
       }
     }
 
@@ -436,6 +443,7 @@ export async function POST(request: NextRequest) {
     const isHarvestIncoming =
       String(ticket.direction || "") === "incoming" &&
       String(ticket.op_type || "").toLowerCase() === "harvest_incoming";
+    if (!isHarvestIncoming) ticket.combine_operator_person_id = null;
     let paperBackfill: {
       recordedAt: string;
       dayStart: string;
@@ -514,6 +522,7 @@ export async function POST(request: NextRequest) {
     } | null = null;
     let harvestCropProcessingIdentity: Record<string, unknown> | null = null;
     let createdHarvestProductId: string | null = null;
+    let harvestCombineOperatorName: string | null = null;
     const isImpurityRemoval =
       String(ticket.direction || "") === "outgoing" &&
       String(ticket.op_type || "").toLowerCase() === "weighbridge_impurities";
@@ -527,6 +536,21 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+      if (!ticket.combine_operator_person_id) {
+        return NextResponse.json({ error: "Выберите комбайнера." }, { status: 400 });
+      }
+      if (!UUID_RE.test(String(ticket.combine_operator_person_id))) {
+        return NextResponse.json({ error: "Выбран некорректный комбайнер." }, { status: 400 });
+      }
+      const combineOperator = await validateActiveCombineOperator(
+        supabase,
+        companyId,
+        String(ticket.combine_operator_person_id)
+      );
+      if (!combineOperator.ok) {
+        return NextResponse.json({ error: combineOperator.error }, { status: 400 });
+      }
+      harvestCombineOperatorName = combineOperator.person.name;
 
       const destinationKind = String(ticket.destination_kind || "warehouse").trim().toLowerCase();
       const warehouseId = String(ticket.warehouse_to_id || ticket.destination_id || "").trim();
@@ -1919,9 +1943,14 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: finalizedTicketError?.message || "Бумажный рейс проведён, но ответ не загружен." }, { status: 500 });
       }
       const [attributedFinalizedTicket] = await enrichTicketOperatorAttribution(supabase, ticket.company_id, [finalizedTicket]);
+      const [enrichedFinalizedTicket] = await enrichTicketCombineOperators(
+        supabase,
+        ticket.company_id,
+        [attributedFinalizedTicket]
+      );
       timing.totalMs = Date.now() - startedAt;
       return NextResponse.json({
-        ticket: attributedFinalizedTicket,
+        ticket: enrichedFinalizedTicket,
         paper_backfill: { ok: true, duplicate: false },
         debug: timing,
       });
@@ -1978,6 +2007,7 @@ export async function POST(request: NextRequest) {
       ticket: {
         ...createdTicket,
         company_name: String((company as any)?.name || "").trim() || null,
+        combine_operator_person_name: harvestCombineOperatorName,
         ...(operatorSession?.operator.id
           ? {
               opened_by_person_name: operatorSession.operator.name,

@@ -9,7 +9,7 @@ import { isCargoTractor, isCargoVehicle, isTrailerTransport, resolveTransportIde
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const WEIGHBRIDGE_PERSONNEL_ROLES = ["driver", "mechanic_operator"];
+const WEIGHBRIDGE_PERSONNEL_ROLES = new Set(["driver", "mechanic_operator"]);
 
 type ResourceError = {
   resource:
@@ -35,7 +35,7 @@ const RESOURCE_ERROR_COPY: Record<ResourceError["resource"], Omit<ResourceError,
   },
   company_people: {
     code: "WB_RESOURCES_DRIVERS",
-    message: "Не удалось загрузить водителей. Остальные данные сохранены.",
+    message: "Не удалось загрузить сотрудников весовой. Остальные данные сохранены.",
   },
   reference_specialists: {
     code: "WB_RESOURCES_DRIVER_LINKS",
@@ -83,7 +83,6 @@ export async function GET(request: NextRequest) {
         .eq("company_id", companyId)
         .eq("status", "active")
         .is("deleted_at", null)
-        .in("role_type", WEIGHBRIDGE_PERSONNEL_ROLES)
         .order("full_name", { ascending: true }),
       supabase
         .from("reference_specialists")
@@ -210,7 +209,7 @@ export async function GET(request: NextRequest) {
       byDriver.set(canonicalPersonId, assigned);
     });
 
-    const drivers = peopleRows.map((row: any) => {
+    const drivers = peopleRows.filter((row: any) => WEIGHBRIDGE_PERSONNEL_ROLES.has(String(row.role_type))).map((row: any) => {
       const id = String(row.id);
       const name = String(row.full_name || "Сотрудник");
       driverNames[id] = name;
@@ -224,6 +223,13 @@ export async function GET(request: NextRequest) {
       assignedVehicleIds: byDriver.get(id) || [],
     };
     });
+    const combineOperators = peopleRows.map((row: any) => ({
+      id: String(row.id),
+      name: String(row.full_name || "Сотрудник"),
+      roleType: String(row.role_type || ""),
+      position: String(row.position || ""),
+      department: String(row.department || ""),
+    }));
 
     const fields = fieldRows.map((row: any) => ({
       id: String(row.id),
@@ -248,6 +254,7 @@ export async function GET(request: NextRequest) {
       trailers,
       drivers,
       driverNames,
+      combineOperators,
       resourceErrors,
     });
   } catch (error) {

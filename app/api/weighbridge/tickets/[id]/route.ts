@@ -4,6 +4,7 @@ import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { validateHarvestWeights } from "@/lib/weighbridge/harvest-contract";
 import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
 import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
+import { enrichTicketCombineOperators } from "@/lib/server/weighbridge-combine-operator";
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 
 export async function GET(
@@ -201,9 +202,10 @@ export async function GET(
         correction_audit: correctionAuditResult.data || [],
         lines: enrichedLines,
       }], { includeTechnicalAudit: actor.role === "global_admin" });
+    const [enrichedTicket] = await enrichTicketCombineOperators(supabase, companyId, [attributedTicket]);
 
     return NextResponse.json({
-      ticket: attributedTicket,
+      ticket: enrichedTicket,
       lines: enrichedLines,
       weighings: weighings || [],
       debug: timing,

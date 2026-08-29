@@ -76,6 +76,7 @@ export interface TicketInput {
   processing_point_to_id?: string | null;
   vehicle_id?: string | null;
   driver_id?: string | null;
+  combine_operator_person_id?: string | null;
   responsible_user_id?: string | null;
   created_by: string;
   created_by_person_id?: string | null;
@@ -151,6 +152,8 @@ export interface WeighbridgeTicket {
   trailer_name_snapshot?: string | null;
   trailer_plate_snapshot?: string | null;
   driver_name_snapshot?: string | null;
+  combine_operator_person_id?: string | null;
+  combine_operator_person_name?: string | null;
   ticket_no: string;
   ticket_type: string;
   op_type: string;
