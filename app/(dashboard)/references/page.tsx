@@ -22,6 +22,7 @@ import { useAuth } from "@/lib/contexts/auth-context";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import {
   archiveCompanyPerson,
+  archiveVehicleReference,
   createCompanyPerson,
   createEquipmentReference,
   createMachineReference,
@@ -33,10 +34,12 @@ import {
   getGlobalEquipmentModels,
   getGlobalMachineModels,
   getGlobalTransportModels,
+  getVehicleReferences,
   getFertilizers,
   getPesticides,
   getSeasonAgronomyUsage,
   updateCompanyPerson,
+  updateVehicleReference,
   type SeasonAgronomyUsageRow,
 } from "@/lib/services/references";
 import type {
@@ -142,6 +145,21 @@ function assetYear(row: any): string {
 
 function activeStatus(row: any): string {
   return row.is_active === false ? "Неактивен" : "Активен";
+}
+
+function editableVehiclePlate(row: any): string {
+  for (const value of [row.plate_number, row.license_plate]) {
+    const displayValue = displayVehiclePlate(value);
+    if (displayValue !== "Госномер не указан") return displayValue;
+  }
+  return "";
+}
+
+function comparableVehiclePlate(value: unknown): string {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .toLocaleUpperCase("ru");
 }
 
 function machineTypeFromCatalog(category: string | null | undefined) {
@@ -274,6 +292,7 @@ export default function ReferencesPage() {
   const [domainTab, setDomainTab] = useState<DomainTab>("agronomy");
   const [machineYardTab, setMachineYardTab] = useState<MachineYardTab>("park");
   const [modalType, setModalType] = useState<ModalType | null>(null);
+  const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   const [editingWorkerId, setEditingWorkerId] = useState<string | null>(null);
   const [editingWorkerRole, setEditingWorkerRole] = useState<string | null>(null);
   const [workerAccess, setWorkerAccess] = useState<WeighbridgeOperatorAccess | null>(null);
@@ -354,13 +373,14 @@ export default function ReferencesPage() {
     }
     setLoading(true);
     try {
-      const [usageRows, pesticideRows, fertilizerRows, additiveRows, assetRows, workerRows, machineModelRows, equipmentModelRows, transportModelRows] =
+      const [usageRows, pesticideRows, fertilizerRows, additiveRows, assetRows, vehicleRows, workerRows, machineModelRows, equipmentModelRows, transportModelRows] =
         await Promise.all([
           getSeasonAgronomyUsage(profile.company_id, "ru"),
           getPesticides(profile.company_id, false, "ru"),
           getFertilizers(profile.company_id, false, "ru"),
           getAdditives(profile.company_id, false, "ru"),
           getCompanyAssetReferences(profile.company_id, "ru"),
+          getVehicleReferences(profile.company_id, false),
           getCompanyPeople(profile.company_id, true),
           getGlobalMachineModels(),
           getGlobalEquipmentModels(),
@@ -372,7 +392,7 @@ export default function ReferencesPage() {
       setAdditives(additiveRows);
       setMachines(assetRows.machines);
       setEquipment(assetRows.equipment);
-      setVehicles(assetRows.vehicles);
+      setVehicles(vehicleRows);
       setWorkers(workerRows);
       setMachineModels(machineModelRows);
       setEquipmentModels(equipmentModelRows);
@@ -402,6 +422,7 @@ export default function ReferencesPage() {
 
   const openModal = (type: ModalType, initialForm: Record<string, string> = {}) => {
     setModalType(type);
+    setEditingVehicleId(type === "vehicle" && initialForm.id ? initialForm.id : null);
     setEditingWorkerId(type === "worker" && initialForm.id ? initialForm.id : null);
     setEditingWorkerRole(type === "worker" ? initialForm.role_type || null : null);
     setWorkerAccess(null);
@@ -414,6 +435,7 @@ export default function ReferencesPage() {
 
   const closeModal = () => {
     setModalType(null);
+    setEditingVehicleId(null);
     setEditingWorkerId(null);
     setEditingWorkerRole(null);
     setWorkerAccess(null);
@@ -501,29 +523,54 @@ export default function ReferencesPage() {
         });
       }
       if (modalType === "vehicle") {
-        const model = transportModels.find((row) => row.id === form.model_id);
-        if (!model) throw new Error("Выберите модель транспорта из ГЛБД");
-        if (!form.plate_number?.trim()) throw new Error("Укажите госномер");
-        await createVehicleReference(profile.company_id, profile.id, {
-          name: catalogModelLabel(model),
-          global_brand_id: null,
-          global_model_id: null,
-          transport_model_id: model.id,
-          custom_name: "",
-          inventory_number: form.inventory_number || "",
-          primary_responsible_personnel_id: null,
-          type: vehicleTypeFromCatalog(model.category),
-          full_name: catalogModelLabel(model),
-          brand: model.brand,
-          series: model.series,
-          model: model.model,
-          plate_number: form.plate_number.trim(),
-          capacity_kg: Number(form.capacity_kg || 0),
-          body_volume_m3: null,
-          manufacture_year: form.manufacture_year ? Number(form.manufacture_year) : null,
-          status: (form.status || "free") as any,
-          is_active: form.status !== "inactive",
-        });
+        const plateNumber = String(form.plate_number || "").trim();
+        if (!plateNumber) throw new Error("Укажите госномер");
+        if (plateNumber.length > 32) throw new Error("Госномер не должен превышать 32 символа");
+
+        const manufactureYear = form.manufacture_year ? Number(form.manufacture_year) : null;
+        if (manufactureYear !== null && (!Number.isInteger(manufactureYear) || manufactureYear < 1900 || manufactureYear > 2100)) {
+          throw new Error("Год выпуска должен быть целым числом от 1900 до 2100");
+        }
+
+        const plateKey = comparableVehiclePlate(plateNumber);
+        const duplicateVehicle = vehicles.find(
+          (vehicle) =>
+            vehicle.id !== editingVehicleId &&
+            comparableVehiclePlate(editableVehiclePlate(vehicle)) === plateKey
+        );
+        if (duplicateVehicle) throw new Error("Машина с таким госномером уже существует");
+
+        if (editingVehicleId) {
+          await updateVehicleReference(profile.company_id, editingVehicleId, {
+            plate_number: plateNumber,
+            inventory_number: String(form.inventory_number || "").trim(),
+            manufacture_year: manufactureYear,
+            is_active: form.is_active !== "false",
+          });
+        } else {
+          const model = transportModels.find((row) => row.id === form.model_id);
+          if (!model) throw new Error("Выберите модель транспорта из ГЛБД");
+          await createVehicleReference(profile.company_id, profile.id, {
+            name: catalogModelLabel(model),
+            global_brand_id: null,
+            global_model_id: null,
+            transport_model_id: model.id,
+            custom_name: "",
+            inventory_number: String(form.inventory_number || "").trim(),
+            primary_responsible_personnel_id: null,
+            type: vehicleTypeFromCatalog(model.category),
+            full_name: catalogModelLabel(model),
+            brand: model.brand,
+            series: model.series,
+            model: model.model,
+            plate_number: plateNumber,
+            capacity_kg: Number(form.capacity_kg || 0),
+            body_volume_m3: null,
+            manufacture_year: manufactureYear,
+            status: (form.status || "free") as any,
+            is_active: form.status !== "inactive",
+          });
+        }
       }
       if (modalType === "worker") {
         if (!form.full_name?.trim()) throw new Error("Укажите ФИО");
@@ -546,11 +593,14 @@ export default function ReferencesPage() {
       }
       closeModal();
       await loadAll();
-      toast({ title: "Готово", description: editingWorkerId ? "Запись обновлена" : "Запись успешно создана" });
+      toast({ title: "Готово", description: editingWorkerId || editingVehicleId ? "Запись обновлена" : "Запись успешно создана" });
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Не удалось сохранить запись";
       toast({
         title: "Ошибка",
-        description: error instanceof Error ? error.message : "Не удалось сохранить запись",
+        description: /23505|duplicate key|unique constraint|reference_vehicles.*plate/i.test(errorMessage)
+          ? "Машина с таким госномером уже существует"
+          : errorMessage,
         variant: "destructive",
       });
     } finally {
@@ -655,6 +705,37 @@ export default function ReferencesPage() {
       toast({
         title: "Ошибка",
         description: error instanceof Error ? error.message : "Не удалось архивировать сотрудника",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const editVehicle = (vehicle: any) => {
+    if (!canManageCompanyReferences) return;
+    openModal("vehicle", {
+      id: vehicle.id,
+      plate_number: editableVehiclePlate(vehicle),
+      inventory_number: String(vehicle.inventory_number || "").trim(),
+      manufacture_year: vehicle.manufacture_year ? String(vehicle.manufacture_year) : "",
+      is_active: vehicle.is_active === false ? "false" : "true",
+    });
+  };
+
+  const archiveVehicle = async (vehicle: any) => {
+    if (!canManageCompanyReferences || !profile?.company_id || saving) return;
+    const vehicleName = vehicle.display_name || vehicle.full_name || vehicle.name || "этот транспорт";
+    if (!window.confirm(`Архивировать «${vehicleName}»? Транспорт исчезнет из активного справочника.`)) return;
+    setSaving(true);
+    try {
+      await archiveVehicleReference(profile.company_id, vehicle.id);
+      await loadAll();
+      toast({ title: "Готово", description: "Транспорт перенесён в архив" });
+    } catch (error) {
+      toast({
+        title: "Ошибка",
+        description: error instanceof Error ? error.message : "Не удалось архивировать транспорт",
         variant: "destructive",
       });
     } finally {
@@ -797,15 +878,36 @@ export default function ReferencesPage() {
                 </CardHeader>
                 <CardContent>
                   <DataTable
-                    headers={["Название", "Категория", "Бренд", "Модель", "Госномер", "VIN", "Статус"]}
+                    headers={[
+                      "Название",
+                      "Категория",
+                      "Бренд",
+                      "Модель",
+                      "Госномер",
+                      "VIN",
+                      "Статус",
+                      ...(canManageCompanyReferences ? ["Действия"] : []),
+                    ]}
                     rows={vehicles.map((x) => [
                       x.display_name || x.full_name || x.name,
                       x.display_type || emptyCell,
                       assetBrand(x),
                       assetModel(x),
-                      displayVehiclePlate(x.plate_number),
+                      displayVehiclePlate(editableVehiclePlate(x)),
                       x.vin || emptyCell,
                       activeStatus(x),
+                      ...(canManageCompanyReferences
+                        ? [
+                            <div key={`vehicle-actions-${x.id}`} className="flex justify-end gap-2">
+                              <Button variant="outline" size="sm" onClick={() => editVehicle(x)} disabled={saving}>
+                                Редактировать
+                              </Button>
+                              <Button variant="outline" size="sm" onClick={() => void archiveVehicle(x)} disabled={saving}>
+                                Архивировать
+                              </Button>
+                            </div>,
+                          ]
+                        : []),
                     ])}
                     loading={loading}
                     empty="Транспорт компании не добавлен"
@@ -955,13 +1057,13 @@ export default function ReferencesPage() {
             <DialogTitle>
               {modalType === "machine" ? "Добавить технику" : null}
               {modalType === "equipment" ? "Добавить оборудование" : null}
-              {modalType === "vehicle" ? "Добавить транспорт" : null}
+              {modalType === "vehicle" ? (editingVehicleId ? "Редактировать транспорт" : "Добавить транспорт") : null}
               {modalType === "worker" ? (editingWorkerId ? "Изменить сотрудника" : "Добавить сотрудника") : null}
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-3">
-            {modalType === "machine" || modalType === "equipment" || modalType === "vehicle" ? (
+            {modalType === "machine" || modalType === "equipment" || (modalType === "vehicle" && !editingVehicleId) ? (
               <>
                 <div className="space-y-2">
                   <Label>Поиск модели в ГЛБД</Label>
@@ -1196,17 +1298,57 @@ export default function ReferencesPage() {
             {modalType === "vehicle" ? (
               <>
                 <div>
-                  <Label>Госномер</Label>
-                  <Input value={form.plate_number || ""} onChange={(e) => setForm((prev) => ({ ...prev, plate_number: e.target.value }))} />
-                </div>
-                <div>
-                  <Label>Грузоподъёмность (кг)</Label>
+                  <Label>Госномер *</Label>
                   <Input
-                    type="number"
-                    value={form.capacity_kg || ""}
-                    onChange={(e) => setForm((prev) => ({ ...prev, capacity_kg: e.target.value }))}
+                    maxLength={32}
+                    value={form.plate_number || ""}
+                    onChange={(e) => setForm((prev) => ({ ...prev, plate_number: e.target.value }))}
                   />
                 </div>
+                {editingVehicleId ? (
+                  <>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <Label>Инвентарный номер</Label>
+                        <Input
+                          maxLength={64}
+                          value={form.inventory_number || ""}
+                          onChange={(event) => setForm((prev) => ({ ...prev, inventory_number: event.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <Label>Год выпуска</Label>
+                        <Input
+                          type="number"
+                          min="1900"
+                          max="2100"
+                          step="1"
+                          value={form.manufacture_year || ""}
+                          onChange={(event) => setForm((prev) => ({ ...prev, manufacture_year: event.target.value }))}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Активность</Label>
+                      <Select value={form.is_active || "true"} onValueChange={(value) => setForm((prev) => ({ ...prev, is_active: value }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="true">Активен</SelectItem>
+                          <SelectItem value="false">Неактивен</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <Label>Грузоподъёмность (кг)</Label>
+                    <Input
+                      type="number"
+                      value={form.capacity_kg || ""}
+                      onChange={(e) => setForm((prev) => ({ ...prev, capacity_kg: e.target.value }))}
+                    />
+                  </div>
+                )}
               </>
             ) : null}
 
@@ -1237,7 +1379,7 @@ export default function ReferencesPage() {
               </div>
             ) : null}
 
-            {modalType === "vehicle" ? (
+            {modalType === "vehicle" && !editingVehicleId ? (
               <div>
                 <Label>Статус</Label>
                 <Select value={form.status || "free"} onValueChange={(value) => setForm((prev) => ({ ...prev, status: value }))}>
@@ -1259,7 +1401,7 @@ export default function ReferencesPage() {
               Отмена
             </Button>
             <Button onClick={submitCreate} disabled={saving || workerAccessSaving}>
-              {saving ? "Сохранение..." : editingWorkerId ? "Сохранить" : "Создать"}
+              {saving ? "Сохранение..." : editingWorkerId || editingVehicleId ? "Сохранить" : "Создать"}
             </Button>
           </DialogFooter>
         </DialogContent>
