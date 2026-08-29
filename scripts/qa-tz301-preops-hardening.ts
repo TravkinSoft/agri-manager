@@ -98,14 +98,14 @@ async function main() {
   });
 
   const weighbridgePage = read("app/(dashboard)/weighbridge/page.tsx");
-  await check("historical paper import reuses the canonical contract behind a compact opt-in disclosure", () => {
+  await check("historical paper contract remains available without weighbridge entry UI", () => {
     assert.match(weighbridgePage, /paperRecordedAt: ""/);
     assert.match(weighbridgePage, /paperTareKg: ""/);
     assert.match(weighbridgePage, /externalDocumentNo: ""/);
-    assert.match(weighbridgePage, /<details className="rounded-md[^>]*>/);
-    assert.match(weighbridgePage, /Исторический талон из бумажного журнала/);
-    assert.match(weighbridgePage, /type="datetime-local"/);
-    assert.match(weighbridgePage, /Бумажная тара, кг/);
+    assert.doesNotMatch(weighbridgePage, /Исторический талон из бумажного журнала/);
+    assert.doesNotMatch(weighbridgePage, /Номер бумажного талона/);
+    assert.doesNotMatch(weighbridgePage, /type="datetime-local"/);
+    assert.doesNotMatch(weighbridgePage, /Бумажная тара, кг/);
     assert.match(weighbridgePage, /paper_backfill\?\.ok === true/);
   });
 

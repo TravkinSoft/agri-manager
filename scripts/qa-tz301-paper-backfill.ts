@@ -54,12 +54,10 @@ const ticketsPage = read("app/(dashboard)/tickets/page.tsx");
 const ticketService = read("lib/services/weighbridge.ts");
 const ticketRoute = read("app/api/weighbridge/tickets/route.ts");
 
-assert.match(weighbridgePage, /form\.operationType === "harvest_incoming" \? \([\s\S]*?Исторический талон из бумажного журнала/);
-assert.match(weighbridgePage, /<details className="rounded-md[^>]*>/);
-assert.match(weighbridgePage, /<details className="rounded-md border border-slate-800 bg-slate-950\/35 px-3 py-2">/);
-assert.match(weighbridgePage, /Номер бумажного талона/);
-assert.match(weighbridgePage, /type="datetime-local"/);
-assert.match(weighbridgePage, /Бумажная тара, кг/);
+assert.doesNotMatch(weighbridgePage, /Исторический талон из бумажного журнала/);
+assert.doesNotMatch(weighbridgePage, /Номер бумажного талона/);
+assert.doesNotMatch(weighbridgePage, /type="datetime-local"/);
+assert.doesNotMatch(weighbridgePage, /Бумажная тара, кг/);
 assert.match(weighbridgePage, /external_document_no: form\.operationType === "shipment_outbound" \|\| form\.operationType === "harvest_incoming"/);
 assert.match(weighbridgePage, /paperRecordedDate && paperDayStart[\s\S]*?recorded_at: paperRecordedDate\.toISOString\(\)[\s\S]*?tare_weight_kg: Number\(form\.paperTareKg\)[\s\S]*?: undefined/);
 assert.match(weighbridgePage, /paper_backfill\?\.ok === true[\s\S]*?Исторический талон проведён/);

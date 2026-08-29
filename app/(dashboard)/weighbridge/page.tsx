@@ -4529,40 +4529,6 @@ export default function WeighbridgeOperationsPage() {
                       : "Место приёмки не настроено. Обратитесь к администратору."}
                   </div>
                 ) : null}
-                <details className="rounded-md border border-slate-800 bg-slate-950/35 px-3 py-2">
-                  <summary className="cursor-pointer text-xs font-semibold text-slate-300">Исторический талон из бумажного журнала</summary>
-                  <div className="mt-3 grid gap-3 md:grid-cols-3">
-                    <div className="space-y-1">
-                      <Label>Номер бумажного талона</Label>
-                      <Input
-                        className="h-9"
-                        value={form.externalDocumentNo}
-                        onChange={(event) => setForm((previous) => ({ ...previous, externalDocumentNo: event.target.value }))}
-                        placeholder="Например, 184"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label>Дата и время талона</Label>
-                      <Input
-                        className="h-9"
-                        type="datetime-local"
-                        value={form.paperRecordedAt}
-                        onChange={(event) => setForm((previous) => ({ ...previous, paperRecordedAt: event.target.value }))}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label>Бумажная тара, кг</Label>
-                      <Input
-                        className="h-9"
-                        inputMode="decimal"
-                        value={form.paperTareKg}
-                        onChange={(event) => setForm((previous) => ({ ...previous, paperTareKg: event.target.value }))}
-                        placeholder="0"
-                      />
-                    </div>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">После заполнения бумажного номера рейс будет сразу завершён с указанными датой, брутто, тарой и влажностью.</p>
-                </details>
               </div>
             ) : null}
 
