@@ -8,6 +8,7 @@ import {
 } from "@/app/api/weighbridge/_auth";
 import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
 import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
+import { processingBalanceTolerance } from "@/lib/weighbridge/processing-work-state";
 
 const STORED_OUTPUT_TYPES = new Set([
   "cleaned_seed",
@@ -130,7 +131,7 @@ async function loadTransformationItems(
       ? supabase.from("batch_transformation_inputs").select("transformation_id,batch_id,input_weight_kg,moisture_percent,warehouse_from_id,source_ticket_id").eq("company_id", companyId).in("transformation_id", ids)
       : Promise.resolve({ data: [] as any[], error: null }),
     ids.length
-      ? supabase.from("batch_transformation_outputs").select("transformation_id,line_type,output_type,batch_class,output_weight_kg,moisture_percent,output_role,physical_state,warehouse_to_id,output_batch_id").eq("company_id", companyId).in("transformation_id", ids)
+      ? supabase.from("batch_transformation_outputs").select("transformation_id,line_type,output_type,batch_class,output_weight_kg,moisture_percent,output_role,physical_state,warehouse_to_id,output_batch_id,source_ticket_id").eq("company_id", companyId).in("transformation_id", ids)
       : Promise.resolve({ data: [] as any[], error: null }),
     nodeIds.length
       ? supabase.from("processing_nodes").select("id,name,type,linked_warehouse_id").eq("company_id", companyId).in("id", nodeIds)
@@ -157,7 +158,19 @@ async function loadTransformationItems(
   if (actorsRes.error) throw actorsRes.error;
 
   const inputs = inputsRes.data || [];
-  const outputs = outputsRes.data || [];
+  const rawOutputs = outputsRes.data || [];
+  const outputTicketIds = Array.from(new Set(
+    rawOutputs.map((row: any) => String(row.source_ticket_id || "")).filter(Boolean),
+  ));
+  const outputTicketsRes = outputTicketIds.length
+    ? await supabase.from("tickets").select("id,status,is_voided").eq("company_id", companyId).in("id", outputTicketIds)
+    : { data: [] as any[], error: null };
+  if (outputTicketsRes.error) throw outputTicketsRes.error;
+  const activeOutputTicketIds = new Set((outputTicketsRes.data || [])
+    .filter((ticket: any) => !ticket.is_voided && String(ticket.status || "") !== "voided")
+    .map((ticket: any) => String(ticket.id)));
+  const outputs = rawOutputs.filter((output: any) => !output.source_ticket_id
+    || activeOutputTicketIds.has(String(output.source_ticket_id)));
   const batchIds = Array.from(new Set([
     ...inputs.map((row: any) => String(row.batch_id || "")).filter(Boolean),
     ...outputs.map((row: any) => String(row.output_batch_id || "")).filter(Boolean),
@@ -253,10 +266,11 @@ async function loadTransformationItems(
       return { percent: weightedTotal / coverageKg, coverageKg };
     };
     const inputMoisture = weightedMoisture(transformationInputs);
-    const outputMoisture = weightedMoisture(transformationOutputs, ["main_product", "byproduct"]);
+    const outputMoisture = weightedMoisture(transformationOutputs, ["main_product", "byproduct", "stock_waste"]);
     const isDrying = String(row.transformation_type || "") === "drying"
       || ["MECHANICAL_DRYING", "NATURAL_DRYING"].includes(String(row.processing_method || ""));
     let moistureLossKg = Number(row.expected_water_loss_kg || 0);
+    let theoreticalOutputKg: number | null = null;
     if (
       isDrying
       && inputMoisture.percent != null
@@ -264,12 +278,14 @@ async function loadTransformationItems(
       && outputMoisture.percent < 100
     ) {
       const dryMatterKg = inputTotalKg * (1 - inputMoisture.percent / 100);
-      const theoreticalOutputKg = dryMatterKg / (1 - outputMoisture.percent / 100);
+      theoreticalOutputKg = dryMatterKg / (1 - outputMoisture.percent / 100);
       moistureLossKg = Math.max(inputTotalKg - theoreticalOutputKg, 0);
     }
+    const actualShrinkKg = inputTotalKg - mainOutputKg - byproductKg - stockWasteKg - approvedProcessLossKg;
     const balanceDeltaKg = Number((
       inputTotalKg - mainOutputKg - byproductKg - stockWasteKg - approvedProcessLossKg - moistureLossKg
     ).toFixed(3));
+    const balanceTolerance = processingBalanceTolerance(inputTotalKg, isDrying);
     const unallocatedKg = Math.max(balanceDeltaKg, 0);
     const identityLabel = [
       nameOf(inputBatch?.crop || inputBatch?.product, "Сырьё"),
@@ -329,7 +345,15 @@ async function loadTransformationItems(
       stock_waste_kg: stockWasteKg,
       approved_process_loss_kg: approvedProcessLossKg,
       moisture_loss_kg: moistureLossKg,
+      theoretical_output_kg: theoreticalOutputKg,
+      actual_shrink_kg: actualShrinkKg,
+      moisture_deviation_kg: balanceDeltaKg,
       balance_delta_kg: balanceDeltaKg,
+      balance_tolerance_kg: balanceTolerance.toleranceKg,
+      balance_absolute_tolerance_kg: balanceTolerance.absoluteToleranceKg,
+      balance_relative_tolerance_percent: balanceTolerance.relativeTolerancePercent,
+      balance_relative_tolerance_kg: balanceTolerance.relativeToleranceKg,
+      balance_within_tolerance: Math.abs(balanceDeltaKg) <= balanceTolerance.toleranceKg,
       unallocated_kg: unallocatedKg,
       input_moisture_percent: inputMoisture.percent,
       output_moisture_percent: outputMoisture.percent,

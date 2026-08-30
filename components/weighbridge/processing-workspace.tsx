@@ -477,6 +477,19 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
             lossesKg={Number(manageItem.moisture_loss_kg || 0) + Number(manageItem.approved_process_loss_kg || 0)}
             differenceKg={manageMass?.balanceDeltaKg || 0}
           /> : null}
+          {manageItem && manageMass && (manageItem.transformation_type === "drying" || ["MECHANICAL_DRYING", "NATURAL_DRYING"].includes(String(manageItem.processing_method || ""))) ? (
+            <div className="rounded-md border border-slate-800 bg-slate-950/55 p-3 text-xs text-slate-300">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>Ожидаемая усушка: <span className="font-semibold text-slate-100">{formatMass(manageItem.moisture_loss_kg)}</span></div>
+                <div>Фактическая усушка: <span className="font-semibold text-slate-100">{formatMass(manageItem.actual_shrink_kg)}</span></div>
+                <div>Отклонение: <span className={manageMass.withinTolerance ? "font-semibold text-amber-300" : "font-semibold text-red-300"}>{formatMass(manageMass.balanceDeltaKg)}</span></div>
+                <div>Допуск: <span className="font-semibold text-slate-100">±{formatMass(manageMass.toleranceKg)}</span></div>
+              </div>
+              <div className="mt-2 text-[11px] text-slate-500">
+                Отклонение сохраняется в сверке и не становится подтверждённой потерей автоматически.
+              </div>
+            </div>
+          ) : null}
           <div className="space-y-3 border-t border-slate-800 pt-4">
             <div className="font-medium text-slate-100">Подтвердить не складскую потерю</div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -488,7 +501,7 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
           </div>
           <DialogFooter className="border-t border-slate-800 pt-4">
             <Button variant="outline" onClick={() => setManageItem(null)}>Закрыть</Button>
-            <Button disabled={!manageItem || savingId === manageItem.id || !manageMass?.hasCanonicalInput || !manageMass?.hasRequiredDryingMoisture || Math.abs(manageMass.balanceDeltaKg) > 0.001} onClick={() => manageItem && void runAction(manageItem, "hard_close")}>Закрыть материальный баланс</Button>
+            <Button disabled={!manageItem || savingId === manageItem.id || !manageMass?.hasCanonicalInput || !manageMass?.hasRequiredDryingMoisture || !manageMass.withinTolerance} onClick={() => manageItem && void runAction(manageItem, "hard_close")}>Закрыть материальный баланс</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

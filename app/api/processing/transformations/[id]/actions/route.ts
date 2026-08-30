@@ -11,6 +11,12 @@ const reversalRoles = ["global_admin", "company_admin"] as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const userMessage = (message: string) => {
+  if (message.includes("PROCESSING_BALANCE_TOLERANCE_EXCEEDED")) {
+    const [, deltaRaw, toleranceRaw] = message.split("|");
+    const delta = Number(deltaRaw || 0);
+    const tolerance = Number(toleranceRaw || 0);
+    return `Отклонение материального баланса ${Math.abs(delta).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг превышает допуск ${tolerance.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг. Выполните явную сверку или подтвердите потерю.`;
+  }
   if (message.includes("PROCESSING_BALANCE_MISMATCH")) {
     const delta = Number(message.split("|")[1] || 0);
     return `Обработка ещё не может быть закрыта. Не распределено: ${Math.abs(delta).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг.`;

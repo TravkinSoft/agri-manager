@@ -1,6 +1,31 @@
 import type { BatchTransformationRow } from "@/lib/services/processing";
 
 export const PROCESSING_MASS_EPSILON_KG = 0.001;
+export const PROCESSING_BALANCE_ABSOLUTE_TOLERANCE_KG = 10;
+export const PROCESSING_BALANCE_RELATIVE_TOLERANCE_PERCENT = 0.05;
+
+export function processingBalanceTolerance(inputKg: number, isDrying: boolean) {
+  if (!isDrying) {
+    return {
+      absoluteToleranceKg: PROCESSING_MASS_EPSILON_KG,
+      relativeTolerancePercent: 0,
+      relativeToleranceKg: 0,
+      toleranceKg: PROCESSING_MASS_EPSILON_KG,
+    };
+  }
+  const relativeToleranceKg = Math.max(Number(inputKg || 0), 0)
+    * PROCESSING_BALANCE_RELATIVE_TOLERANCE_PERCENT / 100;
+  const toleranceKg = Math.max(
+    PROCESSING_BALANCE_ABSOLUTE_TOLERANCE_KG,
+    relativeToleranceKg,
+  );
+  return {
+    absoluteToleranceKg: PROCESSING_BALANCE_ABSOLUTE_TOLERANCE_KG,
+    relativeTolerancePercent: PROCESSING_BALANCE_RELATIVE_TOLERANCE_PERCENT,
+    relativeToleranceKg,
+    toleranceKg,
+  };
+}
 
 export type ProcessingWorkState = "active" | "ready" | "reconciliation" | "history" | "empty";
 
@@ -22,10 +47,14 @@ export function processingMassSnapshot(item: BatchTransformationRow) {
   const unallocatedKg = Math.max(balanceDeltaKg, 0);
   const isDrying = item.transformation_type === "drying"
     || ["MECHANICAL_DRYING", "NATURAL_DRYING"].includes(String(item.processing_method || ""));
+  const tolerance = processingBalanceTolerance(inputKg, isDrying);
+  const withinTolerance = Math.abs(balanceDeltaKg) <= tolerance.toleranceKg;
   const hasRequiredDryingMoisture = !isDrying || (
     item.input_moisture_percent != null
     && item.output_moisture_percent != null
     && Number(item.output_moisture_percent) < 100
+    && Math.abs(Number(item.input_moisture_coverage_kg || 0) - inputKg) <= PROCESSING_MASS_EPSILON_KG
+    && Math.abs(Number(item.output_moisture_coverage_kg || 0) - outputKg) <= PROCESSING_MASS_EPSILON_KG
   );
   return {
     inputKg,
@@ -33,6 +62,8 @@ export function processingMassSnapshot(item: BatchTransformationRow) {
     lossKg,
     balanceDeltaKg,
     unallocatedKg,
+    ...tolerance,
+    withinTolerance,
     hasCanonicalInput,
     hasRequiredDryingMoisture,
   };
@@ -50,7 +81,7 @@ export function processingWorkState(item: BatchTransformationRow): ProcessingWor
   if (item.processing_state === "processing_pending_outputs") {
     return !mass.hasCanonicalInput
       || !mass.hasRequiredDryingMoisture
-      || Math.abs(mass.balanceDeltaKg) > PROCESSING_MASS_EPSILON_KG
+      || !mass.withinTolerance
       ? "reconciliation"
       : "ready";
   }
