@@ -81,42 +81,49 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const requestKeys = useRef(new Map<string, string>());
   const loadInFlight = useRef(false);
+  const loadPending = useRef(false);
   const canOperateLifecycle = ["global_admin", "company_admin"].includes(String(profile?.role || ""));
   const canManageBalance = ["global_admin", "company_admin", "director"].includes(String(profile?.role || ""));
 
   const load = useCallback(async (showLoading = false) => {
     if (!enabled) return;
     if (!profile?.company_id || !profile?.id) return;
-    if (loadInFlight.current) return;
+    if (loadInFlight.current) {
+      loadPending.current = true;
+      return;
+    }
     loadInFlight.current = true;
     if (showLoading) setLoading(true);
     try {
-      let firstError: unknown = null;
-      const transformationsPromise = getProcessingTransformations(profile.company_id, profile.id).then(
-        (rows) => {
-          const transformations = rows.filter(
-            (row) => row.record_type === "transformation" && row.processing_eligible !== false
-          );
-          setItems(transformations);
-          onItemsChange?.(transformations);
-        },
-        (error) => {
-          firstError ??= error;
-        }
-      );
-      const summariesPromise = getWarehouseSummaries(profile.company_id, false, "ru").then(
-        (summaries) => {
-          setPlaceSummaries(summaries);
-        },
-        (error) => {
-          firstError ??= error;
-        }
-      );
+      do {
+        loadPending.current = false;
+        let firstError: unknown = null;
+        const transformationsPromise = getProcessingTransformations(profile.company_id, profile.id).then(
+          (rows) => {
+            const transformations = rows.filter(
+              (row) => row.record_type === "transformation" && row.processing_eligible !== false
+            );
+            setItems(transformations);
+            onItemsChange?.(transformations);
+          },
+          (error) => {
+            firstError ??= error;
+          }
+        );
+        const summariesPromise = getWarehouseSummaries(profile.company_id, false, "ru").then(
+          (summaries) => {
+            setPlaceSummaries(summaries);
+          },
+          (error) => {
+            firstError ??= error;
+          }
+        );
 
-      await Promise.all([transformationsPromise, summariesPromise]);
-      if (firstError) {
-        toast({ title: "Часть данных объектов недоступна", description: firstError instanceof Error ? firstError.message : "Повторим обновление автоматически", variant: "destructive" });
-      }
+        await Promise.all([transformationsPromise, summariesPromise]);
+        if (firstError) {
+          toast({ title: "Часть данных объектов недоступна", description: firstError instanceof Error ? firstError.message : "Повторим обновление автоматически", variant: "destructive" });
+        }
+      } while (loadPending.current);
     } finally {
       setLoading(false);
       loadInFlight.current = false;

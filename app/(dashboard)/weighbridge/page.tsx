@@ -76,6 +76,11 @@ type OperationType = "harvest_incoming" | "supplier_receipt" | "issue_to_field" 
 type MovementGroup = "warehouse_inbound" | "field_issue" | "internal_transfer" | "shipment" | "writeoff" | "impurities";
 type Option = { id: string; name: string };
 type WarehouseOption = Option & { warehouseType: string; placeType: string };
+
+const notifyWeighbridgeDataChanged = () => {
+  window.dispatchEvent(new Event("travkin:weighbridge-data-changed"));
+};
+
 type VehicleOption = Option & {
   model: string;
   plate: string;
@@ -4042,14 +4047,28 @@ export default function WeighbridgeOperationsPage() {
       }
       const finalizedTicket = (finalizeResponse?.ticket || null) as WeighbridgeTicket | null;
       const linkedProcessingId = finalizedTicket?.linked_processing_id || activeTicket.linked_processing_id || null;
+      notifyWeighbridgeDataChanged();
+      let lastMainOutputMarkError: any = null;
       if (closingLastMainOutput && activeTicket.op_type === "warehouse_transfer" && linkedProcessingId) {
-        await performProcessingAction(linkedProcessingId, profile.id, {
-          action: "mark_last_main",
-          ticket_id: activeTicket.id,
-          idempotency_key: crypto.randomUUID(),
-        });
+        try {
+          await performProcessingAction(linkedProcessingId, profile.id, {
+            action: "mark_last_main",
+            ticket_id: activeTicket.id,
+            idempotency_key: crypto.randomUUID(),
+          });
+        } catch (error: any) {
+          lastMainOutputMarkError = error;
+        } finally {
+          notifyWeighbridgeDataChanged();
+        }
       }
-      toast({ title: "Талон закрыт", description: "Движение зафиксировано" });
+      if (lastMainOutputMarkError) {
+        const traceId = String(lastMainOutputMarkError?.payload?.trace_id || "").trim();
+        const description = `${lastMainOutputMarkError?.message || "Не удалось отметить последний рейс"}${traceId ? `\nTrace ID: ${traceId}` : ""}`;
+        toast({ title: "Талон закрыт, последний рейс не отмечен", description, variant: "destructive" });
+      } else {
+        toast({ title: "Талон закрыт", description: "Движение зафиксировано" });
+      }
       setActiveTicket(null);
       adjustActiveHarvestTicketCount(activeTicket, -1);
       releaseTransportAssignment(activeTicket, true);
@@ -4077,6 +4096,7 @@ export default function WeighbridgeOperationsPage() {
         setClosingTare("");
         setClosingMoisture("");
         finalizeTicketIdempotencyRef.current = null;
+        notifyWeighbridgeDataChanged();
         void refreshLiveData({ source: "local", table: "tickets" });
         return;
       }

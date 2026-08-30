@@ -167,6 +167,18 @@ check("attached input ticket does not return to the waiting queue", () => {
   assert.match(processingRoute, /loadWaitingTickets\(supabase, companyId, usedTicketIds\)/);
 });
 
+check("ticket finalize invalidates processing cards without a page reload", () => {
+  assert.match(page, /const notifyWeighbridgeDataChanged = \(\) =>/);
+  assert.match(page, /window\.dispatchEvent\(new Event\("travkin:weighbridge-data-changed"\)\)/);
+  assert.ok((page.match(/notifyWeighbridgeDataChanged\(\)/g) || []).length >= 2);
+  assert.match(page, /let lastMainOutputMarkError: any = null/);
+  assert.match(page, /performProcessingAction\(linkedProcessingId[\s\S]*catch \(error: any\)[\s\S]*finally \{[\s\S]*notifyWeighbridgeDataChanged\(\)/);
+  assert.match(page, /Талон закрыт, последний рейс не отмечен/);
+  assert.match(page, /setActiveTicket\(null\)/);
+  assert.match(processingUi, /if \(loadInFlight\.current\) \{[\s\S]*loadPending\.current = true/);
+  assert.match(processingUi, /\} while \(loadPending\.current\)/);
+});
+
 check("one processing object exposes only its newest active product as the primary card", () => {
   const olderPending = item({
     id: "old-cycle",
@@ -259,4 +271,4 @@ check("ambiguous cycles and output role stay explicit", () => {
   assert.match(page, /Цикл \{index \+ 1\}/);
 });
 
-console.log(`TZ312 P0 stability and processing cards PASS: ${passed}/20`);
+console.log(`TZ312 P0 stability and processing cards PASS: ${passed}/21`);
