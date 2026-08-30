@@ -61,6 +61,7 @@ assert.match(page, /label:\s*"Всего"/);
 assert.match(page, /label:\s*"Урожай"/);
 assert.match(page, /label:\s*"Семена"/);
 assert.match(page, /label:\s*"Групп остатков"/);
+assert.match(page, /\{selectedSummary\.positionCount\} групп остатков/);
 assert.match(balancesRoute, /batch_class,/);
 assert.match(balancesRoute, /\$\{uom\}\|\$\{batchClass\}/);
 assert.match(page, /row\.batch_class \|\| "commodity"/);
@@ -89,5 +90,7 @@ assert.match(lotRoute, /fieldSummaries: warehouseFieldSummaries/);
 assert.match(lotRoute, /tripBatches: warehouseOriginTrips/);
 assert.match(lotRoute, /originState: warehouseOriginTrips\.length > 0/);
 assert.match(lotDialog, /Талонное происхождение на этом складе отсутствует/);
+assert.match(lotDialog, /visible: batch\.receivedKg > 0\.001/);
+assert.doesNotMatch(lotDialog, /label: "Принято по всей партии"/);
 
-console.log("TZ314 warehouse math regression PASS: 45/45");
+console.log("TZ314 warehouse math regression PASS: 48/48");

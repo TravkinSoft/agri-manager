@@ -186,13 +186,7 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
       label: "Принято на этот склад",
       value: batch.receivedKg,
       tone: "text-emerald-300",
-      visible: true,
-    },
-    {
-      label: "Принято по всей партии",
-      value: batch.companyReceivedKg || 0,
-      tone: "text-slate-100",
-      visible: batch.companyReceivedKg != null && Math.abs(batch.companyReceivedKg - batch.receivedKg) > 0.001,
+      visible: batch.receivedKg > 0.001,
     },
     {
       label: "Аннулировано (только история)",

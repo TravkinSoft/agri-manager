@@ -593,7 +593,7 @@ export default function WarehousesPage() {
                     <DialogDescription className="mt-1">
                       {normalizeStoragePlaceType(selectedSummary.warehouse.place_type) === "WAREHOUSE"
                         ? warehouseTypeLabel(selectedSummary.warehouse.warehouse_type)
-                        : storagePlaceTypeLabel(selectedSummary.warehouse.place_type)} · {selectedSummary.positionCount} поз. · последнее движение {formatDate(selectedSummary.lastMovementAt)}
+                        : storagePlaceTypeLabel(selectedSummary.warehouse.place_type)} · {selectedSummary.positionCount} групп остатков · последнее движение {formatDate(selectedSummary.lastMovementAt)}
                     </DialogDescription>
                     </div>
                   </div>
