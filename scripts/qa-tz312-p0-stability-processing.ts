@@ -10,7 +10,11 @@ const read = (path: string) => readFileSync(path, "utf8");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
 const processingUi = read("components/weighbridge/processing-workspace.tsx");
 const processingRoute = read("app/api/processing/transformations/route.ts");
+const weighbridgeAuth = read("app/api/weighbridge/_auth.ts");
 const workspaceTabs = read("components/weighbridge/universal-workspace-tabs.tsx");
+const processingInputReuseMigration = read(
+  "supabase/migrations/20260830072000_tz312_processing_input_warehouse_context_v1.sql",
+);
 
 let passed = 0;
 const check = (name: string, test: () => void) => {
@@ -162,6 +166,42 @@ check("attached input ticket does not return to the waiting queue", () => {
   assert.match(processingRoute, /loadWaitingTickets\(supabase, companyId, usedTicketIds\)/);
 });
 
+check("processing input reuses the warehouse lot context across legacy node metadata", () => {
+  assert.match(processingInputReuseMigration, /uq_batch_transformations_open_lot_pass_v1/);
+  assert.match(
+    processingInputReuseMigration,
+    /create unique index if not exists uq_batch_transformations_open_lot_pass_v1/,
+  );
+  const lockFunction = processingInputReuseMigration.match(
+    /create or replace function public\.tz297_processing_context_lock_key_v1[\s\S]*?\$\$;/,
+  )?.[0] || "";
+  assert.doesNotMatch(lockFunction, /coalesce\(p_season_id/);
+  assert.doesNotMatch(lockFunction, /coalesce\(p_processing_node_id/);
+  assert.doesNotMatch(lockFunction, /coalesce\(p_transformation_type/);
+  assert.match(lockFunction, /coalesce\(p_node_warehouse_id/);
+
+  const candidateQuery = processingInputReuseMigration.match(
+    /for v_candidate in[\s\S]*?for update/,
+  )?.[0] || "";
+  assert.match(candidateQuery, /t\.processing_method = v_method/);
+  assert.doesNotMatch(candidateQuery, /t\.transformation_type = v_transformation_type/);
+  assert.doesNotMatch(candidateQuery, /t\.season_id is not distinct/);
+  assert.doesNotMatch(candidateQuery, /processing_node_id is not distinct/);
+  assert.match(candidateQuery, /t\.shadow_mode/);
+  assert.match(candidateQuery, /t\.status = 'draft'/);
+  assert.match(
+    processingInputReuseMigration,
+    /v_candidate\.season_id is distinct from v_lot\.season_id[\s\S]*PROCESSING_INPUT_CONTEXT_INVALID/,
+  );
+  assert.match(weighbridgeAuth, /PROCESSING_INPUT_CONTEXT_INVALID/);
+
+  const passQuery = processingInputReuseMigration.match(
+    /select coalesce\(max\(t\.pass_no\), 0\) \+ 1 into v_pass[\s\S]*?source_physical_state[\s\S]*?;/,
+  )?.[0] || "";
+  assert.match(passQuery, /t\.processing_method = v_method/);
+  assert.doesNotMatch(passQuery, /processing_node_id is not distinct/);
+});
+
 check("workspace tabs are inert before hydration", () => {
   assert.match(page, /<UniversalWorkspaceTabs[\s\S]*disabled=\{!workspaceReady\}/);
   assert.match(workspaceTabs, /disabled=\{disabled\}/);
@@ -185,4 +225,4 @@ check("ambiguous cycles and output role stay explicit", () => {
   assert.match(page, /Цикл \{index \+ 1\}/);
 });
 
-console.log(`TZ312 P0 stability and processing cards PASS: ${passed}/18`);
+console.log(`TZ312 P0 stability and processing cards PASS: ${passed}/19`);

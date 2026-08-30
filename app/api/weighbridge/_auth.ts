@@ -158,6 +158,9 @@ export function weighbridgeUserError(message: unknown): string {
   if (raw.includes("PROCESSING_INPUT_AMBIGUOUS")) {
     return "Найдено несколько подходящих обработок. Выберите нужный контекст обработки вручную.";
   }
+  if (raw.includes("PROCESSING_INPUT_CONTEXT_INVALID")) {
+    return "Существующая обработка не соответствует сезону или типу этой партии. Проверьте контекст обработки перед закрытием талона.";
+  }
 
   if (lower.includes("actor role is not allowed to finalize")) {
     return "У вашей роли нет права закрывать талоны весовой.";
