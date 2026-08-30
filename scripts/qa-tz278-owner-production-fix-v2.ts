@@ -86,7 +86,7 @@ check("finalize reuses loaded harvest closure rows", () => assert.match(finalize
 check("finalize post-RPC independent work runs concurrently", () => assert.match(finalizeRoute, /await Promise\.all\(\[[\s\S]*?finalized_by_person_id[\s\S]*?syncHarvestBatchMoisture/));
 check("finalize emits stage timing", () => assert.match(finalizeRoute, /finalize_rpc;dur=/));
 check("successful finalize reconciles in background without full bootstrap", () => {
-  const successBlock = weighbridge.match(/await finalizeTicket\(activeTicket\.id, profile\.id\);[\s\S]*?\} catch/)?.[0] || "";
+  const successBlock = weighbridge.match(/await finalizeTicket\(activeTicket\.id, profile\.id\);[\s\S]*?\} catch \(e: any\) \{/)?.[0] || "";
   assert.doesNotMatch(successBlock, /refreshBootstrap\(/);
   assert.match(successBlock, /setTimeout\([\s\S]*?refreshLiveData/);
 });
