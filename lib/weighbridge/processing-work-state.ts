@@ -61,3 +61,43 @@ export function isOpenProcessingWorkItem(item: BatchTransformationRow) {
   const state = processingWorkState(item);
   return state === "active" || state === "ready" || state === "reconciliation";
 }
+
+const processingStartedAt = (item: BatchTransformationRow) => {
+  const value = new Date(item.started_at || item.created_at || 0).getTime();
+  return Number.isFinite(value) ? value : 0;
+};
+
+const currentCycleRank = (item: BatchTransformationRow) =>
+  item.processing_state === "in_processing" ? 0 : 1;
+
+/**
+ * The weighbridge shows one current product per physical processing object.
+ * Older still-open cycles remain selectable by the ticket/output contracts, but
+ * are moved out of the primary card into the compact history section.
+ */
+export function selectPrimaryProcessingItems(items: BatchTransformationRow[]) {
+  const byWarehouse = new Map<string, BatchTransformationRow[]>();
+  for (const item of items) {
+    if (!isOpenProcessingWorkItem(item)) continue;
+    const key = item.node_warehouse_id || `row:${item.id}`;
+    const rows = byWarehouse.get(key) || [];
+    rows.push(item);
+    byWarehouse.set(key, rows);
+  }
+
+  const primaryItems: BatchTransformationRow[] = [];
+  const previousItems: BatchTransformationRow[] = [];
+  for (const rows of Array.from(byWarehouse.values())) {
+    rows.sort((left, right) =>
+      currentCycleRank(left) - currentCycleRank(right)
+      || processingStartedAt(right) - processingStartedAt(left)
+      || right.id.localeCompare(left.id)
+    );
+    primaryItems.push(rows[0]);
+    previousItems.push(...rows.slice(1));
+  }
+
+  primaryItems.sort((left, right) => processingStartedAt(right) - processingStartedAt(left));
+  previousItems.sort((left, right) => processingStartedAt(right) - processingStartedAt(left));
+  return { primaryItems, previousItems };
+}
