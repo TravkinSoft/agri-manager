@@ -34,6 +34,7 @@ import { normalizeStoragePlaceType } from "@/lib/warehouse/warehouse-scope";
 import {
   processingMassSnapshot,
   processingWorkState,
+  selectPrimaryProcessingItems,
 } from "@/lib/weighbridge/processing-work-state";
 
 type Props = {
@@ -138,20 +139,37 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
     };
   }, [enabled, load]);
 
-  const activeItems = useMemo(
+  const openProcessingItems = useMemo(
     () => items.filter((item) =>
       ["active", "ready", "reconciliation"].includes(processingWorkState(item))
       && ["DRYER", "CLEANER"].includes(String(item.node_place_type || "").toUpperCase())
     ),
     [items]
   );
-  const closedItems = useMemo(
+  const { primaryItems: activeItems, previousItems } = useMemo(
+    () => selectPrimaryProcessingItems(openProcessingItems),
+    [openProcessingItems]
+  );
+  const completedItems = useMemo(
     () => items.filter((item) =>
       processingWorkState(item) === "history"
       && ["DRYER", "CLEANER"].includes(String(item.node_place_type || "").toUpperCase())
     ),
     [items]
   );
+  const visibleHistoryItems = useMemo(
+    () => [...previousItems, ...completedItems.slice(0, 10)],
+    [completedItems, previousItems]
+  );
+  const historyItemCount = previousItems.length + completedItems.length;
+  const previousCountByWarehouse = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of previousItems) {
+      if (!item.node_warehouse_id) continue;
+      counts.set(item.node_warehouse_id, (counts.get(item.node_warehouse_id) || 0) + 1);
+    }
+    return counts;
+  }, [previousItems]);
   const activeProcessingWarehouseIds = useMemo(
     () => new Set(activeItems.map((item) => item.node_warehouse_id).filter(Boolean)),
     [activeItems]
@@ -234,7 +252,7 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
   };
   const manageMass = manageItem ? processingMassSnapshot(manageItem) : null;
 
-  if (!loading && activeItems.length === 0 && closedItems.length === 0 && freeProcessingSummaries.length === 0 && yardSummaries.length === 0) return null;
+  if (!loading && activeItems.length === 0 && historyItemCount === 0 && freeProcessingSummaries.length === 0 && yardSummaries.length === 0) return null;
 
   return (
     <section className="overflow-hidden rounded-md border border-slate-800/80 bg-[#101724]/95" data-testid="processing-workspace" aria-label="Партии на объектах">
@@ -253,6 +271,7 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
           const placeType = String(item.node_place_type || "").toUpperCase();
           const placeLabel = placeType === "DRYER" ? "Сушилка" : "Очистка";
           const showActions = canOperateLifecycle || (pending && canManageBalance);
+          const previousCount = item.node_warehouse_id ? previousCountByWarehouse.get(item.node_warehouse_id) || 0 : 0;
           return (
             <article key={item.id} className="rounded-md border border-slate-800 bg-slate-950/55 p-3" data-processing-state={item.processing_state} data-place-type={placeType}>
               <div className="flex items-start justify-between gap-2">
@@ -284,6 +303,11 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
               {formatMoisture(item.input_moisture_percent) || formatMoisture(item.output_moisture_percent) ? (
                 <div className="mt-2 truncate text-[11px] text-slate-500" title={`Влажность: ${formatMoisture(item.input_moisture_percent) || "-"} → ${formatMoisture(item.output_moisture_percent) || "-"}`}>
                   Влажность: <span className="text-slate-300">{formatMoisture(item.input_moisture_percent) || "-"} → {formatMoisture(item.output_moisture_percent) || "-"}</span>
+                </div>
+              ) : null}
+              {previousCount > 0 ? (
+                <div className="mt-2 text-[11px] text-slate-500">
+                  Предыдущих обработок: {previousCount} · История
                 </div>
               ) : null}
             </article>
@@ -327,7 +351,7 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
           </article>
         ))}
 
-      {closedItems.length > 0 ? (
+      {historyItemCount > 0 ? (
         <div className="border-t border-slate-800 pt-2">
           <Button
             type="button"
@@ -336,17 +360,42 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
             onClick={() => setHistoryOpen((value) => !value)}
             aria-expanded={historyOpen}
           >
-            <span className="flex items-center gap-2"><History className="h-3.5 w-3.5" />История <Badge className="border border-slate-700 bg-slate-950 text-slate-300">{closedItems.length}</Badge></span>
+            <span className="flex items-center gap-2"><History className="h-3.5 w-3.5" />История <Badge className="border border-slate-700 bg-slate-950 text-slate-300">{historyItemCount}</Badge></span>
             <ChevronDown className={`h-4 w-4 transition-transform ${historyOpen ? "rotate-180" : ""}`} />
           </Button>
           {historyOpen ? (
             <div className="space-y-1">
-              {closedItems.slice(0, 10).map((item) => (
-                <div key={item.id} className="flex items-center justify-between gap-3 rounded px-2 py-1.5 text-xs hover:bg-slate-900/70">
-                  <div className="min-w-0"><div className="truncate font-medium text-slate-200">{item.processing_node_name || typeLabels[item.transformation_type] || "Обработка"}</div><div className="truncate text-slate-500">{item.identity_label || item.input_label}</div></div>
-                  <div className="shrink-0 text-right text-slate-400"><div>{formatMass(item.input_total_kg ?? item.input_weight_kg)}</div><div className="text-[10px] text-slate-600">{formatDateTime(item.completed_at)}</div></div>
-                </div>
-              ))}
+              {visibleHistoryItems.map((item) => {
+                const itemState = processingWorkState(item);
+                const pending = item.processing_state === "processing_pending_outputs";
+                const showActions = itemState !== "history" && (canOperateLifecycle || (pending && canManageBalance));
+                const stateLabel = itemState === "history"
+                  ? "Закрыта"
+                  : itemState === "reconciliation"
+                    ? "Требует сверки"
+                    : itemState === "ready"
+                      ? "Готова к закрытию"
+                      : "В работе";
+                return (
+                  <div key={item.id} className="flex items-center justify-between gap-3 rounded px-2 py-1.5 text-xs hover:bg-slate-900/70">
+                    <div className="min-w-0"><div className="truncate font-medium text-slate-200">{item.processing_node_name || typeLabels[item.transformation_type] || "Обработка"}</div><div className="truncate text-slate-500">{item.identity_label || item.input_label}</div></div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <div className="text-right text-slate-400"><div>{formatMass(item.input_total_kg ?? item.input_weight_kg)}</div><div className="text-[10px] text-slate-600">{stateLabel} · {formatDateTime(item.completed_at || item.started_at || item.created_at)}</div></div>
+                      {showActions ? <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button type="button" size="icon" variant="ghost" className="h-7 w-7" aria-label={`Действия предыдущей обработки: ${item.processing_node_name || typeLabels[item.transformation_type] || "Обработка"}`}><MoreHorizontal className="h-4 w-4" /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                          {!pending && canOperateLifecycle ? <DropdownMenuItem onClick={() => setFinishItem(item)}>Партия обработана</DropdownMenuItem> : null}
+                          {pending && canOperateLifecycle ? <DropdownMenuItem onClick={() => void runAction(item, "reopen")}><RotateCcw className="mr-2 h-4 w-4" />Возобновить приём</DropdownMenuItem> : null}
+                          {pending && canOperateLifecycle && canManageBalance ? <DropdownMenuSeparator /> : null}
+                          {pending && canManageBalance ? <DropdownMenuItem onClick={() => setManageItem(item)}><ShieldCheck className="mr-2 h-4 w-4" />Сверить баланс</DropdownMenuItem> : null}
+                        </DropdownMenuContent>
+                      </DropdownMenu> : null}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : null}
         </div>

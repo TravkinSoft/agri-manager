@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import {
   isOpenProcessingWorkItem,
   processingWorkState,
+  selectPrimaryProcessingItems,
 } from "../lib/weighbridge/processing-work-state";
 import type { BatchTransformationRow } from "../lib/services/processing";
 
@@ -166,6 +167,39 @@ check("attached input ticket does not return to the waiting queue", () => {
   assert.match(processingRoute, /loadWaitingTickets\(supabase, companyId, usedTicketIds\)/);
 });
 
+check("one processing object exposes only its newest active product as the primary card", () => {
+  const olderPending = item({
+    id: "old-cycle",
+    processing_state: "processing_pending_outputs",
+    started_at: "2026-08-29T10:00:00.000Z",
+    input_total_kg: 8_500,
+    balance_delta_kg: 8_500,
+  });
+  const currentActive = item({
+    id: "current-cycle",
+    processing_state: "in_processing",
+    started_at: "2026-08-30T10:00:00.000Z",
+    input_total_kg: 1_000,
+    balance_delta_kg: 1_000,
+  });
+  const otherObject = item({
+    id: "other-object-cycle",
+    node_warehouse_id: "warehouse-2",
+    started_at: "2026-08-28T10:00:00.000Z",
+    input_total_kg: 2_000,
+    balance_delta_kg: 2_000,
+  });
+  const selected = selectPrimaryProcessingItems([olderPending, currentActive, otherObject]);
+  assert.deepEqual(selected.primaryItems.map((row) => row.id), ["current-cycle", "other-object-cycle"]);
+  assert.deepEqual(selected.previousItems.map((row) => row.id), ["old-cycle"]);
+  assert.match(processingUi, /previousCountByWarehouse/);
+  assert.match(processingUi, /Предыдущих обработок/);
+  assert.match(processingUi, /Действия предыдущей обработки/);
+  assert.match(processingUi, /pending && canManageBalance/);
+  assert.match(processingUi, /\[\.\.\.previousItems, \.\.\.completedItems\.slice\(0, 10\)\]/);
+  assert.doesNotMatch(processingUi, /historyItems\.slice\(0, 10\)/);
+});
+
 check("processing input reuses the warehouse lot context across legacy node metadata", () => {
   assert.match(processingInputReuseMigration, /uq_batch_transformations_open_lot_pass_v1/);
   assert.match(
@@ -225,4 +259,4 @@ check("ambiguous cycles and output role stay explicit", () => {
   assert.match(page, /Цикл \{index \+ 1\}/);
 });
 
-console.log(`TZ312 P0 stability and processing cards PASS: ${passed}/19`);
+console.log(`TZ312 P0 stability and processing cards PASS: ${passed}/20`);
