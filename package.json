@@ -65,6 +65,7 @@
     "qa:tz314:warehouse": "npx --no-install tsx scripts/qa-tz314-warehouse-math.ts",
     "qa:tz315:processing-reversal": "npx --no-install tsx scripts/qa-tz315-processing-reversal.ts",
     "qa:tz315:processing-wip-route-handoff": "npx --no-install tsx scripts/qa-tz315-processing-wip-route-handoff.ts",
+    "qa:tz315:ticket-void-reconcile": "npx --no-install tsx scripts/qa-tz315-ticket-void-reconcile.ts",
     "qa:agronomist:weighbridge-assist": "npx --no-install tsx scripts/qa-agronomist-weighbridge-assist-v1.ts",
     "qa:weighbridge:route-processing": "npx --no-install tsx scripts/qa-weighbridge-route-processing-v1.ts",
     "qa:crop-optional-seed": "npx --no-install tsx scripts/qa-crop-structure-optional-seed.ts",
