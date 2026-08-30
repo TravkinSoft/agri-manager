@@ -125,10 +125,10 @@ check("field totals use accepted active trips without proportional allocation", 
   assert.match(batchRoute, /current\.netWeightKg \+= trip\.netWeightKg/);
   assert.doesNotMatch(batchRoute, /currentWeight \* field\.netWeightKg|allocatedWeight/);
 });
-check("lot dialog explains physical accounting without calling processing an impurity", () => {
+check("lot dialog keeps physical accounting warehouse-local without calling processing an impurity", () => {
   assert.match(lotDialog, /Остаток на этом складе/);
   assert.match(lotDialog, /Принято на этот склад/);
-  assert.match(lotDialog, /Принято по всей партии/);
+  assert.doesNotMatch(lotDialog, /Принято по всей партии/);
   assert.match(lotDialog, /Примеси/);
   assert.match(lotDialog, /Передано в переработку/);
   assert.match(lotDialog, /Физический остаток/);

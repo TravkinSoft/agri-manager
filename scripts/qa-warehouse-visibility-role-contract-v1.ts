@@ -34,13 +34,14 @@ assert.match(inventoryActionRoute, /Текущая роль не может вы
 const writeRoles = weighbridgeAuth.match(/export const WEIGHBRIDGE_WRITE_ROLES = \[([\s\S]*?)\] as const;/)?.[1] || "";
 assert.match(writeRoles, /"weighman"/);
 assert.match(writeRoles, /"global_admin"/);
-assert.doesNotMatch(writeRoles, /"company_admin"|"warehouse"|"warehouse_operator"/);
+assert.match(writeRoles, /"company_admin"/);
+assert.doesNotMatch(writeRoles, /"warehouse"|"warehouse_operator"/);
 assert.match(weighbridgeAdminAction, /allowedRoles: \["global_admin"\]/);
 
 assert.doesNotMatch(warehousesPage, /HarvestWarehousesReadonly/);
 assert.match(warehousesPage, /listHarvestBatchSummaries/);
 assert.match(warehousesPage, /getWarehouses\(profile\.company_id, canManageWarehouses/);
-assert.match(warehousesPage, /Партии урожая/);
+assert.match(warehousesPage, /Остатки/);
 assert.match(warehousesPage, /Только просмотр/);
 assert.match(warehousesPage, /isAgrochemicalWarehouseType\(selectedSummary\.warehouse\.warehouse_type\)/);
 

@@ -120,12 +120,13 @@ check("vegetables never enter grain dryer or cleaner processing", () => {
   assert.doesNotMatch(cropGuardMigration, /\b(?:delete\s+from|truncate|drop\s+table|drop\s+column)\b/i);
 });
 
-check("field allocation is a stable visible identity", () => {
+check("field allocation uses stable UUID identity without a visible technical code", () => {
   assert.match(harvestAllocationsRoute, /allocationCode:/);
   assert.match(harvestAllocationsRoute, /plotLabel: `Посевная строка №/);
   assert.match(page, /<Label>Поле \*<\/Label>/);
   assert.match(page, /<Label>Участок \/ культура \*<\/Label>/);
-  assert.match(page, /description: `Строка \$\{allocation\.allocationCode\}`/);
+  assert.match(page, /value: allocation\.allocationId/);
+  assert.doesNotMatch(page, /description: `Строка \$\{allocation\.allocationCode\}`/);
   assert.match(page, /cropStructureAllocationId: allocation\?\.allocationId/);
 });
 
