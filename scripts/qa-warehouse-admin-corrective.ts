@@ -11,6 +11,17 @@ const historical = read(
 const corrective = read(
   "supabase/migrations/20260830125129_warehouse_admin_active_harvest_guard_corrective_v1.sql",
 );
+const archiveCorrective = read(
+  "supabase/migrations/20260830130442_warehouse_admin_archive_guard_canonical_v2.sql",
+);
+const archiveBlock = archiveCorrective.slice(
+  archiveCorrective.indexOf("if v_archive_started then"),
+  archiveCorrective.indexOf("return new;"),
+);
+const typeChangeBlock = archiveCorrective.slice(
+  archiveCorrective.indexOf("if v_type_changed and ("),
+  archiveCorrective.indexOf("if v_archive_started then"),
+);
 
 assert.match(
   historical,
@@ -41,5 +52,20 @@ for (const invariant of [
 assert.match(corrective, /errcode = '55000'/);
 assert.match(corrective, /do not replace this trigger silently/i);
 assert.match(corrective, /^begin;[\s\S]*commit;\s*$/);
+
+assert.doesNotMatch(archiveCorrective, /\b(?:revoke|grant|drop policy|create policy|drop trigger)\b/i);
+assert.match(
+  archiveCorrective,
+  /if to_regprocedure\('public\.guard_warehouse_lifecycle_v1\(\)'\) is null/,
+);
+assert.match(archiveCorrective, /create or replace function public\.guard_warehouse_lifecycle_v1\(\)/);
+assert.match(typeChangeBlock, /from public\.inventory_batches/);
+assert.match(typeChangeBlock, /from public\.processing_nodes/);
+assert.match(archiveBlock, /from public\.v_stock_balance_canonical/);
+assert.doesNotMatch(archiveBlock, /from public\.inventory_batches/);
+assert.doesNotMatch(archiveBlock, /from public\.processing_nodes/);
+assert.match(archiveBlock, /from public\.batch_transformations/);
+assert.match(archiveBlock, /from public\.processing_documents/);
+assert.match(archiveCorrective, /^begin;[\s\S]*commit;\s*$/);
 
 console.log("WAREHOUSE ADMIN CORRECTIVE REGRESSION PASS");

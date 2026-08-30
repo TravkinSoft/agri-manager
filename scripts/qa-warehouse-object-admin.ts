@@ -227,7 +227,7 @@ check("dependency and balance failures are fail-closed", () => {
   assert.match(archiveCheck, /if \(allocationResult\.error\) \{[\s\S]{0,180}?throw new Error/);
 });
 
-check("archive guard covers stock and every active operational blocker", () => {
+check("archive guard uses canonical stock and only active operational blockers", () => {
   assert.match(archiveCheck, /const balance = await getStockBalance\(supabase, companyId, warehouseId\)/);
   assert.match(warehouseAccess, /\.from\("v_stock_balance_canonical"\)/);
   for (const table of [
@@ -235,7 +235,6 @@ check("archive guard covers stock and every active operational blocker", () => {
     "weighbridge_active_harvests",
     "batch_transformations",
     "processing_documents",
-    "processing_nodes",
     "inventory_transactions",
     "warehouse_inventory_documents",
     "warehouse_issue_requests",
@@ -243,14 +242,14 @@ check("archive guard covers stock and every active operational blocker", () => {
   ]) {
     assert.match(archiveCheck, new RegExp(`\\.from\\("${table}"\\)`), table);
   }
+  assert.doesNotMatch(archiveCheck, /\.from\("inventory_batches"\)/);
+  assert.doesNotMatch(archiveCheck, /\.from\("processing_nodes"\)/);
   for (const stat of [
     "stockBalanceQty",
-    "batchStockRows",
     "openTickets",
     "activeHarvests",
     "activeTransformations",
     "activeProcessingDocuments",
-    "activeProcessingNodes",
     "draftInventoryTransactions",
     "activeInventoryDocuments",
     "activeIssueRequests",

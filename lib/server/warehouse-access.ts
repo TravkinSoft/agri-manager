@@ -28,12 +28,10 @@ export type WarehouseArchiveCheckResult = {
   stats: {
     stockBalanceRows: number;
     stockBalanceQty: number;
-    batchStockRows: number;
     openTickets: number;
     activeHarvests: number;
     activeTransformations: number;
     activeProcessingDocuments: number;
-    activeProcessingNodes: number;
     draftInventoryTransactions: number;
     activeInventoryDocuments: number;
     activeIssueRequests: number;
@@ -242,22 +240,13 @@ export async function getWarehouseArchiveCheck(
   warehouseId: string
 ): Promise<WarehouseArchiveCheckResult> {
   const balance = await getStockBalance(supabase, companyId, warehouseId);
-  const [openTicketResult, batchStockResult] = await Promise.all([
-    supabase
-      .from("tickets")
-      .select("id,warehouse_from_id,warehouse_to_id")
-      .eq("company_id", companyId)
-      .in("status", ["draft", "active", "ready_to_close"]),
-    supabase
-      .from("inventory_batches")
-      .select("id,current_weight_kg,current_quantity,mass_kg")
-      .eq("company_id", companyId)
-      .eq("warehouse_id", warehouseId),
-  ]);
-  if (openTicketResult.error || batchStockResult.error) {
-    throw new Error(
-      `Warehouse dependency check failed: ${openTicketResult.error?.message || batchStockResult.error?.message || "unknown database error"}`
-    );
+  const openTicketResult = await supabase
+    .from("tickets")
+    .select("id,warehouse_from_id,warehouse_to_id")
+    .eq("company_id", companyId)
+    .in("status", ["draft", "active", "ready_to_close"]);
+  if (openTicketResult.error) {
+    throw new Error(`Warehouse dependency check failed: ${openTicketResult.error.message}`);
   }
 
   const openTicketRows = openTicketResult.data || [];
@@ -284,17 +273,11 @@ export async function getWarehouseArchiveCheck(
     for (const row of lineResult.data || []) directOpenTicketIds.add(String((row as any).ticket_id));
   }
   const openTickets = directOpenTicketIds.size;
-  const batchStockRows = (batchStockResult.data || []).filter((row: any) =>
-    [row.current_weight_kg, row.current_quantity, row.mass_kg].some(
-      (value) => Math.abs(Number(value || 0)) > 0.000001
-    )
-  ).length;
 
   const [
     activeHarvests,
     activeTransformations,
     activeProcessingDocuments,
-    activeProcessingNodes,
     draftInventoryTransactions,
     activeInventoryDocuments,
     activeIssueRequests,
@@ -303,7 +286,6 @@ export async function getWarehouseArchiveCheck(
     countByQuery(supabase.from("weighbridge_active_harvests").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("warehouse_id", warehouseId).eq("status", "active")),
     countByQuery(supabase.from("batch_transformations").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("node_warehouse_id", warehouseId).or("status.eq.draft,processing_state.in.(in_processing,processing_pending_outputs)")),
     countByQuery(supabase.from("processing_documents").select("id", { count: "exact", head: true }).eq("company_id", companyId).or(`source_warehouse_id.eq.${warehouseId},destination_warehouse_id.eq.${warehouseId}`).eq("status", "draft")),
-    countByQuery(supabase.from("processing_nodes").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("linked_warehouse_id", warehouseId).eq("is_active", true).eq("archived", false)),
     countByQuery(supabase.from("inventory_transactions").select("id", { count: "exact", head: true }).eq("company_id", companyId).or(`warehouse_id.eq.${warehouseId},source_warehouse_id.eq.${warehouseId},destination_warehouse_id.eq.${warehouseId}`).eq("status", "draft")),
     countByQuery(supabase.from("warehouse_inventory_documents").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("warehouse_id", warehouseId).in("status", ["in_progress", "awaiting_approval", "rejected"])),
     countByQuery(supabase.from("warehouse_issue_requests").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("source_warehouse_id", warehouseId).in("status", ["new", "active", "preparing", "ready", "partially_issued", "issued_by_warehouse", "issued"])),
@@ -320,25 +302,23 @@ export async function getWarehouseArchiveCheck(
   const stats = {
     stockBalanceRows: balance.rows,
     stockBalanceQty: balance.quantity,
-    batchStockRows,
     openTickets,
     activeHarvests,
     activeTransformations,
     activeProcessingDocuments,
-    activeProcessingNodes,
     draftInventoryTransactions,
     activeInventoryDocuments,
     activeIssueRequests,
     outstandingIssueAllocations,
   };
   const reasons: string[] = [];
-  if (balance.rows > 0 || Math.abs(balance.quantity) > 0.000001 || batchStockRows > 0) {
-    reasons.push(`Ненулевой остаток: ${balance.quantity} кг${batchStockRows > 0 ? `; партий с остатком: ${batchStockRows}` : ""}`);
+  if (balance.rows > 0 || Math.abs(balance.quantity) > 0.000001) {
+    reasons.push(`Ненулевой остаток: ${balance.quantity} кг`);
   }
   if (openTickets > 0) reasons.push(`Открытые талоны: ${openTickets}`);
   if (activeHarvests > 0) reasons.push(`Активная приёмка: ${activeHarvests}`);
-  if (activeTransformations + activeProcessingDocuments + activeProcessingNodes > 0) {
-    reasons.push(`Незавершённая обработка: ${activeTransformations + activeProcessingDocuments + activeProcessingNodes}`);
+  if (activeTransformations + activeProcessingDocuments > 0) {
+    reasons.push(`Незавершённая обработка: ${activeTransformations + activeProcessingDocuments}`);
   }
   if (draftInventoryTransactions + activeInventoryDocuments + activeIssueRequests + outstandingIssueAllocations > 0) {
     reasons.push(`Незавершённое перемещение или складская операция: ${draftInventoryTransactions + activeInventoryDocuments + activeIssueRequests + outstandingIssueAllocations}`);
