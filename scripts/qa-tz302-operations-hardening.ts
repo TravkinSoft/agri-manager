@@ -125,7 +125,8 @@ async function main() {
     assert.match(liveRefresh, /minRefreshIntervalMs - \(Date\.now\(\) - lastRefreshAtRef\.current\)/);
     assert.doesNotMatch(liveRefresh, /event\?\.source !== "realtime"/);
     assert.match(weighbridge, /const stockChanged/);
-    assert.match(weighbridge, /isForeground && ticketChanged/);
+    assert.match(weighbridge, /ticketChanged && \(event\?\.source === "realtime" \|\| event\?\.source === "online"\)/);
+    assert.match(weighbridge, /intervalMs:\s*0/);
   });
 
   await check("warehouse overview keeps one row per lot and warehouse", () => {
@@ -137,8 +138,9 @@ async function main() {
   await check("processing refresh is visible-only single-flight without request storms", () => {
     assert.match(processing, /loadInFlight/);
     assert.match(processing, /document\.visibilityState === "visible"/);
-    assert.match(processing, /60_000/);
-    assert.doesNotMatch(processing, /setInterval\(refresh, 15_000\)/);
+    assert.match(processing, /useLiveRefresh\(\{/);
+    assert.match(processing, /intervalMs:\s*0/);
+    assert.doesNotMatch(processing, /setInterval\s*\(/);
   });
 
   await check("storage objects render by physical type and do not fake non-warehouse capacity", () => {

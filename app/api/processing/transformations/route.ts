@@ -23,6 +23,33 @@ const STORED_OUTPUT_TYPES = new Set([
   "other",
 ]);
 
+const WEIGHBRIDGE_TRANSFORMATION_COLUMNS = [
+  "id",
+  "company_id",
+  "transformation_type",
+  "processing_method",
+  "status",
+  "processing_state",
+  "processing_node_id",
+  "node_warehouse_id",
+  "harvest_lot_id",
+  "source_ticket_id",
+  "started_at",
+  "completed_at",
+  "created_at",
+  "note",
+  "expected_water_loss_kg",
+  "finish_requested_at",
+  "last_main_output_marked_at",
+  "completed_by",
+  "closed_by",
+].join(",");
+
+type TransformationLoadOptions = {
+  weighbridgeScope?: boolean;
+  historyLimit?: number;
+};
+
 const nameOf = (row: any, fallback = "-") =>
   String(row?.name_ru || row?.name || row?.full_name || row?.batch_code || fallback);
 
@@ -43,17 +70,56 @@ const batchLabel = (batch: any) => {
   return `${identity}${batch.batch_code ? ` · ${batch.batch_code}` : ""}`;
 };
 
-async function loadTransformationItems(supabase: SupabaseClient, companyId: string) {
-  const { data: transformations, error } = await supabase
-    .from("batch_transformations")
-    .select("*")
-    .eq("company_id", companyId)
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-
-  const rows = transformations || [];
+async function loadTransformationItems(
+  supabase: SupabaseClient,
+  companyId: string,
+  options: TransformationLoadOptions = {},
+) {
+  let rows: any[] = [];
+  if (options.weighbridgeScope) {
+    const historyLimit = Math.max(1, Math.min(50, Number(options.historyLimit || 10)));
+    const [openResult, historyResult] = await Promise.all([
+      supabase
+        .from("batch_transformations")
+        .select(WEIGHBRIDGE_TRANSFORMATION_COLUMNS)
+        .eq("company_id", companyId)
+        .not("status", "in", "(voided,completed)")
+        .or("processing_state.is.null,processing_state.neq.processing_closed")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("batch_transformations")
+        .select(WEIGHBRIDGE_TRANSFORMATION_COLUMNS)
+        .eq("company_id", companyId)
+        .or("status.eq.voided,status.eq.completed,processing_state.eq.processing_closed")
+        .order("created_at", { ascending: false })
+        .limit(historyLimit),
+    ]);
+    if (openResult.error) throw openResult.error;
+    if (historyResult.error) throw historyResult.error;
+    const byId = new Map<string, any>();
+    for (const row of [
+      ...((openResult.data || []) as unknown as any[]),
+      ...((historyResult.data || []) as unknown as any[]),
+    ]) {
+      byId.set(String(row.id), row);
+    }
+    rows = Array.from(byId.values()).sort((left, right) =>
+      String(right.created_at || "").localeCompare(String(left.created_at || ""))
+    );
+  } else {
+    const { data: transformations, error } = await supabase
+      .from("batch_transformations")
+      .select(WEIGHBRIDGE_TRANSFORMATION_COLUMNS)
+      .eq("company_id", companyId)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    rows = (transformations || []) as unknown as any[];
+  }
   const ids = rows.map((row: any) => String(row.id));
   const sourceTicketIds = rows.map((row: any) => String(row.source_ticket_id || "")).filter(Boolean);
+  const nodeIds = Array.from(new Set(
+    rows.map((row: any) => String(row.processing_node_id || "")).filter(Boolean),
+  ));
   const actorIds = Array.from(new Set(rows.flatMap((row: any) => [
     String(row.completed_by || ""),
     String(row.closed_by || ""),
@@ -61,12 +127,14 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
 
   const [inputsRes, outputsRes, nodesRes, ticketsRes, lossesRes, actorsRes] = await Promise.all([
     ids.length
-      ? supabase.from("batch_transformation_inputs").select("*").eq("company_id", companyId).in("transformation_id", ids)
+      ? supabase.from("batch_transformation_inputs").select("transformation_id,batch_id,input_weight_kg,moisture_percent,warehouse_from_id,source_ticket_id").eq("company_id", companyId).in("transformation_id", ids)
       : Promise.resolve({ data: [] as any[], error: null }),
     ids.length
-      ? supabase.from("batch_transformation_outputs").select("*").eq("company_id", companyId).in("transformation_id", ids)
+      ? supabase.from("batch_transformation_outputs").select("transformation_id,line_type,output_type,batch_class,output_weight_kg,moisture_percent,output_role,physical_state,warehouse_to_id,output_batch_id").eq("company_id", companyId).in("transformation_id", ids)
       : Promise.resolve({ data: [] as any[], error: null }),
-    supabase.from("processing_nodes").select("id,name,type,linked_warehouse_id").eq("company_id", companyId),
+    nodeIds.length
+      ? supabase.from("processing_nodes").select("id,name,type,linked_warehouse_id").eq("company_id", companyId).in("id", nodeIds)
+      : Promise.resolve({ data: [] as any[], error: null }),
     sourceTicketIds.length
       ? supabase
           .from("tickets")
@@ -374,8 +442,18 @@ export async function GET(request: NextRequest) {
     const { companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
-    const { items, usedTicketIds } = await loadTransformationItems(supabase, companyId);
-    const waiting = await loadWaitingTickets(supabase, companyId, usedTicketIds);
+    const weighbridgeScope = request.nextUrl.searchParams.get("scope") === "weighbridge";
+    const requestedHistoryLimit = Number(request.nextUrl.searchParams.get("historyLimit") || 10);
+    const historyLimit = Number.isFinite(requestedHistoryLimit)
+      ? Math.max(1, Math.min(50, Math.floor(requestedHistoryLimit)))
+      : 10;
+    const { items, usedTicketIds } = await loadTransformationItems(supabase, companyId, {
+      weighbridgeScope,
+      historyLimit,
+    });
+    const waiting = weighbridgeScope
+      ? []
+      : await loadWaitingTickets(supabase, companyId, usedTicketIds);
     return NextResponse.json({ items: [...waiting, ...items] });
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);

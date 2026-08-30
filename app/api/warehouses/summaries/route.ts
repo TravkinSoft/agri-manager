@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
     const requestedCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
     const includeArchived = request.nextUrl.searchParams.get("includeArchived") === "true";
+    const processingCardsScope = request.nextUrl.searchParams.get("scope") === "processing_cards";
     const supabase = await getUserScopedClientFromRequest(request);
 
     await assertActorAccess({
@@ -32,6 +33,7 @@ export async function GET(request: NextRequest) {
 
     let warehouseQuery = supabase.from("warehouses").select("*").eq("company_id", companyId).order("name");
     if (!includeArchived) warehouseQuery = warehouseQuery.eq("archived", false).eq("is_archived", false);
+    if (processingCardsScope) warehouseQuery = warehouseQuery.in("place_type", ["YARD", "DRYER", "CLEANER"]);
 
     const warehousesResult = await warehouseQuery;
     if (warehousesResult.error) return NextResponse.json({ error: warehousesResult.error.message }, { status: 400 });
@@ -41,6 +43,43 @@ export async function GET(request: NextRequest) {
       .filter((row) => !rowHasQaDataMarker(row as unknown as Record<string, unknown>, ["name", "description", "warehouse_type"]));
     const warehouseIds = visibleWarehouses.map((warehouse) => String(warehouse.id));
     if (!warehouseIds.length) return NextResponse.json({ summaries: [] });
+
+    if (processingCardsScope) {
+      const harvestLotsResult = await supabase
+        .from("v_harvest_lot_stock_v1")
+        .select("harvest_lot_id,warehouse_id,current_weight_kg")
+        .eq("company_id", companyId)
+        .in("warehouse_id", warehouseIds)
+        .gt("current_weight_kg", 0.0001);
+      if (harvestLotsResult.error) {
+        return NextResponse.json({ error: harvestLotsResult.error.message }, { status: 400 });
+      }
+
+      const harvestPositions = new Map<string, Set<string>>();
+      const harvestWeightByWarehouse = new Map<string, number>();
+      for (const row of harvestLotsResult.data || []) {
+        const warehouseId = String((row as any).warehouse_id || "");
+        const lotId = String((row as any).harvest_lot_id || "");
+        if (!warehouseId || !lotId || Number((row as any).current_weight_kg || 0) <= 0) continue;
+        const positions = harvestPositions.get(warehouseId) || new Set<string>();
+        positions.add(lotId);
+        harvestPositions.set(warehouseId, positions);
+        harvestWeightByWarehouse.set(
+          warehouseId,
+          (harvestWeightByWarehouse.get(warehouseId) || 0) + Number((row as any).current_weight_kg || 0),
+        );
+      }
+
+      return NextResponse.json({
+        summaries: visibleWarehouses.map((warehouse) => ({
+          warehouse,
+          position_count: harvestPositions.get(String(warehouse.id))?.size || 0,
+          harvest_lot_count: harvestPositions.get(String(warehouse.id))?.size || 0,
+          harvest_weight_kg: harvestWeightByWarehouse.get(String(warehouse.id)) || 0,
+          last_movement_at: null,
+        })),
+      });
+    }
 
     const [balancesResult, harvestProductsResult, harvestLotsResult, ...latestLedgerResults] = await Promise.all([
       supabase

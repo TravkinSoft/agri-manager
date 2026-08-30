@@ -224,17 +224,20 @@ export async function getWarehouses(
 export async function getWarehouseSummaries(
   companyId: string,
   includeArchived = false,
-  language: Language = "ru"
+  language: Language = "ru",
+  options?: { scope?: "processing_cards"; signal?: AbortSignal },
 ): Promise<WarehouseSummary[]> {
   const query = new URLSearchParams({
     companyId,
     includeArchived: includeArchived ? "true" : "false",
   });
+  if (options?.scope) query.set("scope", options.scope);
   const headers = await buildAuthHeaders("none");
   const response = await fetch(`/api/warehouses/summaries?${query.toString()}`, {
     method: "GET",
     headers,
     cache: "no-store",
+    signal: options?.signal,
   });
   const payload = await parseJsonOrThrow(response);
   return ((payload?.summaries || []) as WarehouseSummary[]).map((summary) => ({

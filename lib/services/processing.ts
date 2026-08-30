@@ -136,10 +136,26 @@ async function parseJsonOrThrow(response: Response) {
   return payload;
 }
 
-export async function getProcessingTransformations(companyId: string, actorUserId: string): Promise<BatchTransformationRow[]> {
+export type ProcessingTransformationQueryOptions = {
+  scope?: "weighbridge";
+  historyLimit?: number;
+  signal?: AbortSignal;
+};
+
+export async function getProcessingTransformations(
+  companyId: string,
+  actorUserId: string,
+  options?: ProcessingTransformationQueryOptions,
+): Promise<BatchTransformationRow[]> {
   const headers = await buildClientAuthHeaders("none");
   const params = new URLSearchParams({ companyId, userId: actorUserId });
-  const payload = await parseJsonOrThrow(await fetch(`/api/processing/transformations?${params.toString()}`, { headers, cache: "no-store" }));
+  if (options?.scope) params.set("scope", options.scope);
+  if (options?.historyLimit != null) params.set("historyLimit", String(options.historyLimit));
+  const payload = await parseJsonOrThrow(await fetch(`/api/processing/transformations?${params.toString()}`, {
+    headers,
+    cache: "no-store",
+    signal: options?.signal,
+  }));
   return payload.items || [];
 }
 

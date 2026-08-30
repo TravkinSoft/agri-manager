@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
         .eq("company_id", companyId),
       supabase
         .from("fields")
-        .select("id,name,area")
+        .select("id,name,area,field_code")
         .eq("company_id", companyId)
         .eq("archived", false)
         .order("name", { ascending: true }),
@@ -235,6 +235,7 @@ export async function GET(request: NextRequest) {
       id: String(row.id),
       name: String(row.name || "Поле"),
       area: Number(row.area || 0),
+      fieldCode: row.field_code ? String(row.field_code) : null,
     }));
     const destinations = warehouseRows.map((row: any) => ({
       id: String(row.id),

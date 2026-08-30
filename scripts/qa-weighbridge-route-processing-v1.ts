@@ -71,7 +71,7 @@ check("dryer has one output and cleaner exposes six fractions", () => {
     "Фураж / кормовая фракция",
     "Веяльные отходы",
     "Триерные отходы",
-    "Прочие отходы",
+    "Лёгкая фракция / прочие складские отходы",
   ]) assert.match(page, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(ticketRoute, /sourcePlaceType === "DRYER" && processingOutputRole !== "GRAIN"/);
   assert.match(ticketRoute, /Источник не является действующей сушилкой или очисткой/);
@@ -123,8 +123,10 @@ check("vegetables never enter grain dryer or cleaner processing", () => {
 check("field allocation is a stable visible identity", () => {
   assert.match(harvestAllocationsRoute, /allocationCode:/);
   assert.match(harvestAllocationsRoute, /plotLabel: `Посевная строка №/);
-  assert.match(page, /Выберите точную посевную строку/);
-  assert.match(page, /selectedHarvestAllocation\.allocationCode/);
+  assert.match(page, /<Label>Поле \*<\/Label>/);
+  assert.match(page, /<Label>Участок \/ культура \*<\/Label>/);
+  assert.match(page, /description: `Строка \$\{allocation\.allocationCode\}`/);
+  assert.match(page, /cropStructureAllocationId: allocation\?\.allocationId/);
 });
 
 check("weighbridge forms omit decorative section captions", () => {

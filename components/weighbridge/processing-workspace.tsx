@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { BalanceSummary, StatusBadge } from "@/components/operations/operational-ui";
 import { useAuth } from "@/lib/contexts/auth-context";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { useToast } from "@/hooks/use-toast";
 import {
   getProcessingTransformations,
@@ -66,6 +67,20 @@ const formatMoisture = (value: number | null | undefined) =>
 const formatDateTime = (value: string | null | undefined) =>
   value ? new Date(value).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) : "-";
 
+const PROCESSING_REFRESH_TABLES = [
+  "batch_transformations",
+  "batch_transformation_inputs",
+  "batch_transformation_outputs",
+  "batch_transformation_losses",
+  "processing_nodes",
+  "warehouses",
+  "inventory_batches",
+  "stock_ledger_entries",
+] as const;
+
+const isAbortError = (error: unknown) =>
+  typeof error === "object" && error !== null && "name" in error && error.name === "AbortError";
+
 export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
   const { profile } = useAuth();
   const { toast } = useToast();
@@ -82,8 +97,14 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
   const requestKeys = useRef(new Map<string, string>());
   const loadInFlight = useRef(false);
   const loadPending = useRef(false);
+  const loadController = useRef<AbortController | null>(null);
+  const onItemsChangeRef = useRef(onItemsChange);
   const canOperateLifecycle = ["global_admin", "company_admin"].includes(String(profile?.role || ""));
   const canManageBalance = ["global_admin", "company_admin", "director"].includes(String(profile?.role || ""));
+
+  useEffect(() => {
+    onItemsChangeRef.current = onItemsChange;
+  }, [onItemsChange]);
 
   const load = useCallback(async (showLoading = false) => {
     if (!enabled) return;
@@ -93,24 +114,33 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
       return;
     }
     loadInFlight.current = true;
+    const controller = new AbortController();
+    loadController.current = controller;
     if (showLoading) setLoading(true);
     try {
       do {
         loadPending.current = false;
         let firstError: unknown = null;
-        const transformationsPromise = getProcessingTransformations(profile.company_id, profile.id).then(
+        const transformationsPromise = getProcessingTransformations(profile.company_id, profile.id, {
+          scope: "weighbridge",
+          historyLimit: 10,
+          signal: controller.signal,
+        }).then(
           (rows) => {
             const transformations = rows.filter(
               (row) => row.record_type === "transformation" && row.processing_eligible !== false
             );
             setItems(transformations);
-            onItemsChange?.(transformations);
+            onItemsChangeRef.current?.(transformations);
           },
           (error) => {
             firstError ??= error;
           }
         );
-        const summariesPromise = getWarehouseSummaries(profile.company_id, false, "ru").then(
+        const summariesPromise = getWarehouseSummaries(profile.company_id, false, "ru", {
+          scope: "processing_cards",
+          signal: controller.signal,
+        }).then(
           (summaries) => {
             setPlaceSummaries(summaries);
           },
@@ -120,15 +150,18 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
         );
 
         await Promise.all([transformationsPromise, summariesPromise]);
-        if (firstError) {
+        if (firstError && !isAbortError(firstError)) {
           toast({ title: "Часть данных объектов недоступна", description: firstError instanceof Error ? firstError.message : "Повторим обновление автоматически", variant: "destructive" });
         }
-      } while (loadPending.current);
+      } while (loadPending.current && !controller.signal.aborted);
     } finally {
-      setLoading(false);
-      loadInFlight.current = false;
+      if (loadController.current === controller) {
+        if (!controller.signal.aborted) setLoading(false);
+        loadInFlight.current = false;
+        loadController.current = null;
+      }
     }
-  }, [enabled, onItemsChange, profile?.company_id, profile?.id, toast]);
+  }, [enabled, profile?.company_id, profile?.id, toast]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -136,15 +169,25 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
     const refresh = () => {
       if (document.visibilityState === "visible") void load(false);
     };
-    const timer = window.setInterval(refresh, 60_000);
     window.addEventListener("travkin:weighbridge-data-changed", refresh);
-    document.addEventListener("visibilitychange", refresh);
     return () => {
-      window.clearInterval(timer);
+      loadController.current?.abort();
+      loadController.current = null;
+      loadInFlight.current = false;
+      loadPending.current = false;
       window.removeEventListener("travkin:weighbridge-data-changed", refresh);
-      document.removeEventListener("visibilitychange", refresh);
     };
   }, [enabled, load]);
+
+  useLiveRefresh({
+    enabled: enabled && Boolean(profile?.company_id && profile?.id),
+    companyId: profile?.company_id,
+    tables: PROCESSING_REFRESH_TABLES,
+    intervalMs: 0,
+    debounceMs: 500,
+    minRefreshIntervalMs: 1_000,
+    onRefresh: () => load(false),
+  });
 
   const openProcessingItems = useMemo(
     () => items.filter((item) =>

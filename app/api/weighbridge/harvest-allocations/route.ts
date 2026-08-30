@@ -5,6 +5,7 @@ import { brandName, localizedName } from "@/lib/i18n/helpers";
 type Row = {
   id: string;
   field_id: string;
+  land_use_type: "crop" | "crop_mix" | "fallow";
   crop_id: string | null;
   variety_id: string | null;
   reproduction_id: string | null;
@@ -36,9 +37,10 @@ export async function GET(request: NextRequest) {
 
     const { data: structureRows, error: structureError } = await supabase
       .from("crop_structure")
-      .select("id,field_id,area,crop_id,variety_id,reproduction_id,notes")
+      .select("id,field_id,land_use_type,area,crop_id,variety_id,reproduction_id,notes")
       .eq("company_id", companyId)
       .eq("season_id", activeSeason.id)
+      .eq("land_use_type", "crop")
       .eq("archived", false);
     if (structureError) return NextResponse.json({ error: structureError.message }, { status: 400 });
 
@@ -80,7 +82,8 @@ export async function GET(request: NextRequest) {
     const rowsByField = new Map<string, Row[]>();
     for (const row of rows) {
       const fieldId = String(row.field_id || "").trim();
-      if (!fieldId) continue;
+      const cropId = String(row.crop_id || "").trim();
+      if (!fieldId || row.land_use_type !== "crop" || !cropId) continue;
       rowsByField.set(fieldId, [...(rowsByField.get(fieldId) || []), row]);
     }
 
@@ -92,7 +95,7 @@ export async function GET(request: NextRequest) {
       const cropId = String(row.crop_id || "").trim();
       const varietyId = String(row.variety_id || "").trim();
       const reproductionId = String(row.reproduction_id || "").trim();
-      if (!fieldId || !cropId) continue;
+      if (!fieldId || row.land_use_type !== "crop" || !cropId) continue;
 
       const cropRef = cropsById.get(cropId) || null;
       const categoryRef = categoriesById.get(String(cropRef?.category_id || "")) || null;

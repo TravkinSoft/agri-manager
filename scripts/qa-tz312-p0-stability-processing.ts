@@ -68,12 +68,16 @@ check("secondary catalogs wait for workspace hydration and core data", () => {
   assert.match(page, /if \(!workspaceReady\) return false;/);
 });
 
-check("secondary catalog request survives fast mode changes", () => {
-  assert.doesNotMatch(page, /loadSecondaryCatalogs\(controller\.signal\)/);
-  assert.doesNotMatch(page, /return \(\) => controller\.abort\(\);[\s\S]*Secondary catalogs are intentionally lazy/);
+check("secondary catalogs are cached, single-flight and stale-cancelled", () => {
+  assert.match(page, /secondaryCatalogRequestsRef = useRef\(new Map/);
+  assert.match(page, /secondaryCatalogReadyRef = useRef\(new Set/);
+  assert.match(page, /const existing = secondaryCatalogRequestsRef\.current\.get\(cacheKey\)/);
+  assert.match(page, /secondaryCatalogRequestsRef\.current\.set\(cacheKey, request\)/);
   assert.match(page, /secondaryCatalogGenerationRef/);
-  assert.match(page, /secondaryCatalogError/);
-  assert.match(page, /activeSecondaryCatalogError = needsSecondaryCatalogs \? secondaryCatalogError : ""/);
+  assert.match(page, /const controller = new AbortController\(\)/);
+  assert.match(page, /controller\.abort\(\)/);
+  assert.match(page, /signal\.aborted \|\| requestGeneration !== secondaryCatalogGenerationRef\.current/);
+  assert.match(page, /secondaryCatalogStatus\.status === "error"/);
 });
 
 check("processing cards wait for the core bootstrap", () => {
@@ -176,7 +180,9 @@ check("ticket finalize invalidates processing cards without a page reload", () =
   assert.match(page, /Талон закрыт, последний рейс не отмечен/);
   assert.match(page, /setActiveTicket\(null\)/);
   assert.match(processingUi, /if \(loadInFlight\.current\) \{[\s\S]*loadPending\.current = true/);
-  assert.match(processingUi, /\} while \(loadPending\.current\)/);
+  assert.match(processingUi, /\} while \(loadPending\.current && !controller\.signal\.aborted\)/);
+  assert.doesNotMatch(processingUi, /setInterval\s*\(/);
+  assert.match(processingUi, /intervalMs:\s*0/);
 });
 
 check("one processing object exposes only its newest active product as the primary card", () => {

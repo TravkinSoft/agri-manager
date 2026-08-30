@@ -67,9 +67,10 @@ check("missing harvest fields only disable the CTA", () => {
 });
 
 check("original field and warehouse row is restored", () => {
-  assert.match(page, /<Label>Поле \/ участок \*<\/Label>[\s\S]*<HarvestAllocationPicker/);
+  assert.match(page, /<Label>Поле \*<\/Label>[\s\S]*<HarvestAllocationPicker/);
+  assert.match(page, /<Label>Участок \/ культура \*<\/Label>[\s\S]*<HarvestAllocationPicker/);
   assert.match(page, /<Label>Место приёмки \*<\/Label>[\s\S]*ariaLabel="Место приёмки"/);
-  assert.match(page, /grid gap-3 md:grid-cols-2/);
+  assert.match(page, /grid gap-3 md:grid-cols-2 xl:grid-cols-3/);
 });
 
 check("transport and driver are separate searchable fields", () => {

@@ -23,18 +23,30 @@ type HarvestIntakeTabsProps = {
   onRemove: (id: string) => void;
 };
 
-const MAX_VISIBLE_ALLOCATIONS = 60;
+const DEFAULT_MAX_VISIBLE_OPTIONS = 120;
 
 export function HarvestAllocationPicker({
   value,
   options,
   onValueChange,
   disabled = false,
+  placeholder = "Выберите поле или участок",
+  searchPlaceholder = "Поле, культура, сорт или репродукция",
+  emptyLabel = "Участок не найден",
+  ariaLabel = "Поле или участок",
+  listAriaLabel = "Участки активного сезона",
+  maxVisible = DEFAULT_MAX_VISIBLE_OPTIONS,
 }: {
   value: string;
   options: SearchableComboboxOption[];
   onValueChange: (value: string) => void;
   disabled?: boolean;
+  placeholder?: string;
+  searchPlaceholder?: string;
+  emptyLabel?: string;
+  ariaLabel?: string;
+  listAriaLabel?: string;
+  maxVisible?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -53,7 +65,7 @@ export function HarvestAllocationPicker({
       ...(option.keywords || []),
     ].join(" ").toLocaleLowerCase("ru-RU").includes(normalizedQuery));
   }, [deferredQuery, options]);
-  const visible = filtered.slice(0, MAX_VISIBLE_ALLOCATIONS);
+  const visible = filtered.slice(0, maxVisible);
 
   const choose = (option: SearchableComboboxOption) => {
     onValueChange(option.value);
@@ -75,12 +87,12 @@ export function HarvestAllocationPicker({
           type="button"
           variant="outline"
           role="combobox"
-          aria-label="Поле или участок"
+          aria-label={ariaLabel}
           aria-expanded={open}
           disabled={disabled}
           className="h-10 w-full justify-between border-slate-700 bg-slate-950 px-3 text-left font-normal text-slate-100 hover:bg-slate-900"
         >
-          <span className="min-w-0 truncate">{selected?.label || "Выберите поле или участок"}</span>
+          <span className="min-w-0 truncate">{selected?.label || placeholder}</span>
           <span aria-hidden="true" className="ml-2 shrink-0 text-slate-500">⌄</span>
         </Button>
       </PopoverTrigger>
@@ -117,14 +129,14 @@ export function HarvestAllocationPicker({
                 choose(visible[activeIndex]);
               }
             }}
-            placeholder="Поле, культура, сорт или репродукция"
-            aria-label="Поиск поля или участка"
+            placeholder={searchPlaceholder}
+            aria-label={`Поиск: ${ariaLabel.toLocaleLowerCase("ru-RU")}`}
             className="border-slate-700 bg-slate-900 text-slate-100"
           />
         </div>
         <div
           role="listbox"
-          aria-label="Участки активного сезона"
+          aria-label={listAriaLabel}
           className="max-h-64 overflow-y-auto overflow-x-hidden overscroll-contain p-1 travkin-scrollbar"
           onWheel={(event) => event.stopPropagation()}
         >
@@ -147,9 +159,9 @@ export function HarvestAllocationPicker({
               </span>
             </button>
           ))}
-          {visible.length === 0 ? <div className="px-3 py-6 text-center text-sm text-slate-500">Участок не найден</div> : null}
+          {visible.length === 0 ? <div className="px-3 py-6 text-center text-sm text-slate-500">{emptyLabel}</div> : null}
           {filtered.length > visible.length ? (
-            <div className="px-3 py-2 text-center text-xs text-slate-500">Показаны первые {MAX_VISIBLE_ALLOCATIONS}. Уточните поиск.</div>
+            <div className="px-3 py-2 text-center text-xs text-slate-500">Показаны первые {maxVisible}. Уточните поиск.</div>
           ) : null}
         </div>
       </PopoverContent>

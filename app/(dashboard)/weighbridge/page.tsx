@@ -36,6 +36,7 @@ import { createWarehouseTransfer } from "@/lib/services/warehouses";
 import { isWeighedFieldMaterial, isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
 import { dedupeProductsForSelect } from "@/lib/catalog/catalog-identity";
 import { automaticHarvestAllocation, validateHarvestWeights } from "@/lib/weighbridge/harvest-contract";
+import { harvestFieldsWithAllocations } from "@/lib/weighbridge/field-picker";
 import type { WeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
 import { SearchableCombobox, type SearchableComboboxOption } from "@/components/weighbridge/searchable-combobox";
 import { WeighbridgeTicketPaper, type WeighbridgeTicketPaperLabels } from "@/components/weighbridge/weighbridge-ticket-paper";
@@ -75,7 +76,13 @@ type Lang = "ru" | "kz" | "en";
 type OperationType = "harvest_incoming" | "supplier_receipt" | "issue_to_field" | "transfer_between_warehouses" | "shipment_outbound" | "disposal_writeoff" | "impurity_removal" | "drying";
 type MovementGroup = "warehouse_inbound" | "field_issue" | "internal_transfer" | "shipment" | "writeoff" | "impurities";
 type Option = { id: string; name: string };
+type FieldOption = Option & { area: number; fieldCode: string | null };
 type WarehouseOption = Option & { warehouseType: string; placeType: string };
+type SecondaryCatalogStatus = {
+  key: string;
+  status: "idle" | "loading" | "ready" | "error";
+  error: string;
+};
 
 const notifyWeighbridgeDataChanged = () => {
   window.dispatchEvent(new Event("travkin:weighbridge-data-changed"));
@@ -868,7 +875,7 @@ export default function WeighbridgeOperationsPage() {
   const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
   const [harvestBatches, setHarvestBatches] = useState<HarvestBatchSummary[]>([]);
   const [harvestBatchDetailLoading, setHarvestBatchDetailLoading] = useState(false);
-  const [fields, setFields] = useState<{ id: string; name: string; area: number }[]>([]);
+  const [fields, setFields] = useState<FieldOption[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [buyers, setBuyers] = useState<Option[]>([]);
@@ -989,11 +996,17 @@ export default function WeighbridgeOperationsPage() {
   const operatorCanonicalStateRef = useRef<WeighbridgeOperatorState>({ shift: null, unlocked: false, operators: [] });
   const operatorUnlockConfirmedAtRef = useRef(0);
   const operatorContextKeyRef = useRef("");
-  const secondaryCatalogRequestRef = useRef<Promise<void> | null>(null);
+  const secondaryCatalogRequestsRef = useRef(new Map<string, Promise<void>>());
+  const secondaryCatalogReadyRef = useRef(new Set<string>());
   const secondaryCatalogGenerationRef = useRef(0);
+  const stockIdentityCacheRef = useRef(new Map<string, StockIdentityOption[]>());
+  const operationLinesCacheRef = useRef(new Map<string, LinkedOperationLineOption[]>());
   const [statisticsOpen, setStatisticsOpen] = useState(false);
-  const [secondaryCatalogsLoaded, setSecondaryCatalogsLoaded] = useState(false);
-  const [secondaryCatalogError, setSecondaryCatalogError] = useState("");
+  const [secondaryCatalogStatus, setSecondaryCatalogStatus] = useState<SecondaryCatalogStatus>({
+    key: "",
+    status: "idle",
+    error: "",
+  });
 
   const canOperate =
     profile?.role === "company_admin" ||
@@ -1144,115 +1157,134 @@ export default function WeighbridgeOperationsPage() {
     applyTransportPickerData(await loadTransportPickerDataCached(profile.company_id, true));
   };
 
-  const loadSecondaryCatalogs = async (signal?: AbortSignal) => {
-    if (!profile?.company_id || secondaryCatalogsLoaded) return;
-    if (secondaryCatalogRequestRef.current) return secondaryCatalogRequestRef.current;
+  const loadSecondaryCatalogs = async (
+    operationType: OperationType,
+    fieldId: string,
+    supplierItemMode: SupplierItemMode,
+    cacheKey: string,
+    requestGeneration: number,
+    signal: AbortSignal,
+  ) => {
+    if (!profile?.company_id || !cacheKey || secondaryCatalogReadyRef.current.has(cacheKey)) return;
+    const existing = secondaryCatalogRequestsRef.current.get(cacheKey);
+    if (existing) return existing;
 
     const companyId = profile.company_id;
-    const requestGeneration = secondaryCatalogGenerationRef.current;
-    setSecondaryCatalogError("");
+    setSecondaryCatalogStatus({ key: cacheKey, status: "loading", error: "" });
     const request = (async () => {
-      const [productsRes, identityRefs, supplierRows, buyerRows, operationsRes] = await Promise.all([
-        supabase
-          .from("products")
-          .select("id,name,trade_name,normalized_name,company_id,type,product_type,unit,default_unit,base_uom,pack_uom,package_unit,product_form,formulation,category,subcategory,stock_unit,physical_state,is_seed_material,crop_id,variety_id,seed_reproduction_id")
-          .or(`company_id.eq.${companyId},company_id.is.null`)
-          .eq("archived", false)
-          .order("name")
-          .abortSignal(signal || new AbortController().signal),
-        loadMasterIdentityRefs(companyId, signal),
-        loadSuppliers(companyId, signal),
-        loadBuyers(companyId, signal),
-        supabase
+      if (operationType === "supplier_receipt") {
+        const needsIdentity = supplierItemMode === "agro_identity";
+        const [productsRes, supplierRows, identityRefs] = await Promise.all([
+          supabase
+            .from("products")
+            .select("id,name,trade_name,normalized_name,company_id,type,product_type,unit,default_unit,base_uom,pack_uom,package_unit,product_form,formulation,category,subcategory,stock_unit,physical_state,is_seed_material,crop_id,variety_id,seed_reproduction_id")
+            .or(`company_id.eq.${companyId},company_id.is.null`)
+            .eq("archived", false)
+            .order("name")
+            .abortSignal(signal),
+          loadSuppliers(companyId, signal),
+          needsIdentity
+            ? loadMasterIdentityRefs(companyId, signal)
+            : Promise.resolve({ crops: [] as any[], varieties: [] as any[], reproductions: [] as any[] }),
+        ]);
+        if (productsRes.error) throw productsRes.error;
+
+        const productRows = dedupeProductsForSelect(
+          (productsRes.data || []).filter((row: any) =>
+            !hasQaDataMarker(`${brandName(row) || row.name || ""} ${row.product_type || ""} ${row.type || ""}`)
+          )
+        );
+        const nextProducts = productRows.map((row: any) => ({
+          id: String(row.id), name: brandName(row) || String(row.name || "Номенклатура"),
+          type: String(row.product_type || row.type || "").toLowerCase(), productType: String(row.product_type || ""),
+          unit: String(row.unit || ""), defaultUnit: String(row.default_unit || ""), baseUom: String(row.base_uom || ""),
+          packUom: String(row.pack_uom || ""), packageUnit: String(row.package_unit || ""), productForm: String(row.product_form || ""),
+          formulation: String(row.formulation || ""), category: String(row.category || ""), subcategory: String(row.subcategory || ""),
+          stockUnit: String(row.stock_unit || ""), physicalState: String(row.physical_state || ""), isSeedMaterial: row.is_seed_material === true,
+          cropId: row.crop_id ? String(row.crop_id) : null, varietyId: row.variety_id ? String(row.variety_id) : null,
+          reproductionId: row.seed_reproduction_id ? String(row.seed_reproduction_id) : null,
+        }));
+
+        startTransition(() => {
+          setProducts(nextProducts);
+          setSuppliers(supplierRows);
+          if (needsIdentity) {
+            const dedupeByName = (rows: any[]) => {
+              const map = new Map<string, any>();
+              rows.forEach((row) => {
+                const key = String(row.name || row.name_ru || row.id || "").trim().toLowerCase();
+                if (!key) return;
+                const current = map.get(key);
+                if (!current || (current.company_id == null && row.company_id != null)) map.set(key, row);
+              });
+              return Array.from(map.values());
+            };
+            const cropRows = dedupeByName((identityRefs.crops || []).filter(
+              (row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || "")
+            ));
+            const varietyRows = dedupeByName((identityRefs.varieties || []).filter(
+              (row: any) => !hasQaDataMarker(brandName(row) || row.name || "")
+            ));
+            const reproductionRows = dedupeByName((identityRefs.reproductions || []).filter(
+              (row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || "")
+            ));
+            const cropNameById = new Map<string, string>(cropRows.map((crop: any) => [
+              String(crop.id), localizedName(crop, lang, ["name"]) || String(crop.name || "").trim(),
+            ]));
+            setCrops(cropRows.map((row: any) => ({
+              id: String(row.id), name: localizedName(row, lang, ["name"]) || String(row.name || "Культура"),
+            })));
+            setVarieties(varietyRows.map((row: any) => ({
+              id: String(row.id), name: brandName(row) || String(row.name || "Сорт"), cropId: String(row.crop_id || ""),
+              cropName: localizedName(row.crops, lang, ["name"]) || cropNameById.get(String(row.crop_id || "")) || "",
+            })));
+            setReproductions(reproductionRows.map((row: any) => ({
+              id: String(row.id), name: localizedName(row, lang, ["name"]) || String(row.name || "Репродукция"),
+            })));
+          }
+        });
+      } else if (operationType === "shipment_outbound") {
+        const buyerRows = await loadBuyers(companyId, signal);
+        startTransition(() => setBuyers(buyerRows));
+      } else if (operationType === "issue_to_field" && fieldId) {
+        const operationsRes = await supabase
           .from("operations")
           .select("id,field_id,operation_type,operation_category_slug,operation_type_slug,date,status")
           .eq("company_id", companyId)
+          .eq("field_id", fieldId)
           .eq("archived", false)
           .order("date", { ascending: false })
-          .limit(500)
-          .abortSignal(signal || new AbortController().signal),
-      ]);
-      if (signal?.aborted) return;
-      if (requestGeneration !== secondaryCatalogGenerationRef.current) return;
-      if (productsRes.error || operationsRes.error) {
-        throw new Error(productsRes.error?.message || operationsRes.error?.message || "Не удалось загрузить вторичные справочники");
-      }
-
-      const dedupeByName = (rows: any[]) => {
-        const map = new Map<string, any>();
-        rows.forEach((row) => {
-          const key = String(row.name || row.name_ru || row.id || "").trim().toLowerCase();
-          if (!key) return;
-          const existing = map.get(key);
-          if (!existing || (existing.company_id == null && row.company_id != null)) map.set(key, row);
-        });
-        return Array.from(map.values());
-      };
-      const productRows = dedupeProductsForSelect(
-        (productsRes.data || []).filter((row: any) =>
-          !hasQaDataMarker(`${brandName(row) || row.name || ""} ${row.product_type || ""} ${row.type || ""}`)
-        )
-      );
-      const cropRows = dedupeByName(
-        (identityRefs.crops || []).filter((row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || ""))
-      );
-      const varietyRows = dedupeByName(((identityRefs.varieties || []) as any[]).filter(
-        (row: any) => !hasQaDataMarker(brandName(row) || row.name || "")
-      ));
-      const reproductionRows = dedupeByName(((identityRefs.reproductions || []) as any[]).filter(
-        (row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || "")
-      ));
-      const cropNameById = new Map<string, string>(
-        cropRows.map((crop: any) => [String(crop.id), localizedName(crop, lang, ["name"]) || String(crop.name || "").trim()])
-      );
-
-      const fieldNameById = new Map(fields.map((field) => [field.id, field.name]));
-      const nextProducts = productRows.map((row: any) => ({
-        id: String(row.id), name: brandName(row) || String(row.name || "Номенклатура"),
-        type: String(row.product_type || row.type || "").toLowerCase(), productType: String(row.product_type || ""),
-        unit: String(row.unit || ""), defaultUnit: String(row.default_unit || ""), baseUom: String(row.base_uom || ""),
-        packUom: String(row.pack_uom || ""), packageUnit: String(row.package_unit || ""), productForm: String(row.product_form || ""),
-        formulation: String(row.formulation || ""), category: String(row.category || ""), subcategory: String(row.subcategory || ""),
-        stockUnit: String(row.stock_unit || ""), physicalState: String(row.physical_state || ""), isSeedMaterial: row.is_seed_material === true,
-        cropId: row.crop_id ? String(row.crop_id) : null, varietyId: row.variety_id ? String(row.variety_id) : null,
-        reproductionId: row.seed_reproduction_id ? String(row.seed_reproduction_id) : null,
-      }));
-      const nextCrops = cropRows.map((row: any) => ({
-        id: String(row.id), name: localizedName(row, lang, ["name"]) || String(row.name || "Культура"),
-      }));
-      const nextVarieties = varietyRows.map((row: any) => ({
-        id: String(row.id), name: brandName(row) || String(row.name || "Сорт"), cropId: String(row.crop_id || ""),
-        cropName: localizedName(row.crops, lang, ["name"]) || cropNameById.get(String(row.crop_id || "")) || "",
-      }));
-      const nextReproductions = reproductionRows.map((row: any) => ({
-        id: String(row.id), name: localizedName(row, lang, ["name"]) || String(row.name || "Репродукция"),
-      }));
-      const nextLinkedOperations = (operationsRes.data || []).map((row: any) => {
-        const fieldId = row.field_id ? String(row.field_id) : null;
-        return {
-          id: String(row.id), field_id: fieldId,
+          .limit(100)
+          .abortSignal(signal);
+        if (operationsRes.error) throw operationsRes.error;
+        const fieldName = fields.find((field) => field.id === fieldId)?.name || "Поле";
+        const nextLinkedOperations = (operationsRes.data || []).map((row: any) => ({
+          id: String(row.id), field_id: row.field_id ? String(row.field_id) : null,
           category_slug: row.operation_category_slug ? String(row.operation_category_slug) : null,
           type_slug: row.operation_type_slug ? String(row.operation_type_slug) : null,
           status: row.status ? String(row.status) : null,
-          label: `${row.operation_type || "Operation"} • ${fieldId ? fieldNameById.get(fieldId) || "Поле" : "Поле"} • ${row.date ? formatDate(String(row.date)) : "—"}`,
-        };
-      }).filter((row: any) => !hasQaDataMarker(row.label));
+          label: `${row.operation_type || "Operation"} • ${fieldName} • ${row.date ? formatDate(String(row.date)) : "—"}`,
+        })).filter((row: any) => !hasQaDataMarker(row.label));
+        startTransition(() => {
+          setLinkedOperations(nextLinkedOperations);
+          setLinkedOperationLines([]);
+        });
+      }
 
-      startTransition(() => {
-        setProducts(nextProducts);
-        setCrops(nextCrops);
-        setVarieties(nextVarieties);
-        setReproductions(nextReproductions);
-        setSuppliers(supplierRows);
-        setBuyers(buyerRows);
-        setLinkedOperations(nextLinkedOperations);
-        setLinkedOperationLines([]);
-        setSecondaryCatalogsLoaded(true);
-      });
-    })().finally(() => {
-      if (secondaryCatalogRequestRef.current === request) secondaryCatalogRequestRef.current = null;
+      if (signal.aborted || requestGeneration !== secondaryCatalogGenerationRef.current) return;
+      secondaryCatalogReadyRef.current.add(cacheKey);
+      setSecondaryCatalogStatus({ key: cacheKey, status: "ready", error: "" });
+    })().catch((error: any) => {
+      if (signal.aborted || requestGeneration !== secondaryCatalogGenerationRef.current || error?.name === "AbortError") return;
+      const message = String(error?.message || "Не удалось загрузить справочник выбранного режима");
+      setSecondaryCatalogStatus({ key: cacheKey, status: "error", error: message });
+      throw error;
+    }).finally(() => {
+      if (secondaryCatalogRequestsRef.current.get(cacheKey) === request) {
+        secondaryCatalogRequestsRef.current.delete(cacheKey);
+      }
     });
-    secondaryCatalogRequestRef.current = request;
+    secondaryCatalogRequestsRef.current.set(cacheKey, request);
     return request;
   };
 
@@ -1292,6 +1324,7 @@ export default function WeighbridgeOperationsPage() {
                 id: String(row.id),
                 name: String(row.name || "Поле"),
                 area: Number(row.area || 0),
+                fieldCode: row.fieldCode ? String(row.fieldCode) : null,
               }))
               .filter((row) => !hasQaDataMarker(row.name)));
           }
@@ -1555,6 +1588,7 @@ export default function WeighbridgeOperationsPage() {
     }
     const ticketChanged = !hasScopedTables || ["tickets", "ticket_lines", "ticket_weighings"].some((name) => changedTables.has(name));
     const stockChanged = !hasScopedTables || ["inventory_batches", "stock_ledger_entries"].some((name) => changedTables.has(name));
+    if (stockChanged) stockIdentityCacheRef.current.clear();
     const tasks: Promise<unknown>[] = [];
     if (ticketChanged) {
       tasks.push(refreshTickets());
@@ -1562,7 +1596,9 @@ export default function WeighbridgeOperationsPage() {
     if (form.operationType === "impurity_removal" && (ticketChanged || stockChanged)) {
       tasks.push(refreshHarvestBatches());
     }
-    if (isForeground && ticketChanged) tasks.push(refreshTransportPickerData());
+    if (ticketChanged && (event?.source === "realtime" || event?.source === "online")) {
+      tasks.push(refreshTransportPickerData());
+    }
     if (statisticsOpen && ticketChanged) tasks.push(refreshBootstrap(true));
     if (!canUseOperatorSession && shiftChanged) tasks.push(refreshBootstrap(false));
     await Promise.all(tasks);
@@ -1573,7 +1609,7 @@ export default function WeighbridgeOperationsPage() {
     onRefresh: refreshLiveData,
     companyId: profile?.company_id,
     tables: LIVE_REFRESH_TABLES.weighbridge,
-    intervalMs: 60_000,
+    intervalMs: 0,
     minRefreshIntervalMs: 5_000,
   });
 
@@ -1645,9 +1681,11 @@ export default function WeighbridgeOperationsPage() {
     let refreshTimer: number | null = null;
 
     secondaryCatalogGenerationRef.current += 1;
-    secondaryCatalogRequestRef.current = null;
-    setSecondaryCatalogsLoaded(false);
-    setSecondaryCatalogError("");
+    secondaryCatalogRequestsRef.current.clear();
+    secondaryCatalogReadyRef.current.clear();
+    stockIdentityCacheRef.current.clear();
+    operationLinesCacheRef.current.clear();
+    setSecondaryCatalogStatus({ key: "", status: "idle", error: "" });
     setHistoryLimit(10);
     setHistoryHasMore(false);
     if (cached) {
@@ -1716,20 +1754,52 @@ export default function WeighbridgeOperationsPage() {
 
   const needsSecondaryCatalogs = ["supplier_receipt", "issue_to_field", "shipment_outbound"]
     .includes(form.operationType);
+  const secondaryCatalogKey = useMemo(() => {
+    if (!profile?.company_id) return "";
+    if (form.operationType === "supplier_receipt") {
+      return `${profile.company_id}:${language}:supplier:${form.supplierItemMode}`;
+    }
+    if (form.operationType === "shipment_outbound") {
+      return `${profile.company_id}:${language}:shipment`;
+    }
+    if (form.operationType === "issue_to_field" && form.fieldId) {
+      return `${profile.company_id}:${language}:field-operations:${form.fieldId}`;
+    }
+    return "";
+  }, [form.fieldId, form.operationType, form.supplierItemMode, language, profile?.company_id]);
 
   useEffect(() => {
     if (canUseOperatorSession && !operatorState.unlocked) return;
     if (!workspaceReady || !coreDataReady) return;
-    if (!needsSecondaryCatalogs || secondaryCatalogsLoaded || !profile?.company_id) return;
-    void loadSecondaryCatalogs().catch((error: any) => {
+    if (!needsSecondaryCatalogs || !secondaryCatalogKey || !profile?.company_id) return;
+    if (secondaryCatalogReadyRef.current.has(secondaryCatalogKey)) {
+      setSecondaryCatalogStatus({ key: secondaryCatalogKey, status: "ready", error: "" });
+      return;
+    }
+    const controller = new AbortController();
+    const requestGeneration = ++secondaryCatalogGenerationRef.current;
+    void loadSecondaryCatalogs(
+      form.operationType,
+      form.fieldId,
+      form.supplierItemMode,
+      secondaryCatalogKey,
+      requestGeneration,
+      controller.signal,
+    ).catch((error: any) => {
       if (error?.name !== "AbortError") {
         console.error("Weighbridge secondary catalogs failed", error);
-        setSecondaryCatalogError("Не удалось загрузить справочник выбранного режима. Переключите режим и повторите.");
       }
     });
-    // Secondary catalogs are intentionally lazy and are never part of harvest startup.
+    return () => {
+      controller.abort();
+      secondaryCatalogRequestsRef.current.delete(secondaryCatalogKey);
+      if (secondaryCatalogGenerationRef.current === requestGeneration) {
+        secondaryCatalogGenerationRef.current += 1;
+      }
+    };
+    // Each mode owns only its required resources; stale requests are aborted on mode/context change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.operationType, needsSecondaryCatalogs, profile?.company_id, language, secondaryCatalogsLoaded, canUseOperatorSession, operatorState.unlocked, workspaceReady, coreDataReady]);
+  }, [secondaryCatalogKey, needsSecondaryCatalogs, profile?.company_id, canUseOperatorSession, operatorState.unlocked, workspaceReady, coreDataReady]);
 
   useEffect(() => {
     if (canUseOperatorSession && !operatorState.unlocked) return;
@@ -1947,6 +2017,8 @@ export default function WeighbridgeOperationsPage() {
     return () => window.clearTimeout(timer);
   }, [universalWorkspacePersistKey, workspaceHydratedKey, selectedWorkspaceId, workspaces]);
 
+  const stockSourcePlaceType = warehouses.find((warehouse) => warehouse.id === form.warehouseFromId)?.placeType || "";
+
   useEffect(() => {
     const sourcePlace = warehouses.find((warehouse) => warehouse.id === form.warehouseFromId);
     const usesProcessingWip = form.operationType === "transfer_between_warehouses"
@@ -1966,7 +2038,19 @@ export default function WeighbridgeOperationsPage() {
 
     const companyId = profile.company_id;
     const warehouseFromId = form.warehouseFromId;
-    let cancelled = false;
+    const cacheKey = `${companyId}:${warehouseFromId}`;
+    const cached = stockIdentityCacheRef.current.get(cacheKey);
+    if (cached) {
+      setStockIdentityOptions(cached);
+      setStockIdentityLoading(false);
+      setForm((prev) => {
+        if (!prev.stockIdentityKey || cached.some((item) => item.key === prev.stockIdentityKey)) return prev;
+        return { ...prev, stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "" };
+      });
+      return;
+    }
+
+    const controller = new AbortController();
     setStockIdentityLoading(true);
     getSessionAuthHeaders()
       .then((headers) =>
@@ -1975,6 +2059,7 @@ export default function WeighbridgeOperationsPage() {
           {
             cache: "no-store",
             headers,
+            signal: controller.signal,
           }
         )
       )
@@ -1984,7 +2069,8 @@ export default function WeighbridgeOperationsPage() {
         return ((payload.items || []) as StockIdentityOption[]).filter((item) => !item.is_legacy_invalid);
       })
       .then((items) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
+        stockIdentityCacheRef.current.set(cacheKey, items);
         setStockIdentityOptions(items);
         setForm((prev) => {
           if (!prev.stockIdentityKey || items.some((item) => item.key === prev.stockIdentityKey)) return prev;
@@ -1992,18 +2078,18 @@ export default function WeighbridgeOperationsPage() {
         });
       })
       .catch((error) => {
-        if (cancelled) return;
+        if (controller.signal.aborted || error?.name === "AbortError") return;
         setStockIdentityOptions([]);
         toast({ title: "Ошибка остатков", description: error?.message || "Не удалось загрузить остатки склада", variant: "destructive" });
       })
       .finally(() => {
-        if (!cancelled) setStockIdentityLoading(false);
+        if (!controller.signal.aborted) setStockIdentityLoading(false);
       });
 
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [form.operationType, form.warehouseFromId, form.stockIdentityKey, profile?.company_id, profile?.id, toast, warehouses]);
+  }, [form.operationType, form.warehouseFromId, profile?.company_id, profile?.id, stockSourcePlaceType, toast]);
 
   useEffect(() => {
     if (!activeTicket) return;
@@ -2043,27 +2129,36 @@ export default function WeighbridgeOperationsPage() {
       }),
     [harvestStructureByField, form.fieldId]
   );
-  const harvestTargetOptions = useMemo<SearchableComboboxOption[]>(() => {
-    const fieldById = new Map(fields.map((field) => [field.id, field]));
-    return Object.entries(harvestStructureByField).flatMap(([fieldId, allocations]) => {
-      const field = fieldById.get(fieldId);
-      if (!field) return [];
-      return allocations
-        .slice()
-        .sort((a, b) => Number(a.isIncomplete) - Number(b.isIncomplete))
-        .map((allocation) => ({
-          value: `${fieldId}:${allocation.allocationId}`,
-          label: `${field.name} · ${allocation.plotLabel} · ${allocation.cropName}`,
-          description: [
-            allocation.varietyName,
-            allocation.reproductionName,
-            `${allocation.areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`,
-            `код ${allocation.allocationCode}`,
-          ].filter(Boolean).join(" · "),
-          keywords: [field.name, allocation.cropName, allocation.varietyName, allocation.reproductionName, allocation.plotLabel, allocation.allocationCode],
-        }));
-    });
-  }, [fields, harvestStructureByField]);
+  const harvestFieldOptions = useMemo<SearchableComboboxOption[]>(() =>
+    harvestFieldsWithAllocations(fields, harvestStructureByField).map((field) => {
+      const areaLabel = `${field.area.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`;
+      return {
+        value: field.id,
+        label: `${field.name} — ${areaLabel}`,
+        description: field.fieldCode || undefined,
+        keywords: [field.name, areaLabel, String(field.area), field.fieldCode || ""],
+      };
+    }),
+  [fields, harvestStructureByField]);
+  const harvestAllocationOptions = useMemo<SearchableComboboxOption[]>(() =>
+    fieldHarvestOptions.map((allocation) => ({
+      value: allocation.allocationId,
+      label: [
+        allocation.cropName,
+        allocation.varietyName,
+        allocation.reproductionName,
+        `${allocation.areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`,
+      ].filter(Boolean).join(" · "),
+      description: `Строка ${allocation.allocationCode}`,
+      keywords: [
+        allocation.cropName,
+        allocation.varietyName,
+        allocation.reproductionName,
+        allocation.plotLabel,
+        allocation.allocationCode,
+      ],
+    })),
+  [fieldHarvestOptions]);
   const selectedHarvestAllocation = useMemo(
     () => fieldHarvestOptions.find((x) => x.allocationId === form.cropStructureAllocationId) || null,
     [fieldHarvestOptions, form.cropStructureAllocationId]
@@ -2338,7 +2433,18 @@ export default function WeighbridgeOperationsPage() {
       return;
     }
 
-    let cancelled = false;
+    const cacheKey = `${profile.company_id}:${form.linkedOperationId}`;
+    const cached = operationLinesCacheRef.current.get(cacheKey);
+    if (cached) {
+      setLinkedOperationLines(cached);
+      setLinkedOperationLinesLoading(false);
+      setForm((prev) => prev.linkedOperationLineId && !cached.some((item) => item.id === prev.linkedOperationLineId)
+        ? { ...prev, linkedOperationLineId: "" }
+        : prev);
+      return;
+    }
+
+    const controller = new AbortController();
     setLinkedOperationLinesLoading(true);
 
     (supabase
@@ -2346,19 +2452,16 @@ export default function WeighbridgeOperationsPage() {
       .select("id,operation_id,variety_id,reproduction_id,planned_area_ha,actual_area_ha,varieties:variety_id(name),seed_reproductions:reproduction_id(name)")
       .eq("company_id", profile.company_id)
       .eq("operation_id", form.linkedOperationId)
-      .order("created_at", { ascending: true }) as unknown as Promise<{ data: any[] | null; error: any }>)
+      .order("created_at", { ascending: true })
+      .abortSignal(controller.signal) as unknown as Promise<{ data: any[] | null; error: any }>)
       .then(({ data, error }) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         if (error) throw error;
         const options = (data || []).map((row: any) => {
           const varietyName =
-            String(row?.varieties?.name || "").trim() ||
-            varieties.find((item) => item.id === String(row.variety_id || ""))?.name ||
-            "";
+            String(row?.varieties?.name || "").trim();
           const reproductionName =
-            String(row?.seed_reproductions?.name || "").trim() ||
-            reproductions.find((item) => item.id === String(row.reproduction_id || ""))?.name ||
-            "";
+            String(row?.seed_reproductions?.name || "").trim();
           const area = Number(row.actual_area_ha ?? row.planned_area_ha ?? 0);
           return {
             id: String(row.id),
@@ -2368,13 +2471,14 @@ export default function WeighbridgeOperationsPage() {
             label: `${harvestIdentityLabel(varietyName, reproductionName) || "Участок"} • ${area.toFixed(2)} га`,
           } satisfies LinkedOperationLineOption;
         });
+        operationLinesCacheRef.current.set(cacheKey, options);
         setLinkedOperationLines(options);
-        if (form.linkedOperationLineId && !options.some((item) => item.id === form.linkedOperationLineId)) {
-          setForm((prev) => ({ ...prev, linkedOperationLineId: "" }));
-        }
+        setForm((prev) => prev.linkedOperationLineId && !options.some((item) => item.id === prev.linkedOperationLineId)
+          ? { ...prev, linkedOperationLineId: "" }
+          : prev);
       })
       .catch((error: any) => {
-        if (cancelled) return;
+        if (controller.signal.aborted || error?.name === "AbortError") return;
         setLinkedOperationLines([]);
         toast({
           title: "Ошибка загрузки строк операции",
@@ -2383,20 +2487,17 @@ export default function WeighbridgeOperationsPage() {
         });
       })
       .finally(() => {
-        if (!cancelled) setLinkedOperationLinesLoading(false);
+        if (!controller.signal.aborted) setLinkedOperationLinesLoading(false);
       });
 
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [
     form.operationType,
     form.linkedOperationId,
-    form.linkedOperationLineId,
     profile?.company_id,
-    reproductions,
     toast,
-    varieties,
   ]);
 
   useEffect(() => {
@@ -2629,17 +2730,32 @@ export default function WeighbridgeOperationsPage() {
     }
   };
 
-  const changeHarvestTarget = (value: string) => {
-    const [fieldId, allocationId] = value.split(":");
-    const allocation = (harvestStructureByField[fieldId] || [])
-      .find((item) => item.allocationId === allocationId) || null;
-    setForm((previous) => ({
+  const changeHarvestField = (value: string) => {
+    const fieldId = harvestFieldOptions.some((option) => option.value === value) ? value : "";
+    const automaticAllocation = fieldId
+      ? automaticHarvestAllocation(harvestStructureByField[fieldId] || [], { allowIncompleteIdentity: true })
+      : null;
+    setForm((previous) => previous.fieldId === fieldId ? previous : ({
       ...previous,
-      fieldId: allocation ? fieldId : "",
+      fieldId,
+      cropStructureAllocationId: automaticAllocation?.allocationId || "",
+      cropId: automaticAllocation?.cropId || "",
+      varietyId: automaticAllocation?.varietyId || "",
+      reproductionId: automaticAllocation?.reproductionId || "",
+      combineOperatorPersonId: "",
+    }));
+  };
+
+  const changeHarvestTarget = (allocationId: string) => {
+    const allocation = (harvestStructureByField[form.fieldId] || [])
+      .find((item) => item.allocationId === allocationId) || null;
+    setForm((previous) => previous.cropStructureAllocationId === allocation?.allocationId ? previous : ({
+      ...previous,
       cropStructureAllocationId: allocation?.allocationId || "",
       cropId: allocation?.cropId || "",
       varietyId: allocation?.varietyId || "",
       reproductionId: allocation?.reproductionId || "",
+      combineOperatorPersonId: "",
     }));
   };
 
@@ -3405,8 +3521,19 @@ export default function WeighbridgeOperationsPage() {
     return null;
   };
 
-  const activeSecondaryCatalogError = needsSecondaryCatalogs ? secondaryCatalogError : "";
-  const secondaryModeLoading = needsSecondaryCatalogs && !secondaryCatalogsLoaded && !activeSecondaryCatalogError;
+  const activeSecondaryCatalogError = needsSecondaryCatalogs
+    && secondaryCatalogStatus.key === secondaryCatalogKey
+    && secondaryCatalogStatus.status === "error"
+    ? secondaryCatalogStatus.error
+    : "";
+  const secondaryModeLoading = Boolean(
+    needsSecondaryCatalogs
+    && secondaryCatalogKey
+    && !secondaryCatalogReadyRef.current.has(secondaryCatalogKey)
+    && secondaryCatalogStatus.key === secondaryCatalogKey
+    && secondaryCatalogStatus.status === "loading"
+    && !activeSecondaryCatalogError
+  );
   const currentValidationError = !coreDataReady
     ? "Рабочие справочники ещё загружаются"
     : activeSecondaryCatalogError
@@ -4657,23 +4784,38 @@ export default function WeighbridgeOperationsPage() {
 
             {form.operationType === "harvest_incoming" ? (
               <div className="space-y-1.5">
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                   <div className="min-w-0 space-y-1.5">
-                    <Label>Поле / участок *</Label>
+                    <Label>Поле *</Label>
                     <HarvestAllocationPicker
-                      value={form.fieldId && form.cropStructureAllocationId
-                        ? `${form.fieldId}:${form.cropStructureAllocationId}`
-                        : ""}
-                      options={harvestTargetOptions}
-                      onValueChange={changeHarvestTarget}
+                      value={form.fieldId}
+                      options={harvestFieldOptions}
+                      onValueChange={changeHarvestField}
+                      placeholder="Выберите поле"
+                      searchPlaceholder="Название, площадь или код поля"
+                      emptyLabel="Поле не найдено"
+                      ariaLabel="Поле"
+                      listAriaLabel="Физические поля активного сезона"
                       disabled={loading || submitting}
                     />
-                    {selectedHarvestAllocation ? (
-                      <div className="truncate text-xs text-slate-400" title={`${selectedHarvestAllocation.cropName} · ${selectedHarvestAllocation.varietyName} · ${selectedHarvestAllocation.reproductionName}`}>
-                        {[selectedHarvestAllocation.cropName, selectedHarvestAllocation.varietyName, selectedHarvestAllocation.reproductionName].filter(Boolean).join(" · ")}
-                      </div>
-                    ) : null}
                   </div>
+                  {form.fieldId ? (
+                    <div className="min-w-0 space-y-1.5">
+                      <Label>Участок / культура *</Label>
+                      <HarvestAllocationPicker
+                        value={form.cropStructureAllocationId}
+                        options={harvestAllocationOptions}
+                        onValueChange={changeHarvestTarget}
+                        placeholder="Выберите участок / культуру"
+                        searchPlaceholder="Культура, сорт или репродукция"
+                        emptyLabel="Урожайная строка не найдена"
+                        ariaLabel="Участок или культура"
+                        listAriaLabel="Урожайные строки выбранного поля"
+                        maxVisible={60}
+                        disabled={loading || submitting}
+                      />
+                    </div>
+                  ) : null}
                   <div className="min-w-0 space-y-1.5">
                     <Label>Место приёмки *</Label>
                     <SearchableCombobox

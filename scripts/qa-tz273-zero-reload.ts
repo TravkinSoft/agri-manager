@@ -87,10 +87,16 @@ check("critical weighbridge load excludes bootstrap and secondary catalogs", () 
   assert.match(critical, /loadTransportPickerDataCached/);
 });
 
-check("secondary catalogs load only outside default harvest intake", () => {
+check("secondary catalogs are scoped to the selected mode and field", () => {
   assert.match(page, /const loadSecondaryCatalogs = async/);
-  assert.match(page, /const needsSecondaryCatalogs = form\.operationType !== "harvest_incoming"/);
-  assert.match(page, /if \(!needsSecondaryCatalogs \|\| secondaryCatalogsLoaded/);
+  const declaration = page.match(/const needsSecondaryCatalogs = \[[\s\S]*?\.includes\(form\.operationType\);/)?.[0] || "";
+  assert.match(declaration, /supplier_receipt/);
+  assert.match(declaration, /issue_to_field/);
+  assert.match(declaration, /shipment_outbound/);
+  assert.doesNotMatch(declaration, /transfer_between_warehouses/);
+  assert.match(page, /field-operations:\$\{form\.fieldId\}/);
+  assert.match(page, /\.eq\("field_id", fieldId\)/);
+  assert.match(page, /secondaryCatalogReadyRef\.current\.has\(secondaryCatalogKey\)/);
 });
 
 check("statistics summary is lazy", () => {
@@ -109,16 +115,19 @@ check("weighbridge restores confirmed workspace data from shared browser cache",
 });
 
 check("canonical startup requests are deduplicated and abortable", () => {
-  for (const ref of ["coreLoadRequestRef", "ticketsRequestRef", "operatorRequestRef", "secondaryCatalogRequestRef"]) {
+  for (const ref of ["coreLoadRequestRef", "ticketsRequestRef", "operatorRequestRef", "secondaryCatalogRequestsRef"]) {
     assert.match(page, new RegExp(ref));
   }
   assert.match(page, /const controller = new AbortController\(\)/);
   assert.match(page, /controller\.abort\(\)/);
+  assert.match(page, /secondaryCatalogGenerationRef\.current/);
+  assert.match(page, /secondaryCatalogRequestsRef\.current\.delete\(secondaryCatalogKey\)/);
 });
 
 check("workspace journal is bounded", () => {
   assert.match(ticketRoute, /\.limit\(100\)/);
-  assert.match(ticketRoute, /\.limit\(20\)/);
+  assert.match(ticketRoute, /\.limit\(historyLimit \+ 1\)/);
+  assert.match(ticketRoute, /Math\.min\(100, Math\.max\(10/);
 });
 
 check("assistant remains fully suppressed on weighbridge", () => {

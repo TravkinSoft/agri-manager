@@ -62,7 +62,7 @@ check("business load waits for canonical unlock", () => {
   assert.match(businessLoadEffect, /refreshBootstrap/);
 });
 check("processing transformations wait for canonical unlock", () => {
-  assert.match(page, /<ProcessingWorkspace[\s\S]*?enabled=\{!canUseOperatorSession \|\| operatorState\.unlocked\}/);
+  assert.match(page, /<ProcessingWorkspace[\s\S]*?enabled=\{coreDataReady && \(!canUseOperatorSession \|\| operatorState\.unlocked\)\}/);
   assert.match(processingWorkspace, /if \(!enabled\) return;[\s\S]*?getProcessingTransformations/);
 });
 check("workspace cache does not persist operator session", () => {
