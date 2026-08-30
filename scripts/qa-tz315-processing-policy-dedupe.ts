@@ -8,7 +8,7 @@ const aclMigrationUrl = new URL(
   import.meta.url,
 );
 const dedupeMigrationUrl = new URL(
-  "../supabase/migrations/20260830223814_tz315_processing_select_policy_dedupe_v1.sql",
+  "../supabase/migrations/20260830224617_tz315_processing_select_policy_dedupe_v1.sql",
   import.meta.url,
 );
 
