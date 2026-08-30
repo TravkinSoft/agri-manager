@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
-const migration = read("supabase/migrations/20260831021500_tz315_processing_wip_route_handoff_v1.sql");
+const migration = read("supabase/migrations/20260830223159_tz315_processing_wip_route_handoff_v1.sql");
 const baseline = read("supabase/migrations/20260826103000_weighbridge_route_processing_contract_v1.sql");
 const routeGuard = read("supabase/migrations/20260827110000_weighbridge_crop_processing_guard_v1.sql");
 const inputLifecycle = read("supabase/migrations/20260830072000_tz312_processing_input_warehouse_context_v1.sql");

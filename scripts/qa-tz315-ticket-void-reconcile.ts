@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 
 const migrationUrl = new URL(
-  "../supabase/migrations/20260830204658_tz315_ticket_void_batch_reconcile_v1.sql",
+  "../supabase/migrations/20260830221810_tz315_ticket_void_batch_reconcile_v1.sql",
   import.meta.url,
 );
 

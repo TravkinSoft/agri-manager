@@ -13,7 +13,7 @@ import type { BatchTransformationRow } from "@/lib/services/processing";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
-const migration = read("supabase/migrations/20260830204809_tz315_s16_drying_balance_tolerance_v1.sql");
+const migration = read("supabase/migrations/20260830223125_tz315_s16_drying_balance_tolerance_v1.sql");
 const sourceDebitMigration = read("supabase/migrations/20260830211041_tz315_processing_output_source_debit_v1.sql");
 const route = read("app/api/processing/transformations/route.ts");
 const actionRoute = read("app/api/processing/transformations/[id]/actions/route.ts");

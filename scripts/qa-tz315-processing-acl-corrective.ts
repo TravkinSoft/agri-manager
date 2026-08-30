@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 
 const migrationUrl = new URL(
-  "../supabase/migrations/20260830214852_tz315_processing_acl_corrective_v1.sql",
+  "../supabase/migrations/20260830223144_tz315_processing_acl_corrective_v1.sql",
   import.meta.url,
 );
 const processingRouteUrl = new URL("../app/api/processing/transformations/route.ts", import.meta.url);
