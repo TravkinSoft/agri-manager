@@ -53,6 +53,13 @@ check("physical-field label shows one UUID-backed row with area", () => {
   assert.match(page, /value: field\.id,[\s\S]*?label: `\$\{field\.name\} · \$\{areaLabel\}`/);
 });
 
+check("crop-structure UUID fragments stay out of visible picker labels", () => {
+  assert.match(page, /description: allocation\.plotCount > 1 \? allocation\.plotLabel : undefined/);
+  assert.doesNotMatch(page, /description: `Строка \$\{allocation\.allocationCode\}`/);
+  assert.doesNotMatch(page, /га · \{x\.allocationCode\}/);
+  assert.doesNotMatch(page, /код \{selectedHarvestAllocation\.allocationCode\}/);
+});
+
 check("weighbridge vehicle bootstrap reads only active vehicle-fleet rows", () => {
   assert.match(resourcesRoute, /from\("reference_vehicles"\)[\s\S]*?eq\("is_active", true\)[\s\S]*?eq\("archived", false\)/);
   assert.doesNotMatch(resourcesRoute, /from\("reference_machines"\)/);
@@ -97,5 +104,5 @@ check("vehicle option explains a missing plate without exposing OSV", () => {
   assert.match(page, /snapshotVehicle = resolveTransportIdentity/);
 });
 
-assert.equal(checks, 11);
+assert.equal(checks, 12);
 console.log(`TZ314 field and vehicle regression PASS: ${checks}/${checks}`);

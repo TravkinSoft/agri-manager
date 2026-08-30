@@ -2276,7 +2276,7 @@ export default function WeighbridgeOperationsPage() {
         allocation.reproductionName,
         `${allocation.areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`,
       ].filter(Boolean).join(" · "),
-      description: `Строка ${allocation.allocationCode}`,
+      description: allocation.plotCount > 1 ? allocation.plotLabel : undefined,
       keywords: [
         allocation.cropName,
         allocation.varietyName,
@@ -5200,10 +5200,10 @@ export default function WeighbridgeOperationsPage() {
                 {fieldHarvestOptions.length > 1 ? (
                   <Select value={form.cropStructureAllocationId} onValueChange={(v) => setForm((p) => ({ ...p, cropStructureAllocationId: v, stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "" }))}>
                     <SelectTrigger className="h-9"><SelectValue placeholder="Выберите точную посевную строку" /></SelectTrigger>
-                    <SelectContent>{fieldHarvestOptions.map((x) => <SelectItem key={x.allocationId} value={x.allocationId}>{x.plotLabel} · {harvestIdentityLabel(x.cropName, x.varietyName, x.reproductionName)} · {x.areaHa.toFixed(2)} га · {x.allocationCode}</SelectItem>)}</SelectContent>
+                    <SelectContent>{fieldHarvestOptions.map((x) => <SelectItem key={x.allocationId} value={x.allocationId}>{x.plotLabel} · {harvestIdentityLabel(x.cropName, x.varietyName, x.reproductionName)} · {x.areaHa.toFixed(2)} га</SelectItem>)}</SelectContent>
                   </Select>
                 ) : null}
-                {selectedHarvestAllocation ? <div className="text-xs text-emerald-300">{fields.find((field) => field.id === form.fieldId)?.name} · {selectedHarvestAllocation.plotLabel} · код {selectedHarvestAllocation.allocationCode} · {harvestIdentityLabel(selectedHarvestAllocation.cropName, selectedHarvestAllocation.varietyName, selectedHarvestAllocation.reproductionName)} · {selectedHarvestAllocation.areaHa.toFixed(2)} га</div> : null}
+                {selectedHarvestAllocation ? <div className="text-xs text-emerald-300">{fields.find((field) => field.id === form.fieldId)?.name} · {selectedHarvestAllocation.plotLabel} · {harvestIdentityLabel(selectedHarvestAllocation.cropName, selectedHarvestAllocation.varietyName, selectedHarvestAllocation.reproductionName)} · {selectedHarvestAllocation.areaHa.toFixed(2)} га</div> : null}
                 {form.fieldIssueMode === "direct" ? (
                   <div className="grid gap-2 md:grid-cols-2">
                     <Select value={form.stockIdentityKey} onValueChange={(v) => {
