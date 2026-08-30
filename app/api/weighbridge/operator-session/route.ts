@@ -4,6 +4,12 @@ import {
   asSessionErrorResponse,
   resolveWeighbridgeSession,
 } from "@/app/api/weighbridge/_auth";
+import {
+  SessionAuthError,
+  getServerActorFromSession,
+  getUserScopedClientFromRequest,
+  resolveCompanyForActor,
+} from "@/lib/auth/server-session";
 
 const OPERATOR_SESSION_ROLES = ["global_admin", "company_admin", "director", "weighman"] as const;
 
@@ -42,17 +48,32 @@ function jsonWithOperatorCookie(payload: Record<string, any>) {
 }
 
 export async function GET(request: NextRequest) {
+  const startedAt = performance.now();
   try {
-    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
-      allowedRoles: OPERATOR_SESSION_ROLES,
-    });
+    const actorStartedAt = performance.now();
+    const actor = await getServerActorFromSession(request);
+    const actorMs = performance.now() - actorStartedAt;
+    if (!OPERATOR_SESSION_ROLES.includes(actor.role as (typeof OPERATOR_SESSION_ROLES)[number])) {
+      throw new SessionAuthError("Access denied for current role", 403);
+    }
+
+    const requestedCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
+    const companyId = resolveCompanyForActor(actor, requestedCompanyId);
+    const supabase = await getUserScopedClientFromRequest(request);
     const token = request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || null;
+    const rpcStartedAt = performance.now();
     const { data, error } = await supabase.rpc("weighbridge_operator_session_state_v1", {
       p_company_id: companyId,
       p_session_token: token,
     });
+    const rpcMs = performance.now() - rpcStartedAt;
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json(data || {});
+    const response = NextResponse.json(data || {});
+    response.headers.set(
+      "Server-Timing",
+      `actor;dur=${actorMs.toFixed(1)}, operator_rpc;dur=${rpcMs.toFixed(1)}, total;dur=${(performance.now() - startedAt).toFixed(1)}`
+    );
+    return response;
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });

@@ -15,6 +15,7 @@ function check(name: string, test: () => void) {
 const page = read("app/(dashboard)/weighbridge/page.tsx");
 const paper = read("components/weighbridge/weighbridge-ticket-paper.tsx");
 const printPage = read("app/(dashboard)/weighbridge/[id]/print/page.tsx");
+const operatorSessionRoute = read("app/api/weighbridge/operator-session/route.ts");
 const harvestPaper = paper.slice(paper.indexOf("{isHarvest ? ("), paper.indexOf(") : (", paper.indexOf("{isHarvest ? (")));
 const openTickets = page.slice(page.indexOf("Открытые талоны"), page.indexOf("<ProcessingWorkspace"));
 const sessionSkeleton = page.slice(page.indexOf("if (authLoading || operatorGateChecking)"), page.indexOf("if (!canView)"));
@@ -74,9 +75,20 @@ check("PIN dialog is deferred until session verification completes", () => {
   assert.match(page, /\(operatorGateBlocked && !operatorGateChecking\)/);
 });
 
+check("session GET reuses the canonical actor context without a redundant profile lookup", () => {
+  const getHandler = operatorSessionRoute.slice(
+    operatorSessionRoute.indexOf("export async function GET"),
+    operatorSessionRoute.indexOf("export async function POST")
+  );
+  assert.match(getHandler, /getServerActorFromSession\(request\)/);
+  assert.match(getHandler, /resolveCompanyForActor\(actor, requestedCompanyId\)/);
+  assert.match(getHandler, /Server-Timing/);
+  assert.doesNotMatch(getHandler, /resolveWeighbridgeSession/);
+});
+
 check("print paper contract remains 90 by 160 millimetres", () => {
   assert.match(printPage, /size:\s*90mm 160mm/);
 });
 
-assert.equal(passed, 9);
-console.log(`TZ314 ticket/session UX regression PASS: ${passed}/9`);
+assert.equal(passed, 10);
+console.log(`TZ314 ticket/session UX regression PASS: ${passed}/10`);
