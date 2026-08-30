@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { WEIGHBRIDGE_OPERATOR_COOKIE, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, recordWeighbridgeOperatorActivity, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUnexpectedUserError, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
+import { getServiceClient } from "@/lib/supabase/service";
 
 const CORRECTION_LOT_ERROR = "Не удалось завершить исправление талона. Связь партии не прошла проверку. Исходный талон не изменён.";
 
@@ -83,7 +84,10 @@ async function syncHarvestBatchMoisture(
   if (!Number.isFinite(moisture) || moisture <= 0 || moisture >= 100) {
     throw new Error("Влажность рейса должна быть больше 0 и меньше 100 %.");
   }
-  const { data: batches, error } = await supabase
+  // The actor/ticket/company contract is verified by the caller with the
+  // session-scoped client. inventory_batches is a server-only write surface.
+  const mutationClient = getServiceClient();
+  const { data: batches, error } = await mutationClient
     .from("inventory_batches")
     .update({ moisture_percent: moisture })
     .eq("company_id", companyId)

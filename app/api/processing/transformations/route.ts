@@ -9,6 +9,7 @@ import {
 import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
 import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
 import { processingBalanceTolerance } from "@/lib/weighbridge/processing-work-state";
+import { getServiceClient } from "@/lib/supabase/service";
 
 const STORED_OUTPUT_TYPES = new Set([
   "cleaned_seed",
@@ -461,6 +462,44 @@ async function validateOutputWarehouses(
   }
 }
 
+async function validateProcessingMutationScope(
+  supabase: SupabaseClient,
+  companyId: string,
+  inputWarehouseId: string,
+  processingNodeId: string | null,
+) {
+  const [warehouseResult, nodeResult] = await Promise.all([
+    supabase
+      .from("warehouses")
+      .select("id,warehouse_type,archived,is_archived")
+      .eq("id", inputWarehouseId)
+      .eq("company_id", companyId)
+      .maybeSingle(),
+    processingNodeId
+      ? supabase
+          .from("processing_nodes")
+          .select("id")
+          .eq("id", processingNodeId)
+          .eq("company_id", companyId)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+
+  const warehouse = warehouseResult.data as any;
+  if (
+    warehouseResult.error
+    || !warehouse?.id
+    || warehouse.archived
+    || warehouse.is_archived
+    || !isHarvestWarehouseType(warehouse.warehouse_type)
+  ) {
+    throw new Error("Склад сырья недоступен для обработки.");
+  }
+  if (processingNodeId && (nodeResult.error || !(nodeResult.data as any)?.id)) {
+    throw new Error("Объект обработки не принадлежит выбранной компании.");
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { companyId, supabase } = await resolveWeighbridgeSession(request, {
@@ -555,6 +594,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Не определены партия, склад или масса сырья." }, { status: 400 });
     }
 
+    await validateProcessingMutationScope(
+      supabase,
+      companyId,
+      String(input.warehouse_from_id),
+      processingNodeId,
+    );
+
     const outputTotal = outputs.reduce((sum: number, row: any) => sum + Number(row.output_weight_kg || 0), 0);
     if (outputTotal > Number(input.input_weight_kg || 0) + 0.0001) {
       return NextResponse.json({ error: "Готовый продукт и потери не могут превышать массу сырья." }, { status: 400 });
@@ -604,7 +650,10 @@ export async function POST(request: NextRequest) {
       inputAllocations.push({ batch_id: String(batch.id), input_weight_kg: Number(input.input_weight_kg) });
     }
 
-    const { data: transformation, error: transformationError } = await supabase
+    // All source identities were resolved with the actor-scoped client above.
+    // The accounting tables themselves are server-only write surfaces.
+    const mutationClient = getServiceClient();
+    const { data: transformation, error: transformationError } = await mutationClient
       .from("batch_transformations")
       .insert({
         ...(sourceTicketId ? { id: sourceTicketId } : {}),
@@ -637,9 +686,9 @@ export async function POST(request: NextRequest) {
     }
 
     const cleanup = async () => {
-      await supabase.from("batch_transformations").delete().eq("id", transformation.id).eq("company_id", companyId);
+      await mutationClient.from("batch_transformations").delete().eq("id", transformation.id).eq("company_id", companyId);
     };
-    const { error: inputError } = await supabase.from("batch_transformation_inputs").insert(
+    const { error: inputError } = await mutationClient.from("batch_transformation_inputs").insert(
       inputAllocations.map((allocation) => ({
         company_id: companyId,
         transformation_id: transformation.id,
@@ -653,7 +702,7 @@ export async function POST(request: NextRequest) {
       await cleanup();
       return NextResponse.json({ error: inputError.message }, { status: 400 });
     }
-    const { error: outputsError } = await supabase.from("batch_transformation_outputs").insert(
+    const { error: outputsError } = await mutationClient.from("batch_transformation_outputs").insert(
       outputs.map((output: any) => ({
         company_id: companyId,
         transformation_id: transformation.id,
