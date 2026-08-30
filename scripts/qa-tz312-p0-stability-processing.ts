@@ -150,7 +150,14 @@ check("drying cannot become ready without the moisture required by hard close", 
   };
   assert.equal(processingWorkState(item(baseDrying)), "reconciliation");
   assert.equal(processingWorkState(item({ ...baseDrying, input_moisture_percent: 20, output_moisture_percent: 100 })), "reconciliation");
-  assert.equal(processingWorkState(item({ ...baseDrying, input_moisture_percent: 20, output_moisture_percent: 20 })), "ready");
+  assert.equal(processingWorkState(item({ ...baseDrying, input_moisture_percent: 20, output_moisture_percent: 20 })), "reconciliation");
+  assert.equal(processingWorkState(item({
+    ...baseDrying,
+    input_moisture_percent: 20,
+    output_moisture_percent: 20,
+    input_moisture_coverage_kg: 10_000,
+    output_moisture_coverage_kg: 10_000,
+  })), "ready");
 });
 
 check("weightman has no processing lifecycle menu", () => {
