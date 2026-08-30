@@ -706,6 +706,7 @@ const harvestContextCache = new Map<string, HarvestContextState>();
 const harvestContextRequestCache = new Map<string, Promise<HarvestContextState>>();
 const WEIGHBRIDGE_WORKSPACE_CACHE_VERSION = 2;
 const WEIGHBRIDGE_WORKSPACE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const MODE_RESOURCE_STABILITY_DELAY_MS = 75;
 
 const workspaceCacheKey = (companyId: string, profileId: string, language: string) =>
   `travkin.weighbridge.workspace.v${WEIGHBRIDGE_WORKSPACE_CACHE_VERSION}.${companyId}.${profileId}.${language}`;
@@ -986,6 +987,10 @@ export default function WeighbridgeOperationsPage() {
   const tareInputRef = useRef<HTMLInputElement | null>(null);
   const coreLoadRequestRef = useRef<Promise<void> | null>(null);
   const ticketsRequestRef = useRef<Promise<void> | null>(null);
+  const harvestBatchesRequestRef = useRef<Promise<void> | null>(null);
+  const harvestBatchesAbortRef = useRef<AbortController | null>(null);
+  const harvestBatchesReadyRef = useRef(false);
+  const harvestBatchesGenerationRef = useRef(0);
   const bootstrapRequestRef = useRef<Promise<void> | null>(null);
   const bootstrapSummaryRequestRef = useRef<Promise<void> | null>(null);
   const operatorRequestRef = useRef<Promise<WeighbridgeOperatorState | undefined> | null>(null);
@@ -1467,12 +1472,39 @@ export default function WeighbridgeOperationsPage() {
     return request;
   };
 
-  const refreshHarvestBatches = async () => {
+  const refreshHarvestBatches = async (options: { force?: boolean; signal?: AbortSignal } = {}) => {
     if (!profile?.company_id) return;
-    setHarvestBatches(await listHarvestBatchSummaries(profile.company_id, {
-      aggregateLots: true,
-      summaryOnly: true,
-    }));
+    const companyId = profile.company_id;
+    if (!options.force && harvestBatchesReadyRef.current) return;
+    if (harvestBatchesRequestRef.current) return harvestBatchesRequestRef.current;
+
+    const controller = new AbortController();
+    const generation = ++harvestBatchesGenerationRef.current;
+    const abortFromParent = () => controller.abort();
+    options.signal?.addEventListener("abort", abortFromParent, { once: true });
+    harvestBatchesAbortRef.current = controller;
+
+    const request = (async () => {
+      try {
+        const rows = await listHarvestBatchSummaries(companyId, {
+          aggregateLots: true,
+          summaryOnly: true,
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted || generation !== harvestBatchesGenerationRef.current) return;
+        setHarvestBatches(rows);
+        harvestBatchesReadyRef.current = true;
+      } catch (error: any) {
+        if (controller.signal.aborted || error?.name === "AbortError") return;
+        throw error;
+      }
+    })().finally(() => {
+      options.signal?.removeEventListener("abort", abortFromParent);
+      if (harvestBatchesRequestRef.current === request) harvestBatchesRequestRef.current = null;
+      if (harvestBatchesAbortRef.current === controller) harvestBatchesAbortRef.current = null;
+    });
+    harvestBatchesRequestRef.current = request;
+    return request;
   };
 
   const refreshBootstrap = async (includeSummary = false, signal?: AbortSignal) => {
@@ -1593,8 +1625,9 @@ export default function WeighbridgeOperationsPage() {
     if (ticketChanged) {
       tasks.push(refreshTickets());
     }
+    if (ticketChanged || stockChanged) harvestBatchesReadyRef.current = false;
     if (form.operationType === "impurity_removal" && (ticketChanged || stockChanged)) {
-      tasks.push(refreshHarvestBatches());
+      tasks.push(refreshHarvestBatches({ force: true }));
     }
     if (ticketChanged && (event?.source === "realtime" || event?.source === "online")) {
       tasks.push(refreshTransportPickerData());
@@ -1683,6 +1716,12 @@ export default function WeighbridgeOperationsPage() {
     secondaryCatalogGenerationRef.current += 1;
     secondaryCatalogRequestsRef.current.clear();
     secondaryCatalogReadyRef.current.clear();
+    harvestBatchesGenerationRef.current += 1;
+    harvestBatchesAbortRef.current?.abort();
+    harvestBatchesAbortRef.current = null;
+    harvestBatchesRequestRef.current = null;
+    harvestBatchesReadyRef.current = false;
+    setHarvestBatches([]);
     stockIdentityCacheRef.current.clear();
     operationLinesCacheRef.current.clear();
     setSecondaryCatalogStatus({ key: "", status: "idle", error: "" });
@@ -1744,13 +1783,20 @@ export default function WeighbridgeOperationsPage() {
 
   useEffect(() => {
     if (canUseOperatorSession && !operatorState.unlocked) return;
-    if (form.operationType !== "impurity_removal" || !profile?.company_id || harvestBatches.length > 0) return;
-    void refreshHarvestBatches().catch((error) => {
-      console.error("Harvest batch options refresh failed", error);
-    });
+    if (form.operationType !== "impurity_removal" || !profile?.company_id || harvestBatchesReadyRef.current) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void refreshHarvestBatches({ signal: controller.signal }).catch((error) => {
+        console.error("Harvest batch options refresh failed", error);
+      });
+    }, MODE_RESOURCE_STABILITY_DELAY_MS);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
     // Harvest batches are needed only by impurity removal, not by the default intake form.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.operationType, profile?.company_id, harvestBatches.length, canUseOperatorSession, operatorState.unlocked]);
+  }, [form.operationType, profile?.company_id, canUseOperatorSession, operatorState.unlocked]);
 
   const needsSecondaryCatalogs = ["supplier_receipt", "issue_to_field", "shipment_outbound"]
     .includes(form.operationType);
@@ -1777,23 +1823,27 @@ export default function WeighbridgeOperationsPage() {
       return;
     }
     const controller = new AbortController();
-    const requestGeneration = ++secondaryCatalogGenerationRef.current;
-    void loadSecondaryCatalogs(
-      form.operationType,
-      form.fieldId,
-      form.supplierItemMode,
-      secondaryCatalogKey,
-      requestGeneration,
-      controller.signal,
-    ).catch((error: any) => {
-      if (error?.name !== "AbortError") {
-        console.error("Weighbridge secondary catalogs failed", error);
-      }
-    });
+    let requestGeneration = 0;
+    const timer = window.setTimeout(() => {
+      requestGeneration = ++secondaryCatalogGenerationRef.current;
+      void loadSecondaryCatalogs(
+        form.operationType,
+        form.fieldId,
+        form.supplierItemMode,
+        secondaryCatalogKey,
+        requestGeneration,
+        controller.signal,
+      ).catch((error: any) => {
+        if (error?.name !== "AbortError") {
+          console.error("Weighbridge secondary catalogs failed", error);
+        }
+      });
+    }, MODE_RESOURCE_STABILITY_DELAY_MS);
     return () => {
+      window.clearTimeout(timer);
       controller.abort();
-      secondaryCatalogRequestsRef.current.delete(secondaryCatalogKey);
-      if (secondaryCatalogGenerationRef.current === requestGeneration) {
+      if (requestGeneration) secondaryCatalogRequestsRef.current.delete(secondaryCatalogKey);
+      if (requestGeneration && secondaryCatalogGenerationRef.current === requestGeneration) {
         secondaryCatalogGenerationRef.current += 1;
       }
     };
