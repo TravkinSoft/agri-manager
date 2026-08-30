@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, ClipboardList, Clock3, FileDown, Info, Loader2, LockKeyhole, MoreHorizontal, Pencil, Scale, Trash2, UserRound } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
@@ -52,6 +52,7 @@ import { HarvestAllocationPicker } from "@/components/weighbridge/active-harvest
 import { UniversalWorkspaceTabs, type UniversalWorkspaceTab } from "@/components/weighbridge/universal-workspace-tabs";
 import { TransportDriverSelects } from "@/components/weighbridge/transport-driver-picker";
 import { ProcessingWorkspace } from "@/components/weighbridge/processing-workspace";
+import { isOpenProcessingWorkItem, processingMassSnapshot } from "@/lib/weighbridge/processing-work-state";
 import { DailyReconciliation } from "@/components/weighbridge/daily-reconciliation";
 import { CompactField, PrimaryActionBar } from "@/components/operations/operational-ui";
 import { performProcessingAction, type BatchTransformationRow } from "@/lib/services/processing";
@@ -570,7 +571,7 @@ const processingOutputRoleLabels: Record<ProcessingOutputRole, string> = {
   FEED: "Фураж / кормовая фракция",
   WASTE: "Веяльные отходы",
   TRIER_WASTE: "Триерные отходы",
-  OTHER: "Прочие отходы",
+  OTHER: "Лёгкая фракция / прочие складские отходы",
 };
 
 const shipmentPurposeLabels: Record<ShipmentPurpose, string> = {
@@ -984,8 +985,10 @@ export default function WeighbridgeOperationsPage() {
   const operatorUnlockConfirmedAtRef = useRef(0);
   const operatorContextKeyRef = useRef("");
   const secondaryCatalogRequestRef = useRef<Promise<void> | null>(null);
+  const secondaryCatalogGenerationRef = useRef(0);
   const [statisticsOpen, setStatisticsOpen] = useState(false);
   const [secondaryCatalogsLoaded, setSecondaryCatalogsLoaded] = useState(false);
+  const [secondaryCatalogError, setSecondaryCatalogError] = useState("");
 
   const canOperate =
     profile?.role === "company_admin" ||
@@ -1027,6 +1030,9 @@ export default function WeighbridgeOperationsPage() {
       workstationId
     ),
     [profile?.company_id, activeHarvestSeasonId, activeHarvestSeasonYear, workstationId]
+  );
+  const workspaceReady = Boolean(
+    universalWorkspacePersistKey && workspaceHydratedKey === universalWorkspacePersistKey
   );
 
   const loadSuppliers = async (companyId: string, signal?: AbortSignal) => {
@@ -1138,6 +1144,8 @@ export default function WeighbridgeOperationsPage() {
     if (secondaryCatalogRequestRef.current) return secondaryCatalogRequestRef.current;
 
     const companyId = profile.company_id;
+    const requestGeneration = secondaryCatalogGenerationRef.current;
+    setSecondaryCatalogError("");
     const request = (async () => {
       const [productsRes, identityRefs, supplierRows, buyerRows, operationsRes] = await Promise.all([
         supabase
@@ -1160,6 +1168,7 @@ export default function WeighbridgeOperationsPage() {
           .abortSignal(signal || new AbortController().signal),
       ]);
       if (signal?.aborted) return;
+      if (requestGeneration !== secondaryCatalogGenerationRef.current) return;
       if (productsRes.error || operationsRes.error) {
         throw new Error(productsRes.error?.message || operationsRes.error?.message || "Не удалось загрузить вторичные справочники");
       }
@@ -1192,7 +1201,8 @@ export default function WeighbridgeOperationsPage() {
         cropRows.map((crop: any) => [String(crop.id), localizedName(crop, lang, ["name"]) || String(crop.name || "").trim()])
       );
 
-      setProducts(productRows.map((row: any) => ({
+      const fieldNameById = new Map(fields.map((field) => [field.id, field.name]));
+      const nextProducts = productRows.map((row: any) => ({
         id: String(row.id), name: brandName(row) || String(row.name || "Номенклатура"),
         type: String(row.product_type || row.type || "").toLowerCase(), productType: String(row.product_type || ""),
         unit: String(row.unit || ""), defaultUnit: String(row.default_unit || ""), baseUom: String(row.base_uom || ""),
@@ -1201,19 +1211,18 @@ export default function WeighbridgeOperationsPage() {
         stockUnit: String(row.stock_unit || ""), physicalState: String(row.physical_state || ""), isSeedMaterial: row.is_seed_material === true,
         cropId: row.crop_id ? String(row.crop_id) : null, varietyId: row.variety_id ? String(row.variety_id) : null,
         reproductionId: row.seed_reproduction_id ? String(row.seed_reproduction_id) : null,
-      })));
-      setCrops(cropRows.map((row: any) => ({ id: String(row.id), name: localizedName(row, lang, ["name"]) || String(row.name || "Культура") })));
-      setVarieties(varietyRows.map((row: any) => ({
+      }));
+      const nextCrops = cropRows.map((row: any) => ({
+        id: String(row.id), name: localizedName(row, lang, ["name"]) || String(row.name || "Культура"),
+      }));
+      const nextVarieties = varietyRows.map((row: any) => ({
         id: String(row.id), name: brandName(row) || String(row.name || "Сорт"), cropId: String(row.crop_id || ""),
         cropName: localizedName(row.crops, lang, ["name"]) || cropNameById.get(String(row.crop_id || "")) || "",
-      })));
-      setReproductions(reproductionRows.map((row: any) => ({
+      }));
+      const nextReproductions = reproductionRows.map((row: any) => ({
         id: String(row.id), name: localizedName(row, lang, ["name"]) || String(row.name || "Репродукция"),
-      })));
-      setSuppliers(supplierRows);
-      setBuyers(buyerRows);
-      const fieldNameById = new Map(fields.map((field) => [field.id, field.name]));
-      setLinkedOperations((operationsRes.data || []).map((row: any) => {
+      }));
+      const nextLinkedOperations = (operationsRes.data || []).map((row: any) => {
         const fieldId = row.field_id ? String(row.field_id) : null;
         return {
           id: String(row.id), field_id: fieldId,
@@ -1222,9 +1231,19 @@ export default function WeighbridgeOperationsPage() {
           status: row.status ? String(row.status) : null,
           label: `${row.operation_type || "Operation"} • ${fieldId ? fieldNameById.get(fieldId) || "Поле" : "Поле"} • ${row.date ? formatDate(String(row.date)) : "—"}`,
         };
-      }).filter((row: any) => !hasQaDataMarker(row.label)));
-      setLinkedOperationLines([]);
-      setSecondaryCatalogsLoaded(true);
+      }).filter((row: any) => !hasQaDataMarker(row.label));
+
+      startTransition(() => {
+        setProducts(nextProducts);
+        setCrops(nextCrops);
+        setVarieties(nextVarieties);
+        setReproductions(nextReproductions);
+        setSuppliers(supplierRows);
+        setBuyers(buyerRows);
+        setLinkedOperations(nextLinkedOperations);
+        setLinkedOperationLines([]);
+        setSecondaryCatalogsLoaded(true);
+      });
     })().finally(() => {
       if (secondaryCatalogRequestRef.current === request) secondaryCatalogRequestRef.current = null;
     });
@@ -1620,7 +1639,10 @@ export default function WeighbridgeOperationsPage() {
     const controller = new AbortController();
     let refreshTimer: number | null = null;
 
+    secondaryCatalogGenerationRef.current += 1;
+    secondaryCatalogRequestRef.current = null;
     setSecondaryCatalogsLoaded(false);
+    setSecondaryCatalogError("");
     setHistoryLimit(10);
     setHistoryHasMore(false);
     if (cached) {
@@ -1687,21 +1709,22 @@ export default function WeighbridgeOperationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.operationType, profile?.company_id, harvestBatches.length, canUseOperatorSession, operatorState.unlocked]);
 
-  const needsSecondaryCatalogs = form.operationType !== "harvest_incoming";
+  const needsSecondaryCatalogs = ["supplier_receipt", "issue_to_field", "shipment_outbound"]
+    .includes(form.operationType);
 
   useEffect(() => {
     if (canUseOperatorSession && !operatorState.unlocked) return;
+    if (!workspaceReady || !coreDataReady) return;
     if (!needsSecondaryCatalogs || secondaryCatalogsLoaded || !profile?.company_id) return;
-    const controller = new AbortController();
-    void loadSecondaryCatalogs(controller.signal).catch((error: any) => {
-      if (!controller.signal.aborted && error?.name !== "AbortError") {
+    void loadSecondaryCatalogs().catch((error: any) => {
+      if (error?.name !== "AbortError") {
         console.error("Weighbridge secondary catalogs failed", error);
+        setSecondaryCatalogError("Не удалось загрузить справочник выбранного режима. Переключите режим и повторите.");
       }
     });
-    return () => controller.abort();
     // Secondary catalogs are intentionally lazy and are never part of harvest startup.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needsSecondaryCatalogs, profile?.company_id, language, secondaryCatalogsLoaded, canUseOperatorSession, operatorState.unlocked]);
+  }, [form.operationType, needsSecondaryCatalogs, profile?.company_id, language, secondaryCatalogsLoaded, canUseOperatorSession, operatorState.unlocked, workspaceReady, coreDataReady]);
 
   useEffect(() => {
     if (canUseOperatorSession && !operatorState.unlocked) return;
@@ -2918,8 +2941,8 @@ export default function WeighbridgeOperationsPage() {
       ? processingItems.filter((item) =>
           item.record_type === "transformation"
           && item.node_warehouse_id === form.warehouseFromId
-          && item.status !== "voided"
-          && item.processing_state !== "processing_closed"
+          && isOpenProcessingWorkItem(item)
+          && processingMassSnapshot(item).balanceDeltaKg > 0.001
         )
       : [],
     [form.operationType, form.warehouseFromId, processingItems, sourceWarehouse?.placeType]
@@ -2946,12 +2969,12 @@ export default function WeighbridgeOperationsPage() {
       compositionSnapshot: selectedProcessingItem.composition_snapshot || [],
       isMixedHarvest: Boolean(selectedProcessingItem.is_mixed_harvest),
       identityLabel: selectedProcessingItem.identity_label || selectedProcessingItem.input_label || "Партия урожая",
-      transformationLabel: placeType === "DRYER" ? "Сушка" : "Очистка",
-      unallocatedKg: Number(selectedProcessingItem.unallocated_kg || 0),
+      transformationLabel: `${placeType === "DRYER" ? "Сушка" : "Очистка"} · ${selectedProcessingItem.ticket_no ? `талон ${selectedProcessingItem.ticket_no}` : fmt(selectedProcessingItem.started_at || selectedProcessingItem.created_at, lang)}`,
+      unallocatedKg: processingMassSnapshot(selectedProcessingItem).unallocatedKg,
       processingState: selectedProcessingItem.processing_state || "in_processing",
       lastMainOutputMarked: Boolean(selectedProcessingItem.last_main_output_marked_at),
     };
-  }, [selectedProcessingItem, sourceWarehouse?.placeType]);
+  }, [lang, selectedProcessingItem, sourceWarehouse?.placeType]);
 
   useEffect(() => {
     const processingSource = form.operationType === "transfer_between_warehouses" && isProcessingPlace(sourceWarehouse?.placeType);
@@ -3225,6 +3248,7 @@ export default function WeighbridgeOperationsPage() {
     supplierReceiptLines.length > 0;
 
   const selectOperation = async (operationType: OperationType) => {
+    if (!workspaceReady) return false;
     if (operationType === form.operationType) return true;
     if (isUniversalWorkspaceDirty(form, INITIAL_FORM, supplierReceiptLines.length)) {
       const confirmed = await siteConfirm({
@@ -3376,16 +3400,19 @@ export default function WeighbridgeOperationsPage() {
     return null;
   };
 
-  const secondaryModeLoading = form.operationType !== "harvest_incoming" && !secondaryCatalogsLoaded;
+  const activeSecondaryCatalogError = needsSecondaryCatalogs ? secondaryCatalogError : "";
+  const secondaryModeLoading = needsSecondaryCatalogs && !secondaryCatalogsLoaded && !activeSecondaryCatalogError;
   const currentValidationError = !coreDataReady
     ? "Рабочие справочники ещё загружаются"
+    : activeSecondaryCatalogError
+      ? activeSecondaryCatalogError
     : secondaryModeLoading
       ? "Справочник выбранного режима ещё загружается"
       : validate();
 
   const create = async () => {
     if (!canOperate || submitting) return;
-    if (!coreDataReady || secondaryModeLoading) {
+    if (!coreDataReady || secondaryModeLoading || Boolean(activeSecondaryCatalogError)) {
       toast({
         title: "Данные ещё загружаются",
         description: currentValidationError || "Подождите пару секунд и повторите создание талона.",
@@ -4398,8 +4425,12 @@ export default function WeighbridgeOperationsPage() {
                 type="button"
                 role="tab"
                 aria-selected={active}
+                aria-disabled={!workspaceReady}
+                disabled={!workspaceReady}
                 className={
-                  active
+                  !workspaceReady
+                    ? "h-8 shrink-0 cursor-wait whitespace-nowrap rounded px-3 text-xs font-medium text-slate-500"
+                    : active
                     ? "h-8 shrink-0 whitespace-nowrap rounded px-3 text-xs font-semibold text-slate-950 bg-yellow-400"
                     : "h-8 shrink-0 whitespace-nowrap rounded px-3 text-xs font-medium text-slate-300 hover:bg-slate-900 hover:text-slate-50"
                 }
@@ -4459,6 +4490,7 @@ export default function WeighbridgeOperationsPage() {
       <UniversalWorkspaceTabs
         tabs={workspaceTabs}
         selectedId={selectedWorkspaceId}
+        disabled={!workspaceReady}
         onSelect={selectWorkspace}
         onAdd={addWorkspace}
         onRemove={(workspaceId) => void removeWorkspace(workspaceId)}
@@ -4592,7 +4624,7 @@ export default function WeighbridgeOperationsPage() {
                         <Label>От какой обработки? *</Label>
                         <Select value={form.processingTransformationId} onValueChange={(processingTransformationId) => setForm((previous) => ({ ...previous, processingTransformationId, processingOutputRole: String(sourceWarehouse?.placeType || "").toUpperCase() === "DRYER" ? "GRAIN" : "" }))}>
                           <SelectTrigger className="h-9"><SelectValue placeholder="Выберите партию" /></SelectTrigger>
-                          <SelectContent>{processingCandidates.map((item) => <SelectItem key={item.id} value={item.id}>{item.identity_label || item.input_label} · {Number(item.unallocated_kg || 0).toLocaleString("ru-RU")} кг</SelectItem>)}</SelectContent>
+                          <SelectContent>{processingCandidates.map((item, index) => <SelectItem key={item.id} value={item.id}>Цикл {index + 1} · {item.identity_label || item.input_label} · {item.ticket_no ? `талон ${item.ticket_no}` : "без талона"} · {fmt(item.started_at || item.created_at, lang)} · {Number(item.unallocated_kg || 0).toLocaleString("ru-RU")} кг</SelectItem>)}</SelectContent>
                         </Select>
                       </div>
                     ) : null}
@@ -5107,7 +5139,7 @@ export default function WeighbridgeOperationsPage() {
           </CardContent>
         </Card>
         <ProcessingWorkspace
-          enabled={!canUseOperatorSession || operatorState.unlocked}
+          enabled={coreDataReady && (!canUseOperatorSession || operatorState.unlocked)}
           onItemsChange={setProcessingItems}
         />
         </aside>

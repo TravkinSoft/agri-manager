@@ -109,6 +109,7 @@ export interface BatchTransformationRow {
   stock_waste_kg?: number;
   approved_process_loss_kg?: number;
   moisture_loss_kg?: number;
+  balance_delta_kg?: number;
   unallocated_kg?: number;
   input_moisture_percent?: number | null;
   output_moisture_percent?: number | null;

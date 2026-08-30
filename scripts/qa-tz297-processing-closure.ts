@@ -22,6 +22,7 @@ const ticketPatchRoute = read("app/api/weighbridge/tickets/[id]/route.ts");
 const finalizeRoute = read("app/api/weighbridge/tickets/[id]/finalize/route.ts");
 const processingRoute = read("app/api/processing/transformations/route.ts");
 const processingUi = read("components/weighbridge/processing-workspace.tsx");
+const processingWorkState = read("lib/weighbridge/processing-work-state.ts");
 const ticketPaper = read("components/weighbridge/weighbridge-ticket-paper.tsx");
 const weighbridgePage = read("app/(dashboard)/weighbridge/page.tsx");
 
@@ -76,7 +77,7 @@ check("active balance, final reconciliation, and closed history have distinct UX
   assert.match(processingUi, /data-processing-state/);
   assert.match(processingUi, />Остаток</);
   assert.match(processingUi, /История <Badge/);
-  assert.match(processingUi, /processing_state === "processing_closed"/);
+  assert.match(processingWorkState, /processing_state === "processing_closed"/);
   assert.match(processingUi, /Возобновить приём/);
   assert.match(processingUi, /Фактические выходы и отходы можно продолжать оформлять/);
 });
@@ -148,7 +149,7 @@ check("processing card is user-facing and keeps technical identifiers hidden", (
   assert.doesNotMatch(processingUi, />\s*(?:transformation_id|processing_id|ledger|UUID)\s*</i);
   assert.match(
     weighbridgePage,
-    /<ProcessingWorkspace[\s\S]*?enabled=\{!canUseOperatorSession \|\| operatorState\.unlocked\}[\s\S]*?onItemsChange=\{setProcessingItems\}/
+    /<ProcessingWorkspace[\s\S]*?enabled=\{coreDataReady && \(!canUseOperatorSession \|\| operatorState\.unlocked\)\}[\s\S]*?onItemsChange=\{setProcessingItems\}/
   );
   assert.match(weighbridgePage, /aria-label="Открытые талоны и партии на объектах"[\s\S]*Открытые талоны[\s\S]*<ProcessingWorkspace/);
 });
@@ -277,7 +278,7 @@ check("processing output mode exposes exactly six canonical fractions", () => {
     "Фураж / кормовая фракция",
     "Веяльные отходы",
     "Триерные отходы",
-    "Прочие отходы",
+    "Лёгкая фракция / прочие складские отходы",
   ];
   for (const label of labels) assert.match(weighbridgePage, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(weighbridgePage, /processingOutputContext[\s\S]*processingOutputRoleLabels/);
