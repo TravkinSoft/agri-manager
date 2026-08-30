@@ -31,6 +31,10 @@ import {
 import { getWarehouseSummaries } from "@/lib/services/warehouses";
 import type { WarehouseSummary } from "@/lib/types/warehouse";
 import { normalizeStoragePlaceType } from "@/lib/warehouse/warehouse-scope";
+import {
+  processingMassSnapshot,
+  processingWorkState,
+} from "@/lib/weighbridge/processing-work-state";
 
 type Props = {
   enabled?: boolean;
@@ -76,6 +80,7 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const requestKeys = useRef(new Map<string, string>());
   const loadInFlight = useRef(false);
+  const canOperateLifecycle = ["global_admin", "company_admin"].includes(String(profile?.role || ""));
   const canManageBalance = ["global_admin", "company_admin", "director"].includes(String(profile?.role || ""));
 
   const load = useCallback(async (showLoading = false) => {
@@ -135,19 +140,29 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
 
   const activeItems = useMemo(
     () => items.filter((item) =>
-      item.processing_state !== "processing_closed"
-      && item.status !== "voided"
+      ["active", "ready", "reconciliation"].includes(processingWorkState(item))
       && ["DRYER", "CLEANER"].includes(String(item.node_place_type || "").toUpperCase())
     ),
     [items]
   );
   const closedItems = useMemo(
     () => items.filter((item) =>
-      item.processing_state === "processing_closed"
-      && item.status !== "voided"
+      processingWorkState(item) === "history"
       && ["DRYER", "CLEANER"].includes(String(item.node_place_type || "").toUpperCase())
     ),
     [items]
+  );
+  const activeProcessingWarehouseIds = useMemo(
+    () => new Set(activeItems.map((item) => item.node_warehouse_id).filter(Boolean)),
+    [activeItems]
+  );
+  const freeProcessingSummaries = useMemo(
+    () => placeSummaries.filter((summary) => {
+      const placeType = normalizeStoragePlaceType(summary.warehouse.place_type);
+      return ["DRYER", "CLEANER"].includes(placeType)
+        && !activeProcessingWarehouseIds.has(summary.warehouse.id);
+    }),
+    [activeProcessingWarehouseIds, placeSummaries]
   );
   const yardSummaries = useMemo(
     () => placeSummaries.filter((summary) => normalizeStoragePlaceType(summary.warehouse.place_type) === "YARD"),
@@ -217,24 +232,27 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
       setSavingId(null);
     }
   };
+  const manageMass = manageItem ? processingMassSnapshot(manageItem) : null;
 
-  if (!loading && activeItems.length === 0 && closedItems.length === 0 && yardSummaries.length === 0) return null;
+  if (!loading && activeItems.length === 0 && closedItems.length === 0 && freeProcessingSummaries.length === 0 && yardSummaries.length === 0) return null;
 
   return (
     <section className="overflow-hidden rounded-md border border-slate-800/80 bg-[#101724]/95" data-testid="processing-workspace" aria-label="Партии на объектах">
       <div className="flex items-center justify-between gap-3 border-b border-slate-800/80 px-4 py-3">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-50"><Factory className="h-4 w-4 text-yellow-400" />Партии на объектах</h2>
-        {loading ? <Loader2 className="h-4 w-4 animate-spin text-slate-500" /> : <Badge className="border border-slate-700 bg-slate-950 text-slate-200">{activeItems.length + yardSummaries.length}</Badge>}
+        {loading ? <Loader2 className="h-4 w-4 animate-spin text-slate-500" /> : <Badge className="border border-slate-700 bg-slate-950 text-slate-200">{activeItems.length + freeProcessingSummaries.length + yardSummaries.length}</Badge>}
       </div>
 
       <div className="max-h-[clamp(220px,38vh,430px)] space-y-2 overflow-y-auto p-3 travkin-scrollbar">
         {activeItems.map((item) => {
           const pending = item.processing_state === "processing_pending_outputs";
-          const input = Number(item.input_total_kg ?? item.input_weight_kg ?? 0);
-          const unallocated = Number(item.unallocated_kg || 0);
-          const output = Number(item.main_output_kg || 0) + Number(item.byproduct_kg || 0) + Number(item.stock_waste_kg || 0);
+          const workState = processingWorkState(item);
+          const reconciling = workState === "reconciliation";
+          const readyToClose = workState === "ready";
+          const { inputKg: input, outputKg: output, balanceDeltaKg } = processingMassSnapshot(item);
           const placeType = String(item.node_place_type || "").toUpperCase();
           const placeLabel = placeType === "DRYER" ? "Сушилка" : "Очистка";
+          const showActions = canOperateLifecycle || (pending && canManageBalance);
           return (
             <article key={item.id} className="rounded-md border border-slate-800 bg-slate-950/55 p-3" data-processing-state={item.processing_state} data-place-type={placeType}>
               <div className="flex items-start justify-between gap-2">
@@ -244,30 +262,51 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
                   <div className="mt-0.5 truncate text-xs text-slate-400" title={item.identity_label || item.input_label}>{item.identity_label || item.input_label}</div>
                 </div>
                 <div className="flex shrink-0 items-start gap-1">
-                  <StatusBadge status={pending ? (unallocated > 0.001 ? "warning" : "closed") : "active"}>{pending ? "Сверка" : "В работе"}</StatusBadge>
-                  <DropdownMenu>
+                  <StatusBadge status={reconciling ? "warning" : readyToClose ? "closed" : "active"}>{reconciling ? "Сверка" : readyToClose ? "Готово к закрытию" : "В работе"}</StatusBadge>
+                  {showActions ? <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button type="button" size="icon" variant="ghost" className="h-7 w-7" aria-label={`Действия: ${item.processing_node_name || placeLabel}`}><MoreHorizontal className="h-4 w-4" /></Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-56">
-                      {!pending ? <DropdownMenuItem onClick={() => setFinishItem(item)}>Партия обработана</DropdownMenuItem> : null}
-                      {pending ? <DropdownMenuItem onClick={() => void runAction(item, "reopen")}><RotateCcw className="mr-2 h-4 w-4" />Возобновить приём</DropdownMenuItem> : null}
-                      {pending && canManageBalance ? <DropdownMenuSeparator /> : null}
+                      {!pending && canOperateLifecycle ? <DropdownMenuItem onClick={() => setFinishItem(item)}>Партия обработана</DropdownMenuItem> : null}
+                      {pending && canOperateLifecycle ? <DropdownMenuItem onClick={() => void runAction(item, "reopen")}><RotateCcw className="mr-2 h-4 w-4" />Возобновить приём</DropdownMenuItem> : null}
+                      {pending && canOperateLifecycle && canManageBalance ? <DropdownMenuSeparator /> : null}
                       {pending && canManageBalance ? <DropdownMenuItem onClick={() => setManageItem(item)}><ShieldCheck className="mr-2 h-4 w-4" />Сверить баланс</DropdownMenuItem> : null}
                     </DropdownMenuContent>
-                  </DropdownMenu>
+                  </DropdownMenu> : null}
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-3 divide-x divide-slate-800 border-t border-slate-800 pt-2 text-xs">
                 <div className="pr-2"><div className="text-[10px] uppercase text-slate-500">Вход</div><div className="truncate font-semibold text-slate-100">{formatMass(input)}</div></div>
                 <div className="px-2"><div className="text-[10px] uppercase text-slate-500">Выход</div><div className="truncate font-semibold text-slate-100">{formatMass(output)}</div></div>
-                <div className="pl-2"><div className="text-[10px] uppercase text-slate-500">Остаток</div><div className={`truncate font-semibold ${pending && unallocated > 0.001 ? "text-amber-300" : "text-emerald-300"}`}>{formatMass(unallocated)}</div></div>
+                <div className="pl-2"><div className="text-[10px] uppercase text-slate-500">Остаток</div><div className={`truncate font-semibold ${reconciling ? "text-amber-300" : "text-emerald-300"}`}>{formatMass(balanceDeltaKg)}</div></div>
               </div>
               {formatMoisture(item.input_moisture_percent) || formatMoisture(item.output_moisture_percent) ? (
                 <div className="mt-2 truncate text-[11px] text-slate-500" title={`Влажность: ${formatMoisture(item.input_moisture_percent) || "-"} → ${formatMoisture(item.output_moisture_percent) || "-"}`}>
                   Влажность: <span className="text-slate-300">{formatMoisture(item.input_moisture_percent) || "-"} → {formatMoisture(item.output_moisture_percent) || "-"}</span>
                 </div>
               ) : null}
+            </article>
+          );
+        })}
+
+        {freeProcessingSummaries.map((summary) => {
+          const placeType = normalizeStoragePlaceType(summary.warehouse.place_type);
+          const weight = Number(summary.harvest_weight_kg || 0);
+          const isFree = weight <= 0.001;
+          return (
+            <article key={summary.warehouse.id} className="rounded-md border border-slate-800 bg-slate-950/55 p-3" data-place-type={placeType} data-processing-state="empty">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-slate-500"><Factory className="h-3 w-3" />{placeType === "DRYER" ? "Сушилка" : "Очистка"}</div>
+                  <div className="truncate text-sm font-bold text-slate-100" title={summary.warehouse.name}>{summary.warehouse.name}</div>
+                </div>
+                <StatusBadge status={isFree ? "closed" : "active"}>{isFree ? "Свободно" : "Остаток"}</StatusBadge>
+              </div>
+              <div className="mt-2 flex items-end justify-between gap-3 border-t border-slate-800 pt-2">
+                <div className="text-xs text-slate-400">{isFree ? "Нет активной партии" : `${Number(summary.harvest_lot_count || 0)} партий`}</div>
+                <div className="text-sm font-bold text-slate-100">{formatMass(weight)}</div>
+              </div>
             </article>
           );
         })}
@@ -337,7 +376,7 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
             inputKg={Number(manageItem.input_total_kg ?? manageItem.input_weight_kg ?? 0)}
             outputKg={Number(manageItem.main_output_kg || 0) + Number(manageItem.byproduct_kg || 0) + Number(manageItem.stock_waste_kg || 0)}
             lossesKg={Number(manageItem.moisture_loss_kg || 0) + Number(manageItem.approved_process_loss_kg || 0)}
-            differenceKg={Number(manageItem.unallocated_kg || 0)}
+            differenceKg={manageMass?.balanceDeltaKg || 0}
           /> : null}
           <div className="space-y-3 border-t border-slate-800 pt-4">
             <div className="font-medium text-slate-100">Подтвердить не складскую потерю</div>
@@ -350,7 +389,7 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
           </div>
           <DialogFooter className="border-t border-slate-800 pt-4">
             <Button variant="outline" onClick={() => setManageItem(null)}>Закрыть</Button>
-            <Button disabled={!manageItem || savingId === manageItem.id || Number(manageItem?.unallocated_kg || 0) > 0.001} onClick={() => manageItem && void runAction(manageItem, "hard_close")}>Закрыть материальный баланс</Button>
+            <Button disabled={!manageItem || savingId === manageItem.id || !manageMass?.hasCanonicalInput || !manageMass?.hasRequiredDryingMoisture || Math.abs(manageMass.balanceDeltaKg) > 0.001} onClick={() => manageItem && void runAction(manageItem, "hard_close")}>Закрыть материальный баланс</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

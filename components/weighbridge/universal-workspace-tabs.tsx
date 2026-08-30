@@ -49,6 +49,7 @@ const operationIcon = (type: UniversalWorkspaceOperationType) =>
 export function UniversalWorkspaceTabs({
   tabs,
   selectedId,
+  disabled = false,
   onSelect,
   onAdd,
   onRemove,
@@ -56,6 +57,7 @@ export function UniversalWorkspaceTabs({
 }: {
   tabs: UniversalWorkspaceTab[];
   selectedId: string;
+  disabled?: boolean;
   onSelect: (id: string) => void;
   onAdd: (type: UniversalWorkspaceOperationType) => void;
   onRemove: (id: string) => void;
@@ -65,7 +67,7 @@ export function UniversalWorkspaceTabs({
   const atLimit = tabs.length >= UNIVERSAL_WORKSPACE_MAX_TABS;
 
   return (
-    <section aria-label="Рабочие вкладки Весовой" className="flex min-w-0 items-start gap-1.5 border-b border-slate-800/80 pb-2">
+    <section aria-label="Рабочие вкладки Весовой" aria-busy={disabled} className={`flex min-w-0 items-start gap-1.5 border-b border-slate-800/80 pb-2 ${disabled ? "opacity-60" : ""}`}>
       <div className="grid min-w-0 flex-1 grid-cols-2 gap-1.5 overflow-hidden md:grid-cols-3 xl:grid-cols-6">
         {tabs.map((tab) => {
           const selected = selectedId === tab.id;
@@ -80,6 +82,7 @@ export function UniversalWorkspaceTabs({
             >
               <button
                 type="button"
+                disabled={disabled}
                 className="flex h-full min-w-0 flex-1 items-center gap-1.5 px-2 text-left"
                 onClick={() => onSelect(tab.id)}
                 aria-pressed={selected}
@@ -101,6 +104,7 @@ export function UniversalWorkspaceTabs({
               </button>
               <Button
                 type="button"
+                disabled={disabled}
                 variant="ghost"
                 size="icon"
                 className="h-8 w-7 shrink-0 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
@@ -114,7 +118,8 @@ export function UniversalWorkspaceTabs({
           );
         })}
       </div>
-      <Popover open={menuOpen} onOpenChange={(next) => {
+      <Popover open={disabled ? false : menuOpen} onOpenChange={(next) => {
+        if (disabled) return;
         if (next && atLimit) {
           onLimit();
           setMenuOpen(false);
@@ -125,6 +130,7 @@ export function UniversalWorkspaceTabs({
         <PopoverTrigger asChild>
           <Button
             type="button"
+            disabled={disabled}
             size="icon"
             className="h-9 w-9 shrink-0 bg-yellow-400 text-slate-950 hover:bg-yellow-300"
             aria-label="Добавить вкладку"
@@ -140,6 +146,7 @@ export function UniversalWorkspaceTabs({
               <button
                 key={item.type}
                 type="button"
+                disabled={disabled}
                 className="flex h-9 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-slate-800"
                 onClick={() => {
                   onAdd(item.type);

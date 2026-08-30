@@ -143,7 +143,7 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
   const ticketMap = new Map((ticketsRes.data || []).map((row: any) => [String(row.id), row]));
   const actorMap = new Map((actorsRes.data || []).map((row: any) => [String(row.id), nameOf(row, String(row.email || "Пользователь"))]));
 
-  return rows.map((row: any) => {
+  const items = rows.map((row: any) => {
     const transformationInputs = inputByTransformation.get(String(row.id)) || [];
     const transformationOutputs = outputByTransformation.get(String(row.id)) || [];
     const transformationLosses = lossesByTransformation.get(String(row.id)) || [];
@@ -167,8 +167,42 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
     const approvedProcessLossKg = transformationLosses
       .filter((loss: any) => loss.loss_type !== "moisture_loss" && loss.approved_by && loss.approved_at)
       .reduce((sum: number, loss: any) => sum + Number(loss.qty_kg || 0), 0);
-    const moistureLossKg = Number(row.expected_water_loss_kg || 0);
-    const unallocatedKg = Math.max(inputTotalKg - mainOutputKg - byproductKg - stockWasteKg - approvedProcessLossKg - moistureLossKg, 0);
+    const weightedMoisture = (massRows: any[], allowedOutputTypes?: string[]) => {
+      const measuredRows = massRows.filter((massRow: any) => {
+        if (allowedOutputTypes && !allowedOutputTypes.includes(outputTypeOf(massRow))) return false;
+        return massRow.moisture_percent != null && Number(massRow.input_weight_kg ?? massRow.output_weight_kg ?? 0) > 0;
+      });
+      const coverageKg = measuredRows.reduce(
+        (sum: number, massRow: any) => sum + Number(massRow.input_weight_kg ?? massRow.output_weight_kg ?? 0),
+        0
+      );
+      if (coverageKg <= 0) return { percent: null as number | null, coverageKg: 0 };
+      const weightedTotal = measuredRows.reduce(
+        (sum: number, massRow: any) => sum
+          + Number(massRow.input_weight_kg ?? massRow.output_weight_kg ?? 0) * Number(massRow.moisture_percent),
+        0
+      );
+      return { percent: weightedTotal / coverageKg, coverageKg };
+    };
+    const inputMoisture = weightedMoisture(transformationInputs);
+    const outputMoisture = weightedMoisture(transformationOutputs, ["main_product", "byproduct"]);
+    const isDrying = String(row.transformation_type || "") === "drying"
+      || ["MECHANICAL_DRYING", "NATURAL_DRYING"].includes(String(row.processing_method || ""));
+    let moistureLossKg = Number(row.expected_water_loss_kg || 0);
+    if (
+      isDrying
+      && inputMoisture.percent != null
+      && outputMoisture.percent != null
+      && outputMoisture.percent < 100
+    ) {
+      const dryMatterKg = inputTotalKg * (1 - inputMoisture.percent / 100);
+      const theoreticalOutputKg = dryMatterKg / (1 - outputMoisture.percent / 100);
+      moistureLossKg = Math.max(inputTotalKg - theoreticalOutputKg, 0);
+    }
+    const balanceDeltaKg = Number((
+      inputTotalKg - mainOutputKg - byproductKg - stockWasteKg - approvedProcessLossKg - moistureLossKg
+    ).toFixed(3));
+    const unallocatedKg = Math.max(balanceDeltaKg, 0);
     const identityLabel = [
       nameOf(inputBatch?.crop || inputBatch?.product, "Сырьё"),
       nameOf(inputBatch?.variety, ""),
@@ -227,11 +261,12 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
       stock_waste_kg: stockWasteKg,
       approved_process_loss_kg: approvedProcessLossKg,
       moisture_loss_kg: moistureLossKg,
+      balance_delta_kg: balanceDeltaKg,
       unallocated_kg: unallocatedKg,
-      input_moisture_percent: row.input_moisture_percent == null ? null : Number(row.input_moisture_percent),
-      output_moisture_percent: row.output_moisture_percent == null ? null : Number(row.output_moisture_percent),
-      input_moisture_coverage_kg: Number(row.input_moisture_coverage_kg || 0),
-      output_moisture_coverage_kg: Number(row.output_moisture_coverage_kg || 0),
+      input_moisture_percent: inputMoisture.percent,
+      output_moisture_percent: outputMoisture.percent,
+      input_moisture_coverage_kg: inputMoisture.coverageKg,
+      output_moisture_coverage_kg: outputMoisture.coverageKg,
       finish_requested_at: row.finish_requested_at || null,
       last_main_output_marked_at: row.last_main_output_marked_at || null,
       completed_by_name: row.completed_by ? actorMap.get(String(row.completed_by)) || null : null,
@@ -252,6 +287,11 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
       })),
     };
   });
+  const usedTicketIds = new Set([
+    ...rows.map((row: any) => String(row.source_ticket_id || "")),
+    ...inputs.map((row: any) => String(row.source_ticket_id || "")),
+  ].filter(Boolean));
+  return { items, usedTicketIds };
 }
 
 async function loadWaitingTickets(supabase: SupabaseClient, companyId: string, usedTicketIds: Set<string>) {
@@ -334,8 +374,7 @@ export async function GET(request: NextRequest) {
     const { companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
-    const items = await loadTransformationItems(supabase, companyId);
-    const usedTicketIds = new Set(items.map((row: any) => String(row.source_ticket_id || "")).filter(Boolean));
+    const { items, usedTicketIds } = await loadTransformationItems(supabase, companyId);
     const waiting = await loadWaitingTickets(supabase, companyId, usedTicketIds);
     return NextResponse.json({ items: [...waiting, ...items] });
   } catch (error) {

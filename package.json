@@ -56,6 +56,7 @@
     "qa:tz301": "npx --no-install tsx scripts/qa-tz301-preops-hardening.ts",
     "qa:tz302": "npx --no-install tsx scripts/qa-tz302-operations-hardening.ts",
     "qa:tz308": "npx --no-install tsx scripts/qa-tz308-combine-operator.ts",
+    "qa:tz312:p0": "npx --no-install tsx scripts/qa-tz312-p0-stability-processing.ts",
     "qa:agronomist:weighbridge-assist": "npx --no-install tsx scripts/qa-agronomist-weighbridge-assist-v1.ts",
     "qa:weighbridge:route-processing": "npx --no-install tsx scripts/qa-weighbridge-route-processing-v1.ts",
     "qa:crop-optional-seed": "npx --no-install tsx scripts/qa-crop-structure-optional-seed.ts",
