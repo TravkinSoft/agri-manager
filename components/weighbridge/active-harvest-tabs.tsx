@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { SearchableComboboxOption } from "@/components/weighbridge/searchable-combobox";
+import { rankHarvestPhysicalFieldSearch } from "@/lib/weighbridge/field-picker";
 
 export type HarvestIntakeTab = {
   id: string;
@@ -36,6 +37,7 @@ export function HarvestAllocationPicker({
   ariaLabel = "Поле или участок",
   listAriaLabel = "Участки активного сезона",
   maxVisible = DEFAULT_MAX_VISIBLE_OPTIONS,
+  physicalFieldSearch = false,
 }: {
   value: string;
   options: SearchableComboboxOption[];
@@ -47,6 +49,7 @@ export function HarvestAllocationPicker({
   ariaLabel?: string;
   listAriaLabel?: string;
   maxVisible?: number;
+  physicalFieldSearch?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -59,12 +62,25 @@ export function HarvestAllocationPicker({
   const filtered = useMemo(() => {
     const normalizedQuery = deferredQuery.trim().toLocaleLowerCase("ru-RU");
     if (!normalizedQuery) return options;
+    if (physicalFieldSearch) {
+      return options
+        .map((option, index) => ({
+          option,
+          index,
+          rank: option.physicalFieldSearch
+            ? rankHarvestPhysicalFieldSearch(option.physicalFieldSearch, deferredQuery)
+            : null,
+        }))
+        .filter((entry): entry is typeof entry & { rank: number } => entry.rank != null)
+        .sort((left, right) => left.rank - right.rank || left.index - right.index)
+        .map((entry) => entry.option);
+    }
     return options.filter((option) => [
       option.label,
       option.description || "",
       ...(option.keywords || []),
     ].join(" ").toLocaleLowerCase("ru-RU").includes(normalizedQuery));
-  }, [deferredQuery, options]);
+  }, [deferredQuery, options, physicalFieldSearch]);
   const visible = filtered.slice(0, maxVisible);
 
   const choose = (option: SearchableComboboxOption) => {

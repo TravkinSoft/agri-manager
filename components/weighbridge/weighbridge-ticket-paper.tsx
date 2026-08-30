@@ -190,7 +190,7 @@ export function WeighbridgeTicketPaper({
   return (
     <article
       className={cn(
-        "weighbridge-print-sheet mx-auto w-full max-w-[680px] rounded-md border border-[#b8a788] bg-[#f7f1e3] p-3 text-[#1f1b16]",
+        "weighbridge-print-sheet mx-auto w-full max-w-[520px] rounded-md border border-[#b8a788] bg-[#f7f1e3] p-3 text-[#1f1b16]",
         className
       )}
       style={{ boxShadow: "inset 0 0 40px rgba(80,56,30,0.08)" }}
@@ -208,13 +208,17 @@ export function WeighbridgeTicketPaper({
 
       {isHarvest ? (
         <PaperSection title="УРОЖАЙ">
-          <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-            <Fact label="Поле" value={field} />
-            <Fact label="Место приёмки" value={warehouseTo} />
-            <Fact label="Культура" value={crop} />
-            <Fact label="Сорт" value={variety} />
-            <Fact label="Репродукция" value={reproduction} />
-            <Fact label="Комбайнер" value={combineOperator} strong />
+          <div className="grid gap-x-3 gap-y-2 sm:grid-cols-2">
+            <div className="contents sm:block sm:space-y-2">
+              <Fact label="Поле" value={field} />
+              <Fact label="Культура" value={crop} />
+              <Fact label="Сорт" value={variety} />
+              <Fact label="Репродукция" value={reproduction} />
+            </div>
+            <div className="contents sm:block sm:space-y-2">
+              <Fact label="Место приёмки" value={warehouseTo} />
+              <Fact label="Комбайнер" value={combineOperator} strong />
+            </div>
           </div>
         </PaperSection>
       ) : (

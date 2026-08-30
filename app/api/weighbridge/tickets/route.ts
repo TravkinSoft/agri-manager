@@ -13,7 +13,7 @@ import { isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
 import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
 import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
 import { isWeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
-import { isCargoTractor, isCargoVehicle, isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
+import { isCargoVehicle, isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
 import { enrichTicketCombineOperators, validateActiveCombineOperator } from "@/lib/server/weighbridge-combine-operator";
 
@@ -737,12 +737,6 @@ export async function POST(request: NextRequest) {
           supabase
             .from("reference_vehicles")
             .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name,type,fleet_type,status,is_active,archived,transport_model:transport_model_id(category,full_name)")
-            .eq("company_id", ticket.company_id)
-            .eq("id", ticket.vehicle_id)
-            .maybeSingle(),
-          supabase
-            .from("reference_machines")
-            .select("id,name,full_name,brand,model,series,license_plate,source_raw_name,type,status,is_active,archived")
             .eq("company_id", ticket.company_id)
             .eq("id", ticket.vehicle_id)
             .maybeSingle(),
@@ -1567,16 +1561,15 @@ export async function POST(request: NextRequest) {
       search_terms?: string[];
       type?: string | null;
       fleet_type?: string | null;
-      source: "reference_vehicles" | "reference_machines";
+      source: "reference_vehicles";
     } | null = null;
     if (ticket.vehicle_id) {
-      const [vehicleResult, machineResult, activeTicketResult] =
+      const [vehicleResult, activeTicketResult] =
         await (vehicleGuardPromise as NonNullable<typeof vehicleGuardPromise>);
       const { data: vehicle, error: vehicleError } = vehicleResult;
-      const { data: machine, error: machineError } = machineResult;
       const { data: activeByVehicle, error: activeByVehicleError } = activeTicketResult;
-      if (vehicleError || machineError) {
-        return NextResponse.json({ error: vehicleError?.message || machineError?.message }, { status: 400 });
+      if (vehicleError) {
+        return NextResponse.json({ error: vehicleError.message }, { status: 400 });
       }
       const vehicleModel = Array.isArray((vehicle as any)?.transport_model)
         ? (vehicle as any).transport_model[0]
@@ -1588,46 +1581,27 @@ export async function POST(request: NextRequest) {
       })
         ? vehicle
         : null;
-      const cargoTractor = machine?.id && isCargoTractor(machine) ? machine : null;
-      if (!cargoVehicle && !cargoTractor) {
+      if (!cargoVehicle) {
         return NextResponse.json({ error: "Vehicle not found in current company" }, { status: 400 });
       }
-      const selected = cargoVehicle || cargoTractor;
-      if (!selected?.is_active || selected.archived) {
+      if (!cargoVehicle.is_active || cargoVehicle.archived) {
         return NextResponse.json({ error: "Vehicle is inactive or archived" }, { status: 400 });
       }
-      const transportIdentity = resolveTransportIdentity(cargoVehicle
-        ? {
-            ...cargoVehicle,
-            fullName: cargoVehicle.full_name,
-            sourceRawName: cargoVehicle.source_raw_name,
-            plate: cargoVehicle.plate_number,
-          }
-        : {
-            ...cargoTractor,
-            fullName: cargoTractor!.full_name,
-            sourceRawName: cargoTractor!.source_raw_name,
-            plate: cargoTractor!.license_plate,
-          });
-      selectedVehicle = cargoVehicle
-        ? {
-            id: String(cargoVehicle.id),
-            name: transportIdentity.name,
-            plate_number: transportIdentity.plate || null,
-            search_terms: transportIdentity.searchTerms,
-            type: cargoVehicle.type,
-            fleet_type: cargoVehicle.fleet_type,
-            source: "reference_vehicles",
-          }
-        : {
-            id: String(cargoTractor!.id),
-            name: transportIdentity.name,
-            plate_number: transportIdentity.plate || null,
-            search_terms: transportIdentity.searchTerms,
-            type: "tractor",
-            fleet_type: "tractor",
-            source: "reference_machines",
-          };
+      const transportIdentity = resolveTransportIdentity({
+        ...cargoVehicle,
+        fullName: cargoVehicle.full_name,
+        sourceRawName: cargoVehicle.source_raw_name,
+        plate: cargoVehicle.plate_number,
+      });
+      selectedVehicle = {
+        id: String(cargoVehicle.id),
+        name: transportIdentity.name,
+        plate_number: transportIdentity.plate || null,
+        search_terms: transportIdentity.searchTerms,
+        type: cargoVehicle.type,
+        fleet_type: cargoVehicle.fleet_type,
+        source: "reference_vehicles",
+      };
       if (activeByVehicleError) {
         return NextResponse.json({ error: activeByVehicleError.message }, { status: 400 });
       }

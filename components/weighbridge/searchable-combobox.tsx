@@ -21,6 +21,11 @@ export type SearchableComboboxOption = {
   status?: string;
   group?: string;
   keywords?: string[];
+  physicalFieldSearch?: {
+    name: string;
+    area: number;
+    fieldCode?: string | null;
+  };
 };
 
 type SearchableComboboxProps = {
@@ -84,8 +89,8 @@ export function SearchableCombobox({
                 {groupOptions.map((option) => (
                   <CommandItem
                     key={option.value}
-                    value={`${option.label} ${option.description || ""}`}
-                    keywords={option.keywords}
+                    value={option.value}
+                    keywords={[option.label, option.description || "", ...(option.keywords || [])]}
                     onSelect={() => {
                       onValueChange(option.value);
                       setOpen(false);

@@ -7,7 +7,7 @@ import type {
   OpenTransportAssignment,
   RecentTransportPair,
 } from "@/lib/weighbridge/transport-pairing";
-import { formatVehiclePlate, transportPickerLabel } from "@/lib/weighbridge/transport";
+import { formatVehiclePlate, transportPickerOptionLabel } from "@/lib/weighbridge/transport";
 
 type Vehicle = {
   id: string;
@@ -41,7 +41,7 @@ type Props = {
   onComplete?: () => void;
 };
 
-const vehicleTitle = (vehicle: Vehicle) => transportPickerLabel(vehicle);
+const vehicleTitle = (vehicle: Vehicle) => transportPickerOptionLabel(vehicle);
 
 export function TransportDriverSelects({
   vehicleId,

@@ -281,6 +281,7 @@ export interface HarvestBatchSummary {
   cleanYieldTPerHa: number | null;
   aggregateLot?: boolean;
   aggregateLotId?: string | null;
+  originState?: "ticket_lineage" | "ticket_lineage_absent";
   tripCount?: number;
   stockComponents?: Array<{
     batchClass: string;

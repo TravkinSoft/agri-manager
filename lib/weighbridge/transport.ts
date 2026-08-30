@@ -168,3 +168,8 @@ export function transportDisplayName(transport: TransportIdentityInput) {
 export function transportPickerLabel(transport: TransportIdentityInput) {
   return resolveTransportIdentity(transport).label;
 }
+
+export function transportPickerOptionLabel(transport: TransportIdentityInput) {
+  const identity = resolveTransportIdentity(transport);
+  return `${identity.name || "Транспорт"} · ${identity.plate || "Госномер не указан"}`;
+}

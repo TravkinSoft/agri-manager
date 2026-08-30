@@ -58,6 +58,7 @@ import { DailyReconciliation } from "@/components/weighbridge/daily-reconciliati
 import { CompactField, PrimaryActionBar } from "@/components/operations/operational-ui";
 import { performProcessingAction, type BatchTransformationRow } from "@/lib/services/processing";
 import type { WeighbridgeTransportPickerData } from "@/lib/weighbridge/transport-pairing";
+import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import {
   UNIVERSAL_WORKSPACE_MAX_TABS,
   UNIVERSAL_WORKSPACE_SCHEMA_VERSION,
@@ -94,7 +95,7 @@ type VehicleOption = Option & {
   type: string;
   fleetType: string;
   transportCategory: string;
-  source: "reference_vehicles" | "reference_machines";
+  source: "reference_vehicles";
   primaryPersonnelId: string | null;
   searchTerms: string[];
 };
@@ -703,7 +704,9 @@ const activeHarvestRouteCache = new Map<string, ActiveHarvestRouteList>();
 const transportPickerDataCache = new Map<string, WeighbridgeTransportPickerData>();
 const transportPickerRequestCache = new Map<string, Promise<WeighbridgeTransportPickerData>>();
 const harvestContextCache = new Map<string, HarvestContextState>();
-const harvestContextRequestCache = new Map<string, Promise<HarvestContextState>>();
+type AbortableRequest<T> = { controller: AbortController; promise: Promise<T> };
+type SharedAbortableRequest<T> = AbortableRequest<T> & { subscribers: number };
+const harvestContextRequestCache = new Map<string, SharedAbortableRequest<HarvestContextState>>();
 const WEIGHBRIDGE_WORKSPACE_CACHE_VERSION = 2;
 const WEIGHBRIDGE_WORKSPACE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const MODE_RESOURCE_STABILITY_DELAY_MS = 75;
@@ -769,11 +772,46 @@ const harvestContextCacheKey = (
   revision: string
 ) => `${companyId}:${fieldId}:${allocationId}:${revision}`;
 
+const abortRequestError = () => new DOMException("Request aborted", "AbortError");
+
+function followHarvestContextRequest<T>(entry: SharedAbortableRequest<T>, signal?: AbortSignal): Promise<T> {
+  entry.subscribers += 1;
+  return new Promise<T>((resolve, reject) => {
+    let released = false;
+    const release = () => {
+      if (released) return false;
+      released = true;
+      entry.subscribers = Math.max(0, entry.subscribers - 1);
+      signal?.removeEventListener("abort", abort);
+      return true;
+    };
+    const abort = () => {
+      if (!release()) return;
+      if (entry.subscribers === 0) entry.controller.abort();
+      reject(abortRequestError());
+    };
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    signal?.addEventListener("abort", abort, { once: true });
+    entry.promise.then(
+      (value) => {
+        if (release()) resolve(value);
+      },
+      (error) => {
+        if (release()) reject(error);
+      },
+    );
+  });
+}
+
 const loadHarvestContextCached = async (params: {
   companyId: string;
   fieldId: string;
   allocationId: string;
   revision: string;
+  signal?: AbortSignal;
 }): Promise<HarvestContextState> => {
   const key = harvestContextCacheKey(
     params.companyId,
@@ -781,13 +819,20 @@ const loadHarvestContextCached = async (params: {
     params.allocationId,
     params.revision
   );
+  if (params.signal?.aborted) throw abortRequestError();
   const cached = harvestContextCache.get(key);
   if (cached) return cached;
   const pending = harvestContextRequestCache.get(key);
-  if (pending) return pending;
+  if (pending && !pending.controller.signal.aborted) {
+    return followHarvestContextRequest(pending, params.signal);
+  }
+  if (pending) harvestContextRequestCache.delete(key);
 
+  const controller = new AbortController();
+  let entry: SharedAbortableRequest<HarvestContextState>;
   const request = (async () => {
     const headers = await buildClientAuthHeaders("none");
+    if (controller.signal.aborted) throw abortRequestError();
     const query = new URLSearchParams({
       fieldId: params.fieldId,
       allocationId: params.allocationId,
@@ -795,8 +840,10 @@ const loadHarvestContextCached = async (params: {
     const response = await fetch(`/api/weighbridge/harvest-context?${query.toString()}`, {
       headers,
       cache: "no-store",
+      signal: controller.signal,
     });
     const payload = await response.json().catch(() => ({}));
+    if (controller.signal.aborted) throw abortRequestError();
     if (!response.ok) throw new Error(String(payload?.error || "Не удалось определить уборку"));
     const context: HarvestContextState = {
       status: payload.status,
@@ -806,13 +853,14 @@ const loadHarvestContextCached = async (params: {
       yieldTPerHa: payload.yieldTPerHa == null ? null : Number(payload.yieldTPerHa),
       yieldStatus: payload.yieldStatus || "not_available",
     };
-    harvestContextCache.set(key, context);
+    if (!controller.signal.aborted) harvestContextCache.set(key, context);
     return context;
   })().finally(() => {
-    harvestContextRequestCache.delete(key);
+    if (harvestContextRequestCache.get(key) === entry) harvestContextRequestCache.delete(key);
   });
-  harvestContextRequestCache.set(key, request);
-  return request;
+  entry = { controller, promise: request, subscribers: 0 };
+  harvestContextRequestCache.set(key, entry);
+  return followHarvestContextRequest(entry, params.signal);
 };
 
 const emptyTransportPickerData = (): WeighbridgeTransportPickerData => ({
@@ -1001,11 +1049,15 @@ export default function WeighbridgeOperationsPage() {
   const operatorCanonicalStateRef = useRef<WeighbridgeOperatorState>({ shift: null, unlocked: false, operators: [] });
   const operatorUnlockConfirmedAtRef = useRef(0);
   const operatorContextKeyRef = useRef("");
-  const secondaryCatalogRequestsRef = useRef(new Map<string, Promise<void>>());
+  const secondaryCatalogRequestsRef = useRef(new Map<string, AbortableRequest<void>>());
   const secondaryCatalogReadyRef = useRef(new Set<string>());
-  const secondaryCatalogGenerationRef = useRef(0);
   const stockIdentityCacheRef = useRef(new Map<string, StockIdentityOption[]>());
+  const stockIdentityRequestsRef = useRef(new Map<string, AbortableRequest<StockIdentityOption[]>>());
+  const stockIdentityGenerationRef = useRef(0);
   const operationLinesCacheRef = useRef(new Map<string, LinkedOperationLineOption[]>());
+  const operationLinesRequestsRef = useRef(new Map<string, AbortableRequest<LinkedOperationLineOption[]>>());
+  const operationLinesGenerationRef = useRef(0);
+  const harvestContextGenerationRef = useRef(0);
   const [statisticsOpen, setStatisticsOpen] = useState(false);
   const [secondaryCatalogStatus, setSecondaryCatalogStatus] = useState<SecondaryCatalogStatus>({
     key: "",
@@ -1167,15 +1219,16 @@ export default function WeighbridgeOperationsPage() {
     fieldId: string,
     supplierItemMode: SupplierItemMode,
     cacheKey: string,
-    requestGeneration: number,
-    signal: AbortSignal,
   ) => {
     if (!profile?.company_id || !cacheKey || secondaryCatalogReadyRef.current.has(cacheKey)) return;
     const existing = secondaryCatalogRequestsRef.current.get(cacheKey);
-    if (existing) return existing;
+    if (existing) return existing.promise;
 
     const companyId = profile.company_id;
+    const controller = new AbortController();
+    const signal = controller.signal;
     setSecondaryCatalogStatus({ key: cacheKey, status: "loading", error: "" });
+    let entry: AbortableRequest<void>;
     const request = (async () => {
       if (operationType === "supplier_receipt") {
         const needsIdentity = supplierItemMode === "agro_identity";
@@ -1276,20 +1329,21 @@ export default function WeighbridgeOperationsPage() {
         });
       }
 
-      if (signal.aborted || requestGeneration !== secondaryCatalogGenerationRef.current) return;
+      if (signal.aborted) return;
       secondaryCatalogReadyRef.current.add(cacheKey);
       setSecondaryCatalogStatus({ key: cacheKey, status: "ready", error: "" });
     })().catch((error: any) => {
-      if (signal.aborted || requestGeneration !== secondaryCatalogGenerationRef.current || error?.name === "AbortError") return;
+      if (signal.aborted || error?.name === "AbortError") return;
       const message = String(error?.message || "Не удалось загрузить справочник выбранного режима");
       setSecondaryCatalogStatus({ key: cacheKey, status: "error", error: message });
       throw error;
     }).finally(() => {
-      if (secondaryCatalogRequestsRef.current.get(cacheKey) === request) {
+      if (secondaryCatalogRequestsRef.current.get(cacheKey) === entry) {
         secondaryCatalogRequestsRef.current.delete(cacheKey);
       }
     });
-    secondaryCatalogRequestsRef.current.set(cacheKey, request);
+    entry = { controller, promise: request };
+    secondaryCatalogRequestsRef.current.set(cacheKey, entry);
     return request;
   };
 
@@ -1347,18 +1401,13 @@ export default function WeighbridgeOperationsPage() {
             id: String(row.id), name: String(row.name || "Машина"), model: String(row.model || row.name || ""),
             plate: String(row.plate || ""), type: String(row.type || ""), fleetType: String(row.fleetType || ""),
             transportCategory: String(row.transportCategory || ""),
-            source: row.source === "reference_machines" ? "reference_machines" as const : "reference_vehicles" as const,
+            source: "reference_vehicles" as const,
             primaryPersonnelId: row.primaryPersonnelId ? String(row.primaryPersonnelId) : null,
             searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
           }));
-          setVehicles((previous) => [
-            ...(failedResources.has("reference_vehicles")
-              ? previous.filter((row) => row.source === "reference_vehicles")
-              : mappedVehicles.filter((row) => row.source === "reference_vehicles")),
-            ...(failedResources.has("reference_machines")
-              ? previous.filter((row) => row.source === "reference_machines")
-              : mappedVehicles.filter((row) => row.source === "reference_machines")),
-          ]);
+          if (!failedResources.has("reference_vehicles")) {
+            setVehicles(mappedVehicles);
+          }
           if (!failedResources.has("reference_vehicles")) {
             setTrailers(((resourceRows?.trailers || []) as any[]).map((row: any) => ({
               id: String(row.id), name: String(row.name || "Прицеп"), model: String(row.model || row.name || ""),
@@ -1713,7 +1762,7 @@ export default function WeighbridgeOperationsPage() {
     const controller = new AbortController();
     let refreshTimer: number | null = null;
 
-    secondaryCatalogGenerationRef.current += 1;
+    secondaryCatalogRequestsRef.current.forEach((entry) => entry.controller.abort());
     secondaryCatalogRequestsRef.current.clear();
     secondaryCatalogReadyRef.current.clear();
     harvestBatchesGenerationRef.current += 1;
@@ -1722,15 +1771,23 @@ export default function WeighbridgeOperationsPage() {
     harvestBatchesRequestRef.current = null;
     harvestBatchesReadyRef.current = false;
     setHarvestBatches([]);
+    stockIdentityGenerationRef.current += 1;
+    stockIdentityRequestsRef.current.forEach((entry) => entry.controller.abort());
+    stockIdentityRequestsRef.current.clear();
     stockIdentityCacheRef.current.clear();
+    operationLinesGenerationRef.current += 1;
+    operationLinesRequestsRef.current.forEach((entry) => entry.controller.abort());
+    operationLinesRequestsRef.current.clear();
     operationLinesCacheRef.current.clear();
+    harvestContextGenerationRef.current += 1;
     setSecondaryCatalogStatus({ key: "", status: "idle", error: "" });
     setHistoryLimit(10);
     setHistoryHasMore(false);
     if (cached) {
       setFields(cached.fields || []);
       setWarehouses(cached.warehouses || []);
-      setVehicles(cached.vehicles || []);
+      setVehicles(((cached.vehicles || []) as VehicleOption[])
+        .filter((vehicle) => vehicle.source === "reference_vehicles"));
       setTrailers(cached.trailers || []);
       setDrivers(cached.drivers || []);
       setDriverNames(cached.driverNames || {});
@@ -1784,16 +1841,12 @@ export default function WeighbridgeOperationsPage() {
   useEffect(() => {
     if (canUseOperatorSession && !operatorState.unlocked) return;
     if (form.operationType !== "impurity_removal" || !profile?.company_id || harvestBatchesReadyRef.current) return;
-    const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      void refreshHarvestBatches({ signal: controller.signal }).catch((error) => {
+      void refreshHarvestBatches().catch((error) => {
         console.error("Harvest batch options refresh failed", error);
       });
     }, MODE_RESOURCE_STABILITY_DELAY_MS);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
+    return () => window.clearTimeout(timer);
     // Harvest batches are needed only by impurity removal, not by the default intake form.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.operationType, profile?.company_id, canUseOperatorSession, operatorState.unlocked]);
@@ -1822,32 +1875,20 @@ export default function WeighbridgeOperationsPage() {
       setSecondaryCatalogStatus({ key: secondaryCatalogKey, status: "ready", error: "" });
       return;
     }
-    const controller = new AbortController();
-    let requestGeneration = 0;
     const timer = window.setTimeout(() => {
-      requestGeneration = ++secondaryCatalogGenerationRef.current;
       void loadSecondaryCatalogs(
         form.operationType,
         form.fieldId,
         form.supplierItemMode,
         secondaryCatalogKey,
-        requestGeneration,
-        controller.signal,
       ).catch((error: any) => {
         if (error?.name !== "AbortError") {
           console.error("Weighbridge secondary catalogs failed", error);
         }
       });
     }, MODE_RESOURCE_STABILITY_DELAY_MS);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-      if (requestGeneration) secondaryCatalogRequestsRef.current.delete(secondaryCatalogKey);
-      if (requestGeneration && secondaryCatalogGenerationRef.current === requestGeneration) {
-        secondaryCatalogGenerationRef.current += 1;
-      }
-    };
-    // Each mode owns only its required resources; stale requests are aborted on mode/context change.
+    return () => window.clearTimeout(timer);
+    // A mode detaches from the request without cancelling the shared immutable catalog load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [secondaryCatalogKey, needsSecondaryCatalogs, profile?.company_id, canUseOperatorSession, operatorState.unlocked, workspaceReady, coreDataReady]);
 
@@ -1888,6 +1929,11 @@ export default function WeighbridgeOperationsPage() {
     weighbridgePageCache.set(`${profile.company_id}:${language}`, payload);
     writeWeighbridgeWorkspaceCache(profile.company_id, profile.id, language, payload);
   }, [coreDataReady, profile?.company_id, language, fields, warehouses, vehicles, trailers, drivers, driverNames, combineOperators, transportPickerData, harvestStructureByField, harvestIncompleteFields, tickets, activeShift, shiftCounters, shiftGuard, shiftSummary, harvestSummary]);
+
+  useEffect(() => {
+    if (!coreDataReady || !form.vehicleId || vehicles.some((vehicle) => vehicle.id === form.vehicleId)) return;
+    setForm((current) => current.vehicleId === form.vehicleId ? { ...current, vehicleId: "" } : current);
+  }, [coreDataReady, form.vehicleId, vehicles]);
 
   useEffect(() => {
     if (operatorState.unlocked) {
@@ -2089,6 +2135,7 @@ export default function WeighbridgeOperationsPage() {
     const companyId = profile.company_id;
     const warehouseFromId = form.warehouseFromId;
     const cacheKey = `${companyId}:${warehouseFromId}`;
+    const requestMap = stockIdentityRequestsRef.current;
     const cached = stockIdentityCacheRef.current.get(cacheKey);
     if (cached) {
       setStockIdentityOptions(cached);
@@ -2100,26 +2147,47 @@ export default function WeighbridgeOperationsPage() {
       return;
     }
 
-    const controller = new AbortController();
-    setStockIdentityLoading(true);
-    getSessionAuthHeaders()
-      .then((headers) =>
-        fetch(
-          `/api/weighbridge/stock-identities?companyId=${encodeURIComponent(companyId)}&warehouseId=${encodeURIComponent(warehouseFromId)}`,
-          {
-            cache: "no-store",
-            headers,
-            signal: controller.signal,
-          }
+    let requestEntry = requestMap.get(cacheKey);
+    if (requestEntry?.controller.signal.aborted) {
+      requestMap.delete(cacheKey);
+      requestEntry = undefined;
+    }
+    if (!requestEntry) {
+      const controller = new AbortController();
+      let createdEntry: AbortableRequest<StockIdentityOption[]>;
+      const promise = getSessionAuthHeaders()
+        .then((headers) =>
+          fetch(
+            `/api/weighbridge/stock-identities?companyId=${encodeURIComponent(companyId)}&warehouseId=${encodeURIComponent(warehouseFromId)}`,
+            {
+              cache: "no-store",
+              headers,
+              signal: controller.signal,
+            }
+          )
         )
-      )
-      .then(async (response) => {
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить остатки склада");
-        return ((payload.items || []) as StockIdentityOption[]).filter((item) => !item.is_legacy_invalid);
-      })
+        .then(async (response) => {
+          const payload = await response.json().catch(() => ({}));
+          if (controller.signal.aborted) throw abortRequestError();
+          if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить остатки склада");
+          return ((payload.items || []) as StockIdentityOption[]).filter((item) => !item.is_legacy_invalid);
+        })
+        .finally(() => {
+          if (requestMap.get(cacheKey) === createdEntry) {
+            requestMap.delete(cacheKey);
+          }
+        });
+      createdEntry = { controller, promise };
+      requestMap.set(cacheKey, createdEntry);
+      requestEntry = createdEntry;
+    }
+
+    const activeRequest = requestEntry;
+    const requestGeneration = ++stockIdentityGenerationRef.current;
+    setStockIdentityLoading(true);
+    void activeRequest.promise
       .then((items) => {
-        if (controller.signal.aborted) return;
+        if (activeRequest.controller.signal.aborted || requestGeneration !== stockIdentityGenerationRef.current) return;
         stockIdentityCacheRef.current.set(cacheKey, items);
         setStockIdentityOptions(items);
         setForm((prev) => {
@@ -2128,16 +2196,20 @@ export default function WeighbridgeOperationsPage() {
         });
       })
       .catch((error) => {
-        if (controller.signal.aborted || error?.name === "AbortError") return;
+        if (activeRequest.controller.signal.aborted || requestGeneration !== stockIdentityGenerationRef.current || error?.name === "AbortError") return;
         setStockIdentityOptions([]);
         toast({ title: "Ошибка остатков", description: error?.message || "Не удалось загрузить остатки склада", variant: "destructive" });
       })
       .finally(() => {
-        if (!controller.signal.aborted) setStockIdentityLoading(false);
+        if (requestGeneration === stockIdentityGenerationRef.current) setStockIdentityLoading(false);
       });
 
     return () => {
-      controller.abort();
+      if (requestGeneration === stockIdentityGenerationRef.current) stockIdentityGenerationRef.current += 1;
+      activeRequest.controller.abort();
+      if (requestMap.get(cacheKey) === activeRequest) {
+        requestMap.delete(cacheKey);
+      }
     };
   }, [form.operationType, form.warehouseFromId, profile?.company_id, profile?.id, stockSourcePlaceType, toast]);
 
@@ -2184,9 +2256,14 @@ export default function WeighbridgeOperationsPage() {
       const areaLabel = `${field.area.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`;
       return {
         value: field.id,
-        label: `${field.name} — ${areaLabel}`,
+        label: `${field.name} · ${areaLabel}`,
         description: field.fieldCode || undefined,
         keywords: [field.name, areaLabel, String(field.area), field.fieldCode || ""],
+        physicalFieldSearch: {
+          name: field.name,
+          area: field.area,
+          fieldCode: field.fieldCode,
+        },
       };
     }),
   [fields, harvestStructureByField]);
@@ -2306,16 +2383,20 @@ export default function WeighbridgeOperationsPage() {
   );
   useEffect(() => {
     if (!profile?.company_id || activeHarvests.length === 0) return;
+    const controller = new AbortController();
     for (const route of activeHarvests) {
       void loadHarvestContextCached({
         companyId: profile.company_id,
         fieldId: route.fieldId,
         allocationId: route.cropStructureId,
         revision: harvestContextRevision,
-      }).catch(() => {
+        signal: controller.signal,
+      }).catch((error: any) => {
+        if (controller.signal.aborted || error?.name === "AbortError") return;
         // The selected route reports a concrete error; background warming stays silent.
       });
     }
+    return () => controller.abort();
   }, [profile?.company_id, activeHarvests, harvestContextRevision]);
   const selectedCropName = useMemo(
     () => crops.find((c) => c.id === form.cropId)?.name || "",
@@ -2405,7 +2486,6 @@ export default function WeighbridgeOperationsPage() {
       return;
     }
 
-    let cancelled = false;
     const key = harvestContextCacheKey(
       profile?.company_id || "",
       form.fieldId,
@@ -2417,16 +2497,21 @@ export default function WeighbridgeOperationsPage() {
       setHarvestContext(cached);
       return;
     }
+    const controller = new AbortController();
+    const requestGeneration = ++harvestContextGenerationRef.current;
     setHarvestContext((current) => ({ ...current, status: "loading", message: "Проверяем активную уборку..." }));
     loadHarvestContextCached({
       companyId: profile?.company_id || "",
       fieldId: form.fieldId,
       allocationId: form.cropStructureAllocationId,
       revision: harvestContextRevision,
+      signal: controller.signal,
     }).then((context) => {
-      if (!cancelled) setHarvestContext(context);
+      if (!controller.signal.aborted && requestGeneration === harvestContextGenerationRef.current) {
+        setHarvestContext(context);
+      }
     }).catch((error: any) => {
-      if (cancelled) return;
+      if (controller.signal.aborted || requestGeneration !== harvestContextGenerationRef.current || error?.name === "AbortError") return;
       setHarvestContext({
         status: "error",
         message: error?.message || "Не удалось определить уборку",
@@ -2438,7 +2523,8 @@ export default function WeighbridgeOperationsPage() {
     });
 
     return () => {
-      cancelled = true;
+      controller.abort();
+      if (requestGeneration === harvestContextGenerationRef.current) harvestContextGenerationRef.current += 1;
     };
   }, [profile?.company_id, form.operationType, form.fieldId, form.cropStructureAllocationId, harvestContextRevision]);
 
@@ -2483,7 +2569,10 @@ export default function WeighbridgeOperationsPage() {
       return;
     }
 
-    const cacheKey = `${profile.company_id}:${form.linkedOperationId}`;
+    const companyId = profile.company_id;
+    const operationId = form.linkedOperationId;
+    const cacheKey = `${companyId}:${operationId}`;
+    const requestMap = operationLinesRequestsRef.current;
     const cached = operationLinesCacheRef.current.get(cacheKey);
     if (cached) {
       setLinkedOperationLines(cached);
@@ -2494,33 +2583,55 @@ export default function WeighbridgeOperationsPage() {
       return;
     }
 
-    const controller = new AbortController();
-    setLinkedOperationLinesLoading(true);
-
-    (supabase
-      .from("operation_lines")
-      .select("id,operation_id,variety_id,reproduction_id,planned_area_ha,actual_area_ha,varieties:variety_id(name),seed_reproductions:reproduction_id(name)")
-      .eq("company_id", profile.company_id)
-      .eq("operation_id", form.linkedOperationId)
-      .order("created_at", { ascending: true })
-      .abortSignal(controller.signal) as unknown as Promise<{ data: any[] | null; error: any }>)
-      .then(({ data, error }) => {
-        if (controller.signal.aborted) return;
-        if (error) throw error;
-        const options = (data || []).map((row: any) => {
-          const varietyName =
-            String(row?.varieties?.name || "").trim();
-          const reproductionName =
-            String(row?.seed_reproductions?.name || "").trim();
-          const area = Number(row.actual_area_ha ?? row.planned_area_ha ?? 0);
-          return {
-            id: String(row.id),
-            operation_id: String(row.operation_id),
-            variety_id: row.variety_id ? String(row.variety_id) : null,
-            reproduction_id: row.reproduction_id ? String(row.reproduction_id) : null,
-            label: `${harvestIdentityLabel(varietyName, reproductionName) || "Участок"} • ${area.toFixed(2)} га`,
-          } satisfies LinkedOperationLineOption;
+    let requestEntry = requestMap.get(cacheKey);
+    if (requestEntry?.controller.signal.aborted) {
+      requestMap.delete(cacheKey);
+      requestEntry = undefined;
+    }
+    if (!requestEntry) {
+      const controller = new AbortController();
+      let createdEntry: AbortableRequest<LinkedOperationLineOption[]>;
+      const promise = (supabase
+        .from("operation_lines")
+        .select("id,operation_id,variety_id,reproduction_id,planned_area_ha,actual_area_ha,varieties:variety_id(name),seed_reproductions:reproduction_id(name)")
+        .eq("company_id", companyId)
+        .eq("operation_id", operationId)
+        .order("created_at", { ascending: true })
+        .abortSignal(controller.signal) as unknown as Promise<{ data: any[] | null; error: any }>)
+        .then(({ data, error }) => {
+          if (controller.signal.aborted) throw abortRequestError();
+          if (error) throw error;
+          return (data || []).map((row: any) => {
+            const varietyName =
+              String(row?.varieties?.name || "").trim();
+            const reproductionName =
+              String(row?.seed_reproductions?.name || "").trim();
+            const area = Number(row.actual_area_ha ?? row.planned_area_ha ?? 0);
+            return {
+              id: String(row.id),
+              operation_id: String(row.operation_id),
+              variety_id: row.variety_id ? String(row.variety_id) : null,
+              reproduction_id: row.reproduction_id ? String(row.reproduction_id) : null,
+              label: `${harvestIdentityLabel(varietyName, reproductionName) || "Участок"} • ${area.toFixed(2)} га`,
+            } satisfies LinkedOperationLineOption;
+          });
+        })
+        .finally(() => {
+          if (requestMap.get(cacheKey) === createdEntry) {
+            requestMap.delete(cacheKey);
+          }
         });
+      createdEntry = { controller, promise };
+      requestMap.set(cacheKey, createdEntry);
+      requestEntry = createdEntry;
+    }
+
+    const activeRequest = requestEntry;
+    const requestGeneration = ++operationLinesGenerationRef.current;
+    setLinkedOperationLinesLoading(true);
+    void activeRequest.promise
+      .then((options) => {
+        if (activeRequest.controller.signal.aborted || requestGeneration !== operationLinesGenerationRef.current) return;
         operationLinesCacheRef.current.set(cacheKey, options);
         setLinkedOperationLines(options);
         setForm((prev) => prev.linkedOperationLineId && !options.some((item) => item.id === prev.linkedOperationLineId)
@@ -2528,7 +2639,7 @@ export default function WeighbridgeOperationsPage() {
           : prev);
       })
       .catch((error: any) => {
-        if (controller.signal.aborted || error?.name === "AbortError") return;
+        if (activeRequest.controller.signal.aborted || requestGeneration !== operationLinesGenerationRef.current || error?.name === "AbortError") return;
         setLinkedOperationLines([]);
         toast({
           title: "Ошибка загрузки строк операции",
@@ -2537,11 +2648,15 @@ export default function WeighbridgeOperationsPage() {
         });
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLinkedOperationLinesLoading(false);
+        if (requestGeneration === operationLinesGenerationRef.current) setLinkedOperationLinesLoading(false);
       });
 
     return () => {
-      controller.abort();
+      if (requestGeneration === operationLinesGenerationRef.current) operationLinesGenerationRef.current += 1;
+      activeRequest.controller.abort();
+      if (requestMap.get(cacheKey) === activeRequest) {
+        requestMap.delete(cacheKey);
+      }
     };
   }, [
     form.operationType,
@@ -3437,6 +3552,9 @@ export default function WeighbridgeOperationsPage() {
 
   const validate = () => {
     if (!profile?.company_id || !profile?.id) return "Нет профиля пользователя";
+    if (form.vehicleId && !vehicles.some((vehicle) => vehicle.id === form.vehicleId)) {
+      return "Выберите машину из действующего автопарка";
+    }
     if (form.harvestMoisture.trim()) {
       const moisture = toNum(form.harvestMoisture);
       if (moisture == null || moisture <= 0 || moisture >= 100) {
@@ -4350,13 +4468,31 @@ export default function WeighbridgeOperationsPage() {
     }
   };
 
-  if (authLoading) return (
-    <div className="fixed inset-0 z-50 grid place-items-center overflow-hidden bg-black/90 p-4 backdrop-blur-md">
-      <div role="dialog" aria-modal="true" aria-labelledby="weighbridge-first-paint-title" className="w-full max-w-sm rounded-lg border border-slate-700 bg-[#101724] p-6 text-slate-100 shadow-2xl">
-        <Loader2 className="mx-auto h-7 w-7 animate-spin text-yellow-400" />
-        <div id="weighbridge-first-paint-title" className="mt-4 text-center text-lg font-semibold">Проверяем действующую смену…</div>
-        <div className="mt-2 text-center text-sm text-slate-400">Рабочая Весовая откроется после проверки доступа.</div>
+  if (authLoading || operatorGateChecking) return (
+    <div
+      aria-busy="true"
+      aria-label="Загрузка Весовой"
+      className="mx-auto max-w-[1680px] space-y-3 px-2 pb-4 sm:px-3"
+      data-testid="weighbridge-session-skeleton"
+    >
+      <div className="h-10 animate-pulse rounded-md border border-slate-800 bg-slate-900/70" />
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="space-y-3 rounded-md border border-slate-800 bg-[#101724]/95 p-4">
+          <div className="h-5 w-40 animate-pulse rounded bg-slate-800" />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="h-16 animate-pulse rounded bg-slate-900" />
+            <div className="h-16 animate-pulse rounded bg-slate-900" />
+            <div className="h-16 animate-pulse rounded bg-slate-900" />
+            <div className="h-16 animate-pulse rounded bg-slate-900" />
+          </div>
+        </div>
+        <div className="space-y-3 rounded-md border border-slate-800 bg-[#101724]/95 p-4">
+          <div className="h-5 w-36 animate-pulse rounded bg-slate-800" />
+          <div className="h-24 animate-pulse rounded bg-slate-900" />
+          <div className="h-24 animate-pulse rounded bg-slate-900" />
+        </div>
       </div>
+      <span className="sr-only">Проверяем доступ к Весовой</span>
     </div>
   );
   if (!canView) return <PageHeader title="Весовая и движения" description="Доступ ограничен по роли" />;
@@ -4599,7 +4735,7 @@ export default function WeighbridgeOperationsPage() {
     }
   };
   const operatorDialogVisible = canUseOperatorSession && (
-    operatorGateBlocked || (operatorDialogOpen && operatorDialogRequested)
+    (operatorGateBlocked && !operatorGateChecking) || (operatorDialogOpen && operatorDialogRequested)
   );
   return (
     <div
@@ -4846,6 +4982,7 @@ export default function WeighbridgeOperationsPage() {
                       emptyLabel="Поле не найдено"
                       ariaLabel="Поле"
                       listAriaLabel="Физические поля активного сезона"
+                      physicalFieldSearch
                       disabled={loading || submitting}
                     />
                   </div>
@@ -5313,19 +5450,44 @@ export default function WeighbridgeOperationsPage() {
               </div>
             ) : [...visibleActiveTickets].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()).map((t) => {
               const isPending = t.id.startsWith("pending-");
-              const vehicleName = vehicles.find((v) => v.id === t.vehicle_id)?.name || "Транспорт";
+              const vehicle = vehicles.find((v) => v.id === t.vehicle_id);
+              const snapshotVehicle = resolveTransportIdentity({
+                name: t.vehicle_name_snapshot,
+                plate: t.vehicle_plate_snapshot,
+              });
+              const vehicleName = vehicle?.name || snapshotVehicle.name || "Транспорт";
+              const vehiclePlate = vehicle?.plate || snapshotVehicle.plate;
+              const vehicleLabel = `${vehicleName} · ${vehiclePlate || "Госномер не указан"}`;
               const driverName = driverNameForId(t.driver_id) || "Без водителя";
-              const meta = ticketCardMeta(t, vehicleName, driverName);
               const harvestRoute = activeHarvestForTicket(t);
+              const harvestField = harvestRoute?.fieldName || fields.find((field) => field.id === t.field_id)?.name || t.field_name_snapshot || "Поле не указано";
+              const harvestIdentity = harvestIdentityLabel(
+                harvestRoute?.cropName || t.crop_name_snapshot || productSummary(t),
+                harvestRoute?.varietyName || t.variety_name_snapshot,
+                harvestRoute?.reproductionName || t.reproduction_name_snapshot
+              );
               const correctionOriginal = t.correction_of_ticket_id ? ticketById.get(t.correction_of_ticket_id) : null;
               return (
                 <button key={`open-${t.id}`} type="button" disabled={isPending} onClick={() => setActiveTicket(t)} className={isPending ? "w-full cursor-wait rounded-xl border border-yellow-500/25 bg-yellow-500/5 px-3 py-3 text-left" : "w-full rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-3 text-left transition hover:border-yellow-500/50 hover:bg-slate-900"}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-slate-50">{productSummary(t)}</div>
-                      <div className="mt-1 line-clamp-2 text-xs text-slate-400">{ticketRouteSummary(t)}</div>
+                      <div className="truncate text-sm font-bold text-slate-50">{driverName}</div>
+                      <div className="mt-0.5 truncate text-xs font-semibold text-slate-300">{vehicleLabel}</div>
                     </div>
                     <Badge className="h-5 shrink-0 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 text-[10px] text-yellow-100">{isPending ? "Сохраняется" : correctionOriginal ? "Исправляется" : ticketStageLabel(t)}</Badge>
+                  </div>
+                  <div className="mt-2 space-y-0.5 border-t border-slate-800 pt-2">
+                    {isHarvestTicket(t) ? (
+                      <>
+                      <div className="truncate text-xs font-semibold text-yellow-100">Поле {harvestField}</div>
+                      <div className="truncate text-xs text-slate-300">{harvestIdentity || "Культура не указана"}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="truncate text-xs font-semibold text-yellow-100">{ticketRouteSummary(t)}</div>
+                        <div className="truncate text-xs text-slate-300">{productSummary(t)}</div>
+                      </>
+                    )}
                   </div>
                   {correctionOriginal ? (
                     <div className="mt-2 grid gap-1 rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-2.5 py-2 text-xs">
@@ -5343,7 +5505,7 @@ export default function WeighbridgeOperationsPage() {
                     <span className="truncate font-semibold text-slate-200">{ticketQuantitySummary(t)}</span>
                     <span className="shrink-0 text-[11px] text-slate-500">{fmt(t.created_at, lang)}</span>
                   </div>
-                  <div className="mt-1 truncate text-[11px] text-slate-500">{meta} • {t.ticket_no}</div>
+                  <div className="mt-1 truncate text-[10px] text-slate-600">{isHarvestTicket(t) ? `Комбайнер: ${combineOperatorNameForTicket(t) || "Не указан"}` : operationUiLabel(t.op_type)} • № {t.ticket_no}</div>
                   {harvestRoute ? <div className="mt-1 truncate text-[10px] font-medium text-yellow-200/80">Уборка: {harvestRoute.fieldName} → {harvestRoute.warehouseName}</div> : null}
                 </button>
               );
@@ -5500,7 +5662,7 @@ export default function WeighbridgeOperationsPage() {
       ) : null}
 
       <Sheet open={Boolean(activeTicket)} onOpenChange={(open) => !open && setActiveTicket(null)}>
-        <SheetContent side="right" className="w-full overflow-y-auto bg-slate-950 text-slate-100 sm:max-w-xl lg:overflow-hidden lg:max-w-3xl">
+        <SheetContent side="right" className="w-full overflow-y-auto bg-slate-950 text-slate-100 sm:max-w-[540px] lg:overflow-hidden">
           {activeTicket ? (
             <div className="flex min-h-0 flex-col gap-2 lg:h-full">
               <SheetHeader className="sr-only">
@@ -5662,21 +5824,14 @@ export default function WeighbridgeOperationsPage() {
           onInteractOutside={(event) => { if (operatorGateBlocked) event.preventDefault(); }}
         >
           <DialogHeader>
-            <DialogTitle>{operatorGateChecking ? "Проверяем действующую смену…" : activeShift ? "Весовщик смены" : "Открыть смену"}</DialogTitle>
+            <DialogTitle>{activeShift ? "Весовщик смены" : "Открыть смену"}</DialogTitle>
             <DialogDescription>
-              {operatorGateChecking
-                ? "Рабочие данные Весовой заблокированы до завершения проверки."
-                : operatorSessionStatus === "error"
+              {operatorSessionStatus === "error"
                   ? "Доступ к Весовой остаётся заблокированным."
                   : "Выберите сотрудника и подтвердите доступ личным PIN."}
             </DialogDescription>
           </DialogHeader>
-          {operatorGateChecking ? (
-            <div className="flex items-center justify-center gap-3 rounded-md border border-slate-800 bg-slate-950/60 px-4 py-6 text-sm text-slate-300">
-              <Loader2 className="h-5 w-5 animate-spin text-yellow-400" />
-              Проверяем действующую смену…
-            </div>
-          ) : operatorSessionStatus === "error" ? (
+          {operatorSessionStatus === "error" ? (
             <div className="space-y-3">
               <div role="alert" className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">
                 {operatorError || "Не удалось проверить PIN. Повторите"}
@@ -5738,7 +5893,7 @@ export default function WeighbridgeOperationsPage() {
             <Button asChild type="button" variant="outline">
               <Link href="/dashboard">Выйти из Весовой</Link>
             </Button>
-            {!operatorGateChecking && operatorSessionStatus !== "error" ? (
+            {operatorSessionStatus !== "error" ? (
               <Button type="button" onClick={() => void submitOperatorAction()} disabled={operatorBusy || !eligibleOperators.length || !operatorPersonId || !/^\d{6}$/.test(operatorPin)}>
                 {operatorBusy
                   ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Проверка...</>

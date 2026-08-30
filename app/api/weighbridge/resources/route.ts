@@ -4,7 +4,7 @@ import {
   asSessionErrorResponse,
   resolveWeighbridgeSession,
 } from "@/app/api/weighbridge/_auth";
-import { isCargoTractor, isCargoVehicle, isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
+import { isCargoVehicle, isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +14,6 @@ const WEIGHBRIDGE_PERSONNEL_ROLES = new Set(["driver", "mechanic_operator"]);
 type ResourceError = {
   resource:
     | "reference_vehicles"
-    | "reference_machines"
     | "company_people"
     | "reference_specialists"
     | "profiles"
@@ -27,10 +26,6 @@ type ResourceError = {
 const RESOURCE_ERROR_COPY: Record<ResourceError["resource"], Omit<ResourceError, "resource">> = {
   reference_vehicles: {
     code: "WB_RESOURCES_VEHICLES",
-    message: "Не удалось загрузить транспорт. Остальные данные сохранены.",
-  },
-  reference_machines: {
-    code: "WB_RESOURCES_MACHINES",
     message: "Не удалось загрузить транспорт. Остальные данные сохранены.",
   },
   company_people: {
@@ -70,14 +65,6 @@ export async function GET(request: NextRequest) {
         .eq("archived", false)
         .order("name", { ascending: true }),
       supabase
-        .from("reference_machines")
-        .select("id,name,full_name,brand,model,series,license_plate,source_raw_name,type,status,is_active,archived")
-        .eq("company_id", companyId)
-        .eq("is_active", true)
-        .eq("archived", false)
-        .eq("type", "tractor")
-        .order("name", { ascending: true }),
-      supabase
         .from("company_people")
         .select("id,full_name,role_type,position,department,status,deleted_at")
         .eq("company_id", companyId)
@@ -108,7 +95,6 @@ export async function GET(request: NextRequest) {
 
     const resourceNames: ResourceError["resource"][] = [
       "reference_vehicles",
-      "reference_machines",
       "company_people",
       "reference_specialists",
       "profiles",
@@ -137,12 +123,11 @@ export async function GET(request: NextRequest) {
     };
 
     const vehicleSourceRows = readRows(0);
-    const machineRows = readRows(1);
-    const peopleRows = readRows(2);
-    const legacyDriverRows = readRows(3);
-    const profileRows = readRows(4);
-    const fieldRows = readRows(5);
-    const warehouseRows = readRows(6);
+    const peopleRows = readRows(1);
+    const legacyDriverRows = readRows(2);
+    const profileRows = readRows(3);
+    const fieldRows = readRows(4);
+    const warehouseRows = readRows(5);
 
     const vehicleRows = vehicleSourceRows.map((row: any) => {
       const transportModel = Array.isArray(row.transport_model)
@@ -164,26 +149,7 @@ export async function GET(request: NextRequest) {
           : null,
       };
     });
-    const vehicles = [
-      ...vehicleRows.filter((row) => isCargoVehicle(row)),
-      ...machineRows
-        .filter((row: any) => isCargoTractor(row))
-        .map((row: any) => {
-          const identity = resolveTransportIdentity(row);
-          return {
-            id: String(row.id),
-            name: identity.name,
-            model: String(row.model || row.name || ""),
-            plate: identity.plate,
-            searchTerms: identity.searchTerms,
-            type: "tractor",
-            fleetType: "tractor",
-            transportCategory: "tractor",
-            source: "reference_machines" as const,
-            primaryPersonnelId: null,
-          };
-        }),
-    ];
+    const vehicles = vehicleRows.filter((row) => isCargoVehicle(row));
     const trailers = vehicleRows.filter((row) => isTrailerTransport(row));
 
     const legacyPersonById = new Map<string, string>();
