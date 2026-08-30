@@ -27,7 +27,7 @@ const checks: Array<[string, () => void]> = [
     const body = page.match(/const loadWarehouseDetails = async[\s\S]*?\n  };/)?.[0] || "";
     assert.match(page, /const loadWarehouseDetails = async/);
     assert.match(body, /getInventoryBalances\([^\n]+\{ warehouseId \}\)/);
-    assert.match(body, /listHarvestBatchSummaries\([^\n]+\{ warehouseId, aggregateLots: true \}\)/);
+    assert.match(body, /listHarvestBatchSummaries\([^\n]+\{ warehouseId, aggregateLots: true, summaryOnly: true \}\)/);
     assert.doesNotMatch(body, /getProducts|getInventoryTransactions|getWarehouseReceipts|getWarehouseIssueRequests/);
   }],
   ["product catalog is lazy and tied to the receipt action", () => {
@@ -40,7 +40,8 @@ const checks: Array<[string, () => void]> = [
   ["warehouse cards render before secondary summaries", () => {
     assert.match(page, /positionCount: serverSummary\?\.position_count \|\| 0/);
     assert.match(page, /lastMovementAt: serverSummary\?\.last_movement_at \|\| null/);
-    assert.match(page, /summaryLoaded \? <div[^>]*>\{positionCount\}<\/div>/);
+    assert.match(page, /!summaryLoaded \? \([\s\S]*?animate-pulse/);
+    assert.match(page, /label: "Групп остатков", value: positionCount/);
   }],
   ["content search loads only balances and harvest batches on demand", () => {
     const body = page.match(/const loadSearchData = async[\s\S]*?\n  };/)?.[0] || "";
@@ -49,8 +50,8 @@ const checks: Array<[string, () => void]> = [
     assert.doesNotMatch(body, /getProducts|getInventoryTransactions|getWarehouseReceipts|getWarehouseIssueRequests/);
   }],
   ["realtime refreshes the list and only the selected details", () => {
-    assert.match(page, /loadWarehouseList\(\{ foreground: false \}\)/);
-    assert.match(page, /if \(selectedWarehouseId\)[\s\S]*loadWarehouseDetails\(selectedWarehouseId, \{ foreground: false \}\)/);
+    assert.match(page, /loadWarehouseList\(\{ foreground: false, force \}\)/);
+    assert.match(page, /if \(selectedWarehouseId\)[\s\S]*loadWarehouseDetails\(selectedWarehouseId, \{ foreground: false, force \}\)/);
   }],
   ["client services send warehouseId filters", () => {
     assert.match(warehouseService, /params\.set\("warehouseId", options\.warehouseId\)/);

@@ -114,10 +114,11 @@ check("optimistic ticket preserves canonical operator person", () => {
   assert.match(page, /opened_by_person_name:\s*operatorState\.operator\?\.name/);
 });
 
-check("vehicles and machines share one identity helper", () => {
+check("picker resources use only the vehicle fleet identity helper", () => {
   assert.match(resourcesRoute, /resolveTransportIdentity\(row\)/);
   assert.match(resourcesRoute, /source:\s*"reference_vehicles"/);
-  assert.match(resourcesRoute, /source:\s*"reference_machines"/);
+  assert.doesNotMatch(resourcesRoute, /from\("reference_machines"\)/);
+  assert.doesNotMatch(resourcesRoute, /source:\s*"reference_machines"/);
 });
 
 check("picker searches hidden canonical terms", () => {

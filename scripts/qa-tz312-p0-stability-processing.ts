@@ -68,15 +68,16 @@ check("secondary catalogs wait for workspace hydration and core data", () => {
   assert.match(page, /if \(!workspaceReady\) return false;/);
 });
 
-check("secondary catalogs are cached, single-flight and stale-cancelled", () => {
-  assert.match(page, /secondaryCatalogRequestsRef = useRef\(new Map/);
+check("secondary catalogs are cached, single-flight and context-cancelled", () => {
+  assert.match(page, /secondaryCatalogRequestsRef = useRef\(new Map<string, AbortableRequest<void>>\(\)\)/);
   assert.match(page, /secondaryCatalogReadyRef = useRef\(new Set/);
   assert.match(page, /const existing = secondaryCatalogRequestsRef\.current\.get\(cacheKey\)/);
-  assert.match(page, /secondaryCatalogRequestsRef\.current\.set\(cacheKey, request\)/);
-  assert.match(page, /secondaryCatalogGenerationRef/);
+  assert.match(page, /if \(existing\) return existing\.promise/);
+  assert.match(page, /secondaryCatalogRequestsRef\.current\.set\(cacheKey, entry\)/);
+  assert.doesNotMatch(page, /secondaryCatalogGenerationRef/);
   assert.match(page, /const controller = new AbortController\(\)/);
-  assert.match(page, /controller\.abort\(\)/);
-  assert.match(page, /signal\.aborted \|\| requestGeneration !== secondaryCatalogGenerationRef\.current/);
+  assert.match(page, /secondaryCatalogRequestsRef\.current\.forEach\(\(entry\) => entry\.controller\.abort\(\)\)/);
+  assert.match(page, /if \(signal\.aborted\) return/);
   assert.match(page, /secondaryCatalogStatus\.status === "error"/);
 });
 

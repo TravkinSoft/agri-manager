@@ -36,13 +36,16 @@ check("driver can be chosen manually for tractor", () => assert.equal(personnelR
 check("machine operator can be chosen manually for truck", () => assert.equal(personnelRoleMatchesVehicle("mechanic_operator", { type: "truck" }), true));
 
 check("resources use current company vehicles", () => assert.match(resources, /from\("reference_vehicles"\)[\s\S]*eq\("company_id", companyId\)/));
-check("resources add existing tractors", () => assert.match(resources, /from\("reference_machines"\)[\s\S]*eq\("type", "tractor"\)/));
+check("resources keep agricultural machines out of the transport picker", () => assert.doesNotMatch(resources, /from\("reference_machines"\)/));
 check("resources split trailers", () => assert.match(resources, /const trailers = vehicleRows\.filter/));
 check("resources keep active non-archived assets", () => assert.match(resources, /eq\("is_active", true\)[\s\S]*eq\("archived", false\)/));
 check("resources contain no crop filter", () => assert.doesNotMatch(resources, /crop_id|cropId/));
 
 check("API validates vehicle against company", () => assert.match(tickets, /eq\("company_id", ticket\.company_id\)/));
-check("API accepts canonical tractors", () => assert.match(tickets, /isCargoTractor/));
+check("API accepts only canonical vehicle-fleet records for new tickets", () => {
+  assert.doesNotMatch(tickets, /from\("reference_machines"\)/);
+  assert.doesNotMatch(tickets, /isCargoTractor/);
+});
 check("API rejects non-cargo assets", () => assert.match(tickets, /isCargoVehicle/));
 check("API validates optional trailer", () => assert.match(tickets, /isTrailerTransport/));
 check("API blocks active trailer reuse", () => assert.match(tickets, /This trailer already has an active ticket/));

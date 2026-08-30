@@ -120,8 +120,10 @@ check("canonical startup requests are deduplicated and abortable", () => {
   }
   assert.match(page, /const controller = new AbortController\(\)/);
   assert.match(page, /controller\.abort\(\)/);
-  assert.match(page, /secondaryCatalogGenerationRef\.current/);
-  assert.match(page, /secondaryCatalogRequestsRef\.current\.delete\(secondaryCatalogKey\)/);
+  assert.match(page, /secondaryCatalogRequestsRef = useRef\(new Map<string, AbortableRequest<void>>\(\)\)/);
+  assert.match(page, /secondaryCatalogRequestsRef\.current\.forEach\(\(entry\) => entry\.controller\.abort\(\)\)/);
+  assert.doesNotMatch(page, /secondaryCatalogGenerationRef/);
+  assert.doesNotMatch(page, /secondaryCatalogRequestsRef\.current\.delete\(secondaryCatalogKey\)/);
 });
 
 check("workspace journal is bounded", () => {

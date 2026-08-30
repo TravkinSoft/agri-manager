@@ -33,14 +33,15 @@ check("each mode loads only its own catalog scope", () => {
   assert.doesNotMatch(loader, /\.limit\(500\)/);
 });
 
-check("mode catalogs are single-flight cached and stale-cancelled", () => {
+check("mode catalogs are single-flight cached and survive rapid revisits", () => {
   assert.match(page, /MODE_RESOURCE_STABILITY_DELAY_MS = 75/);
-  assert.match(page, /secondaryCatalogRequestsRef = useRef\(new Map/);
+  assert.match(page, /secondaryCatalogRequestsRef = useRef\(new Map<string, AbortableRequest<void>>\(\)\)/);
   assert.match(page, /secondaryCatalogReadyRef = useRef\(new Set/);
   assert.match(page, /const existing = secondaryCatalogRequestsRef\.current\.get\(cacheKey\)/);
-  assert.match(page, /secondaryCatalogRequestsRef\.current\.set\(cacheKey, request\)/);
-  assert.match(page, /controller\.abort\(\)/);
-  assert.match(page, /signal\.aborted \|\| requestGeneration !== secondaryCatalogGenerationRef\.current/);
+  assert.match(page, /if \(existing\) return existing\.promise/);
+  assert.match(page, /secondaryCatalogRequestsRef\.current\.set\(cacheKey, entry\)/);
+  assert.match(page, /secondaryCatalogRequestsRef\.current\.forEach\(\(entry\) => entry\.controller\.abort\(\)\)/);
+  assert.doesNotMatch(page, /secondaryCatalogGenerationRef/);
   assert.match(page, /window\.setTimeout\([\s\S]*?loadSecondaryCatalogs[\s\S]*?MODE_RESOURCE_STABILITY_DELAY_MS/);
   assert.match(page, /window\.clearTimeout\(timer\)/);
 });
@@ -51,7 +52,7 @@ check("impurity batches are stable-mode delayed, single-flight and cached", () =
   assert.match(page, /if \(!options\.force && harvestBatchesReadyRef\.current\) return/);
   assert.match(page, /if \(harvestBatchesRequestRef\.current\) return harvestBatchesRequestRef\.current/);
   assert.match(page, /summaryOnly:\s*true,[\s\S]*?signal:\s*controller\.signal/);
-  assert.match(page, /form\.operationType !== "impurity_removal"[\s\S]*?window\.setTimeout\([\s\S]*?refreshHarvestBatches\(\{ signal: controller\.signal \}\)[\s\S]*?MODE_RESOURCE_STABILITY_DELAY_MS/);
+  assert.match(page, /form\.operationType !== "impurity_removal"[\s\S]*?window\.setTimeout\([\s\S]*?refreshHarvestBatches\(\)[\s\S]*?MODE_RESOURCE_STABILITY_DELAY_MS/);
   assert.match(page, /harvestBatchesAbortRef\.current\?\.abort\(\)/);
 });
 

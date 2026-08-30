@@ -106,7 +106,9 @@ check("weighbridge keeps technical batch route by default", () => assert.match(b
 check("warehouse shows aggregate harvest as one stock row", () => {
   assert.match(warehouses, /selectedSummary\.batches\.map/);
   assert.match(warehouses, /batch\.cleanMassKg/);
-  assert.match(warehouses, /selectedHarvestProductIds/);
+  assert.match(warehouses, /selectedHarvestPositionKeys/);
+  assert.match(warehouses, /batchClass/);
+  assert.match(warehouses, /batchClass === "seed"/);
   assert.match(warehouses, /Остатки/);
   assert.doesNotMatch(warehouses, /Партии урожая/);
 });

@@ -39,8 +39,16 @@ check("operator session starts locked and checking", () => {
   assert.match(page, /useState<"unknown" \| "checking" \| "ready" \| "error">\("checking"\)/);
   assert.match(page, /useState<WeighbridgeOperatorState>\(\{\s*shift:\s*null,\s*unlocked:\s*false/);
 });
-check("auth first paint is blocking", () => assert.match(page, /if \(authLoading\) return[\s\S]*?fixed inset-0 z-50[\s\S]*?Проверяем действующую смену/));
-check("unknown session renders checking gate", () => assert.match(page, /operatorGateChecking[\s\S]*?Проверяем действующую смену/));
+check("auth and session check render a non-modal skeleton", () => {
+  const skeleton = page.slice(page.indexOf("if (authLoading || operatorGateChecking)"), page.indexOf("if (!canView)"));
+  assert.match(skeleton, /data-testid="weighbridge-session-skeleton"/);
+  assert.match(skeleton, /aria-busy="true"/);
+  assert.doesNotMatch(skeleton, /role="dialog"|aria-modal|fixed inset-0/);
+});
+check("unknown session does not open the PIN dialog until checked", () => {
+  assert.match(page, /\(operatorGateBlocked && !operatorGateChecking\)/);
+  assert.doesNotMatch(operatorDialog, /operatorGateChecking|Проверяем действующую смену/);
+});
 check("workspace uses native inert", () => assert.match(page, /operatorGateBlocked \? \(\{ inert: "" \}/));
 check("workspace pointer and focus surface is hidden", () => assert.match(page, /aria-hidden=\{operatorGateBlocked[\s\S]*?pointer-events-none[\s\S]*?blur-sm/));
 check("background scroll is locked", () => assert.match(page, /document\.body\.style\.overflow = "hidden"/));

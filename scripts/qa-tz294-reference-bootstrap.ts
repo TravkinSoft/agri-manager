@@ -25,10 +25,9 @@ const harvestBatchesRoute = read("app/api/weighbridge/harvest-batches/route.ts")
 const harvestSummaryRoute = read("app/api/dashboard/harvest-summary/route.ts");
 const ticketPaper = read("components/weighbridge/weighbridge-ticket-paper.tsx");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
-const machineQuery = resourcesRoute.match(/\.from\("reference_machines"\)([\s\S]*?)\.from\("company_people"\)/)?.[1] || "";
 
-check("reference_machines queries license_plate", () => {
-  assert.match(machineQuery, /license_plate/);
+check("weighbridge picker bootstrap does not query agricultural machines", () => {
+  assert.doesNotMatch(resourcesRoute, /\.from\("reference_machines"\)/);
 });
 
 check("reference_machines never queries absent plate_number", () => {
@@ -40,7 +39,7 @@ check("reference_machines never queries absent plate_number", () => {
 });
 
 check("reference_vehicles retain both compatible plate fields", () => {
-  const vehicleQuery = resourcesRoute.match(/\.from\("reference_vehicles"\)([\s\S]*?)\.from\("reference_machines"\)/)?.[1] || "";
+  const vehicleQuery = resourcesRoute.match(/\.from\("reference_vehicles"\)([\s\S]*?)\.from\("company_people"\)/)?.[1] || "";
   assert.match(vehicleQuery, /plate_number/);
   assert.match(vehicleQuery, /license_plate/);
 });
@@ -48,7 +47,7 @@ check("reference_vehicles retain both compatible plate fields", () => {
 check("resources isolate database reads", () => {
   assert.match(resourcesRoute, /Promise\.allSettled/);
   assert.match(resourcesRoute, /resourceErrors/);
-  assert.match(resourcesRoute, /WB_RESOURCES_MACHINES/);
+  assert.match(resourcesRoute, /WB_RESOURCES_VEHICLES/);
   assert.match(resourcesRoute, /WB_RESOURCES_FIELDS/);
   assert.match(resourcesRoute, /WB_RESOURCES_DESTINATIONS/);
   assert.match(resourcesRoute, /fields,\s*destinations,\s*vehicles/);
@@ -62,9 +61,10 @@ check("client isolates reference bootstrap reads", () => {
   assert.doesNotMatch(page, /supabase\.from\("fields"\).*?getWeighbridgeResources/s);
 });
 
-check("client preserves cached source on partial transport failure", () => {
-  assert.match(page, /failedResources\.has\("reference_machines"\)[\s\S]*?previous\.filter\(\(row\) => row\.source === "reference_machines"\)/);
-  assert.match(page, /failedResources\.has\("reference_vehicles"\)[\s\S]*?previous\.filter\(\(row\) => row\.source === "reference_vehicles"\)/);
+check("client keeps its cached vehicle source on partial transport failure", () => {
+  assert.match(page, /if \(!failedResources\.has\("reference_vehicles"\)\) \{[\s\S]*?setVehicles\(mappedVehicles\)/);
+  assert.match(page, /cached\.vehicles[\s\S]*?vehicle\.source === "reference_vehicles"/);
+  assert.doesNotMatch(page, /row\.source === "reference_machines"/);
 });
 
 check("client never renders a raw schema error", () => {

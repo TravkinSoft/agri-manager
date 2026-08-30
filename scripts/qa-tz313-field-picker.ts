@@ -86,7 +86,7 @@ check("fallow is excluded by land-use identity rather than display name", () => 
 check("harvest UI has separate physical-field and crop-structure pickers", () => {
   assert.match(page, /<Label>Поле \*<\/Label>[\s\S]*value=\{form\.fieldId\}[\s\S]*options=\{harvestFieldOptions\}/);
   assert.match(page, /<Label>Участок \/ культура \*<\/Label>[\s\S]*value=\{form\.cropStructureAllocationId\}[\s\S]*options=\{harvestAllocationOptions\}/);
-  assert.match(page, /label: `\$\{field\.name\} — \$\{areaLabel\}`/);
+  assert.match(page, /label: `\$\{field\.name\} · \$\{areaLabel\}`/);
   assert.match(page, /allocation\.cropName,[\s\S]*allocation\.varietyName,[\s\S]*allocation\.reproductionName,[\s\S]*allocation\.areaHa/);
 });
 
