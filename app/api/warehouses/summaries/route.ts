@@ -12,6 +12,7 @@ import {
   warehouseVisibleToRole,
 } from "@/app/api/warehouses/_helpers";
 import { rowHasQaDataMarker } from "@/lib/utils/qa-data";
+import { buildWarehouseMassBreakdown } from "@/lib/warehouse/warehouse-summary-math";
 
 export const dynamic = "force-dynamic";
 
@@ -81,17 +82,11 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const [balancesResult, harvestProductsResult, harvestLotsResult, ...latestLedgerResults] = await Promise.all([
+    const [balancesResult, harvestLotsResult, ...latestLedgerResults] = await Promise.all([
       supabase
         .from("v_stock_balance_canonical")
-        .select("warehouse_id,product_id,quantity")
+        .select("warehouse_id,product_id,quantity,uom,batch_class")
         .eq("company_id", companyId)
-        .in("warehouse_id", warehouseIds),
-      supabase
-        .from("inventory_batches")
-        .select("product_id")
-        .eq("company_id", companyId)
-        .eq("origin_type", "harvest")
         .in("warehouse_id", warehouseIds),
       supabase
         .from("v_harvest_lot_stock_v1")
@@ -109,22 +104,20 @@ export async function GET(request: NextRequest) {
     ]);
 
     const error = balancesResult.error
-      || harvestProductsResult.error
       || harvestLotsResult.error
       || latestLedgerResults.map((result: any) => result.error).find(Boolean);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     const ledgerRows = latestLedgerResults.flatMap((result: any) => result.data || []);
 
-    const harvestProductIds = new Set(
-      (harvestProductsResult.data || []).map((row: any) => String(row.product_id || "")).filter(Boolean)
-    );
     const materialPositions = new Map<string, Set<string>>();
     for (const row of balancesResult.data || []) {
       const warehouseId = String((row as any).warehouse_id || "");
       const productId = String((row as any).product_id || "");
-      if (!warehouseId || !productId || harvestProductIds.has(productId) || Math.abs(Number((row as any).quantity || 0)) < 0.0005) continue;
+      const batchClass = String((row as any).batch_class || "commodity").trim().toLowerCase() || "commodity";
+      const uom = String((row as any).uom || "").trim().toLowerCase();
+      if (!warehouseId || !productId || Number((row as any).quantity || 0) <= 0.0005) continue;
       const positions = materialPositions.get(warehouseId) || new Set<string>();
-      positions.add(productId);
+      positions.add(`${productId}|${batchClass}|${uom}`);
       materialPositions.set(warehouseId, positions);
     }
 
@@ -151,15 +144,25 @@ export async function GET(request: NextRequest) {
       if (timestamp) lastMovementByWarehouse.set(warehouseId, timestamp);
     }
 
-    const summaries = visibleWarehouses.map((warehouse) => ({
+    const massByWarehouse = buildWarehouseMassBreakdown(
+      (balancesResult.data || []) as any[],
+      harvestWeightByWarehouse
+    );
+
+    const summaries = visibleWarehouses.map((warehouse) => {
+      const mass = massByWarehouse.get(String(warehouse.id));
+      return {
         warehouse,
         position_count:
-          (materialPositions.get(String(warehouse.id))?.size || 0) +
-          (harvestPositions.get(String(warehouse.id))?.size || 0),
+          materialPositions.get(String(warehouse.id))?.size || 0,
         harvest_lot_count: harvestPositions.get(String(warehouse.id))?.size || 0,
         harvest_weight_kg: harvestWeightByWarehouse.get(String(warehouse.id)) || 0,
+        total_weight_kg: mass?.totalWeightKg || 0,
+        seed_weight_kg: mass?.seedWeightKg || 0,
+        other_material_weight_kg: mass?.otherMaterialWeightKg || 0,
         last_movement_at: lastMovementByWarehouse.get(String(warehouse.id)) || null,
-      }));
+      };
+    });
 
     return NextResponse.json({ summaries });
   } catch (error) {

@@ -5,8 +5,21 @@ import { WAREHOUSE_READ_ROLES, resolveWarehouseForActor } from "@/app/api/wareho
 import { buildCatalogIdentityKey, buildProductDisplayLabel } from "@/lib/catalog/catalog-identity";
 import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
 import { calculateStockMath, signedLedgerQuantity } from "@/lib/warehouse/stock-math";
+import {
+  isHarvestLedgerRow,
+  loadHarvestLedgerOriginRefs,
+  resolveLedgerBatchId,
+} from "@/lib/warehouse/harvest-ledger-origin";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const STOCK_BATCH_CLASSES = new Set([
+  "commodity",
+  "seed",
+  "feed",
+  "waste",
+  "processing",
+  "rejected",
+]);
 
 function signedQuantity(row: any): number {
   return signedLedgerQuantity(row);
@@ -27,11 +40,23 @@ export async function GET(
     const warehouseId = String(id || "").trim();
     const productId = String(request.nextUrl.searchParams.get("productId") || "").trim();
     const requestedUnit = String(request.nextUrl.searchParams.get("unit") || "").trim();
+    const requestedBatchClass = String(
+      request.nextUrl.searchParams.get("batchClass") || ""
+    ).trim().toLowerCase();
+    const stockOrigin = String(
+      request.nextUrl.searchParams.get("stockOrigin") || "all"
+    ).trim().toLowerCase();
     const excludeRequestId = String(
       request.nextUrl.searchParams.get("excludeRequestId") || ""
     ).trim();
     if (!UUID_RE.test(productId) || !requestedUnit) {
       return NextResponse.json({ error: "Материал и единица обязательны" }, { status: 400 });
+    }
+    if (requestedBatchClass && !STOCK_BATCH_CLASSES.has(requestedBatchClass)) {
+      return NextResponse.json({ error: "Неизвестный класс партии" }, { status: 400 });
+    }
+    if (!new Set(["all", "material"]).has(stockOrigin)) {
+      return NextResponse.json({ error: "Неизвестное происхождение остатка" }, { status: 400 });
     }
 
     const { actor, companyId, supabase, existing } = await resolveWarehouseForActor(request, warehouseId);
@@ -61,7 +86,7 @@ export async function GET(
     const [ledgerResult, requestResult] = await Promise.all([
       supabase
         .from("stock_ledger_entries")
-        .select("id,product_id,direction,quantity,delta_qty_signed,uom,batch_id,batch_id_text,batch_class,reason_type,reason_ref_id,ticket_id,occurred_at,created_at,notes")
+        .select("id,product_id,direction,quantity,delta_qty_signed,uom,batch_id,batch_id_text,batch_class,inventory_batch_id,reason_type,reason_ref_id,ticket_id,occurred_at,created_at,notes")
         .eq("company_id", companyId)
         .eq("warehouse_id", warehouseId)
         .in("product_id", productIds)
@@ -76,9 +101,17 @@ export async function GET(
       throw new Error(ledgerResult.error?.message || requestResult.error?.message);
     }
 
+    const harvestOriginRefs = await loadHarvestLedgerOriginRefs(
+      supabase,
+      companyId,
+      (ledgerResult.data || []) as any[]
+    );
     const ledger = (ledgerResult.data || []).filter((row: any) => {
       try {
-        return normalizeStockUom(row.uom).baseUom === unit;
+        return normalizeStockUom(row.uom).baseUom === unit &&
+          (!requestedBatchClass ||
+            String(row.batch_class || "commodity").toLowerCase() === requestedBatchClass) &&
+          (stockOrigin !== "material" || !isHarvestLedgerRow(row, harvestOriginRefs));
       } catch {
         return false;
       }
@@ -97,13 +130,36 @@ export async function GET(
         } catch {
           continue;
         }
-        const reservation = Math.max(Number(item.prepared_quantity || 0) - Number(item.issued_quantity || 0), 0);
-        reserved += reservation;
+        const itemReservation = Math.max(
+          Number(item.prepared_quantity || 0) - Number(item.issued_quantity || 0),
+          0
+        );
         const allocations = Array.isArray(item.warehouse_issue_request_item_allocations)
           ? item.warehouse_issue_request_item_allocations
           : [];
-        if (allocations.length > 0) {
-          for (const allocation of allocations) {
+        const relevantAllocations = allocations.filter((allocation: any) =>
+          (!requestedBatchClass ||
+            String(allocation.batch_class || "commodity").toLowerCase() === requestedBatchClass) &&
+          (stockOrigin !== "material" || !isHarvestLedgerRow(allocation, harvestOriginRefs))
+        );
+        const reservation = requestedBatchClass
+          ? allocations.length > 0
+            ? relevantAllocations.reduce(
+                (sum: number, allocation: any) =>
+                  sum + Math.max(
+                    Number(allocation.prepared_quantity || 0) -
+                      Number(allocation.issued_quantity || 0),
+                    0
+                  ),
+                0
+              )
+            : requestedBatchClass === "commodity"
+              ? itemReservation
+              : 0
+          : itemReservation;
+        reserved += reservation;
+        if (relevantAllocations.length > 0) {
+          for (const allocation of relevantAllocations) {
             const allocationReserved = Math.max(
               Number(allocation.prepared_quantity || 0) -
                 Number(allocation.issued_quantity || 0),
@@ -120,8 +176,8 @@ export async function GET(
           }
         } else if (reservation > 0.000001) {
           reservedByBatch.set(
-            "commodity:__unassigned__",
-            (reservedByBatch.get("commodity:__unassigned__") || 0) + reservation
+            `${requestedBatchClass || "commodity"}:__unassigned__`,
+            (reservedByBatch.get(`${requestedBatchClass || "commodity"}:__unassigned__`) || 0) + reservation
           );
         }
         if (reservation > 0.000001) {
@@ -140,8 +196,8 @@ export async function GET(
             quantity: Number(reservation.toFixed(3)),
             status: String((row as any).warehouse_request_status || (row as any).status || "pending"),
             batch_id_text:
-              allocations.length === 1
-                ? String(allocations[0]?.batch_id_text || "").trim() || null
+              relevantAllocations.length === 1
+                ? String(relevantAllocations[0]?.batch_id_text || "").trim() || null
                 : null,
           });
         }
@@ -158,7 +214,7 @@ export async function GET(
       }
     >();
     for (const row of ledger) {
-      const batchId = String(row.batch_id_text || row.batch_id || "").trim() || null;
+      const batchId = resolveLedgerBatchId(row);
       const batchClass = String(row.batch_class || "commodity");
       const key = `${batchClass}:${batchId || "__unassigned__"}`;
       const current = byBatch.get(key) || {
@@ -318,6 +374,8 @@ export async function GET(
         warehouse_id: warehouseId,
         product_id: productId,
         product_name: buildProductDisplayLabel(selected as any),
+        batch_class: requestedBatchClass || null,
+        stock_origin: stockOrigin,
         unit,
         quantity: Number(stock.onHand.toFixed(3)),
         reserved_quantity: Number(stock.reserved.toFixed(3)),

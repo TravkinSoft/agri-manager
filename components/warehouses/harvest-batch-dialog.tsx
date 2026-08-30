@@ -366,9 +366,15 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
 
               <section>
                 <h3 className="mb-3 text-base font-semibold">Происхождение и рейсы</h3>
-                <p className="mb-3 text-sm text-slate-500">
-                  По каждому полю показана фактически принятая масса действующих рейсов. Аннулированные рейсы остаются в истории и в сумму не входят.
-                </p>
+                {batch.originState === "ticket_lineage_absent" ? (
+                  <div className="mb-3 rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+                    Талонное происхождение на этом складе отсутствует. Остаток показан по физическим партиям и складскому ledger.
+                  </div>
+                ) : (
+                  <p className="mb-3 text-sm text-slate-500">
+                    По каждому полю показана фактически принятая масса действующих рейсов. Аннулированные рейсы остаются в истории и в сумму не входят.
+                  </p>
+                )}
                 <div className="space-y-3">
                   {fieldSummaries.map((field) => {
                     const fieldTrips = trips.filter((trip) => {
@@ -425,6 +431,11 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
                       </div>
                     );
                   })}
+                  {fieldSummaries.length === 0 ? (
+                    <div className="rounded-md border border-slate-800 bg-slate-950/35 px-4 py-3 text-sm text-slate-400">
+                      Рейсы и поля для этого склада не найдены.
+                    </div>
+                  ) : null}
                 </div>
               </section>
 

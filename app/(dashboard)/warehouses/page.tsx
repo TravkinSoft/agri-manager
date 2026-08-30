@@ -47,6 +47,7 @@ import type {
   Warehouse,
   WarehouseSummary,
 } from "@/lib/types/warehouse";
+import { warehouseCapacityPercent } from "@/lib/warehouse/warehouse-summary-math";
 import {
   isAgrochemicalWarehouseType,
   isReceiptWarehouseType,
@@ -88,6 +89,9 @@ type Summary = {
   positionCount: number;
   harvestLotCount: number;
   harvestWeightKg: number;
+  totalWeightKg: number;
+  seedWeightKg: number;
+  otherMaterialWeightKg: number;
   lastMovementAt: string | null;
   summaryLoaded: boolean;
   detailsLoaded: boolean;
@@ -381,6 +385,9 @@ export default function WarehousesPage() {
       positionCount: serverSummary?.position_count || 0,
       harvestLotCount: serverSummary?.harvest_lot_count || 0,
       harvestWeightKg: serverSummary?.harvest_weight_kg || 0,
+      totalWeightKg: serverSummary?.total_weight_kg || 0,
+      seedWeightKg: serverSummary?.seed_weight_kg || 0,
+      otherMaterialWeightKg: serverSummary?.other_material_weight_kg || 0,
       lastMovementAt: serverSummary?.last_movement_at || null,
       summaryLoaded: Boolean(serverSummary),
       detailsLoaded,
@@ -422,12 +429,27 @@ export default function WarehousesPage() {
     isAgrochemicalWarehouseType(selectedSummary.warehouse.warehouse_type) &&
     !isArchived(selectedSummary.warehouse)
   );
-  const selectedHarvestProductIds = new Set(
-    (selectedSummary?.batches || []).flatMap((batch) => batch.productIds || [batch.productId]).filter(Boolean)
+  const selectedHarvestPositionKeys = new Set(
+    (selectedSummary?.batches || []).flatMap((batch) => {
+      const productIds = (batch.productIds?.length ? batch.productIds : [batch.productId]).filter(Boolean);
+      const batchClasses = Array.from(new Set(
+        (batch.stockComponents || []).map((component) => String(component.batchClass || "commodity").toLowerCase())
+      ));
+      return productIds.flatMap((productId) => (batchClasses.length ? batchClasses : ["commodity"])
+        .map((batchClass) => `${productId}|${batchClass}`));
+    })
   );
-  const selectedMaterialStock = (selectedSummary?.stock || []).filter((row) => {
+  const selectedMaterialStock = (selectedSummary?.stock || []).flatMap((row) => {
+    if (Number.isFinite(Number(row.material_quantity))) {
+      const materialQuantity = Number(row.material_quantity || 0);
+      return materialQuantity > 0.000001 ? [{ ...row, quantity: materialQuantity }] : [];
+    }
+    const batchClass = String(row.batch_class || "commodity").toLowerCase();
+    if (batchClass === "seed") return [row];
     const productIds = row.product_ids?.length ? row.product_ids : [row.product_id];
-    return !productIds.some((productId) => selectedHarvestProductIds.has(productId));
+    return productIds.some((productId) => selectedHarvestPositionKeys.has(`${productId}|${batchClass}`))
+      ? []
+      : [row];
   });
 
   const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -439,11 +461,13 @@ export default function WarehousesPage() {
     return <Alert variant="destructive"><AlertDescription>Доступ к складам запрещён для текущей роли.</AlertDescription></Alert>;
   }
 
-  const renderWarehouseCard = ({ warehouse, positionCount, harvestLotCount, harvestWeightKg, lastMovementAt, summaryLoaded }: Summary) => {
-    const empty = summaryLoaded && positionCount === 0;
+  const renderWarehouseCard = ({ warehouse, positionCount, harvestWeightKg, totalWeightKg, seedWeightKg, otherMaterialWeightKg, lastMovementAt, summaryLoaded }: Summary) => {
+    const empty = summaryLoaded && totalWeightKg <= 0.000001;
     const placeType = normalizeStoragePlaceType(warehouse.place_type);
     const capacity = capacityKg(warehouse);
-    const fillPercent = capacity && harvestWeightKg > 0 ? Math.min(100, Math.round((harvestWeightKg / capacity) * 100)) : null;
+    const fillPercent = warehouseCapacityPercent(totalWeightKg, capacity);
+    const fillBarPercent = fillPercent == null ? 0 : Math.min(100, fillPercent);
+    const capacityExceeded = fillPercent != null && fillPercent > 100;
     return (
       <article
         key={warehouse.id}
@@ -482,18 +506,22 @@ export default function WarehousesPage() {
         ) : (
           <div className="mt-4 space-y-3">
             <MetricStrip items={[
+              ...(totalWeightKg > 0 ? [{ label: "Всего", value: formatMass(totalWeightKg), emphasis: "success" as const }] : []),
               ...(harvestWeightKg > 0 ? [{ label: "Урожай", value: formatMass(harvestWeightKg), emphasis: "success" as const }] : []),
-              { label: placeType === "WAREHOUSE" ? "Партии" : "Позиций", value: harvestLotCount || positionCount },
+              ...(seedWeightKg > 0 ? [{ label: "Семена", value: formatMass(seedWeightKg) }] : []),
+              ...(otherMaterialWeightKg > 0 ? [{ label: "Другие материалы", value: formatMass(otherMaterialWeightKg) }] : []),
+              { label: "Групп остатков", value: positionCount },
               { label: "Движение", value: formatDate(lastMovementAt) },
             ]} />
             {fillPercent != null ? (
               <div>
                 <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500">
-                  <span>{formatMass(harvestWeightKg)} из {formatMass(capacity || 0)}</span><span>{fillPercent}%</span>
+                  <span>{formatMass(totalWeightKg)} из {formatMass(capacity || 0)}</span><span className={capacityExceeded ? "font-semibold text-rose-300" : undefined}>{fillPercent}%</span>
                 </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-yellow-400/75" style={{ width: `${fillPercent}%` }} /></div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-slate-800"><div className={`h-full rounded-full ${capacityExceeded ? "bg-rose-400/80" : "bg-yellow-400/75"}`} style={{ width: `${fillBarPercent}%` }} /></div>
+                {capacityExceeded ? <div className="mt-1 text-[11px] font-medium text-rose-300">Остаток превышает указанную вместимость. Проверьте вместимость объекта.</div> : null}
               </div>
-            ) : null}
+            ) : placeType === "WAREHOUSE" && totalWeightKg > 0 ? <div className="text-[11px] text-slate-500">Вместимость не указана</div> : null}
           </div>
         )}
       </article>
@@ -623,7 +651,7 @@ export default function WarehousesPage() {
                     })}
                     {selectedMaterialStock.map((row) => (
                       <button
-                        key={`material-${row.product_id}-${row.unit}`}
+                        key={`material-${row.product_id}-${row.unit}-${row.batch_class || "commodity"}`}
                         type="button"
                         onClick={() => setDetailBalance(row)}
                         className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-yellow-400"
@@ -691,7 +719,7 @@ export default function WarehousesPage() {
       ) : null}
       {profile?.company_id ? (
         <WarehouseStockDetailsDialog
-          key={`${detailBalance?.warehouse_id || "none"}:${detailBalance?.product_id || "none"}:${detailRevision}`}
+          key={`${detailBalance?.warehouse_id || "none"}:${detailBalance?.product_id || "none"}:${detailBalance?.batch_class || "commodity"}:${detailRevision}`}
           open={detailBalance !== null}
           onOpenChange={(open) => !open && setDetailBalance(null)}
           companyId={profile.company_id}

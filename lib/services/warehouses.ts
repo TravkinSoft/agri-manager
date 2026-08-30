@@ -622,6 +622,8 @@ export async function getWarehouseStockDetails(params: {
   warehouseId: string;
   productId: string;
   unit: string;
+  batchClass?: string | null;
+  stockOrigin?: "all" | "material";
   excludeRequestId?: string | null;
 }): Promise<WarehouseStockDetails> {
   const query = new URLSearchParams({
@@ -629,6 +631,12 @@ export async function getWarehouseStockDetails(params: {
     productId: params.productId,
     unit: params.unit,
   });
+  if (params.batchClass) {
+    query.set("batchClass", params.batchClass);
+  }
+  if (params.stockOrigin) {
+    query.set("stockOrigin", params.stockOrigin);
+  }
   if (params.excludeRequestId) {
     query.set("excludeRequestId", params.excludeRequestId);
   }

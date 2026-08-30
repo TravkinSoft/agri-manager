@@ -609,27 +609,8 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
       && !trip.isVoided
       && !trip.replacementTicketId
     ));
-    const validTripIds = new Set(validTrips.map((trip) => trip.ticketId));
-    const fieldSummaryMap = new Map<string, { fieldId: string | null; fieldName: string; netWeightKg: number; tripCount: number }>();
-    trips.forEach((trip) => {
-      const key = trip.fieldId || "missing";
-      const current = fieldSummaryMap.get(key) || {
-        fieldId: trip.fieldId,
-        fieldName: trip.fieldName,
-        netWeightKg: 0,
-        tripCount: 0,
-      };
-      if (validTripIds.has(trip.ticketId)) {
-        current.netWeightKg += trip.netWeightKg;
-        current.tripCount += 1;
-      }
-      fieldSummaryMap.set(key, current);
-    });
-    const fieldSummaries = Array.from(fieldSummaryMap.values()).sort((a, b) => a.fieldName.localeCompare(b.fieldName, "ru"));
-    const fieldNames = fieldSummaries.map((item) => item.fieldName).join(", ") || "Поле не уточнено";
     const receivedKg = validTrips.reduce((sum, trip) => sum + trip.netWeightKg, 0);
     const voidedKg = trips.filter((trip) => trip.status === "voided").reduce((sum, trip) => sum + trip.netWeightKg, 0);
-    const dates = validTrips.map((trip) => trip.occurredAt).filter(Boolean).sort();
     const stockRows = allStockRows.filter((row) => String(row.harvest_lot_id) === String(lot.id) && Number(row.current_weight_kg || 0) > 0.0001);
     const stockByWarehouse = new Map<string, { warehouse_id: string; current_weight_kg: number; components: any[] }>();
     for (const row of stockRows) {
@@ -687,6 +668,15 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
     return warehouseStockRows.map((stock) => {
       const warehouse = warehousesById.get(String(stock.warehouse_id || ""));
       const currentWeight = Number(stock.current_weight_kg || 0);
+      const warehouseTrips = trips.filter(
+        (trip) => String(trip.warehouseId || "") === String(stock.warehouse_id || "")
+      );
+      const warehouseValidTrips = warehouseTrips.filter((trip) => (
+        trip.status === "finalized"
+        && trip.isFinalized
+        && !trip.isVoided
+        && !trip.replacementTicketId
+      ));
       const warehouseLedgerEntries = lotLedgerEntries.filter(
         (entry) => String(entry.warehouse_id || "") === String(stock.warehouse_id || "")
       );
@@ -706,11 +696,43 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
         effectiveHarvestTicketIdByBatchId,
         warehouseMemberBatchIds
       );
-      const warehouseReceivedKg = validTrips
-        .filter((trip) => String(trip.warehouseId || "") === String(stock.warehouse_id || ""))
-        .reduce((sum, trip) => sum + trip.netWeightKg, 0);
-      const warehouseVoidedKg = trips
-        .filter((trip) => trip.status === "voided" && String(trip.warehouseId || "") === String(stock.warehouse_id || ""))
+      const warehouseLineageTicketIds = new Set(
+        warehouseMemberBatchIds
+          .map((batchId) => effectiveHarvestTicketIdByBatchId.get(batchId))
+          .filter((ticketId): ticketId is string => Boolean(ticketId))
+      );
+      const warehouseOriginTrips = trips.filter((trip) => Boolean(
+        trip.ticketId && warehouseLineageTicketIds.has(trip.ticketId)
+      ));
+      const warehouseValidOriginTrips = warehouseOriginTrips.filter((trip) => (
+        trip.status === "finalized"
+        && trip.isFinalized
+        && !trip.isVoided
+        && !trip.replacementTicketId
+      ));
+      const warehouseValidOriginTripIds = new Set(warehouseValidOriginTrips.map((trip) => trip.ticketId));
+      const warehouseFieldSummaryMap = new Map<string, { fieldId: string | null; fieldName: string; netWeightKg: number; tripCount: number }>();
+      warehouseOriginTrips.forEach((trip) => {
+        const key = trip.fieldId || "missing";
+        const current = warehouseFieldSummaryMap.get(key) || {
+          fieldId: trip.fieldId,
+          fieldName: trip.fieldName,
+          netWeightKg: 0,
+          tripCount: 0,
+        };
+        if (warehouseValidOriginTripIds.has(trip.ticketId)) {
+          current.netWeightKg += trip.netWeightKg;
+          current.tripCount += 1;
+        }
+        warehouseFieldSummaryMap.set(key, current);
+      });
+      const warehouseFieldSummaries = Array.from(warehouseFieldSummaryMap.values())
+        .sort((left, right) => left.fieldName.localeCompare(right.fieldName, "ru"));
+      const warehouseFieldNames = warehouseFieldSummaries.map((item) => item.fieldName).join(", ");
+      const warehouseDates = warehouseValidOriginTrips.map((trip) => trip.occurredAt).filter(Boolean).sort();
+      const warehouseReceivedKg = warehouseValidTrips.reduce((sum, trip) => sum + trip.netWeightKg, 0);
+      const warehouseVoidedKg = warehouseTrips
+        .filter((trip) => trip.status === "voided")
         .reduce((sum, trip) => sum + trip.netWeightKg, 0);
       const reservedKg = lotAllocations.reduce((sum, allocation) => {
         const request = requestsById.get(String(allocation.request_id || ""));
@@ -882,14 +904,14 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
         varietyName: brandName(variety) || "Не уточнён",
         reproductionId: lot.reproduction_id ? String(lot.reproduction_id) : null,
         reproductionName: localizedName(reproduction, "ru", ["name", "code"]) || "Не уточнена",
-        fieldId: fieldSummaries.length === 1 ? fieldSummaries[0].fieldId : null,
-        fieldName: fieldNames,
+        fieldId: warehouseFieldSummaries.length === 1 ? warehouseFieldSummaries[0].fieldId : null,
+        fieldName: warehouseFieldNames || "Талонное происхождение отсутствует",
         operationLineId: null,
-        cropStructureLabel: `Поля: ${fieldNames}`,
+        cropStructureLabel: warehouseFieldNames ? `Поля: ${warehouseFieldNames}` : "Талонное происхождение отсутствует",
         seasonLabel: String(season?.year || season?.name || "Сезон не уточнён"),
         operationName: "Приёмка урожая",
-        firstReceivedAt: dates[0] || null,
-        lastReceivedAt: dates[dates.length - 1] || null,
+        firstReceivedAt: warehouseDates[0] || null,
+        lastReceivedAt: warehouseDates[warehouseDates.length - 1] || null,
         receivedKg: accounting.receivedKg,
         companyReceivedKg: receivedKg,
         companyCurrentKg: companyAccounting.physicalKg,
@@ -915,21 +937,22 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
         cleanYieldTPerHa: null,
         aggregateLot: true,
         aggregateLotId: String(lot.id),
-        tripCount: validTrips.length,
+        tripCount: warehouseValidOriginTrips.length,
+        originState: warehouseOriginTrips.length > 0 ? "ticket_lineage" as const : "ticket_lineage_absent" as const,
         stockComponents: stock.components.sort((left, right) => right.quantityKg - left.quantityKg),
         reviewState: lot.review_state,
         reviewReasons: Array.isArray(lot.review_reasons) ? lot.review_reasons : [],
-        fieldSummaries,
-        tripBatches: trips,
+        fieldSummaries: warehouseFieldSummaries,
+        tripBatches: warehouseOriginTrips,
         outgoingDocuments: historyDocuments,
-        tickets: trips.filter((trip) => trip.ticketId).map((trip) => ({
+        tickets: warehouseOriginTrips.filter((trip) => trip.ticketId).map((trip) => ({
           id: trip.ticketId,
           ticketNo: trip.ticketNo,
           operation: "harvest_incoming" as const,
           netWeightKg: trip.netWeightKg,
           occurredAt: trip.occurredAt,
         })),
-        movements: trips.filter((trip) => trip.status !== "voided").map((trip) => ({
+        movements: warehouseOriginTrips.filter((trip) => trip.status !== "voided").map((trip) => ({
           id: trip.id,
           label: `Рейс ${trip.ticketNo}`,
           quantityKg: trip.netWeightKg,

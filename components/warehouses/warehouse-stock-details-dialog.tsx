@@ -42,40 +42,19 @@ function hasMeaningfulLot(lot: WarehouseStockLot): boolean {
   );
 }
 
-function detailsFromBalance(balance: InventoryBalance): WarehouseStockDetails {
-  const reserved = Number(balance.reserved_quantity || 0);
-  const available = Number(
-    balance.available_quantity ?? Number(balance.quantity || 0) - reserved
-  );
-  return {
-    warehouse_id: balance.warehouse_id,
-    product_id: balance.product_id,
-    product_name: balance.product_name,
-    unit: balance.unit,
-    quantity: Number(balance.quantity || 0),
-    reserved_quantity: reserved,
-    available_quantity: available,
-    deficit_quantity: Number(balance.deficit_quantity ?? Math.max(-available, 0)),
-    stock_status: balance.stock_status || (available < 0 ? "deficit" : "available"),
-    reservations: balance.reservations || [],
-    lots: [],
-    movements: [],
-  };
-}
-
 export function WarehouseStockDetailsDialog({ open, onOpenChange, companyId, balance }: Props) {
   const [details, setDetails] = useState<WarehouseStockDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cacheKey = balance
-    ? `${companyId}:${balance.warehouse_id}:${balance.product_id}:${balance.unit}`
+    ? `${companyId}:${balance.warehouse_id}:${balance.product_id}:${balance.unit}:${balance.batch_class || "commodity"}:material`
     : "";
 
   useEffect(() => {
     if (!open || !balance) return;
     let cancelled = false;
     const cached = detailCache.get(cacheKey) || null;
-    setDetails(cached || detailsFromBalance(balance));
+    setDetails(cached);
     setLoading(!cached);
     setError(null);
     void getWarehouseStockDetails({
@@ -83,6 +62,8 @@ export function WarehouseStockDetailsDialog({ open, onOpenChange, companyId, bal
       warehouseId: balance.warehouse_id,
       productId: balance.product_id,
       unit: balance.unit,
+      batchClass: balance.batch_class || "commodity",
+      stockOrigin: "material",
     }).then((value) => {
       detailCache.set(cacheKey, value);
       if (!cancelled) setDetails(value);

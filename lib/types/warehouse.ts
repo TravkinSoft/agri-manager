@@ -54,6 +54,9 @@ export interface WarehouseSummary {
   position_count: number;
   harvest_lot_count?: number;
   harvest_weight_kg?: number;
+  total_weight_kg?: number;
+  seed_weight_kg?: number;
+  other_material_weight_kg?: number;
   last_movement_at: string | null;
 }
 
@@ -228,6 +231,8 @@ export interface InventoryBalance {
   product_type: ProductCategory | string;
   unit: string;
   quantity: number;
+  harvest_represented_quantity?: number;
+  material_quantity?: number;
   reserved_quantity?: number;
   available_quantity?: number;
   deficit_quantity?: number;
@@ -256,6 +261,8 @@ export interface WarehouseStockDetails {
   warehouse_id: string;
   product_id: string;
   product_name: string;
+  batch_class?: string | null;
+  stock_origin?: "all" | "material" | string;
   unit: string;
   quantity: number;
   reserved_quantity: number;

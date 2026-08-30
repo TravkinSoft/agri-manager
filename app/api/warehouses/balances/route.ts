@@ -12,6 +12,10 @@ import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { buildCatalogIdentityKey, buildProductDisplayLabel } from "@/lib/catalog/catalog-identity";
 import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
 import { calculateStockMath } from "@/lib/warehouse/stock-math";
+import {
+  isHarvestLedgerRow,
+  loadHarvestLedgerOriginRefs,
+} from "@/lib/warehouse/harvest-ledger-origin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,8 +30,10 @@ type BalanceAccumulator = {
   product_name: string;
   identity_name: string;
   product_type: string;
+  batch_class: string;
   unit: string;
   quantity: number;
+  harvest_represented_quantity: number;
   reserved_quantity: number;
   available_quantity: number;
   last_updated: string;
@@ -78,6 +84,11 @@ const LEDGER_SELECT = `
   quantity,
   delta_qty_signed,
   uom,
+  batch_class,
+  inventory_batch_id,
+  batch_id,
+  batch_id_text,
+  ticket_id,
   occurred_at,
   created_at,
   warehouses:warehouse_id (id,name,name_ru,name_kz,name_en,warehouse_type)
@@ -145,6 +156,11 @@ export async function GET(request: NextRequest) {
 
     const ledgerRows = ledgerResult.data || [];
     const requestRows = requestResult.data || [];
+    const harvestOriginRefs = await loadHarvestLedgerOriginRefs(
+      supabase,
+      companyId,
+      ledgerRows as any[]
+    );
     const referencedProductIds = new Set<string>();
     for (const row of ledgerRows as any[]) {
       if (row.product_id) referencedProductIds.add(String(row.product_id));
@@ -207,16 +223,19 @@ export async function GET(request: NextRequest) {
       const product = preferredProduct(row.product_id);
       if (!product) continue;
       const uom = canonicalUom(row);
+      const batchClass = String(row.batch_class || "commodity").trim().toLowerCase() || "commodity";
       const identityKey = buildCatalogIdentityKey(product as any);
-      const key = `${row.warehouse_id}|${identityKey}|${uom}`;
+      const key = `${row.warehouse_id}|${identityKey}|${uom}|${batchClass}`;
       const signedQuantity = Number.isFinite(Number(row.delta_qty_signed))
         ? Number(row.delta_qty_signed)
         : String(row.direction) === "in" ? Number(row.quantity || 0) : -Number(row.quantity || 0);
+      const harvestQuantity = isHarvestLedgerRow(row, harvestOriginRefs) ? signedQuantity : 0;
       const occurredAt = String(row.occurred_at || row.created_at || "");
       const existing = balances.get(key);
 
       if (existing) {
         existing.quantity += signedQuantity;
+        existing.harvest_represented_quantity += harvestQuantity;
         existing.product_ids.add(String(row.product_id));
         if (occurredAt > existing.last_updated) existing.last_updated = occurredAt;
         continue;
@@ -230,8 +249,10 @@ export async function GET(request: NextRequest) {
         product_name: buildProductDisplayLabel(product as any) || "N/A",
         identity_name: buildProductDisplayLabel(product as any) || "N/A",
         product_type: (product as any)?.product_type || (product as any)?.type || "N/A",
+        batch_class: batchClass,
         unit: uom || "legacy/unknown",
         quantity: signedQuantity,
+        harvest_represented_quantity: harvestQuantity,
         reserved_quantity: 0,
         available_quantity: signedQuantity,
         last_updated: occurredAt,
@@ -252,8 +273,9 @@ export async function GET(request: NextRequest) {
         } catch {
           continue;
         }
-        const key = `${warehouseId}|${buildCatalogIdentityKey(product as any)}|${uom}`;
-        const balance = balances.get(key);
+        const baseKey = `${warehouseId}|${buildCatalogIdentityKey(product as any)}|${uom}`;
+        const balance = balances.get(`${baseKey}|commodity`)
+          || Array.from(balances.entries()).find(([key]) => key.startsWith(`${baseKey}|`))?.[1];
         if (!balance) continue;
         const prepared = Number(item.prepared_quantity || 0);
         const issued = Number(item.issued_quantity || 0);
@@ -288,6 +310,10 @@ export async function GET(request: NextRequest) {
         return {
           ...row,
           quantity: Number(stock.onHand.toFixed(3)),
+          harvest_represented_quantity: Number(row.harvest_represented_quantity.toFixed(3)),
+          material_quantity: Number(
+            (stock.onHand - row.harvest_represented_quantity).toFixed(3)
+          ),
           reserved_quantity: Number(stock.reserved.toFixed(3)),
           available_quantity: Number(stock.available.toFixed(3)),
           deficit_quantity: Number(stock.deficit.toFixed(3)),
