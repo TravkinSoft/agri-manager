@@ -192,13 +192,14 @@ async function assertSentinelUnchanged(db: PGlite) {
 
 async function main() {
   const migration = await readFile(migrationUrl, "utf8");
+  const executableMigration = migration.replace(/\r/g, "");
   const canonicalBody = migration.match(
     /as \$function_body\$([\s\S]*?)\n\$function_body\$;/,
   )?.[1];
 
   assert.ok(canonicalBody, "canonical function body is embedded in the corrective migration");
   assert.equal(
-    createHash("sha256").update(canonicalBody).digest("hex"),
+    createHash("sha256").update(canonicalBody.replace(/\r/g, "")).digest("hex"),
     "7d31bc871b6302944450edec74aa6022e1b8a8e7e1c910a9736c14e713190c96",
     "embedded function body must remain byte-for-byte equal to the canonical TZ281 body",
   );
@@ -252,7 +253,7 @@ async function main() {
   const db = new PGlite();
   try {
     await bootstrapPhysicalPrerequisites(db);
-    await db.exec(migration);
+    await db.exec(executableMigration);
 
     const created = (
       await db.query<{
@@ -311,7 +312,7 @@ async function main() {
       `)
     ).rows[0];
 
-    await db.exec(migration);
+    await db.exec(executableMigration);
 
     const afterReplay = (
       await db.query<{ oid: number; definition_md5: string }>(`
@@ -329,7 +330,7 @@ async function main() {
     `);
 
     await assert.rejects(
-      db.exec(migration),
+      db.exec(executableMigration),
       /definition drift|SECURITY DEFINER/i,
       "an existing drifted function must fail closed",
     );
@@ -351,7 +352,7 @@ async function main() {
     await bootstrapPhysicalPrerequisites(badDb);
     await badDb.exec(`alter table public.tickets drop column net_weight_kg`);
     await assert.rejects(
-      badDb.exec(migration),
+      badDb.exec(executableMigration),
       /missing runtime columns:.*net_weight_kg/i,
       "a missing runtime column must fail before function creation",
     );
@@ -363,7 +364,7 @@ async function main() {
         where source_ticket_line_id is null;
     `);
     await assert.rejects(
-      badDb.exec(migration),
+      badDb.exec(executableMigration),
       /index drift: public\.uq_batch_transformation_inputs_ticket_line_v1/i,
       "a non-inferable partial unique index must fail before function creation",
     );

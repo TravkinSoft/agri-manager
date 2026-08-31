@@ -71,6 +71,7 @@
     "qa:tz315:processing-wip-physical-state": "npx --no-install tsx scripts/qa-tz315-processing-wip-physical-state.ts",
     "qa:tz315:processing-create-atomic": "npx --no-install tsx scripts/qa-tz315-processing-create-atomic.ts",
     "qa:tz315:processing-shadow-sync-prerequisite": "npx --no-install tsx scripts/qa-tz315-processing-shadow-sync-prerequisite.ts",
+    "qa:tz315:yard-storage-processing-guard": "npx --no-install tsx scripts/qa-tz315-yard-storage-processing-guard.ts",
     "qa:tz315:processing-acl": "npx --no-install tsx scripts/qa-tz315-processing-acl-corrective.ts",
     "qa:tz315:universal-processing-gate": "npx --no-install tsx scripts/qa-tz315-universal-processing-gate.ts",
     "qa:tz315:reversal-document-preservation": "npx --no-install tsx scripts/qa-tz315-reversal-document-preservation.ts",
