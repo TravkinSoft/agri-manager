@@ -381,7 +381,7 @@ async function main() {
   const testBaseHash = normalizeHash(gatedDefinition.replace(gateFragment, ""));
   assert.notEqual(testBaseHash, "485073abd5b8f85cd65c482e2779fe60");
   const executableCorrective = corrective.replace(
-    "'4d3b289a4acb497d835660525f8e37df'\n  ]::text[]",
+    /'4d3b289a4acb497d835660525f8e37df'\r?\n  \]::text\[\]/,
     `'4d3b289a4acb497d835660525f8e37df',\n    '${testBaseHash}'\n  ]::text[]`,
   );
   assert.notEqual(executableCorrective, corrective);
