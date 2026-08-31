@@ -3,6 +3,12 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase/client';
+import {
+  AUTH_BOOT_MAX_ATTEMPTS,
+  AUTH_BOOT_RETRY_DELAY_MS,
+  getSessionWithBoundedRetry,
+  isConfirmedInvalidSessionError,
+} from '@/lib/auth/session-bootstrap';
 import { usePathname, useRouter } from 'next/navigation';
 import { normalizeRoleKey, parseCanonicalRole, type CanonicalRole } from "@/lib/auth/role-contract";
 
@@ -32,6 +38,8 @@ interface AuthContextType {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
+  authUnavailable: boolean;
+  retryAuthBootstrap: () => void;
   setGlobalAdminCompanyContext: (companyId: string | null) => void;
   refreshProfile: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<{ defaultPath: string }>;
@@ -52,7 +60,6 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const AUTH_REQUEST_TIMEOUT_MS = 8000;
 const AUTH_PROFILE_TIMEOUT_MS = 15000;
-const AUTH_BOOT_TIMEOUT_MS = 10000;
 const AUTH_UI_CACHE_KEY = "travkin.auth.ui.v1";
 const AUTH_UI_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
@@ -229,6 +236,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
   const [profile, setProfile] = useState<Profile | null>(() => cachedAuthRef.current?.profile || null);
   const [loading, setLoading] = useState(() => !cachedAuthRef.current);
+  const [authUnavailable, setAuthUnavailable] = useState(false);
+  const [authBootstrapRetry, setAuthBootstrapRetry] = useState(0);
   const router = useRouter();
   const pathname = usePathname();
   const skipMarketingAuthBoot = pathname === "/" || pathname === "/demo";
@@ -241,16 +250,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     let mounted = true;
     setLoading(!cachedAuthRef.current);
-    const bootWatchdog = window.setTimeout(() => {
-      if (!mounted) return;
-      setLoading(false);
-    }, AUTH_BOOT_TIMEOUT_MS);
-
     const initializeAuth = async () => {
       try {
-        const { data: { session } } = await withAuthTimeout(supabase.auth.getSession(), "Supabase session");
+        const { data: { session }, error: sessionError } = await getSessionWithBoundedRetry(
+          () => withAuthTimeout(supabase.auth.getSession(), "Supabase session"),
+          {
+            attempts: AUTH_BOOT_MAX_ATTEMPTS,
+            retryDelayMs: AUTH_BOOT_RETRY_DELAY_MS,
+          },
+        );
 
         if (!mounted) return;
+
+        if (sessionError && isConfirmedInvalidSessionError(sessionError)) {
+          clearLocalSupabaseSession();
+          setUser(null);
+          setProfile(null);
+          return;
+        }
 
         setUser(session?.user ?? null);
 
@@ -266,14 +283,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (mounted) setProfile(null);
           }
         } else {
+          // A resolved null session is a confirmed signed-out state. Do not clear
+          // storage for transient transport/bootstrap errors; the catch below
+          // handles those without destroying a valid session.
+          clearLocalSupabaseSession();
           setProfile(null);
         }
+        setAuthUnavailable(false);
       } catch (error) {
-        console.error('Error loading session:', error);
-        clearLocalSupabaseSession();
-        if (mounted) {
-          setUser(null);
-          setProfile(null);
+        if (isConfirmedInvalidSessionError(error)) {
+          clearLocalSupabaseSession();
+          if (mounted) {
+            setUser(null);
+            setProfile(null);
+            setAuthUnavailable(false);
+          }
+        } else {
+          console.warn('Auth session bootstrap temporarily unavailable:', error);
+          if (mounted) {
+            setAuthUnavailable(true);
+          }
         }
       } finally {
         if (mounted) {
@@ -292,6 +321,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (!mounted) return;
 
             setUser(session?.user ?? null);
+            setAuthUnavailable(false);
 
             if (session?.user) {
               try {
@@ -305,6 +335,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 if (mounted) setProfile(null);
               }
             } else {
+              if (event === "SIGNED_OUT") clearLocalSupabaseSession();
               setProfile(null);
             }
           } catch (error) {
@@ -323,10 +354,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false;
-      window.clearTimeout(bootWatchdog);
       subscription.unsubscribe();
     };
-  }, [skipMarketingAuthBoot]);
+  }, [skipMarketingAuthBoot, authBootstrapRetry]);
 
   useEffect(() => {
     if (user && profile && String(profile.status || "").toLowerCase() === "active") {
@@ -434,6 +464,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         company_id: companyId || currentProfile.home_company_id || currentProfile.company_id,
       };
     });
+  };
+
+  const retryAuthBootstrap = () => {
+    setAuthUnavailable(false);
+    setLoading(true);
+    setAuthBootstrapRetry((current) => current + 1);
   };
 
   const refreshProfile = async () => {
@@ -691,6 +727,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         profile,
         loading,
+        authUnavailable,
+        retryAuthBootstrap,
         setGlobalAdminCompanyContext,
         refreshProfile,
         signIn,
