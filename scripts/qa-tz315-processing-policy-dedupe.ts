@@ -124,7 +124,7 @@ async function main() {
 
   const beforePolicies = await policySnapshot(db);
   assert.equal(beforePolicies.length, TARGETS.length + LEGACY_POLICIES.size);
-  for (const [table, legacyPolicy] of LEGACY_POLICIES) {
+  for (const [table, legacyPolicy] of Array.from(LEGACY_POLICIES.entries())) {
     assert.equal(
       beforePolicies.filter((row) => row.table_name === table).length,
       2,
