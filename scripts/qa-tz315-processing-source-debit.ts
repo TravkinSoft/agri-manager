@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 
 const migrationUrl = new URL(
@@ -10,7 +11,7 @@ const migrationUrl = new URL(
 const scalar = async (db: PGlite, sql: string) =>
   Object.values(((await db.query(sql)).rows[0] ?? {}) as Record<string, unknown>)[0];
 
-async function bootstrap(db: PGlite) {
+export async function bootstrapProcessingSourceDebit(db: PGlite) {
   await db.exec(`
     create role anon;
     create role authenticated;
@@ -261,7 +262,7 @@ async function seedOutput(db: PGlite, ticket: string, output: string) {
 async function main() {
   const migration = await readFile(migrationUrl, "utf8");
   const db = new PGlite();
-  await bootstrap(db);
+  await bootstrapProcessingSourceDebit(db);
   await db.exec(migration);
   await db.exec(migration);
 
@@ -352,8 +353,10 @@ async function main() {
   await db.close();
 }
 
-main().catch((error) => {
-  console.error("TZ315 PROCESSING SOURCE DEBIT: FAIL");
-  console.error(error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error("TZ315 PROCESSING SOURCE DEBIT: FAIL");
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

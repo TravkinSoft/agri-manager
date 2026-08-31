@@ -69,7 +69,7 @@
     "qa:tz315:s16-drying-tolerance": "npx --no-install tsx scripts/qa-tz315-s16-drying-tolerance.ts",
     "qa:tz315:processing-source-debit": "npx --no-install tsx scripts/qa-tz315-processing-source-debit.ts",
     "qa:tz315:processing-acl": "npx --no-install tsx scripts/qa-tz315-processing-acl-corrective.ts",
-    "qa:tz315:reversed-input-void-lock-order": "npx --no-install tsx scripts/qa-tz315-reversed-input-void-lock-order.ts",
+    "qa:tz315:universal-processing-gate": "npx --no-install tsx scripts/qa-tz315-universal-processing-gate.ts",
     "qa:agronomist:weighbridge-assist": "npx --no-install tsx scripts/qa-agronomist-weighbridge-assist-v1.ts",
     "qa:weighbridge:route-processing": "npx --no-install tsx scripts/qa-weighbridge-route-processing-v1.ts",
     "qa:crop-optional-seed": "npx --no-install tsx scripts/qa-crop-structure-optional-seed.ts",
