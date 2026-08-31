@@ -20,6 +20,9 @@ const transferRoute = read("app/api/warehouses/[id]/transfers/route.ts");
 const harvestBatchRoute = read("app/api/weighbridge/harvest-batches/route.ts");
 const dashboardRoute = read("app/api/dashboard/harvest-summary/route.ts");
 const migration = read("supabase/migrations/20260821152000_tz296_harvest_stock_aggregation_v1.sql");
+const atomicProcessingMigration = read(
+  "supabase/migrations/20260831102520_tz315_processing_create_atomic_v1.sql",
+);
 
 const checks: Array<{ name: string; run: () => void }> = [];
 const check = (name: string, run: () => void) => checks.push({ name, run });
@@ -209,8 +212,15 @@ check("one aggregate request creates exact internal ledger allocations", () => {
 
 check("processing inputs allocate one user lot across exact trip batches", () => {
   assert.match(processingRoute, /selectedHarvestLotId/);
-  assert.match(processingRoute, /inputAllocations/);
+  assert.match(processingRoute, /create_processing_transformation_atomic_v1/);
   assert.match(processingRoute, /harvest_lot_id: selectedHarvestLotId/);
+  assert.match(atomicProcessingMigration, /join public\.harvest_lot_batches link/);
+  assert.match(atomicProcessingMigration, /v_effective_stock_balance_identity_v1/);
+  assert.match(atomicProcessingMigration, /v_allocations/);
+  assert.match(
+    atomicProcessingMigration,
+    /order by coalesce\(batch\.received_at, batch\.created_at\), batch\.id/,
+  );
 });
 
 check("direct transfer keeps one document and warehouse-local destination batches", () => {

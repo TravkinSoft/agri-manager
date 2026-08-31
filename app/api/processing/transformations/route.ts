@@ -6,24 +6,8 @@ import {
   asSessionErrorResponse,
   resolveWeighbridgeSession,
 } from "@/app/api/weighbridge/_auth";
-import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
 import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
 import { processingBalanceTolerance } from "@/lib/weighbridge/processing-work-state";
-import { getServiceClient } from "@/lib/supabase/service";
-
-const STORED_OUTPUT_TYPES = new Set([
-  "cleaned_seed",
-  "commodity",
-  "forage_fraction",
-  "treated_seed",
-  "calibrated_fraction",
-  "packaged",
-  "reclassified",
-  "potato_marketable",
-  "potato_seed",
-  "potato_small",
-  "other",
-]);
 
 const WEIGHBRIDGE_TRANSFORMATION_COLUMNS = [
   "id",
@@ -393,38 +377,65 @@ async function loadWaitingTickets(supabase: SupabaseClient, companyId: string, u
     .select("id,ticket_no,field_id,net_weight_kg,created_at,processing_node_id,batch_id,warehouse_to_id,lines:ticket_lines(product_name_snapshot)")
     .eq("company_id", companyId)
     .eq("op_type", "harvest_incoming")
-    .eq("destination_kind", "processing_node")
+    .in("destination_kind", ["warehouse", "processing_node"])
     .eq("is_finalized", true)
     .eq("is_voided", false)
-    .not("processing_node_id", "is", null)
     .order("created_at", { ascending: false });
   if (error) throw error;
 
   const rows = (tickets || []).filter((row: any) => !usedTicketIds.has(String(row.id)));
   const fieldIds = Array.from(new Set(rows.map((row: any) => String(row.field_id || "")).filter(Boolean)));
   const nodeIds = Array.from(new Set(rows.map((row: any) => String(row.processing_node_id || "")).filter(Boolean)));
-  const [fieldsRes, nodesRes] = await Promise.all([
+  const warehouseIds = Array.from(new Set(rows.map((row: any) => String(row.warehouse_to_id || "")).filter(Boolean)));
+  const [fieldsRes, nodesRes, warehousesRes] = await Promise.all([
     fieldIds.length
       ? supabase.from("fields").select("id,name").eq("company_id", companyId).in("id", fieldIds)
       : Promise.resolve({ data: [] as any[], error: null }),
     nodeIds.length
       ? supabase.from("processing_nodes").select("id,name").eq("company_id", companyId).in("id", nodeIds)
       : Promise.resolve({ data: [] as any[], error: null }),
+    warehouseIds.length
+      ? supabase.from("warehouses").select("id,place_type").eq("company_id", companyId).in("id", warehouseIds)
+      : Promise.resolve({ data: [] as any[], error: null }),
   ]);
   if (fieldsRes.error) throw fieldsRes.error;
   if (nodesRes.error) throw nodesRes.error;
+  if (warehousesRes.error) throw warehousesRes.error;
   const fieldMap = new Map((fieldsRes.data || []).map((row: any) => [String(row.id), nameOf(row)]));
   const nodeMap = new Map((nodesRes.data || []).map((row: any) => [String(row.id), nameOf(row)]));
+  const warehousePlaceTypeById = new Map(
+    (warehousesRes.data || []).map((row: any) => [
+      String(row.id),
+      String(row.place_type || "").toUpperCase(),
+    ]),
+  );
+  const transformationTypeByWarehouse = new Map(
+    Array.from(warehousePlaceTypeById.entries()).map(([warehouseId, placeType]) => {
+      const transformationType = placeType === "CLEANER"
+        ? "cleaning"
+        : placeType === "DRYER"
+          ? "drying"
+          : undefined;
+      return [warehouseId, transformationType] as const;
+    }),
+  );
 
-  return rows.map((ticket: any) => ({
+  return rows
+    .filter((ticket: any) => {
+      const placeType = warehousePlaceTypeById.get(String(ticket.warehouse_to_id));
+      return placeType === "CLEANER" || placeType === "DRYER";
+    })
+    .map((ticket: any) => ({
     id: `ticket:${ticket.id}`,
     record_type: "waiting_ticket",
     company_id: companyId,
-    transformation_type: "cleaning",
+    transformation_type: transformationTypeByWarehouse.get(String(ticket.warehouse_to_id)),
     status: "waiting",
     queue_status: "waiting",
-    processing_node_id: String(ticket.processing_node_id),
-    processing_node_name: nodeMap.get(String(ticket.processing_node_id)) || null,
+    processing_node_id: ticket.processing_node_id ? String(ticket.processing_node_id) : null,
+    processing_node_name: ticket.processing_node_id
+      ? nodeMap.get(String(ticket.processing_node_id)) || null
+      : null,
     source_ticket_id: String(ticket.id),
     ticket_no: String(ticket.ticket_no),
     field_name: fieldMap.get(String(ticket.field_id)) || null,
@@ -437,67 +448,7 @@ async function loadWaitingTickets(supabase: SupabaseClient, companyId: string, u
     input_weight_kg: Number(ticket.net_weight_kg || 0),
     source_warehouse_name: null,
     outputs: [],
-  }));
-}
-
-async function validateOutputWarehouses(
-  supabase: SupabaseClient,
-  companyId: string,
-  outputs: Array<{ line_type: string; warehouse_to_id: string | null; output_weight_kg: number }>
-) {
-  const ids = Array.from(new Set(outputs.map((row) => row.warehouse_to_id || "").filter(Boolean)));
-  if (ids.length === 0) return;
-  const { data, error } = await supabase
-    .from("warehouses")
-    .select("id,warehouse_type,archived,is_archived")
-    .eq("company_id", companyId)
-    .in("id", ids);
-  if (error) throw error;
-  const byId = new Map((data || []).map((row: any) => [String(row.id), row]));
-  for (const id of ids) {
-    const row: any = byId.get(id);
-    if (!row || row.archived || row.is_archived || !isHarvestWarehouseType(row.warehouse_type)) {
-      throw new Error("Склад результата недоступен для готовой продукции.");
-    }
-  }
-}
-
-async function validateProcessingMutationScope(
-  supabase: SupabaseClient,
-  companyId: string,
-  inputWarehouseId: string,
-  processingNodeId: string | null,
-) {
-  const [warehouseResult, nodeResult] = await Promise.all([
-    supabase
-      .from("warehouses")
-      .select("id,warehouse_type,archived,is_archived")
-      .eq("id", inputWarehouseId)
-      .eq("company_id", companyId)
-      .maybeSingle(),
-    processingNodeId
-      ? supabase
-          .from("processing_nodes")
-          .select("id")
-          .eq("id", processingNodeId)
-          .eq("company_id", companyId)
-          .maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
-  ]);
-
-  const warehouse = warehouseResult.data as any;
-  if (
-    warehouseResult.error
-    || !warehouse?.id
-    || warehouse.archived
-    || warehouse.is_archived
-    || !isHarvestWarehouseType(warehouse.warehouse_type)
-  ) {
-    throw new Error("Склад сырья недоступен для обработки.");
-  }
-  if (processingNodeId && (nodeResult.error || !(nodeResult.data as any)?.id)) {
-    throw new Error("Объект обработки не принадлежит выбранной компании.");
-  }
+    }));
 }
 
 export async function GET(request: NextRequest) {
@@ -530,206 +481,53 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
-      requestedCompanyId: String(body.company_id || "").trim() || null,
     });
     const sourceTicketId = String(body.source_ticket_id || "").trim() || null;
-    const outputs = (Array.isArray(body.outputs) ? body.outputs : [])
-      .map((output: any) => ({
-        line_type: String(output.line_type || "other"),
-        batch_class: String(output.batch_class || "commodity"),
-        warehouse_to_id: output.warehouse_to_id ? String(output.warehouse_to_id) : null,
-        output_weight_kg: Number(output.output_weight_kg || 0),
-      }))
-      .filter((output: any) => output.output_weight_kg > 0);
-    if (outputs.length === 0) {
+    if (body.outputs != null && !Array.isArray(body.outputs)) {
+      return NextResponse.json({ error: "Некорректный формат выходов обработки." }, { status: 400 });
+    }
+    const outputs = (Array.isArray(body.outputs) ? body.outputs : []).map((output: any) => ({
+      line_type: output?.line_type,
+      batch_class: output?.batch_class,
+      warehouse_to_id: output?.warehouse_to_id ? String(output.warehouse_to_id) : null,
+      output_weight_kg: output?.output_weight_kg,
+    }));
+    if (outputs.length === 0 && !sourceTicketId) {
       return NextResponse.json({ error: "Укажите выход готового продукта и/или потери." }, { status: 400 });
     }
-    for (const output of outputs) {
-      if (STORED_OUTPUT_TYPES.has(output.line_type) && !output.warehouse_to_id) {
-        return NextResponse.json({ error: "Для готового продукта нужен склад назначения." }, { status: 400 });
-      }
-    }
-    await validateOutputWarehouses(supabase, companyId, outputs);
-
-    let input = body.input || {};
-    let processingNodeId = body.processing_node_id ? String(body.processing_node_id) : null;
-    if (sourceTicketId) {
-      const { data: existing } = await supabase
-        .from("batch_transformations")
-        .select("id")
-        .eq("company_id", companyId)
-        .eq("source_ticket_id", sourceTicketId)
-        .maybeSingle();
-      if (existing?.id) return NextResponse.json({ id: String(existing.id), idempotent_replay: true });
-
-      const { data: sourceTicket, error: sourceTicketError } = await supabase
-        .from("tickets")
-        .select("id,batch_id,warehouse_to_id,processing_node_id,net_weight_kg,status,is_finalized,is_voided,destination_kind")
-        .eq("id", sourceTicketId)
-        .eq("company_id", companyId)
-        .maybeSingle();
-      if (
-        sourceTicketError ||
-        !sourceTicket?.id ||
-        !sourceTicket.is_finalized ||
-        sourceTicket.is_voided ||
-        sourceTicket.destination_kind !== "processing_node" ||
-        !sourceTicket.batch_id ||
-        !sourceTicket.warehouse_to_id ||
-        !sourceTicket.processing_node_id
-      ) {
-        return NextResponse.json({ error: "Исходный талон переработки недоступен или не закрыт." }, { status: 400 });
-      }
-      input = {
-        batch_id: String(sourceTicket.batch_id),
-        warehouse_from_id: String(sourceTicket.warehouse_to_id),
-        input_weight_kg: Number(sourceTicket.net_weight_kg || 0),
-      };
-      processingNodeId = String(sourceTicket.processing_node_id);
-    }
-
+    const input = body.input && typeof body.input === "object" ? body.input : {};
     const selectedHarvestLotId = String(input.harvest_lot_id || "").trim() || null;
     const sourcePhysicalState = String(input.source_physical_state || "SOURCE").trim() || "SOURCE";
-    if ((!input.batch_id && !selectedHarvestLotId) || !input.warehouse_from_id || Number(input.input_weight_kg || 0) <= 0) {
-      return NextResponse.json({ error: "Не определены партия, склад или масса сырья." }, { status: 400 });
-    }
-
-    await validateProcessingMutationScope(
-      supabase,
-      companyId,
-      String(input.warehouse_from_id),
-      processingNodeId,
-    );
-
-    const outputTotal = outputs.reduce((sum: number, row: any) => sum + Number(row.output_weight_kg || 0), 0);
-    if (outputTotal > Number(input.input_weight_kg || 0) + 0.0001) {
-      return NextResponse.json({ error: "Готовый продукт и потери не могут превышать массу сырья." }, { status: 400 });
-    }
-
-    const inputAllocations: Array<{ batch_id: string; input_weight_kg: number }> = [];
-    if (selectedHarvestLotId) {
-      const [{ data: lot, error: lotError }, { data: links, error: linksError }] = await Promise.all([
-        supabase.from("harvest_lots").select("id").eq("id", selectedHarvestLotId).eq("company_id", companyId).eq("status", "active").maybeSingle(),
-        supabase.from("harvest_lot_batches").select("inventory_batch_id").eq("company_id", companyId).eq("harvest_lot_id", selectedHarvestLotId),
-      ]);
-      const batchIds = Array.from(new Set((links || []).map((row: any) => String(row.inventory_batch_id || "")).filter(Boolean)));
-      if (lotError || linksError || !lot?.id || !batchIds.length) {
-        return NextResponse.json({ error: lotError?.message || linksError?.message || "Общая партия урожая не найдена." }, { status: 400 });
-      }
-      const [{ data: batches, error: batchesError }, { data: balances, error: balancesError }] = await Promise.all([
-        supabase.from("inventory_batches").select("id,physical_state,received_at,created_at").eq("company_id", companyId).in("id", batchIds),
-        supabase.from("v_stock_balance_identity").select("batch_id,quantity,uom").eq("company_id", companyId).eq("warehouse_id", input.warehouse_from_id).in("batch_id", batchIds).gt("quantity", 0),
-      ]);
-      if (batchesError || balancesError) {
-        return NextResponse.json({ error: batchesError?.message || balancesError?.message || "Не удалось распределить сырьё." }, { status: 400 });
-      }
-      const balanceByBatch = new Map((balances || []).filter((row: any) => String(row.uom || "") === "kg").map((row: any) => [String(row.batch_id), Number(row.quantity || 0)]));
-      const ordered = (batches || [])
-        .filter((row: any) => String(row.physical_state || "SOURCE") === sourcePhysicalState && Number(balanceByBatch.get(String(row.id)) || 0) > 0)
-        .sort((a: any, b: any) => String(a.received_at || a.created_at || "").localeCompare(String(b.received_at || b.created_at || "")) || String(a.id).localeCompare(String(b.id)));
-      let remaining = Number(input.input_weight_kg || 0);
-      for (const batch of ordered) {
-        if (remaining <= 0.0001) break;
-        const take = Math.min(remaining, Number(balanceByBatch.get(String(batch.id)) || 0));
-        if (take > 0) inputAllocations.push({ batch_id: String(batch.id), input_weight_kg: take });
-        remaining -= take;
-      }
-      if (remaining > 0.0001) {
-        return NextResponse.json({ error: `Недостаточно остатка общей партии. Не хватает ${remaining.toFixed(3)} кг.` }, { status: 400 });
-      }
-    } else {
-      const { data: batch, error: batchError } = await supabase
-        .from("inventory_batches")
-        .select("id,company_id")
-        .eq("id", input.batch_id)
-        .eq("company_id", companyId)
-        .maybeSingle();
-      if (batchError || !batch?.id) {
-        return NextResponse.json({ error: "Входная партия не найдена." }, { status: 400 });
-      }
-      inputAllocations.push({ batch_id: String(batch.id), input_weight_kg: Number(input.input_weight_kg) });
-    }
-
-    // All source identities were resolved with the actor-scoped client above.
-    // The accounting tables themselves are server-only write surfaces.
-    const mutationClient = getServiceClient();
-    const { data: transformation, error: transformationError } = await mutationClient
-      .from("batch_transformations")
-      .insert({
-        ...(sourceTicketId ? { id: sourceTicketId } : {}),
-        company_id: companyId,
-        processing_node_id: processingNodeId,
-        transformation_type: String(body.transformation_type || "cleaning"),
-        status: "draft",
-        source_ticket_id: sourceTicketId,
+    const processingNodeId = body.processing_node_id ? String(body.processing_node_id) : null;
+    const { data, error } = await supabase.rpc("create_processing_transformation_atomic_v1", {
+      p_actor_user_id: actor.id,
+      p_company_id: companyId,
+      p_transformation_type: String(body.transformation_type || "cleaning"),
+      p_processing_node_id: processingNodeId,
+      p_source_ticket_id: sourceTicketId,
+      p_note: body.note == null ? null : String(body.note),
+      p_input: {
+        batch_id: input.batch_id ? String(input.batch_id) : null,
         harvest_lot_id: selectedHarvestLotId,
-        source_physical_state: selectedHarvestLotId ? sourcePhysicalState : null,
-        started_at: new Date().toISOString(),
-        created_by: actor.id,
-        note: body.note || null,
-      })
-      .select("id")
-      .single();
-    if (transformationError || !transformation?.id) {
-      if (sourceTicketId && String((transformationError as any)?.code || "") === "23505") {
-        const { data: racedTransformation } = await supabase
-          .from("batch_transformations")
-          .select("id")
-          .eq("company_id", companyId)
-          .eq("source_ticket_id", sourceTicketId)
-          .maybeSingle();
-        if (racedTransformation?.id) {
-          return NextResponse.json({ id: String(racedTransformation.id), idempotent_replay: true });
-        }
-      }
-      return NextResponse.json({ error: transformationError?.message || "Не удалось начать переработку." }, { status: 400 });
+        source_physical_state: sourcePhysicalState,
+        warehouse_from_id: input.warehouse_from_id ? String(input.warehouse_from_id) : null,
+        input_weight_kg: input.input_weight_kg,
+      },
+      p_outputs: outputs,
+      p_input_quality_json: body.input_quality_json || {},
+    });
+    if (error) {
+      const status = error.code === "42501" ? 403 : error.code === "23505" ? 409 : 400;
+      return NextResponse.json({ error: error.message || "Не удалось начать переработку." }, { status });
     }
-
-    const cleanup = async () => {
-      await mutationClient.from("batch_transformations").delete().eq("id", transformation.id).eq("company_id", companyId);
-    };
-    const { error: inputError } = await mutationClient.from("batch_transformation_inputs").insert(
-      inputAllocations.map((allocation) => ({
-        company_id: companyId,
-        transformation_id: transformation.id,
-        batch_id: allocation.batch_id,
-        warehouse_from_id: input.warehouse_from_id,
-        input_weight_kg: allocation.input_weight_kg,
-        input_quality_json: body.input_quality_json || {},
-      }))
-    );
-    if (inputError) {
-      await cleanup();
-      return NextResponse.json({ error: inputError.message }, { status: 400 });
+    const result = (data || {}) as Record<string, unknown>;
+    if (!result.id) {
+      return NextResponse.json({ error: "Не удалось начать переработку." }, { status: 500 });
     }
-    const { error: outputsError } = await mutationClient.from("batch_transformation_outputs").insert(
-      outputs.map((output: any) => ({
-        company_id: companyId,
-        transformation_id: transformation.id,
-        warehouse_to_id: output.warehouse_to_id,
-        line_type: output.line_type,
-        output_weight_kg: output.output_weight_kg,
-        output_quality_json: {},
-        batch_class: output.batch_class,
-      }))
-    );
-    if (outputsError) {
-      await cleanup();
-      return NextResponse.json({ error: outputsError.message }, { status: 400 });
-    }
-
-    if (sourceTicketId) {
-      const { error: linkError } = await supabase
-        .from("tickets")
-        .update({ linked_processing_id: transformation.id })
-        .eq("id", sourceTicketId)
-        .eq("company_id", companyId);
-      if (linkError) {
-        await cleanup();
-        return NextResponse.json({ error: linkError.message }, { status: 400 });
-      }
-    }
-    return NextResponse.json({ id: String(transformation.id) });
+    return NextResponse.json({
+      id: String(result.id),
+      ...(result.idempotent_replay ? { idempotent_replay: true } : {}),
+    });
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });

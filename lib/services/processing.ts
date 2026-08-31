@@ -45,6 +45,8 @@ export interface TransformationOutputDraft {
 
 export interface CreateTransformationInput {
   company_id: string;
+  // Compatibility-only client context. The server resolves both actor and
+  // selected company from the authenticated session before invoking the RPC.
   actor_user_id: string;
   transformation_type: TransformationType;
   processing_node_id?: string | null;
@@ -58,6 +60,11 @@ export interface CreateTransformationInput {
     input_weight_kg: number;
   };
   outputs: TransformationOutputDraft[];
+}
+
+export interface CreateTransformationResult {
+  id: string;
+  idempotent_replay?: true;
 }
 
 export interface BatchTransformationRow {
@@ -167,7 +174,9 @@ export async function getProcessingTransformations(
   return payload.items || [];
 }
 
-export async function createBatchTransformation(input: CreateTransformationInput): Promise<{ id: string }> {
+export async function createBatchTransformation(
+  input: CreateTransformationInput,
+): Promise<CreateTransformationResult> {
   const headers = await buildClientAuthHeaders("json");
   return parseJsonOrThrow(
     await fetch("/api/processing/transformations", {

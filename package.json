@@ -69,6 +69,7 @@
     "qa:tz315:s16-drying-tolerance": "npx --no-install tsx scripts/qa-tz315-s16-drying-tolerance.ts",
     "qa:tz315:processing-source-debit": "npx --no-install tsx scripts/qa-tz315-processing-source-debit.ts",
     "qa:tz315:processing-wip-physical-state": "npx --no-install tsx scripts/qa-tz315-processing-wip-physical-state.ts",
+    "qa:tz315:processing-create-atomic": "npx --no-install tsx scripts/qa-tz315-processing-create-atomic.ts",
     "qa:tz315:processing-acl": "npx --no-install tsx scripts/qa-tz315-processing-acl-corrective.ts",
     "qa:tz315:universal-processing-gate": "npx --no-install tsx scripts/qa-tz315-universal-processing-gate.ts",
     "qa:tz315:reversal-document-preservation": "npx --no-install tsx scripts/qa-tz315-reversal-document-preservation.ts",

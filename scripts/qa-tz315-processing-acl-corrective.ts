@@ -8,6 +8,10 @@ const migrationUrl = new URL(
   import.meta.url,
 );
 const processingRouteUrl = new URL("../app/api/processing/transformations/route.ts", import.meta.url);
+const atomicCreateMigrationUrl = new URL(
+  "../supabase/migrations/20260831102520_tz315_processing_create_atomic_v1.sql",
+  import.meta.url,
+);
 const finalizeRouteUrl = new URL("../app/api/weighbridge/tickets/[id]/finalize/route.ts", import.meta.url);
 const ledgerRouteUrl = new URL("../app/api/warehouses/transactions/_ledger.ts", import.meta.url);
 
@@ -118,8 +122,9 @@ async function assertDirectDmlDenied(db: PGlite, role: "anon" | "authenticated",
 }
 
 async function main() {
-  const [migration, processingRoute, finalizeRoute, ledgerRoute] = await Promise.all([
+  const [migration, atomicCreateMigration, processingRoute, finalizeRoute, ledgerRoute] = await Promise.all([
     readFile(migrationUrl, "utf8"),
+    readFile(atomicCreateMigrationUrl, "utf8"),
     readFile(processingRouteUrl, "utf8"),
     readFile(finalizeRouteUrl, "utf8"),
     readFile(ledgerRouteUrl, "utf8"),
@@ -136,13 +141,18 @@ async function main() {
   assert.match(migration, /revoke all on function public\.confirm_processing_document\(uuid, uuid\)[\s\S]*from public, anon, authenticated/i);
   assert.match(migration, /grant execute on function public\.confirm_processing_document\(uuid, uuid\)[\s\S]*to service_role/i);
 
-  assert.match(processingRoute, /resolveWeighbridgeSession[\s\S]*allowedRoles: WEIGHBRIDGE_WRITE_ROLES/i);
-  assert.match(processingRoute, /validateProcessingMutationScope[\s\S]*\.eq\("company_id", companyId\)/i);
-  assert.match(processingRoute, /const mutationClient = getServiceClient\(\)/i);
-  assert.match(processingRoute, /mutationClient[\s\S]*\.from\("batch_transformations"\)[\s\S]*\.insert\(/i);
-  assert.match(processingRoute, /mutationClient\.from\("batch_transformation_inputs"\)\.insert\(/i);
-  assert.match(processingRoute, /mutationClient\.from\("batch_transformation_outputs"\)\.insert\(/i);
-  assert.doesNotMatch(processingRoute, /supabase\.from\("batch_transformations"\)\.delete\(/i);
+  const processingPost = processingRoute.slice(processingRoute.indexOf("export async function POST"));
+  assert.match(processingPost, /resolveWeighbridgeSession[\s\S]*allowedRoles: WEIGHBRIDGE_WRITE_ROLES/i);
+  assert.match(processingPost, /supabase\.rpc\("create_processing_transformation_atomic_v1"/i);
+  assert.match(processingPost, /p_actor_user_id: actor\.id[\s\S]*p_company_id: companyId/i);
+  assert.doesNotMatch(processingPost, /getServiceClient|mutationClient|cleanup/i);
+  assert.doesNotMatch(
+    processingPost,
+    /\.from\("(?:batch_transformations|batch_transformation_inputs|batch_transformation_outputs|tickets)"\)[\s\S]*?\.(?:insert|update|delete)\(/i,
+  );
+  assert.match(atomicCreateMigration, /perform private\.tz315_lock_company_season_write_gate_v1\(/i);
+  assert.match(atomicCreateMigration, /revoke all on function public\.create_processing_transformation_atomic_v1[\s\S]*from public, anon, service_role/i);
+  assert.match(atomicCreateMigration, /grant execute on function public\.create_processing_transformation_atomic_v1[\s\S]*to authenticated/i);
 
   assert.match(finalizeRoute, /resolveWeighbridgeSession[\s\S]*WEIGHBRIDGE_WRITE_ROLES/i);
   assert.match(finalizeRoute, /const mutationClient = getServiceClient\(\)[\s\S]*\.from\("inventory_batches"\)[\s\S]*\.eq\("company_id", companyId\)[\s\S]*\.eq\("source_ticket_id", ticketId\)/i);
