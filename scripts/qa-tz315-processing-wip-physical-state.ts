@@ -6,6 +6,10 @@ const migrationUrl = new URL(
   "../supabase/migrations/20260831085530_tz315_processing_wip_physical_state_handoff_v1.sql",
   import.meta.url,
 );
+const roleNullGuardMigrationUrl = new URL(
+  "../supabase/migrations/20260831102444_tz315_processing_wip_role_null_guard_v1.sql",
+  import.meta.url,
+);
 const sourceDebitMigrationUrl = new URL(
   "../supabase/migrations/20260830211041_tz315_processing_output_source_debit_v1.sql",
   import.meta.url,
@@ -767,6 +771,7 @@ async function bootstrap(db: PGlite) {
 
 async function main() {
   const migration = await readFile(migrationUrl, "utf8");
+  const roleNullGuardMigration = await readFile(roleNullGuardMigrationUrl, "utf8");
   assert.match(migration, /bb9bcaee449556b065767b6885c4a4f7/);
   assert.match(migration, /e531c4ed2fd93776ca4136867f58716f/);
   assert.match(migration, /TZ315_PROCESSING_WIP_PHYSICAL_STATE_V1/);
@@ -780,6 +785,17 @@ async function main() {
   assert.match(migration, /0187db7dfb3b6db3cd4950cc0571dc65/);
   assert.match(migration, /e59b8782c4b0ddc873dbdd45bf3d7af9/);
   assert.doesNotMatch(migration, /\b(?:delete\s+from|truncate|drop\s+table)\b/i);
+  assert.match(roleNullGuardMigration, /TZ315_PROCESSING_WIP_ROLE_NULL_GUARD_V1/);
+  assert.match(roleNullGuardMigration, /924dea6082af7c8c76174756616858c2/);
+  assert.match(roleNullGuardMigration, /61b920fdc9d81a9b4bcd1d221a33edab/);
+  assert.match(
+    roleNullGuardMigration,
+    /coalesce\(v_ticket\.processing_output_role, ''''\) not in/,
+  );
+  assert.doesNotMatch(
+    roleNullGuardMigration,
+    /\b(?:insert\s+into|update|delete\s+from|truncate|drop\s+table)\s+public\./i,
+  );
 
   const db = new PGlite();
   await bootstrap(db);
@@ -1068,6 +1084,71 @@ async function main() {
   await db.exec("rollback");
   await db.exec(migration);
 
+  await db.exec(roleNullGuardMigration);
+  await db.exec(roleNullGuardMigration);
+  const roleGuardContract = (await rows(db, `
+    select pg_get_userbyid(proc.proowner) owner,
+           proc.prosecdef security_definer,
+           proc.proconfig,
+           md5(btrim(regexp_replace(pg_get_functiondef(proc.oid), E'\\\\s+', ' ', 'g'))) definition_hash,
+           has_function_privilege('anon',proc.oid,'EXECUTE') anon_execute,
+           has_function_privilege('authenticated',proc.oid,'EXECUTE') authenticated_execute,
+           has_function_privilege('service_role',proc.oid,'EXECUTE') service_execute,
+           pg_get_functiondef(proc.oid) definition
+    from pg_proc proc
+    where proc.oid =
+      'private.tz315_processing_wip_physical_state_valid_v1(uuid)'::regprocedure
+  `))[0];
+  assert.equal(roleGuardContract.owner, "postgres");
+  assert.equal(roleGuardContract.security_definer, false);
+  assert.deepEqual(roleGuardContract.proconfig, ['search_path=""']);
+  assert.equal(roleGuardContract.definition_hash, "61b920fdc9d81a9b4bcd1d221a33edab");
+  assert.equal(roleGuardContract.anon_execute, false);
+  assert.equal(roleGuardContract.authenticated_execute, false);
+  assert.equal(roleGuardContract.service_execute, false);
+  assert.match(roleGuardContract.definition, /TZ315_PROCESSING_WIP_ROLE_NULL_GUARD_V1/);
+
+  await db.exec("begin");
+  await assert.rejects(
+    () => db.exec(`
+      update public.batch_transformation_outputs
+      set output_role=null,
+          physical_state='OTHER'
+      where source_ticket_id='${CLEANER_TICKET}';
+      update public.inventory_batches
+      set physical_state='OTHER'
+      where source_ticket_id='${CLEANER_TICKET}';
+      update public.batch_transformations
+      set source_physical_state='OTHER'
+      where id='${cleanerDownstream}';
+      update public.tickets
+      set processing_output_role=null,
+          source_physical_state='OTHER'
+      where id='${CLEANER_TICKET}';
+    `),
+    /PROCESSING_WIP_PHYSICAL_STATE_MISMATCH/i,
+  );
+  await db.exec("rollback");
+
+  await db.exec("begin");
+  await db.exec(`
+    do $mutation$
+    declare v_definition text;
+    begin
+      select pg_get_functiondef(
+        'private.tz315_processing_wip_physical_state_valid_v1(uuid)'::regprocedure
+      ) into v_definition;
+      execute replace(v_definition, 'begin', E'begin\\n  return true;');
+    end
+    $mutation$
+  `);
+  await assert.rejects(
+    () => db.exec(roleNullGuardMigration),
+    /TZ315_WIP_ROLE_NULL_GUARD_REPEAT_HASH_MISMATCH/i,
+  );
+  await db.exec("rollback");
+  await db.exec(roleNullGuardMigration);
+
   console.log("TZ315 PROCESSING WIP PHYSICAL STATE: PASS");
   console.log(JSON.stringify({
     close_patch_repeat_safe: true,
@@ -1076,6 +1157,7 @@ async function main() {
     stale_source_attach: "BLOCKED",
     deferred_source_debit_commit: "PASS",
     crosswire_foreign_corrupt: "BLOCKED",
+    null_output_role: "BLOCKED",
     full_hash_bypass_mutations: "BLOCKED",
     metadata_and_acl: "PASS",
     no_business_backfill: true,
