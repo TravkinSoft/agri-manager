@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 
 const migrationUrl = new URL(
-  "../supabase/migrations/20260831102520_tz315_processing_create_atomic_v1.sql",
+  "../supabase/migrations/20260831124145_tz315_processing_create_atomic_v1.sql",
   import.meta.url,
 );
 const routeUrl = new URL("../app/api/processing/transformations/route.ts", import.meta.url);

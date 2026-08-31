@@ -3,15 +3,15 @@ import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 
 const migrationUrl = new URL(
-  "../supabase/migrations/20260831085530_tz315_processing_wip_physical_state_handoff_v1.sql",
+  "../supabase/migrations/20260831123828_tz315_processing_wip_physical_state_handoff_v1.sql",
   import.meta.url,
 );
 const roleNullGuardMigrationUrl = new URL(
-  "../supabase/migrations/20260831102444_tz315_processing_wip_role_null_guard_v1.sql",
+  "../supabase/migrations/20260831123844_tz315_processing_wip_role_null_guard_v1.sql",
   import.meta.url,
 );
 const sourceDebitMigrationUrl = new URL(
-  "../supabase/migrations/20260830211041_tz315_processing_output_source_debit_v1.sql",
+  "../supabase/migrations/20260831121645_tz315_processing_output_source_debit_v1.sql",
   import.meta.url,
 );
 

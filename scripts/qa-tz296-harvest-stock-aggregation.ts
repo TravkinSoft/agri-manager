@@ -21,7 +21,7 @@ const harvestBatchRoute = read("app/api/weighbridge/harvest-batches/route.ts");
 const dashboardRoute = read("app/api/dashboard/harvest-summary/route.ts");
 const migration = read("supabase/migrations/20260821152000_tz296_harvest_stock_aggregation_v1.sql");
 const atomicProcessingMigration = read(
-  "supabase/migrations/20260831102520_tz315_processing_create_atomic_v1.sql",
+  "supabase/migrations/20260831124145_tz315_processing_create_atomic_v1.sql",
 );
 
 const checks: Array<{ name: string; run: () => void }> = [];

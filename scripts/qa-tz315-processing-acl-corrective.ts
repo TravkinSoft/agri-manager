@@ -9,7 +9,7 @@ const migrationUrl = new URL(
 );
 const processingRouteUrl = new URL("../app/api/processing/transformations/route.ts", import.meta.url);
 const atomicCreateMigrationUrl = new URL(
-  "../supabase/migrations/20260831102520_tz315_processing_create_atomic_v1.sql",
+  "../supabase/migrations/20260831124145_tz315_processing_create_atomic_v1.sql",
   import.meta.url,
 );
 const finalizeRouteUrl = new URL("../app/api/weighbridge/tickets/[id]/finalize/route.ts", import.meta.url);
