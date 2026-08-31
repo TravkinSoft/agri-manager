@@ -8,7 +8,7 @@ const migrationUrl = new URL(
   import.meta.url,
 );
 const sourceDebitUrl = new URL(
-  "../supabase/migrations/20260830211041_tz315_processing_output_source_debit_v1.sql",
+  "../supabase/migrations/20260831121645_tz315_processing_output_source_debit_v1.sql",
   import.meta.url,
 );
 

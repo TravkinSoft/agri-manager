@@ -4,7 +4,11 @@ import { pathToFileURL } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 
 const migrationUrl = new URL(
-  "../supabase/migrations/20260830211041_tz315_processing_output_source_debit_v1.sql",
+  "../supabase/migrations/20260831121645_tz315_processing_output_source_debit_v1.sql",
+  import.meta.url,
+);
+const constraintSearchPathCorrectiveUrl = new URL(
+  "../supabase/migrations/20260831122323_tz315_processing_source_debit_constraint_search_path_corrective_v1.sql",
   import.meta.url,
 );
 
@@ -171,6 +175,13 @@ export async function bootstrapProcessingSourceDebit(db: PGlite) {
       ) > 0.001 then raise exception 'trace'; end if;
       return '{}'::jsonb;
     end $$;
+    create or replace function public.close_processing_material_balance_v1(
+      p_transformation_id uuid,p_actor_user_id uuid,p_idempotency_key text
+    ) returns jsonb language plpgsql security definer set search_path='' as $$
+    begin
+      execute 'set constraints trg_processing_output_source_debit_v1 immediate';
+      return jsonb_build_object('ok',true);
+    end $$;
     create or replace function public.void_ticket_with_storno_v2(
       p_ticket_id uuid,p_actor_user_id uuid,p_reason text
     ) returns uuid language plpgsql as $$
@@ -261,10 +272,35 @@ async function seedOutput(db: PGlite, ticket: string, output: string) {
 
 async function main() {
   const migration = await readFile(migrationUrl, "utf8");
+  const constraintSearchPathCorrective = await readFile(
+    constraintSearchPathCorrectiveUrl,
+    "utf8",
+  );
   const db = new PGlite();
   await bootstrapProcessingSourceDebit(db);
   await db.exec(migration);
   await db.exec(migration);
+  await db.exec(constraintSearchPathCorrective);
+  await db.exec(constraintSearchPathCorrective);
+
+  await db.query(
+    `select public.close_processing_material_balance_v1($1,$2,$3)`,
+    [
+      "31510000-0000-4000-8000-000000000010",
+      "31510000-0000-4000-8000-000000000099",
+      "constraint-search-path-proof",
+    ],
+  );
+  const materialCloseDefinition = String(
+    await scalar(
+      db,
+      `select pg_get_functiondef('public.close_processing_material_balance_v1(uuid,uuid,text)'::regprocedure)`,
+    ),
+  );
+  assert.match(
+    materialCloseDefinition,
+    /set constraints public\.trg_processing_output_source_debit_v1 immediate/,
+  );
 
   await db.exec(`
     insert into public.batch_transformations(id,company_id,processing_state,status,season_id) values(
