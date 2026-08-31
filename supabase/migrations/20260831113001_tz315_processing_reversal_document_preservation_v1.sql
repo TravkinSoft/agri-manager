@@ -3,6 +3,8 @@
 -- needs a transaction-local, transformation-exact preservation proof for that
 -- short interval.  This migration does not restore or mutate historical rows.
 
+begin;
+
 do $migration$
 declare
   v_reverse_definition text;
@@ -809,3 +811,5 @@ end
 $migration$;
 
 notify pgrst, 'reload schema';
+
+commit;
