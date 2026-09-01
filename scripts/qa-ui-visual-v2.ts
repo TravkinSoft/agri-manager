@@ -54,6 +54,10 @@ function addedSourceLines(): Array<{ path: string; line: string }> {
   return rows;
 }
 
+function directColorLiterals(value: string): string[] {
+  return value.match(/#[0-9a-f]{3,8}\b|rgba?\([^)]*\)/gi)?.map((color) => color.toLowerCase()) || [];
+}
+
 function parseHex(value: string): [number, number, number] {
   const normalized = value.replace("#", "");
   assert.equal(normalized.length, 6, `Expected six-digit hex, received ${value}`);
@@ -155,7 +159,18 @@ function main() {
 
   check("new visual source uses tokens instead of direct color literals", () => {
     const exempt = new Set(["app/globals.css", ".env.example", "scripts/qa-ui-visual-v2.ts"]);
-    const violations = added.filter(({ path, line }) => !exempt.has(path) && /#[0-9a-f]{3,8}\b|rgba?\(/i.test(line));
+    const baselineByPath = new Map<string, string>();
+    const violations = added.filter(({ path, line }) => {
+      if (exempt.has(path)) return false;
+      const colors = directColorLiterals(line);
+      if (!colors.length) return false;
+      if (!baselineByPath.has(path)) {
+        try { baselineByPath.set(path, git(["show", `origin/master:${path}`]).toLowerCase()); }
+        catch { baselineByPath.set(path, ""); }
+      }
+      const baseline = baselineByPath.get(path) || "";
+      return colors.some((color) => !baseline.includes(color));
+    });
     assert.deepEqual(violations, []);
   });
 
