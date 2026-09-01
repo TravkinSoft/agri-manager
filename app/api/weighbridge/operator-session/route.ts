@@ -6,12 +6,13 @@ import {
 } from "@/app/api/weighbridge/_auth";
 import {
   SessionAuthError,
-  getServerActorFromSession,
   getUserScopedClientFromRequest,
-  resolveCompanyForActor,
 } from "@/lib/auth/server-session";
+import { hasQaDataMarker } from "@/lib/utils/qa-data";
+import { isCargoVehicle, isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
 
 const OPERATOR_SESSION_ROLES = ["global_admin", "company_admin", "director", "weighman"] as const;
+const WEIGHBRIDGE_PERSONNEL_ROLES = new Set(["driver", "mechanic_operator"]);
 
 const cookieOptions = {
   httpOnly: true,
@@ -47,31 +48,147 @@ function jsonWithOperatorCookie(payload: Record<string, any>) {
   return response;
 }
 
+function normalizeInitialWorkspace(payload: Record<string, any> | null | undefined) {
+  if (!payload) return null;
+  const rawVehicles = Array.isArray(payload.vehicles) ? payload.vehicles : [];
+  const vehicleRows = rawVehicles.map((row: any) => {
+    const transportModel = Array.isArray(row.transport_model)
+      ? row.transport_model[0]
+      : row.transport_model;
+    const identity = resolveTransportIdentity(row);
+    return {
+      id: String(row.id),
+      name: identity.name,
+      model: String(transportModel?.full_name || row.model || row.name || ""),
+      plate: identity.plate,
+      searchTerms: identity.searchTerms,
+      type: String(row.type || ""),
+      fleetType: String(row.fleet_type || ""),
+      transportCategory: String(transportModel?.category || ""),
+      source: "reference_vehicles" as const,
+      primaryPersonnelId: row.primary_responsible_personnel_id
+        ? String(row.primary_responsible_personnel_id)
+        : null,
+    };
+  });
+
+  const legacyDrivers = Array.isArray(payload.legacyDrivers) ? payload.legacyDrivers : [];
+  const people = Array.isArray(payload.people) ? payload.people : [];
+  const profiles = Array.isArray(payload.profiles) ? payload.profiles : [];
+  const legacyPersonById = new Map<string, string>();
+  const driverNames: Record<string, string> = {};
+  legacyDrivers.forEach((row: any) => {
+    const legacyId = String(row.id || "");
+    if (row.person_id) legacyPersonById.set(legacyId, String(row.person_id));
+    if (legacyId) {
+      driverNames[legacyId] = String(
+        row.name_ru || row.full_name || row.name_en || row.name_kz || "Водитель"
+      );
+    }
+  });
+  profiles.forEach((row: any) => {
+    if (row.id) driverNames[String(row.id)] = String(row.full_name || row.email || "Водитель");
+  });
+
+  const byDriver = new Map<string, string[]>();
+  vehicleRows.forEach((vehicle) => {
+    if (!vehicle.primaryPersonnelId) return;
+    const canonicalPersonId = legacyPersonById.get(vehicle.primaryPersonnelId);
+    if (!canonicalPersonId) return;
+    byDriver.set(canonicalPersonId, [...(byDriver.get(canonicalPersonId) || []), vehicle.id]);
+  });
+
+  const drivers = people
+    .filter((row: any) => WEIGHBRIDGE_PERSONNEL_ROLES.has(String(row.role_type || "")))
+    .map((row: any) => {
+      const id = String(row.id);
+      const name = String(row.full_name || "Сотрудник");
+      driverNames[id] = name;
+      return {
+        id,
+        name,
+        machineId: null,
+        roleType: String(row.role_type || ""),
+        position: String(row.position || ""),
+        department: String(row.department || ""),
+        assignedVehicleIds: byDriver.get(id) || [],
+      };
+    });
+  const combineOperators = people.map((row: any) => ({
+    id: String(row.id),
+    name: String(row.full_name || "Сотрудник"),
+    roleType: String(row.role_type || ""),
+    position: String(row.position || ""),
+    department: String(row.department || ""),
+  }));
+
+  const byField: Record<string, any[]> = {};
+  const incompleteByField: Record<string, boolean> = {};
+  (Array.isArray(payload.allocations) ? payload.allocations : []).forEach((row: any) => {
+    const fieldId = String(row.fieldId || "");
+    if (!fieldId) return;
+    const allocation = {
+      ...row,
+      fieldId: undefined,
+      allocationId: String(row.allocationId || ""),
+      areaHa: Number(row.areaHa || 0),
+      cropId: String(row.cropId || ""),
+      varietyId: String(row.varietyId || ""),
+      reproductionId: String(row.reproductionId || ""),
+      isIncomplete: Boolean(row.isIncomplete),
+    };
+    byField[fieldId] = [...(byField[fieldId] || []), allocation];
+    if (allocation.isIncomplete) incompleteByField[fieldId] = true;
+  });
+
+  return {
+    resources: {
+      fields: (Array.isArray(payload.fields) ? payload.fields : [])
+        .filter((row: any) => !hasQaDataMarker(String(row.name || ""))),
+      destinations: (Array.isArray(payload.destinations) ? payload.destinations : [])
+        .filter((row: any) => !hasQaDataMarker(String(row.name || ""))),
+      vehicles: vehicleRows.filter((row) => isCargoVehicle(row)),
+      trailers: vehicleRows.filter((row) => isTrailerTransport(row)),
+      drivers,
+      driverNames,
+      combineOperators,
+      resourceErrors: [],
+    },
+    harvestAllocations: {
+      seasonId: payload.seasonId ? String(payload.seasonId) : null,
+      seasonYear: payload.seasonYear ? Number(payload.seasonYear) : null,
+      byField,
+      incompleteByField,
+    },
+  };
+}
+
 export async function GET(request: NextRequest) {
   const startedAt = performance.now();
   try {
-    const actorStartedAt = performance.now();
-    const actor = await getServerActorFromSession(request);
-    const actorMs = performance.now() - actorStartedAt;
-    if (!OPERATOR_SESSION_ROLES.includes(actor.role as (typeof OPERATOR_SESSION_ROLES)[number])) {
-      throw new SessionAuthError("Access denied for current role", 403);
-    }
-
     const requestedCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
-    const companyId = resolveCompanyForActor(actor, requestedCompanyId);
+    const includeWorkspace = request.nextUrl.searchParams.get("workspace") === "true";
+    if (!requestedCompanyId) {
+      throw new SessionAuthError("Company is required", 400);
+    }
     const supabase = await getUserScopedClientFromRequest(request);
     const token = request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || null;
     const rpcStartedAt = performance.now();
-    const { data, error } = await supabase.rpc("weighbridge_operator_session_state_v1", {
-      p_company_id: companyId,
+    const { data, error } = await supabase.rpc("weighbridge_initial_workspace_v1", {
+      p_company_id: requestedCompanyId,
       p_session_token: token,
+      p_include_workspace: includeWorkspace,
     });
     const rpcMs = performance.now() - rpcStartedAt;
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    const response = NextResponse.json(data || {});
+    if (error) return NextResponse.json({ error: error.message }, { status: error.code === "42501" ? 403 : 400 });
+    const payload = (data || {}) as Record<string, any>;
+    const response = NextResponse.json({
+      ...(payload.operator_state || {}),
+      initial_workspace: normalizeInitialWorkspace(payload.initial_workspace),
+    });
     response.headers.set(
       "Server-Timing",
-      `actor;dur=${actorMs.toFixed(1)}, operator_rpc;dur=${rpcMs.toFixed(1)}, total;dur=${(performance.now() - startedAt).toFixed(1)}`
+      `initial_workspace_rpc;dur=${rpcMs.toFixed(1)}, total;dur=${(performance.now() - startedAt).toFixed(1)}`
     );
     return response;
   } catch (error) {

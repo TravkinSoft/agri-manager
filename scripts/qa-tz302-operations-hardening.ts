@@ -78,7 +78,8 @@ async function main() {
   });
 
   await check("live weight, moisture and primary actions are compact", () => {
-    assert.match(weighbridge, /Live вес/);
+    assert.match(weighbridge, /Ручной ввод/);
+    assert.doesNotMatch(weighbridge, /Live вес/);
     assert.match(weighbridge, /Влажность, %/);
     assert.doesNotMatch(weighbridge, /Влажность, % \(необязательно\)/);
     assert.match(weighbridge, /Открыть талон/);

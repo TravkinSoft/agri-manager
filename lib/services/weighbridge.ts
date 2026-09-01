@@ -252,12 +252,13 @@ export async function getActiveShift(companyId?: string, _userId?: string) {
 
 export async function getWeighbridgeOperatorState(
   companyId?: string,
-  options?: { signal?: AbortSignal }
+  options?: { signal?: AbortSignal; includeWorkspace?: boolean }
 ): Promise<WeighbridgeOperatorState> {
   const headers = await buildClientAuthHeaders("none");
-  const url = companyId
-    ? `/api/weighbridge/operator-session?companyId=${encodeURIComponent(companyId)}`
-    : "/api/weighbridge/operator-session";
+  const query = new URLSearchParams();
+  if (companyId) query.set("companyId", companyId);
+  if (options?.includeWorkspace) query.set("workspace", "true");
+  const url = `/api/weighbridge/operator-session${query.size ? `?${query.toString()}` : ""}`;
   const response = await fetch(url, { method: "GET", cache: "no-store", headers, signal: options?.signal });
   return parseJsonOrThrow(response) as Promise<WeighbridgeOperatorState>;
 }

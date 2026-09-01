@@ -46,6 +46,37 @@ export function getWeighbridgeWorkstationId(storage: StorageReader): string {
   return created;
 }
 
+export function weighbridgeDefaultDestinationStorageKey(
+  companyId: string | null | undefined,
+  workstationId: string | null | undefined
+): string {
+  const company = clean(companyId);
+  const workstation = clean(workstationId);
+  return company && workstation
+    ? `travkin.weighbridge.defaultDestination.v1.${company}.${workstation}`
+    : "";
+}
+
+export function getWeighbridgeDefaultDestinationId(
+  storage: StorageReader,
+  companyId: string | null | undefined,
+  workstationId: string | null | undefined
+): string {
+  const key = weighbridgeDefaultDestinationStorageKey(companyId, workstationId);
+  return key ? clean(storage.getItem(key)) : "";
+}
+
+export function setWeighbridgeDefaultDestinationId(
+  storage: StorageReader,
+  companyId: string | null | undefined,
+  workstationId: string | null | undefined,
+  warehouseId: string | null | undefined
+): void {
+  const key = weighbridgeDefaultDestinationStorageKey(companyId, workstationId);
+  const warehouse = clean(warehouseId);
+  if (key && warehouse) storage.setItem(key, warehouse);
+}
+
 export function universalWorkspaceStorageKey(
   companyId: string | null | undefined,
   seasonId: string | number | null | undefined,

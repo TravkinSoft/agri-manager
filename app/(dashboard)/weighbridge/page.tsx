@@ -63,11 +63,13 @@ import {
   UNIVERSAL_WORKSPACE_MAX_TABS,
   UNIVERSAL_WORKSPACE_SCHEMA_VERSION,
   createUniversalWorkspace,
+  getWeighbridgeDefaultDestinationId,
   getWeighbridgeWorkstationId,
   isUniversalWorkspaceDirty,
   migrateLegacyHarvestWorkspaces,
   parseUniversalWorkspaceState,
   serializeUniversalWorkspaceState,
+  setWeighbridgeDefaultDestinationId,
   universalWorkspaceStorageKey,
   type UniversalWeighbridgeWorkspace,
   type UniversalWorkspaceOperationType,
@@ -1049,6 +1051,7 @@ export default function WeighbridgeOperationsPage() {
   const operatorCanonicalStateRef = useRef<WeighbridgeOperatorState>({ shift: null, unlocked: false, operators: [] });
   const operatorUnlockConfirmedAtRef = useRef(0);
   const operatorContextKeyRef = useRef("");
+  const initialWorkspaceHydratedRef = useRef(false);
   const secondaryCatalogRequestsRef = useRef(new Map<string, AbortableRequest<void>>());
   const secondaryCatalogReadyRef = useRef(new Set<string>());
   const stockIdentityCacheRef = useRef(new Map<string, StockIdentityOption[]>());
@@ -1589,6 +1592,78 @@ export default function WeighbridgeOperationsPage() {
     operatorRequestRef.current = null;
   };
 
+  const applyInitialOperatorWorkspace = (payload: any) => {
+    const resources = payload?.resources;
+    const allocations = payload?.harvestAllocations;
+    if (!resources || !allocations) return false;
+
+    setFields(((resources.fields || []) as any[]).map((row: any) => ({
+      id: String(row.id),
+      name: String(row.name || "Поле"),
+      area: Number(row.area || 0),
+      fieldCode: row.fieldCode ? String(row.fieldCode) : null,
+    })));
+    setWarehouses(((resources.destinations || []) as any[]).map((row: any) => ({
+      id: String(row.id),
+      name: localizedName(row, lang, ["name"]) || String(row.name || "Склад"),
+      warehouseType: String(row.warehouseType || ""),
+      placeType: String(row.placeType || "WAREHOUSE"),
+    })));
+    setVehicles(((resources.vehicles || []) as any[]).map((row: any) => ({
+      id: String(row.id),
+      name: String(row.name || "Машина"),
+      model: String(row.model || row.name || ""),
+      plate: String(row.plate || ""),
+      type: String(row.type || ""),
+      fleetType: String(row.fleetType || ""),
+      transportCategory: String(row.transportCategory || ""),
+      source: "reference_vehicles" as const,
+      primaryPersonnelId: row.primaryPersonnelId ? String(row.primaryPersonnelId) : null,
+      searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
+    })));
+    setTrailers(((resources.trailers || []) as any[]).map((row: any) => ({
+      id: String(row.id),
+      name: String(row.name || "Прицеп"),
+      model: String(row.model || row.name || ""),
+      plate: String(row.plate || ""),
+      type: String(row.type || "trailer"),
+      fleetType: String(row.fleetType || "tractor_trailer"),
+      transportCategory: String(row.transportCategory || "trailer"),
+      source: "reference_vehicles" as const,
+      primaryPersonnelId: null,
+      searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
+    })));
+    setDrivers(((resources.drivers || []) as any[]).map((row: any) => ({
+      id: String(row.id),
+      name: String(row.name || "Сотрудник"),
+      machineId: row.machineId ? String(row.machineId) : null,
+      roleType: row.roleType === "mechanic_operator" ? "mechanic_operator" : "driver",
+      position: String(row.position || ""),
+      department: String(row.department || ""),
+      assignedVehicleIds: Array.isArray(row.assignedVehicleIds) ? row.assignedVehicleIds.map(String) : [],
+    })));
+    setCombineOperators(((resources.combineOperators || []) as any[]).map((row: any) => ({
+      id: String(row.id),
+      name: String(row.name || "Сотрудник"),
+      roleType: String(row.roleType || ""),
+      position: String(row.position || ""),
+      department: String(row.department || ""),
+    })));
+    setDriverNames(Object.fromEntries(
+      Object.entries((resources.driverNames || {}) as Record<string, unknown>)
+        .map(([id, name]) => [String(id), String(name || "Водитель")])
+    ));
+    setActiveHarvestSeasonId(allocations.seasonId ? String(allocations.seasonId) : null);
+    setActiveHarvestSeasonYear(allocations.seasonYear ? Number(allocations.seasonYear) : null);
+    setHarvestStructureByField((allocations.byField || {}) as Record<string, HarvestStructureOption[]>);
+    setHarvestIncompleteFields((allocations.incompleteByField || {}) as Record<string, boolean>);
+    setCoreResourceErrors([]);
+    setCoreDataReady(true);
+    setLoading(false);
+    initialWorkspaceHydratedRef.current = true;
+    return true;
+  };
+
   const commitOperatorState = (nextState: WeighbridgeOperatorState) => {
     operatorCanonicalStateRef.current = nextState;
     setOperatorState(nextState);
@@ -1598,7 +1673,7 @@ export default function WeighbridgeOperationsPage() {
     commitOperatorState(updater(operatorCanonicalStateRef.current));
   };
 
-  const verifyOperatorSession = async (signal?: AbortSignal) => {
+  const verifyOperatorSession = async (signal?: AbortSignal, includeWorkspace = false) => {
     if (!profile?.company_id) return;
     if (!canUseOperatorSession) {
       setOperatorSessionStatus("ready");
@@ -1617,7 +1692,10 @@ export default function WeighbridgeOperationsPage() {
     setOperatorError("");
     const request = (async () => {
       try {
-        const nextState = await getWeighbridgeOperatorState(companyId, { signal: controller.signal });
+        const nextState = await getWeighbridgeOperatorState(companyId, {
+          signal: controller.signal,
+          includeWorkspace,
+        });
         if (
           controller.signal.aborted ||
           generation !== operatorRequestGenerationRef.current ||
@@ -1630,6 +1708,7 @@ export default function WeighbridgeOperationsPage() {
           !nextState.lock_reason &&
           Date.now() - operatorUnlockConfirmedAtRef.current < 5_000;
         if (isPostUnlockStaleResponse) return canonicalState;
+        applyInitialOperatorWorkspace((nextState as any).initial_workspace);
         commitOperatorState(nextState);
         setActiveShift(nextState.shift || null);
         if (nextState.operator?.id) setOperatorPersonId(nextState.operator.id);
@@ -1742,7 +1821,7 @@ export default function WeighbridgeOperationsPage() {
       return;
     }
     const controller = new AbortController();
-    void verifyOperatorSession(controller.signal);
+    void verifyOperatorSession(controller.signal, true);
     return () => {
       controller.abort();
       invalidateOperatorSessionRequest();
@@ -1811,11 +1890,17 @@ export default function WeighbridgeOperationsPage() {
     }
 
     const reconcile = () => {
+      const usedInitialWorkspace = initialWorkspaceHydratedRef.current;
+      initialWorkspaceHydratedRef.current = false;
       const tasks: Promise<unknown>[] = [
-        load(controller.signal, Boolean(cached)),
         refreshTickets(!cached, controller.signal),
         refreshBootstrap(false, controller.signal),
       ];
+      if (usedInitialWorkspace) {
+        tasks.push(loadTransportPickerDataCached(companyId, false, controller.signal).then(applyTransportPickerData));
+      } else {
+        tasks.push(load(controller.signal, Boolean(cached)));
+      }
       void Promise.all(tasks).catch((error: any) => {
         if (!controller.signal.aborted && error?.name !== "AbortError") {
           console.error("Weighbridge background reconciliation failed", error);
@@ -2043,6 +2128,39 @@ export default function WeighbridgeOperationsPage() {
     if (typeof window === "undefined") return;
     setWorkstationId(getWeighbridgeWorkstationId(window.localStorage));
   }, []);
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined"
+      || !workspaceReady
+      || !profile?.company_id
+      || !workstationId
+      || form.operationType !== "harvest_incoming"
+      || form.warehouseToId
+    ) return;
+
+    const yards = warehouses.filter((warehouse) => warehouse.placeType === "YARD");
+    if (yards.length === 0) return;
+    const savedDefaultId = getWeighbridgeDefaultDestinationId(
+      window.localStorage,
+      profile.company_id,
+      workstationId
+    );
+    const savedYard = yards.find((warehouse) => warehouse.id === savedDefaultId);
+    const defaultYard = savedYard || (yards.length === 1 ? yards[0] : null);
+    if (!defaultYard) return;
+    if (!savedYard) {
+      setWeighbridgeDefaultDestinationId(
+        window.localStorage,
+        profile.company_id,
+        workstationId,
+        defaultYard.id
+      );
+    }
+    setForm((current) => current.operationType === "harvest_incoming" && !current.warehouseToId
+      ? { ...current, warehouseToId: defaultYard.id }
+      : current);
+  }, [workspaceReady, profile?.company_id, workstationId, form.operationType, form.warehouseToId, warehouses]);
 
   useEffect(() => {
     setActiveHarvestSeasonId(null);
@@ -4839,7 +4957,7 @@ export default function WeighbridgeOperationsPage() {
                 Новый талон
               </span>
               <span className="flex items-center justify-between gap-4 rounded-md bg-slate-950/70 px-3 py-2 md:min-w-[260px]">
-                <span className="flex items-center gap-2 text-[10px] font-semibold uppercase text-slate-500"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />Live вес</span>
+                <span className="flex items-center gap-2 text-[10px] font-semibold uppercase text-slate-500"><span className="h-1.5 w-1.5 rounded-full bg-slate-400" />Ручной ввод</span>
                 <span className="text-2xl font-black leading-none text-white">{liveWeightKg.toLocaleString("ru-RU")} кг</span>
               </span>
             </CardTitle>

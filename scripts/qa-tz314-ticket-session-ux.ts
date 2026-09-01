@@ -75,15 +75,15 @@ check("PIN dialog is deferred until session verification completes", () => {
   assert.match(page, /\(operatorGateBlocked && !operatorGateChecking\)/);
 });
 
-check("session GET reuses the canonical actor context without a redundant profile lookup", () => {
+check("session GET uses one canonical initial-workspace RPC", () => {
   const getHandler = operatorSessionRoute.slice(
     operatorSessionRoute.indexOf("export async function GET"),
     operatorSessionRoute.indexOf("export async function POST")
   );
-  assert.match(getHandler, /getServerActorFromSession\(request\)/);
-  assert.match(getHandler, /resolveCompanyForActor\(actor, requestedCompanyId\)/);
+  assert.match(getHandler, /weighbridge_initial_workspace_v1/);
+  assert.match(getHandler, /initial_workspace_rpc/);
   assert.match(getHandler, /Server-Timing/);
-  assert.doesNotMatch(getHandler, /resolveWeighbridgeSession/);
+  assert.doesNotMatch(getHandler, /getServerActorFromSession|resolveCompanyForActor|resolveWeighbridgeSession/);
 });
 
 check("print paper contract remains 90 by 160 millimetres", () => {

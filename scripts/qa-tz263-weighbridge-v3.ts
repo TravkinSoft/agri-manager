@@ -11,6 +11,7 @@ const operatorMigration = read("supabase/migrations/20260811144655_tz263_weighbr
 const lotMigration = read("supabase/migrations/20260811144709_tz263_aggregate_harvest_lots_v1.sql");
 const lotIdentityMigration = read("supabase/migrations/20260811171237_tz263_harvest_lot_identity_without_field_v2.sql");
 const correctionMigration = read("supabase/migrations/20260811233956_tz263_weighbridge_ticket_correction_v1.sql");
+const initialWorkspaceMigration = read("supabase/migrations/20260831224527_tz315_weighbridge_initial_workspace_v1.sql");
 const auth = read("app/api/weighbridge/_auth.ts");
 const operatorRoute = read("app/api/weighbridge/operator-session/route.ts");
 const ticketRoute = read("app/api/weighbridge/tickets/route.ts");
@@ -53,7 +54,9 @@ check("F5 and tab close have no shift close handler", () => assert.doesNotMatch(
 check("operator cookie is HttpOnly", () => assert.match(operatorRoute, /httpOnly: true/));
 check("operator cookie is not returned in JSON", () => assert.match(operatorRoute, /delete safePayload\.token/));
 check("PIN mutation returns the canonical unlocked session state", () => {
-  assert.match(operatorRoute, /weighbridge_operator_session_state_v1[\s\S]*p_session_token: token/);
+  assert.match(operatorRoute, /weighbridge_initial_workspace_v1[\s\S]*p_session_token: token/);
+  assert.match(initialWorkspaceMigration, /weighbridge_operator_session_state_v1\([\s\S]*nullif\(p_session_token, ''\)/);
+  assert.match(operatorRoute, /const canonicalPayload = \{[\s\S]*unlocked: true/);
 });
 check("server requires PIN session for weighed writes", () => assert.match(auth, /requireWeighbridgeOperatorSession/));
 check("legacy shift open cannot bypass PIN", () => assert.match(shiftsRoute, /Смена открывается после выбора весовщика и ввода PIN/));
