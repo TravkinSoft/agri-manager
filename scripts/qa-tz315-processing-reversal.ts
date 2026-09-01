@@ -10,6 +10,10 @@ const privilegeMigrationUrl = new URL(
   "../supabase/migrations/20260830191313_tz315_processing_reversal_privilege_corrective_v1.sql",
   import.meta.url,
 );
+const stornoReasonRefCorrectiveUrl = new URL(
+  "../supabase/migrations/20260901085144_tz315_processing_reversal_storno_reason_ref_corrective_v1.sql",
+  import.meta.url,
+);
 
 type Row = Record<string, unknown>;
 const rows = async (db: PGlite, sql: string) => (await db.query(sql)).rows as Row[];
@@ -235,6 +239,11 @@ async function bootstrap(db: PGlite) {
       inventory_batch_id uuid,
       created_at timestamptz not null default now()
     );
+    create unique index uq_stock_ledger_seed_batch_event_v1
+      on public.stock_ledger_entries(
+        company_id, inventory_batch_id, reason_type, reason_ref_id, direction
+      )
+      where inventory_batch_id is not null and reason_ref_id is not null;
     create table public.batch_processing_events(
       id uuid primary key default gen_random_uuid(),
       company_id uuid not null,
@@ -468,6 +477,7 @@ async function selectedEffect(db: PGlite, transformation: string) {
 async function main() {
   const migration = await readFile(migrationUrl, "utf8");
   const privilegeMigration = await readFile(privilegeMigrationUrl, "utf8");
+  const stornoReasonRefCorrective = await readFile(stornoReasonRefCorrectiveUrl, "utf8");
 
   assert.match(migration, /create table if not exists public\.batch_processing_reversals/i);
   assert.match(migration, /create unique index if not exists uq_stock_ledger_storno_target_v1/i);
@@ -481,11 +491,14 @@ async function main() {
   assert.match(privilegeMigration, /revoke all privileges\s+on table public\.batch_processing_reversals\s+from public, anon, authenticated, service_role/i);
   assert.match(privilegeMigration, /grant select\s+on table public\.batch_processing_reversals\s+to authenticated, service_role/i);
   assert.doesNotMatch(privilegeMigration, /\b(?:insert|update|delete|truncate)\b\s+(?:on|into|from|table)?\s*public\.batch_processing_reversals/i);
+  assert.match(stornoReasonRefCorrective, /'storno_processing_reversal'', v_entry\.id, v_entry\.batch_id/i);
+  assert.doesNotMatch(stornoReasonRefCorrective, /\b(?:insert|update|delete|truncate)\s+(?:into|from|table)?\s*public\./i);
 
   const db = new PGlite();
   await bootstrap(db);
   await db.exec(migration);
   await db.exec(privilegeMigration);
+  await db.exec(stornoReasonRefCorrective);
 
   const privilegeMatrix = await rows(db, `
     select role_name,
@@ -524,6 +537,13 @@ async function main() {
   assert.equal(cleaningResult.idempotent_replay, false);
   assert.equal(Number(cleaningResult.base_ledger_rows), 4, "input + ticketless loss + two output fractions");
   assert.equal(Number(cleaningResult.storno_created), 4);
+  assert.equal(Number(await scalar(db, `
+    select count(*)
+    from public.stock_ledger_entries
+    where is_storno
+      and processing_id='${CLEANING.transformation}'
+      and reason_ref_id=storno_of_entry_id
+  `)), 4, "each compensating row must carry its exact original entry reference");
   assert.equal(await selectedEffect(db, CLEANING.transformation), 0, "all selected cleaning effects must net to zero");
   assert.equal(Number(await scalar(db, `select current_quantity from public.inventory_batches where id='${CLEANING.sourceBatch}'`)), 100);
   for (const output of CLEANING.outputs) {
