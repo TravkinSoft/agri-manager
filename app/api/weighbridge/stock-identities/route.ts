@@ -148,25 +148,38 @@ export async function GET(request: NextRequest) {
     const reproductionIds = Array.from(new Set([...exactRows, ...aggregateRows].map((row: any) => String(row.reproduction_id || "")).filter(Boolean)));
     const cropLookupIds = Array.from(new Set([...productIds, ...cropIds]));
 
-    const [{ data: products }, { data: crops }, { data: varieties }, { data: reproductions }, { data: lineSnapshots }] = await Promise.all([
+    // Stock rows above are already scoped by the authenticated company. Hydrate only the
+    // exact reference IDs found in those rows through the same authenticated client. This
+    // keeps global-catalog visibility governed by the catalog RLS contract and prevents a
+    // mismatched service credential from silently returning unclassified stock.
+    const [productsResult, cropsResult, varietiesResult, reproductionsResult, lineSnapshotsResult] = await Promise.all([
       productIds.length
-        ? supabase.from("products").select("id,name,trade_name,normalized_name,full_name,type,product_type,stock_unit,base_uom,unit,physical_state,is_seed_material").in("id", productIds)
-        : Promise.resolve({ data: [] as any[] }),
+        ? supabase.from("products").select("id,name,trade_name,normalized_name,type,product_type,stock_unit,base_uom,unit,physical_state,is_seed_material").in("id", productIds)
+        : Promise.resolve({ data: [] as any[], error: null }),
       cropLookupIds.length
-        ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug,full_name").in("id", cropLookupIds)
-        : Promise.resolve({ data: [] as any[] }),
-      varietyIds.length ? supabase.from("varieties").select("id,name,full_name").in("id", varietyIds) : Promise.resolve({ data: [] as any[] }),
+        ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug").in("id", cropLookupIds)
+        : Promise.resolve({ data: [] as any[], error: null }),
+      varietyIds.length ? supabase.from("varieties").select("id,name,name_ru,name_kz,name_en").in("id", varietyIds) : Promise.resolve({ data: [] as any[], error: null }),
       reproductionIds.length
-        ? supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code,full_name").in("id", reproductionIds)
-        : Promise.resolve({ data: [] as any[] }),
+        ? supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code").in("id", reproductionIds)
+        : Promise.resolve({ data: [] as any[], error: null }),
       productIds.length || varietyIds.length || reproductionIds.length
         ? supabase
             .from("ticket_lines")
             .select("product_id,product_name_snapshot,variety_id,variety_name_snapshot,reproduction_id,reproduction_name_snapshot")
             .eq("company_id", companyId)
             .not("ticket_id", "is", null)
-        : Promise.resolve({ data: [] as any[] }),
+        : Promise.resolve({ data: [] as any[], error: null }),
     ]);
+    const referenceError = productsResult.error || cropsResult.error || varietiesResult.error || reproductionsResult.error || lineSnapshotsResult.error;
+    if (referenceError) {
+      return NextResponse.json({ error: `Stock reference hydration failed: ${referenceError.message}` }, { status: 400 });
+    }
+    const products = productsResult.data || [];
+    const crops = cropsResult.data || [];
+    const varieties = varietiesResult.data || [];
+    const reproductions = reproductionsResult.data || [];
+    const lineSnapshots = lineSnapshotsResult.data || [];
 
     const productMap = new Map((products || []).map((row: any) => [String(row.id), brandNameOf(row, "")]));
     const productTypeMap = new Map((products || []).map((row: any) => [String(row.id), String(row.product_type || row.type || "").toLowerCase()]));

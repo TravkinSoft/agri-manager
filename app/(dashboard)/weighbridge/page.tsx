@@ -3309,6 +3309,15 @@ export default function WeighbridgeOperationsPage() {
       }),
     [warehouses, selectedHarvestAllocation]
   );
+  const impuritySourceWarehouses = useMemo(
+    () => warehouses
+      .filter((warehouse) => isHarvestDestinationPlace(warehouse.warehouseType, warehouse.placeType))
+      .sort((left, right) => {
+        const typeOrder = storagePlaceTypeSortOrder(left.placeType) - storagePlaceTypeSortOrder(right.placeType);
+        return typeOrder || left.name.localeCompare(right.name, "ru");
+      }),
+    [warehouses]
+  );
   const historyTypes = useMemo(() => Array.from(new Set(tickets.map((t) => t.op_type).filter(Boolean))), [tickets]);
   const historyTickets = useMemo(
     () => tickets.filter((ticket) =>
@@ -5001,10 +5010,32 @@ export default function WeighbridgeOperationsPage() {
               {(isTransfer || isFieldIssue || isDisposal || isShipment || isImpurityRemoval) ? (
                 <div className="space-y-1">
                   <Label>{isTransfer ? "Откуда" : isImpurityRemoval ? "Склад" : "Склад-источник"} *</Label>
-                  <Select value={form.warehouseFromId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseFromId: v, sourceBatchId: "", stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "", processingTransformationId: "", processingOutputRole: "" }))}>
-                    <SelectTrigger className="h-9"><SelectValue placeholder="Выберите место отправления" /></SelectTrigger>
-                    <SelectContent>{(isImpurityRemoval ? harvestWarehouses : warehouses).map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent>
-                  </Select>
+                  {isImpurityRemoval ? (
+                    <SearchableCombobox
+                      value={form.warehouseFromId}
+                      options={impuritySourceWarehouses.map((warehouse) => ({
+                        value: warehouse.id,
+                        label: warehouse.name,
+                        description: storagePlaceTypeLabel(warehouse.placeType),
+                        group: storagePlaceTypeGroupLabel(warehouse.placeType),
+                        keywords: [warehouse.warehouseType, warehouse.placeType],
+                      }))}
+                      onValueChange={(warehouseFromId) => setForm((previous) => ({
+                        ...previous,
+                        warehouseFromId,
+                        sourceBatchId: "",
+                      }))}
+                      placeholder="Выберите склад с урожаем"
+                      searchPlaceholder="Поиск склада или площадки"
+                      emptyLabel="Место с урожаем не найдено"
+                      ariaLabel="Склад-источник примесей"
+                    />
+                  ) : (
+                    <Select value={form.warehouseFromId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseFromId: v, sourceBatchId: "", stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "", processingTransformationId: "", processingOutputRole: "" }))}>
+                      <SelectTrigger className="h-9"><SelectValue placeholder="Выберите место отправления" /></SelectTrigger>
+                      <SelectContent>{warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                  )}
                 </div>
               ) : null}
 

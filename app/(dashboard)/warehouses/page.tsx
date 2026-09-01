@@ -160,7 +160,15 @@ export default function WarehousesPage() {
   const canView = canStockOperate || canManageWarehouses || ["agronomist", "director", "weighman"].includes(role);
   const isReadOnlyRole = ["weighman", "agronomist", "director"].includes(role);
 
-  const loadWarehouseList = async ({ foreground = true, force = false }: { foreground?: boolean; force?: boolean } = {}) => {
+  const loadWarehouseList = async ({
+    foreground = true,
+    force = false,
+    summariesOnly = false,
+  }: {
+    foreground?: boolean;
+    force?: boolean;
+    summariesOnly?: boolean;
+  } = {}) => {
     if (!profile?.company_id) return;
     if (foreground) {
       setLoading(true);
@@ -169,19 +177,22 @@ export default function WarehousesPage() {
     let warehouseListLoaded = false;
     try {
       const cacheKey = `${profile.company_id}:${language}:${canManageWarehouses}`;
-      let warehouseRequest = warehouseListRequestCache.get(cacheKey);
-      if (!warehouseRequest) {
-        warehouseRequest = getWarehouses(profile.company_id, canManageWarehouses, language)
-          .finally(() => warehouseListRequestCache.delete(cacheKey));
-        warehouseListRequestCache.set(cacheKey, warehouseRequest);
+      let warehouseRows = warehouses;
+      if (!summariesOnly) {
+        let warehouseRequest = warehouseListRequestCache.get(cacheKey);
+        if (!warehouseRequest) {
+          warehouseRequest = getWarehouses(profile.company_id, canManageWarehouses, language)
+            .finally(() => warehouseListRequestCache.delete(cacheKey));
+          warehouseListRequestCache.set(cacheKey, warehouseRequest);
+        }
+        warehouseRows = await warehouseRequest;
+        warehouseListLoaded = true;
+        setWarehouses(warehouseRows);
+        const cached = warehousePageCache.get(cacheKey) || { summaries: [] };
+        warehousePageCache.set(cacheKey, { ...cached, warehouses: warehouseRows });
+        setError(null);
+        if (foreground) setLoading(false);
       }
-      const warehouseRows = await warehouseRequest;
-      warehouseListLoaded = true;
-      setWarehouses(warehouseRows);
-      const cached = warehousePageCache.get(cacheKey) || { summaries: [] };
-      warehousePageCache.set(cacheKey, { ...cached, warehouses: warehouseRows });
-      setError(null);
-      if (foreground) setLoading(false);
 
       if (!force && Date.now() - (warehouseSummariesLoadedAt.get(cacheKey) || 0) < 15_000) return;
       let request = warehouseSummaryRequestCache.get(cacheKey);
@@ -353,8 +364,13 @@ export default function WarehousesPage() {
   useLiveRefresh({
     enabled: Boolean(profile?.company_id && canView),
     onRefresh: async (event) => {
-      const force = event?.source === "realtime" || event?.source === "online";
-      const tasks: Promise<unknown>[] = [loadWarehouseList({ foreground: false, force })];
+      const globalAdminConsistencyPoll = profile?.role === "global_admin" && event?.source === "interval";
+      const force = event?.source === "realtime" || event?.source === "online" || globalAdminConsistencyPoll;
+      const tasks: Promise<unknown>[] = [loadWarehouseList({
+        foreground: false,
+        force,
+        summariesOnly: globalAdminConsistencyPoll,
+      })];
       if (selectedWarehouseId) {
         tasks.push(loadWarehouseDetails(selectedWarehouseId, { foreground: false, force }));
       }
@@ -363,7 +379,10 @@ export default function WarehousesPage() {
     },
     companyId: profile?.company_id,
     tables: LIVE_REFRESH_TABLES.warehouses,
-    intervalMs: 60_000,
+    // A global admin can work in a selected company different from the company
+    // encoded in get_user_company_id(). RLS correctly hides that company's raw
+    // Realtime rows, so a bounded summaries-only poll is the consistency fallback.
+    intervalMs: profile?.role === "global_admin" ? 8_000 : 60_000,
     minRefreshIntervalMs: 5_000,
   });
 
