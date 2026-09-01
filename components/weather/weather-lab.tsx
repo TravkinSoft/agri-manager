@@ -598,7 +598,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
         </div>
       </header>
 
-      <section className={cn("flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg p-1.5 sm:px-2 md:max-w-[360px]", visualV2 ? "tf-glass-chrome" : "border border-[#2A3344] bg-[#121722]")}>
+      <section className={cn("flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg p-1.5 sm:px-2 md:max-w-[360px]", visualV2 ? "tf-work-surface-raised" : "border border-[#2A3344] bg-[#121722]")}>
         <button
           type="button"
           onClick={() => setPickerOpen(true)}
@@ -723,7 +723,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
         </div>
       ) : null}
 
-      <section className={cn("min-w-0 rounded-lg p-2.5 sm:p-3", visualV2 ? "tf-glass-chrome" : "border border-[#2A3344] bg-[#121722]")}>
+      <section className={cn("min-w-0 rounded-lg p-2.5 sm:p-3", visualV2 ? "tf-work-surface" : "border border-[#2A3344] bg-[#121722]")}>
         <div className="flex min-w-0 items-center gap-2">
           <span className="shrink-0 text-xs font-medium text-[#98A4B7]">Рабочий профиль</span>
           <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
