@@ -63,6 +63,7 @@
     "qa:tz314:performance": "npx --no-install tsx scripts/qa-tz314-performance-cancellation.ts",
     "qa:tz314:ticket-session": "npx --no-install tsx scripts/qa-tz314-ticket-session-ux.ts",
     "qa:tz314:warehouse": "npx --no-install tsx scripts/qa-tz314-warehouse-math.ts",
+    "qa:ui:visual-v2": "npx --no-install tsx scripts/qa-ui-visual-v2.ts",
     "qa:tz315:processing-reversal": "npx --no-install tsx scripts/qa-tz315-processing-reversal.ts",
     "qa:tz315:processing-wip-route-handoff": "npx --no-install tsx scripts/qa-tz315-processing-wip-route-handoff.ts",
     "qa:tz315:ticket-void-reconcile": "npx --no-install tsx scripts/qa-tz315-ticket-void-reconcile.ts",
