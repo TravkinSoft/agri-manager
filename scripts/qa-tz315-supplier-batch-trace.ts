@@ -6,6 +6,10 @@ const migrationUrl = new URL(
   "../supabase/migrations/20260901123759_tz315_supplier_batch_warehouse_trace_v1.sql",
   import.meta.url,
 );
+const constraintMigrationUrl = new URL(
+  "../supabase/migrations/20260901125144_tz315_material_ledger_batch_class_corrective_v1.sql",
+  import.meta.url,
+);
 
 const COMPANY = "31500000-0000-4000-8000-000000000001";
 const OTHER_COMPANY = "31500000-0000-4000-8000-000000000002";
@@ -36,10 +40,28 @@ await db.exec(`
     received_at timestamptz,
     source_type text
   );
+  create table public.stock_ledger_entries (
+    id uuid primary key default gen_random_uuid(),
+    batch_class text,
+    constraint stock_ledger_entries_batch_class_check
+      check (batch_class in ('commodity','seed','feed','waste','processing','rejected'))
+  );
 `);
 
 const migration = await readFile(migrationUrl, "utf8");
 await db.exec(migration);
+const constraintMigration = await readFile(constraintMigrationUrl, "utf8");
+await db.exec(constraintMigration);
+
+await db.exec(`insert into public.stock_ledger_entries(batch_class) values ('material')`);
+const materialConstraint = await db.query<{ definition: string }>(`
+  select pg_get_constraintdef(oid) definition
+  from pg_constraint
+  where conrelid='public.stock_ledger_entries'::regclass
+    and conname='stock_ledger_entries_batch_class_check'
+`);
+assert.match(String(materialConstraint.rows[0]?.definition), /material/i);
+assert.match(String(materialConstraint.rows[0]?.definition), /batch_class IS NULL/i);
 
 await db.exec(`
   insert into public.tickets(id, company_id, op_type, warehouse_to_id, finalized_at)
