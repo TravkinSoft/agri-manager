@@ -36,8 +36,11 @@ import { localizeMaterialType, localizeOperationType, localizeUnit } from "@/lib
 import { useAuth } from "@/lib/contexts/auth-context";
 import { selectCurrentSeason } from "@/lib/seasons/current-season";
 import { formatDateOnly } from "@/lib/dates/date-only";
+import { isVisualSystemV2Enabled } from "@/lib/ui/visual-system";
+import { VisualSystemScope } from "@/components/ui/visual-system-scope";
 
 type AnalyticsState = "loading" | "loaded" | "error" | "no-season";
+const ANALYTICS_VISUAL_ROLES = new Set(["global_admin", "company_admin", "legal_operator"]);
 
 export default function AnalyticsPage() {
   const [seasons, setSeasons] = useState<Array<{ id: string; name: string; year: number }>>([]);
@@ -58,6 +61,14 @@ export default function AnalyticsPage() {
   const { language } = useLanguage();
   const t = (ru: string, kz: string, en: string) =>
     language === "ru" ? ru : language === "kz" ? kz : en;
+  const visualV2 = ANALYTICS_VISUAL_ROLES.has(String(profile?.role || "")) && isVisualSystemV2Enabled("analytics");
+  const title = t("Отчеты и аналитика", "Есептер және аналитика", "Reports & Analytics");
+  const description = t("Комплексный обзор ваших сельхозопераций", "Ауылшаруашылық операцияларыңыздың толық шолуы", "Comprehensive overview of your agricultural operations");
+  const metricCardClassName = visualV2 ? "tf-work-surface min-w-0 shadow-none" : undefined;
+  const metricTitleClassName = visualV2 ? "text-xs font-medium text-[color:var(--tf-text-secondary)]" : "text-sm font-medium text-slate-600";
+  const metricIconClassName = visualV2 ? "h-4 w-4 text-[color:var(--tf-accent-primary)]" : "h-4 w-4 text-slate-400";
+  const metricValueClassName = visualV2 ? "tf-tabular break-words text-xl font-semibold text-[color:var(--tf-text-primary)] sm:text-2xl" : "text-2xl font-bold";
+  const metricHintClassName = visualV2 ? "mt-1 text-xs text-[color:var(--tf-text-muted)]" : "mt-1 text-xs text-slate-500";
 
   useEffect(() => {
     async function loadSeasons() {
@@ -120,20 +131,35 @@ export default function AnalyticsPage() {
   }, [selectedSeasonId]);
 
   return (
-    <div>
-      <PageHeader
-        title={t("Отчеты и аналитика", "Есептер және аналитика", "Reports & Analytics")}
-        description={t("Комплексный обзор ваших сельхозопераций", "Ауылшаруашылық операцияларыңыздың толық шолуы", "Comprehensive overview of your agricultural operations")}
-      />
+    <VisualSystemScope scope="analytics" forceLegacy={!visualV2}>
+    <div
+      data-visual-pilot={visualV2 ? "analytics-overview" : undefined}
+      data-role-scope={visualV2 ? String(profile?.role || "") : undefined}
+      data-analytics-state={visualV2 ? state : undefined}
+    >
+      {visualV2 ? (
+        <header data-visual-region="analytics-header" className="mb-4 min-w-0 sm:mb-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--tf-accent-primary)]">
+            {t("Контур решений", "Шешімдер контуры", "Decision layer")}
+          </p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-[color:var(--tf-text-primary)] sm:text-3xl">{title}</h1>
+          <p className="mt-1 max-w-3xl text-sm text-[color:var(--tf-text-secondary)]">{description}</p>
+        </header>
+      ) : (
+        <PageHeader title={title} description={description} />
+      )}
 
-      <div className="mb-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("Выбор сезона", "Маусымды таңдау", "Select Season")}</CardTitle>
+      <div data-visual-region={visualV2 ? "analytics-season" : undefined} className={visualV2 ? "mb-5 sm:mb-6" : "mb-6"}>
+        <Card className={visualV2 ? "tf-work-surface-raised shadow-none" : undefined}>
+          <CardHeader className={visualV2 ? "pb-3" : undefined}>
+            <CardTitle className={visualV2 ? "text-base text-[color:var(--tf-text-primary)]" : undefined}>{t("Выбор сезона", "Маусымды таңдау", "Select Season")}</CardTitle>
           </CardHeader>
           <CardContent>
             <Select value={selectedSeasonId} onValueChange={setSelectedSeasonId}>
-              <SelectTrigger className="w-full md:w-96">
+              <SelectTrigger
+                aria-label={t("Выбор сезона", "Маусымды таңдау", "Select Season")}
+                className={visualV2 ? "tf-input-surface tf-focus-ring h-12 w-full text-base text-[color:var(--tf-text-primary)] sm:h-10 sm:text-sm md:w-96" : "w-full md:w-96"}
+              >
                 <SelectValue placeholder={t("Выберите сезон", "Маусымды таңдаңыз", "Select a season")} />
               </SelectTrigger>
               <SelectContent>
@@ -168,77 +194,77 @@ export default function AnalyticsPage() {
         </Card>
       ) : (
         <div className="space-y-6">
-          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-5">
-            <Card>
+          <div data-visual-region={visualV2 ? "analytics-kpis" : undefined} className={visualV2 ? "grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-5" : "grid gap-6 md:grid-cols-2 xl:grid-cols-5"}>
+            <Card className={metricCardClassName}>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-slate-600">
+                <CardTitle className={metricTitleClassName}>
                   {t("Всего полей", "Барлық алаңдар", "Total Fields")}
                 </CardTitle>
-                <MapPin className="h-4 w-4 text-slate-400" />
+                <MapPin className={metricIconClassName} />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{seasonSummary.totalFields}</div>
-                <p className="text-xs text-slate-500 mt-1">
+                <div className={metricValueClassName}>{seasonSummary.totalFields}</div>
+                <p className={metricHintClassName}>
                   {selectedSeasonId ? t("Поля в выбранном сезоне", "Таңдалған маусымдағы алаңдар", "Fields in selected season") : t("Выберите сезон", "Маусымды таңдаңыз", "Select a season")}
                 </p>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className={metricCardClassName}>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-slate-600">
+                <CardTitle className={metricTitleClassName}>
                   {t("Площадь посева", "Егіс ауданы", "Planted Area")}
                 </CardTitle>
-                <Maximize className="h-4 w-4 text-slate-400" />
+                <Maximize className={metricIconClassName} />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">
+                <div className={metricValueClassName}>
                   {seasonSummary.totalPlantedArea.toFixed(2)} {localizeUnit("ha", language)}
                 </div>
-                <p className="text-xs text-slate-500 mt-1">{t("Общая площадь в обработке", "Өңделіп жатқан жалпы аудан", "Total area under cultivation")}</p>
+                <p className={metricHintClassName}>{t("Общая площадь в обработке", "Өңделіп жатқан жалпы аудан", "Total area under cultivation")}</p>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className={metricCardClassName}>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-slate-600">
+                <CardTitle className={metricTitleClassName}>
                   {t("Ожидаемый урожай", "Күтілетін өнім", "Expected Yield")}
                 </CardTitle>
-                <TrendingUp className="h-4 w-4 text-slate-400" />
+                <TrendingUp className={metricIconClassName} />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">
+                <div className={metricValueClassName}>
                   {seasonSummary.totalExpectedYield.toFixed(2)} {localizeUnit("t", language)}
                 </div>
-                <p className="text-xs text-slate-500 mt-1">{t("Прогноз общего урожая", "Жалпы өнім болжамы", "Projected total harvest")}</p>
+                <p className={metricHintClassName}>{t("Прогноз общего урожая", "Жалпы өнім болжамы", "Projected total harvest")}</p>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className={metricCardClassName}>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-slate-600">
+                <CardTitle className={metricTitleClassName}>
                   {t("Площадь пара", "Сүрі жер ауданы", "Fallow Area")}
                 </CardTitle>
-                <Maximize className="h-4 w-4 text-slate-400" />
+                <Maximize className={metricIconClassName} />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">
+                <div className={metricValueClassName}>
                   {seasonSummary.totalFallowArea.toFixed(2)} {localizeUnit("ha", language)}
                 </div>
-                <p className="mt-1 text-xs text-slate-500">{t("Не входит в площадь посева", "Егіс ауданына кірмейді", "Excluded from planted area")}</p>
+                <p className={metricHintClassName}>{t("Не входит в площадь посева", "Егіс ауданына кірмейді", "Excluded from planted area")}</p>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className={metricCardClassName}>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-slate-600">
+                <CardTitle className={metricTitleClassName}>
                   {t("Операции", "Операциялар", "Operations")}
                 </CardTitle>
-                <Activity className="h-4 w-4 text-slate-400" />
+                <Activity className={metricIconClassName} />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{seasonSummary.totalOperations}</div>
-                <p className="text-xs text-slate-500 mt-1">{t("Всего зафиксировано операций", "Тіркелген операциялар саны", "Total operations recorded")}</p>
+                <div className={metricValueClassName}>{seasonSummary.totalOperations}</div>
+                <p className={metricHintClassName}>{t("Всего зафиксировано операций", "Тіркелген операциялар саны", "Total operations recorded")}</p>
               </CardContent>
             </Card>
           </div>
@@ -364,5 +390,6 @@ export default function AnalyticsPage() {
         </div>
       )}
     </div>
+    </VisualSystemScope>
   );
 }

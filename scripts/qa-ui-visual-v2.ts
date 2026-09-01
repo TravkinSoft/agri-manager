@@ -30,6 +30,7 @@ function isAllowedVisualPath(path: string): boolean {
     ".env.example",
     "app/globals.css",
     "app/(dashboard)/dashboard/page.tsx",
+    "app/(dashboard)/analytics/page.tsx",
     "app/(dashboard)/tickets/page.tsx",
     "app/(dashboard)/warehouses/page.tsx",
     "app/(dashboard)/weather-lab/page.tsx",
@@ -101,6 +102,7 @@ function main() {
   const visualTickets = read("components/tickets/visual-v2-tickets-list.tsx");
   const warehousesPage = read("app/(dashboard)/warehouses/page.tsx");
   const visualWarehouses = read("components/warehouses/visual-v2-warehouses-overview.tsx");
+  const analyticsPage = read("app/(dashboard)/analytics/page.tsx");
   const weather = read("components/weather/weather-lab.tsx");
   const paths = changedPaths();
   const added = addedSourceLines();
@@ -261,6 +263,25 @@ function main() {
     assert.match(warehousesPage, /selectedCanReceive/);
     assert.match(warehousesPage, /<WarehouseStockDetailsDialog/);
     assert.match(warehousesPage, /<HarvestBatchDialog/);
+  });
+
+  check("analytics V2 is a read-only overview while reports stay legacy", () => {
+    assert.match(flags, /"analytics"/);
+    assert.match(analyticsPage, /ANALYTICS_VISUAL_ROLES[^\n]+global_admin[^\n]+company_admin[^\n]+legal_operator/);
+    assert.match(analyticsPage, /isVisualSystemV2Enabled\("analytics"\)/);
+    assert.match(analyticsPage, /<VisualSystemScope scope="analytics" forceLegacy=\{!visualV2\}>/);
+    assert.match(analyticsPage, /data-visual-pilot=\{visualV2 \? "analytics-overview" : undefined\}/);
+    assert.match(analyticsPage, /data-visual-region="analytics-header"/);
+    assert.match(analyticsPage, /data-visual-region=\{visualV2 \? "analytics-season" : undefined\}/);
+    assert.match(analyticsPage, /data-visual-region=\{visualV2 \? "analytics-kpis" : undefined\}/);
+    assert.match(analyticsPage, /getSeasonSummary\(selectedSeasonId\)/);
+    assert.match(analyticsPage, /getCropStructureReport\(selectedSeasonId\)/);
+    assert.match(analyticsPage, /getOperationsSummary\(selectedSeasonId\)/);
+    assert.match(analyticsPage, /getInventorySummary\(\)/);
+    assert.equal(Array.from(analyticsPage.matchAll(/<Table>/g)).length, 3);
+    const reports = analyticsPage.slice(analyticsPage.indexOf("Отчет по структуре посевов"));
+    assert.doesNotMatch(reports, /\btf-(?:work|input|focus|motion|glass)-/);
+    assert.doesNotMatch(analyticsPage, /\.(?:insert|update|upsert|delete)\s*\(|\bfetch\s*\(/i);
   });
 
   check("harness is read-only and has no data or network client imports", () => {

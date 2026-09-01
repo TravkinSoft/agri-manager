@@ -3,6 +3,7 @@ export const VISUAL_SYSTEM_SCOPES = [
   "dashboard",
   "weather",
   "tickets",
+  "analytics",
   "cropStructure",
   "warehouses",
   "weighbridge",
