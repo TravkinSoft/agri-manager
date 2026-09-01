@@ -23,7 +23,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { VisualSystemScope } from "@/components/ui/visual-system-scope";
+import { VisualV2WeatherDecisionHero } from "@/components/weather/visual-v2-weather-decision-hero";
 import { cn } from "@/lib/utils";
+import { isVisualSystemV2Enabled } from "@/lib/ui/visual-system";
 import { supabase } from "@/lib/supabase/client";
 import { evaluateOperatingHours, findOperatingWindows, operatingHourScore, type OperatingHour, type OperatingStatus } from "@/lib/weather/operating-window";
 import { operationModeProfile, WEATHER_OPERATION_MODES, type WeatherOperationMode } from "@/lib/weather/operation-modes";
@@ -121,7 +124,7 @@ function saveRecent(location: RecentLocation): RecentLocation[] {
 function SectionTitle({ icon: Icon, children }: { icon: typeof Cloud; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2 text-sm font-semibold text-[#F4F6FA]">
-      <Icon className="h-4 w-4 text-[#E0B100]" />
+      <Icon aria-hidden="true" className="h-4 w-4 text-[#E0B100]" />
       {children}
     </div>
   );
@@ -129,9 +132,9 @@ function SectionTitle({ icon: Icon, children }: { icon: typeof Cloud; children: 
 
 function MetricTile({ label, value, hint, icon: Icon }: { label: string; value: string; hint?: string; icon: typeof Cloud }) {
   return (
-    <div className="min-w-0 rounded-lg border border-[#2A3344] bg-[#171D29] p-3 sm:p-4">
+    <div className="tf-weather-metric min-w-0 rounded-lg border border-[#2A3344] bg-[#171D29] p-3 sm:p-4">
       <div className="flex items-center gap-2 text-xs text-[#98A4B7]">
-        <Icon className="h-4 w-4 text-[#E0B100]" />
+        <Icon aria-hidden="true" className="h-4 w-4 text-[#E0B100]" />
         <span className="truncate">{label}</span>
       </div>
       <div className="mt-2 whitespace-nowrap text-xl font-semibold text-[#F6F7F9] sm:text-2xl">{value}</div>
@@ -509,6 +512,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
       .flatMap((hour) => hour.reasons))).slice(0, 3)
     : [];
   const current = weather?.current || null;
+  const visualV2 = isVisualSystemV2Enabled("weather");
 
   const openProfileEditor = (profile: WeatherProfile | null = null) => {
     setEditingProfile(profile);
@@ -585,7 +589,8 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
   };
 
   return (
-    <div className="mx-auto w-full max-w-[1560px] space-y-4 text-[#D8DEE9]">
+    <VisualSystemScope scope="weather" reference="weather-mobile-dock">
+    <div className="tf-weather-page mx-auto w-full max-w-[1560px] space-y-4 text-[#D8DEE9]">
       <header>
         <div>
           <h1 className="text-2xl font-semibold text-white sm:text-3xl">Погода</h1>
@@ -593,7 +598,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
         </div>
       </header>
 
-      <section className="flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-[#2A3344] bg-[#121722] p-1.5 sm:px-2 md:max-w-[360px]">
+      <section className={cn("flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg p-1.5 sm:px-2 md:max-w-[360px]", visualV2 ? "tf-glass-chrome" : "border border-[#2A3344] bg-[#121722]")}>
         <button
           type="button"
           onClick={() => setPickerOpen(true)}
@@ -718,7 +723,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
         </div>
       ) : null}
 
-      <section className="min-w-0 rounded-lg border border-[#2A3344] bg-[#121722] p-2.5 sm:p-3">
+      <section className={cn("min-w-0 rounded-lg p-2.5 sm:p-3", visualV2 ? "tf-glass-chrome" : "border border-[#2A3344] bg-[#121722]")}>
         <div className="flex min-w-0 items-center gap-2">
           <span className="shrink-0 text-xs font-medium text-[#98A4B7]">Рабочий профиль</span>
           <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -806,6 +811,19 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
 
       {weather && current ? (
         <>
+          {visualV2 ? (
+            <VisualV2WeatherDecisionHero
+              location={selected?.displayName || weather.location.displayName}
+              freshness={relativeWeatherAge(weather.updatedAt)}
+              stale={weather.stale}
+              decision={nearestWindow ? "Ближайшее рабочее окно" : "Подходящее окно не найдено"}
+              decisionDetail={nearestWindow ? `${formatWindow(nearestWindow.start, weather, true)} — ${formatWindow(nearestWindow.end, weather, true)} · ${nearestWindow.hours} ч · индекс ${nearestWindowScore}/10` : "Проверьте выбранный профиль и почасовой прогноз"}
+              temperature={signedTemperature(current.temperatureC)}
+              wind={`${metric(current.windMs)} м/с`}
+              precipitation={current.precipitationRateMmH != null ? `${metric(current.precipitationRateMmH)} мм/ч` : "—"}
+              profile={evaluationProfile?.name || "Профиль не выбран"}
+            />
+          ) : null}
           <section className="space-y-3">
             <div className="text-xs text-[#8995A7]">
               {relativeWeatherAge(weather.updatedAt)}
@@ -822,7 +840,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
             </div>
           </section>
 
-          <section className="min-w-0 overflow-hidden rounded-lg border border-[#2A3344] bg-[#121722]">
+          <section className="tf-weather-timeline min-w-0 overflow-hidden rounded-lg border border-[#2A3344] bg-[#121722]">
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#293244] p-3 sm:p-4">
               <div>
                 <SectionTitle icon={Wind}>Рабочее окно</SectionTitle>
@@ -854,7 +872,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
               <>
                 <div
                   ref={timelineRef}
-                  className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain px-3 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  className="tf-weather-timeline-scroll min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain px-3 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 >
                   <div className="relative h-[126px] min-w-[760px] select-none" style={{ width: `${Math.max(760, operatingHours.length * 24)}px` }}>
                     <div className="absolute inset-x-0 top-0 h-5 text-[10px] font-medium uppercase text-[#8793A5]">
@@ -901,7 +919,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
                 {dailyWeather.length < 7 ? <div className="mb-3 text-xs text-amber-200">Доступно {dailyWeather.length} из 7 дней в текущем ответе UAV Forecast.</div> : null}
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   {dailyWeather.map((day) => (
-                  <div key={day.day} className="rounded-md border border-[#293244] bg-[#171D29] p-3">
+                  <div key={day.day} className="tf-weather-day rounded-md border border-[#293244] bg-[#171D29] p-3">
                     <div className="flex items-center justify-between gap-2"><span className="font-medium text-white">{new Date(`${day.day}T12:00:00`).toLocaleDateString("ru-RU", { weekday: "short", day: "2-digit", month: "2-digit" })}</span><span className={cn("h-2.5 w-2.5 rounded-full", statusDot(day.bestStatus))} /></div>
                     <div className="mt-2 text-sm text-[#C5CEDA]">{signedTemperature(day.minTemperatureC)} — {signedTemperature(day.maxTemperatureC)}</div>
                     <div className="mt-1 text-xs text-[#8995A7]">Осадки {metric(day.precipitationMm)} мм · ветер до {metric(day.maxWindMs)} м/с</div>
@@ -961,5 +979,6 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
         </>
       ) : null}
     </div>
+    </VisualSystemScope>
   );
 }

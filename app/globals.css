@@ -334,4 +334,55 @@
   .travkin-scrollbar::-webkit-scrollbar-thumb:hover {
     background: #36435e;
   }
+
+  [data-visual-system="v2"].tf-weather-page {
+    isolation: isolate;
+    position: relative;
+  }
+
+  [data-visual-system="v2"].tf-weather-page::before {
+    background:
+      radial-gradient(ellipse at 18% 100%, var(--tf-accent-soft), transparent 62%),
+      radial-gradient(ellipse at 82% 100%, color-mix(in srgb, var(--tf-status-info) 16%, transparent), transparent 66%);
+    bottom: -1rem;
+    content: "";
+    height: 19rem;
+    left: -1rem;
+    pointer-events: none;
+    position: fixed;
+    right: -1rem;
+    z-index: 0;
+  }
+
+  [data-visual-system="v2"].tf-weather-page > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  [data-visual-system="v2"] .tf-weather-decision-hero {
+    box-shadow: var(--tf-shadow-active), var(--tf-shadow-floating);
+  }
+
+  [data-visual-system="v2"] .tf-weather-metric,
+  [data-visual-system="v2"] .tf-weather-day {
+    background: var(--tf-surface-work);
+    border-color: var(--tf-border-hairline);
+    border-radius: var(--tf-radius-card);
+  }
+
+  [data-visual-system="v2"] .tf-weather-timeline {
+    background: var(--tf-surface-work);
+    border-color: var(--tf-border-hairline);
+    border-radius: var(--tf-radius-panel);
+  }
+
+  [data-visual-system="v2"] .tf-weather-timeline-scroll {
+    -webkit-mask-image: linear-gradient(90deg, transparent, black 1rem, black calc(100% - 1rem), transparent);
+    mask-image: linear-gradient(90deg, transparent, black 1rem, black calc(100% - 1rem), transparent);
+    scroll-snap-type: x proximity;
+  }
+
+  [data-visual-system="v2"][data-effects="reduced"] .tf-weather-decision-hero {
+    box-shadow: var(--tf-shadow-raised);
+  }
 }
