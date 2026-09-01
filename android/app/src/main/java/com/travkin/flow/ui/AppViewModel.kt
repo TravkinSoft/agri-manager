@@ -8,6 +8,7 @@ import com.travkin.flow.data.SessionExpiredException
 import com.travkin.flow.data.TravkinRepository
 import com.travkin.flow.data.UserFacingException
 import com.travkin.flow.domain.Actor
+import com.travkin.flow.domain.HarvestOverview
 import com.travkin.flow.domain.OperationalOverview
 import com.travkin.flow.domain.TicketDetails
 import com.travkin.flow.domain.TicketPage
@@ -21,6 +22,7 @@ enum class SignedInDestination {
     OVERVIEW,
     TICKETS,
     TICKET_DETAIL,
+    HARVEST,
 }
 
 sealed interface AppUiState {
@@ -39,6 +41,8 @@ sealed interface AppUiState {
         val ticketsStale: Boolean = false,
         val selectedTicket: TicketDetails? = null,
         val selectedTicketFallback: TicketSummary? = null,
+        val harvestOverview: HarvestOverview? = null,
+        val harvestStale: Boolean = false,
         val destination: SignedInDestination = SignedInDestination.OVERVIEW,
         val refreshing: Boolean = false,
         val message: String? = null,
@@ -80,6 +84,7 @@ class AppViewModel(
                 SignedInDestination.TICKET_DETAIL -> current.selectedTicketFallback?.let {
                     loadTicketDetails(current, it)
                 }
+                SignedInDestination.HARVEST -> loadHarvestOverview(current)
             }
         }
     }
@@ -118,6 +123,22 @@ class AppViewModel(
         viewModelScope.launch { loadTicketDetails(current, ticket) }
     }
 
+    fun openHarvestOverview() {
+        val current = _state.value as? AppUiState.SignedIn ?: return
+        if (current.refreshing || !current.actor.role.canViewHarvest) return
+        viewModelScope.launch {
+            val cached = current.harvestOverview ?: repository.cachedHarvestOverview(current.actor)
+            loadHarvestOverview(
+                current.copy(
+                    destination = SignedInDestination.HARVEST,
+                    harvestOverview = cached,
+                    harvestStale = cached != null,
+                    message = null,
+                ),
+            )
+        }
+    }
+
     fun navigateBack() {
         val current = _state.value as? AppUiState.SignedIn ?: return
         _state.value = when (current.destination) {
@@ -129,6 +150,11 @@ class AppViewModel(
                 message = null,
             )
             SignedInDestination.TICKETS -> current.copy(
+                destination = SignedInDestination.OVERVIEW,
+                refreshing = false,
+                message = null,
+            )
+            SignedInDestination.HARVEST -> current.copy(
                 destination = SignedInDestination.OVERVIEW,
                 refreshing = false,
                 message = null,
@@ -239,6 +265,34 @@ class AppViewModel(
             handleLoadError(
                 error = error,
                 fallback = loading.copy(
+                    refreshing = false,
+                    message = error.userMessage(),
+                ),
+            )
+        }
+    }
+
+    private suspend fun loadHarvestOverview(current: AppUiState.SignedIn) {
+        val existing = current.harvestOverview
+        val loading = current.copy(
+            destination = SignedInDestination.HARVEST,
+            refreshing = true,
+            message = null,
+        )
+        _state.value = loading
+        try {
+            val live = repository.refreshHarvestOverview(current.actor)
+            _state.value = loading.copy(
+                harvestOverview = live,
+                harvestStale = false,
+                refreshing = false,
+            )
+        } catch (error: Throwable) {
+            handleLoadError(
+                error = error,
+                fallback = loading.copy(
+                    harvestOverview = existing,
+                    harvestStale = existing != null,
                     refreshing = false,
                     message = error.userMessage(),
                 ),

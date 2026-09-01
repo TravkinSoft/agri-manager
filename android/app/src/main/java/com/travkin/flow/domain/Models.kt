@@ -1,11 +1,15 @@
 package com.travkin.flow.domain
 
-enum class SupportedRole(val wireValue: String, val displayName: String) {
-    GLOBAL_ADMIN("global_admin", "Global Admin"),
-    COMPANY_ADMIN("company_admin", "Company Admin"),
-    AGRONOMIST("agronomist", "Агроном"),
-    WEIGHMAN("weighman", "Весовщик"),
-    SPECIALIST("specialist", "Специалист");
+enum class SupportedRole(
+    val wireValue: String,
+    val displayName: String,
+    val canViewHarvest: Boolean,
+) {
+    GLOBAL_ADMIN("global_admin", "Global Admin", true),
+    COMPANY_ADMIN("company_admin", "Company Admin", true),
+    AGRONOMIST("agronomist", "Агроном", true),
+    WEIGHMAN("weighman", "Весовщик", false),
+    SPECIALIST("specialist", "Специалист", false);
 
     companion object {
         fun fromWire(value: String?): SupportedRole? = entries.firstOrNull {
@@ -90,4 +94,54 @@ data class CachedTicketPage(
     val actorId: String,
     val companyId: String?,
     val page: TicketPage,
+)
+
+data class HarvestCropTotal(
+    val key: String,
+    val cropName: String,
+    val receivedKg: Double,
+    val trips: Int,
+)
+
+data class HarvestFieldSummary(
+    val key: String,
+    val fieldName: String,
+    val identityLabel: String,
+    val destinationName: String,
+    val receivedKg: Double,
+    val trips: Int,
+    val lastTripAt: String,
+)
+
+data class HarvestMoistureSummary(
+    val key: String,
+    val fieldName: String,
+    val cropName: String,
+    val latestPercent: Double,
+    val averagePercent: Double,
+    val measuredTrips: Int,
+    val totalTrips: Int,
+)
+
+data class HarvestIssue(
+    val key: String,
+    val title: String,
+    val detail: String,
+)
+
+data class HarvestOverview(
+    val periodLabel: String,
+    val completedTripCount: Int,
+    val openTicketCount: Int,
+    val cropTotals: List<HarvestCropTotal>,
+    val fields: List<HarvestFieldSummary>,
+    val moisture: List<HarvestMoistureSummary>,
+    val issues: List<HarvestIssue>,
+    val fetchedAtEpochMillis: Long,
+)
+
+data class CachedHarvestOverview(
+    val actorId: String,
+    val companyId: String,
+    val overview: HarvestOverview,
 )

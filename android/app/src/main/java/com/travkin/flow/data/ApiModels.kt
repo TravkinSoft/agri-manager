@@ -137,3 +137,52 @@ data class TicketLineDto(
     val uom: String?,
     @SerializedName("moisture_percent") val moisturePercent: Double?,
 )
+
+data class HarvestOverviewDto(
+    val period: HarvestPeriodDto?,
+    val completedTripCount: Int?,
+    val openTicketCount: Int?,
+    val cropTotals: List<HarvestCropTotalDto>?,
+    val fields: List<HarvestFieldSummaryDto>?,
+    val moisture: List<HarvestMoistureSummaryDto>?,
+    val issues: List<HarvestIssueDto>?,
+)
+
+data class HarvestPeriodDto(
+    val label: String?,
+    val start: String?,
+    val end: String?,
+)
+
+data class HarvestCropTotalDto(
+    val key: String?,
+    val cropName: String?,
+    val receivedKg: Double?,
+    val trips: Int?,
+)
+
+data class HarvestFieldSummaryDto(
+    val key: String?,
+    val fieldName: String?,
+    val identityLabel: String?,
+    val destinationName: String?,
+    val receivedKg: Double?,
+    val trips: Int?,
+    val lastTripAt: String?,
+)
+
+data class HarvestMoistureSummaryDto(
+    val key: String?,
+    val fieldName: String?,
+    val cropName: String?,
+    val latestPercent: Double?,
+    val averagePercent: Double?,
+    val measuredTrips: Int?,
+    val totalTrips: Int?,
+)
+
+data class HarvestIssueDto(
+    val key: String?,
+    val title: String?,
+    val detail: String?,
+)

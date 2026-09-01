@@ -2,6 +2,12 @@ package com.travkin.flow
 
 import com.travkin.flow.data.CountersDto
 import com.travkin.flow.data.HarvestAggregateDto
+import com.travkin.flow.data.HarvestCropTotalDto
+import com.travkin.flow.data.HarvestFieldSummaryDto
+import com.travkin.flow.data.HarvestIssueDto
+import com.travkin.flow.data.HarvestMoistureSummaryDto
+import com.travkin.flow.data.HarvestOverviewDto
+import com.travkin.flow.data.HarvestPeriodDto
 import com.travkin.flow.data.HarvestSummaryDto
 import com.travkin.flow.data.OperationalBootstrapDto
 import com.travkin.flow.data.ShiftDto
@@ -13,6 +19,7 @@ import com.travkin.flow.data.TicketLineDto
 import com.travkin.flow.data.TicketPageDto
 import com.travkin.flow.data.matchesScope
 import com.travkin.flow.data.toOperationalOverview
+import com.travkin.flow.data.toHarvestOverview
 import com.travkin.flow.data.toTicketDetails
 import com.travkin.flow.data.toTicketPage
 import com.travkin.flow.domain.CachedOverview
@@ -35,6 +42,11 @@ class NativeFoundationTest {
         assertNull(SupportedRole.fromWire("warehouse"))
         assertNull(SupportedRole.fromWire("director"))
         assertNull(SupportedRole.fromWire("unknown"))
+        assertTrue(SupportedRole.GLOBAL_ADMIN.canViewHarvest)
+        assertTrue(SupportedRole.COMPANY_ADMIN.canViewHarvest)
+        assertTrue(SupportedRole.AGRONOMIST.canViewHarvest)
+        assertFalse(SupportedRole.WEIGHMAN.canViewHarvest)
+        assertFalse(SupportedRole.SPECIALIST.canViewHarvest)
     }
 
     @Test
@@ -177,5 +189,38 @@ class NativeFoundationTest {
         assertEquals(5_000.0, mapped.tareWeightKg ?: 0.0, 0.0)
         assertEquals("Пшеница", mapped.lines.single().productName)
         assertEquals(12.5, mapped.lines.single().moisturePercent ?: 0.0, 0.0)
+    }
+
+    @Test
+    fun `harvest overview maps compact read only sections`() {
+        val mapped = HarvestOverviewDto(
+            period = HarvestPeriodDto("02.09.2026 07:00 — сейчас", null, null),
+            completedTripCount = 4,
+            openTicketCount = 1,
+            cropTotals = listOf(HarvestCropTotalDto("wheat", "Пшеница", 20_000.0, 4)),
+            fields = listOf(
+                HarvestFieldSummaryDto(
+                    key = "field-1",
+                    fieldName = "Поле 1",
+                    identityLabel = "Пшеница / Омская",
+                    destinationName = "Ток",
+                    receivedKg = 20_000.0,
+                    trips = 4,
+                    lastTripAt = "2026-09-02T10:00:00Z",
+                ),
+            ),
+            moisture = listOf(
+                HarvestMoistureSummaryDto("moisture-1", "Поле 1", "Пшеница", 13.0, 12.5, 3, 4),
+            ),
+            issues = listOf(HarvestIssueDto("issue-1", "Нет влажности", "Один рейс без замера")),
+        ).toHarvestOverview(fetchedAtEpochMillis = 789L)
+
+        assertEquals(4, mapped.completedTripCount)
+        assertEquals(1, mapped.openTicketCount)
+        assertEquals(20_000.0, mapped.cropTotals.single().receivedKg, 0.0)
+        assertEquals("Поле 1", mapped.fields.single().fieldName)
+        assertEquals(12.5, mapped.moisture.single().averagePercent, 0.0)
+        assertEquals("Нет влажности", mapped.issues.single().title)
+        assertEquals(789L, mapped.fetchedAtEpochMillis)
     }
 }

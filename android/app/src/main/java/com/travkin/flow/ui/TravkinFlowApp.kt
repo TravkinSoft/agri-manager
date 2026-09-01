@@ -56,6 +56,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.travkin.flow.domain.Actor
+import com.travkin.flow.domain.HarvestFieldSummary
+import com.travkin.flow.domain.HarvestIssue
+import com.travkin.flow.domain.HarvestMoistureSummary
+import com.travkin.flow.domain.HarvestOverview
 import com.travkin.flow.domain.OperationalOverview
 import com.travkin.flow.domain.SupportedRole
 import com.travkin.flow.domain.TicketDetails
@@ -83,6 +87,7 @@ fun TravkinFlowApp(viewModel: AppViewModel) {
                 onSignOut = viewModel::signOut,
                 onOpenTickets = viewModel::openTickets,
                 onOpenTicket = viewModel::openTicket,
+                onOpenHarvest = viewModel::openHarvestOverview,
                 onLoadMore = viewModel::loadMoreTickets,
                 onBack = viewModel::navigateBack,
             )
@@ -196,6 +201,7 @@ private fun SignedInScreen(
     onSignOut: () -> Unit,
     onOpenTickets: () -> Unit,
     onOpenTicket: (TicketSummary) -> Unit,
+    onOpenHarvest: () -> Unit,
     onLoadMore: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -217,6 +223,7 @@ private fun SignedInScreen(
                                 SignedInDestination.OVERVIEW -> "TravkinFlow"
                                 SignedInDestination.TICKETS -> "Талоны"
                                 SignedInDestination.TICKET_DETAIL -> "Талон"
+                                SignedInDestination.HARVEST -> "Урожай"
                             },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -248,6 +255,7 @@ private fun SignedInScreen(
                 contentPadding = contentPadding,
                 onRefresh = onRefresh,
                 onOpenTickets = onOpenTickets,
+                onOpenHarvest = onOpenHarvest,
             )
             SignedInDestination.TICKETS -> TicketListContent(
                 state = state,
@@ -257,6 +265,11 @@ private fun SignedInScreen(
                 onLoadMore = onLoadMore,
             )
             SignedInDestination.TICKET_DETAIL -> TicketDetailContent(
+                state = state,
+                contentPadding = contentPadding,
+                onRefresh = onRefresh,
+            )
+            SignedInDestination.HARVEST -> HarvestOverviewContent(
                 state = state,
                 contentPadding = contentPadding,
                 onRefresh = onRefresh,
@@ -271,6 +284,7 @@ private fun OperationalOverviewContent(
     contentPadding: PaddingValues,
     onRefresh: () -> Unit,
     onOpenTickets: () -> Unit,
+    onOpenHarvest: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -301,6 +315,19 @@ private fun OperationalOverviewContent(
                 Button(onClick = onOpenTickets, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.AutoMirrored.Filled.List, contentDescription = null)
                     Text("Открыть талоны", modifier = Modifier.padding(start = 8.dp))
+                }
+            }
+            if (state.actor.role.canViewHarvest) {
+                item {
+                    OutlinedButton(
+                        onClick = onOpenHarvest,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = state.actor.companyId != null,
+                    ) {
+                        Text(
+                            if (state.actor.companyId == null) "Сначала выберите компанию" else "Сводка урожая",
+                        )
+                    }
                 }
             }
             item { RoleNextStepCard(state.actor.role) }
@@ -400,6 +427,128 @@ private fun TicketDetailContent(
             }
         }
     }
+}
+
+@Composable
+private fun HarvestOverviewContent(
+    state: AppUiState.SignedIn,
+    contentPadding: PaddingValues,
+    onRefresh: () -> Unit,
+) {
+    val overview = state.harvestOverview
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(contentPadding),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(16.dp),
+    ) {
+        item { ReadOnlyCard("Сводка урожая доступна только для чтения и ограничена контекстом компании.") }
+        if (state.refreshing) item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
+        if (state.harvestStale) {
+            item { MessageCard("Показана последняя защищённая локальная сводка.", offline = true) }
+        }
+        state.message?.let { message -> item { MessageCard(message, offline = overview != null) } }
+
+        when {
+            overview == null && state.refreshing -> item { LoadingCard("Собираем сводку урожая…") }
+            overview == null -> item { EmptyState("Сводка урожая недоступна.", onRefresh) }
+            else -> {
+                item { HarvestHeadlineCard(overview) }
+                if (overview.cropTotals.isNotEmpty()) {
+                    item { SectionTitle("По культурам") }
+                    items(overview.cropTotals, key = { it.key.ifBlank { it.cropName } }) { crop ->
+                        InfoCard(
+                            title = crop.cropName,
+                            value = "${formatKg(crop.receivedKg)} · ${crop.trips} рейсов",
+                        )
+                    }
+                }
+                if (overview.fields.isNotEmpty()) {
+                    item { SectionTitle("По полям") }
+                    items(overview.fields, key = { it.key.ifBlank { it.fieldName } }) { field ->
+                        HarvestFieldCard(field)
+                    }
+                }
+                if (overview.moisture.isNotEmpty()) {
+                    item { SectionTitle("Влажность") }
+                    items(overview.moisture, key = { it.key.ifBlank { "${it.fieldName}-${it.cropName}" } }) { row ->
+                        HarvestMoistureCard(row)
+                    }
+                }
+                if (overview.issues.isNotEmpty()) {
+                    item { SectionTitle("Требует внимания") }
+                    items(overview.issues, key = { it.key.ifBlank { it.title } }) { issue ->
+                        HarvestIssueCard(issue)
+                    }
+                }
+                item { UpdatedAt(overview.fetchedAtEpochMillis) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HarvestHeadlineCard(overview: HarvestOverview) {
+    val totalKg = overview.cropTotals.sumOf { it.receivedKg }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(overview.periodLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(formatKg(totalKg), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            HorizontalDivider()
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Завершено: ${overview.completedTripCount}")
+                Text("Открыто: ${overview.openTicketCount}")
+            }
+        }
+    }
+}
+
+@Composable
+private fun HarvestFieldCard(field: HarvestFieldSummary) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(field.fieldName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            field.identityLabel.takeIf(String::isNotBlank)?.let { Text(it) }
+            field.destinationName.takeIf(String::isNotBlank)?.let { Text("Назначение: $it") }
+            Text("${formatKg(field.receivedKg)} · ${field.trips} рейсов")
+            field.lastTripAt.takeIf(String::isNotBlank)?.let {
+                Text("Последний рейс: ${formatServerDate(it)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HarvestMoistureCard(row: HarvestMoistureSummary) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(row.fieldName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(row.cropName, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Средняя: ${formatQuantity(row.averagePercent)} % · последняя: ${formatQuantity(row.latestPercent)} %")
+            Text("Замеры: ${row.measuredTrips} из ${row.totalTrips}", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun HarvestIssueCard(issue: HarvestIssue) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(issue.title, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onErrorContainer)
+            issue.detail.takeIf(String::isNotBlank)?.let {
+                Text(it, color = MaterialTheme.colorScheme.onErrorContainer)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(title: String) {
+    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 }
 
 @Composable
@@ -617,11 +766,11 @@ private fun MetricCard(metric: Metric, modifier: Modifier = Modifier) {
 @Composable
 private fun RoleNextStepCard(role: SupportedRole) {
     val message = when (role) {
-        SupportedRole.AGRONOMIST -> "Следующий native-модуль: урожай и структура посевов в режиме чтения."
-        SupportedRole.WEIGHMAN -> "Запись веса остаётся закрыта до отдельного E2E-гейта."
+        SupportedRole.AGRONOMIST -> "Сводка урожая и талоны доступны в режиме чтения; структура посевов — следующий этап."
+        SupportedRole.WEIGHMAN -> "Талоны доступны в режиме чтения; запись веса закрыта до отдельного E2E-гейта."
         SupportedRole.SPECIALIST -> "Следующий native-модуль: мои задачи и детали операций."
-        SupportedRole.COMPANY_ADMIN -> "Следующий native-модуль: состояние компании и контроль операций."
-        SupportedRole.GLOBAL_ADMIN -> "Следующий native-модуль: platform overview и выбор контекста компании."
+        SupportedRole.COMPANY_ADMIN -> "Сводка урожая и талоны доступны в режиме чтения; управление не включено."
+        SupportedRole.GLOBAL_ADMIN -> "Для сводки урожая нужен подтверждённый контекст компании; platform overview — следующий этап."
     }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

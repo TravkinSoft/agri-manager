@@ -57,4 +57,12 @@ interface TravkinFlowApi {
         @Path("id") ticketId: String,
         @Query("companyId") companyId: String? = null,
     ): Response<TicketDetailEnvelopeDto>
+
+    @GET("api/dashboard/harvest-summary")
+    suspend fun harvestOverview(
+        @Header("Authorization") authorization: String,
+        @Query("companyId") companyId: String,
+        @Query("period") period: String = "current_day",
+        @Query("section") section: String = "summary",
+    ): Response<HarvestOverviewDto>
 }

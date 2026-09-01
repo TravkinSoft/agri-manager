@@ -1,7 +1,13 @@
 package com.travkin.flow.data
 
 import com.travkin.flow.domain.CachedOverview
+import com.travkin.flow.domain.CachedHarvestOverview
 import com.travkin.flow.domain.CachedTicketPage
+import com.travkin.flow.domain.HarvestCropTotal
+import com.travkin.flow.domain.HarvestFieldSummary
+import com.travkin.flow.domain.HarvestIssue
+import com.travkin.flow.domain.HarvestMoistureSummary
+import com.travkin.flow.domain.HarvestOverview
 import com.travkin.flow.domain.OperationalOverview
 import com.travkin.flow.domain.TicketDetails
 import com.travkin.flow.domain.TicketLine
@@ -59,6 +65,55 @@ internal fun TicketDetailEnvelopeDto.toTicketDetails(): TicketDetails? {
 }
 
 internal fun CachedTicketPage.matchesScope(actorId: String, companyId: String?): Boolean =
+    this.actorId == actorId && this.companyId == companyId
+
+internal fun HarvestOverviewDto.toHarvestOverview(
+    fetchedAtEpochMillis: Long = System.currentTimeMillis(),
+): HarvestOverview = HarvestOverview(
+    periodLabel = period?.label?.trim()?.takeIf(String::isNotEmpty) ?: "Текущий операционный день",
+    completedTripCount = completedTripCount ?: 0,
+    openTicketCount = openTicketCount ?: 0,
+    cropTotals = cropTotals.orEmpty().map { row ->
+        HarvestCropTotal(
+            key = row.key.orEmpty(),
+            cropName = row.cropName?.trim()?.takeIf(String::isNotEmpty) ?: "Культура не указана",
+            receivedKg = row.receivedKg ?: 0.0,
+            trips = row.trips ?: 0,
+        )
+    },
+    fields = fields.orEmpty().map { row ->
+        HarvestFieldSummary(
+            key = row.key.orEmpty(),
+            fieldName = row.fieldName?.trim()?.takeIf(String::isNotEmpty) ?: "Поле не указано",
+            identityLabel = row.identityLabel.orEmpty(),
+            destinationName = row.destinationName.orEmpty(),
+            receivedKg = row.receivedKg ?: 0.0,
+            trips = row.trips ?: 0,
+            lastTripAt = row.lastTripAt.orEmpty(),
+        )
+    },
+    moisture = moisture.orEmpty().map { row ->
+        HarvestMoistureSummary(
+            key = row.key.orEmpty(),
+            fieldName = row.fieldName?.trim()?.takeIf(String::isNotEmpty) ?: "Поле не указано",
+            cropName = row.cropName?.trim()?.takeIf(String::isNotEmpty) ?: "Культура не указана",
+            latestPercent = row.latestPercent ?: 0.0,
+            averagePercent = row.averagePercent ?: 0.0,
+            measuredTrips = row.measuredTrips ?: 0,
+            totalTrips = row.totalTrips ?: 0,
+        )
+    },
+    issues = issues.orEmpty().map { row ->
+        HarvestIssue(
+            key = row.key.orEmpty(),
+            title = row.title?.trim()?.takeIf(String::isNotEmpty) ?: "Требует проверки",
+            detail = row.detail.orEmpty(),
+        )
+    },
+    fetchedAtEpochMillis = fetchedAtEpochMillis,
+)
+
+internal fun CachedHarvestOverview.matchesScope(actorId: String, companyId: String): Boolean =
     this.actorId == actorId && this.companyId == companyId
 
 private fun TicketDto.toTicketSummary(): TicketSummary? {

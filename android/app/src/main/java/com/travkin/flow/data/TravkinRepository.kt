@@ -5,8 +5,10 @@ import com.google.gson.Gson
 import com.travkin.flow.BuildConfig
 import com.travkin.flow.domain.Actor
 import com.travkin.flow.domain.CachedOverview
+import com.travkin.flow.domain.CachedHarvestOverview
 import com.travkin.flow.domain.CachedTicketPage
 import com.travkin.flow.domain.OperationalOverview
+import com.travkin.flow.domain.HarvestOverview
 import com.travkin.flow.domain.TicketDetails
 import com.travkin.flow.domain.TicketPage
 import com.travkin.flow.domain.SupportedRole
@@ -130,6 +132,28 @@ class TravkinRepository(context: Context) {
             ?: throw UserFacingException("Сервер вернул пустой талон.")
     }
 
+    fun cachedHarvestOverview(actor: Actor): HarvestOverview? {
+        val companyId = actor.companyId ?: return null
+        return localState.loadHarvestOverview(actor.id, companyId)?.overview
+    }
+
+    suspend fun refreshHarvestOverview(actor: Actor): HarvestOverview {
+        if (!actor.role.canViewHarvest) throw UnsupportedRoleException(actor.role.wireValue)
+        val companyId = actor.companyId
+            ?: throw UserFacingException("Для сводки урожая сначала выберите контекст компании.")
+        var session = resolveSession(localState.loadSession() ?: throw SessionExpiredException())
+        var response = appApi.harvestOverview(session.bearer(), companyId)
+        if (response.code() == 401) {
+            session = refreshSession(force = true)
+            response = appApi.harvestOverview(session.bearer(), companyId)
+        }
+        if (!response.isSuccessful) throw response.toApiFailure("Не удалось загрузить сводку урожая.")
+        val overview = response.body()?.toHarvestOverview()
+            ?: throw UserFacingException("Сервер вернул пустую сводку урожая.")
+        localState.saveHarvestOverview(CachedHarvestOverview(actor.id, companyId, overview))
+        return overview
+    }
+
     suspend fun signOut() {
         val session = localState.loadSession()
         if (session != null && configured()) {
@@ -201,6 +225,7 @@ class TravkinRepository(context: Context) {
         localState.clearActor()
         localState.clearOverview()
         localState.clearTicketPage()
+        localState.clearHarvestOverview()
     }
 
     private fun configured(): Boolean =

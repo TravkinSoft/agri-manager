@@ -2,6 +2,7 @@ package com.travkin.flow.data
 
 import com.google.gson.Gson
 import com.travkin.flow.domain.CachedOverview
+import com.travkin.flow.domain.CachedHarvestOverview
 import com.travkin.flow.domain.CachedTicketPage
 import com.travkin.flow.domain.Actor
 import com.travkin.flow.domain.SupportedRole
@@ -72,6 +73,19 @@ class LocalStateStore(
         storage.remove(TICKET_PAGE_KEY)
     }
 
+    fun loadHarvestOverview(actorId: String, companyId: String): CachedHarvestOverview? {
+        val cached = decode(HARVEST_OVERVIEW_KEY, CachedHarvestOverview::class.java) ?: return null
+        return cached.takeIf { it.matchesScope(actorId, companyId) }
+    }
+
+    fun saveHarvestOverview(cache: CachedHarvestOverview) {
+        storage.put(HARVEST_OVERVIEW_KEY, gson.toJson(cache))
+    }
+
+    fun clearHarvestOverview() {
+        storage.remove(HARVEST_OVERVIEW_KEY)
+    }
+
     private fun <T> decode(key: String, type: Class<T>): T? = runCatching {
         storage.get(key)?.let { gson.fromJson(it, type) }
     }.getOrNull()
@@ -81,5 +95,6 @@ class LocalStateStore(
         const val ACTOR_KEY = "actor"
         const val OVERVIEW_KEY = "operational_overview"
         const val TICKET_PAGE_KEY = "ticket_page"
+        const val HARVEST_OVERVIEW_KEY = "harvest_overview"
     }
 }
