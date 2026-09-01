@@ -31,6 +31,19 @@ interface SupabaseAuthApi {
     ): Response<Unit>
 }
 
+interface SupabaseRestApi {
+    @GET("rest/v1/user_notifications")
+    suspend fun notifications(
+        @Header("apikey") apiKey: String,
+        @Header("Authorization") authorization: String,
+        @Query("select") columns: String,
+        @Query("recipient_user_id") recipientFilter: String,
+        @Query("company_id") companyFilter: String?,
+        @Query("order") order: String = "created_at.desc",
+        @Query("limit") limit: Int = 30,
+    ): Response<List<UserNotificationDto>>
+}
+
 interface TravkinFlowApi {
     @GET("api/auth/actor")
     suspend fun actor(

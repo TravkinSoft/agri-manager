@@ -20,6 +20,8 @@ import com.travkin.flow.domain.WeighbridgeWorkspace
 import com.travkin.flow.domain.KatoLocality
 import com.travkin.flow.domain.WeatherForecast
 import com.travkin.flow.domain.WeatherLocation
+import com.travkin.flow.domain.NotificationCenterData
+import com.travkin.flow.domain.ProfileSessionSnapshot
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +35,8 @@ enum class SignedInDestination {
     WAREHOUSES,
     WEIGHBRIDGE,
     WEATHER,
+    PROFILE,
+    NOTIFICATIONS,
 }
 
 data class TareVarianceConfirmation(
@@ -71,6 +75,9 @@ sealed interface AppUiState {
         val weatherSearchResults: List<KatoLocality> = emptyList(),
         val weatherQuery: String = "",
         val weatherSearching: Boolean = false,
+        val profileSession: ProfileSessionSnapshot? = null,
+        val notificationCenter: NotificationCenterData? = null,
+        val notificationsStale: Boolean = false,
         val destination: SignedInDestination = SignedInDestination.OVERVIEW,
         val refreshing: Boolean = false,
         val writeBusy: Boolean = false,
@@ -121,6 +128,11 @@ class AppViewModel(
                 } ?: run {
                     _state.value = current.copy(message = "Найдите и выберите населённый пункт.")
                 }
+                SignedInDestination.PROFILE -> _state.value = current.copy(
+                    profileSession = repository.profileSessionSnapshot(current.actor),
+                    message = null,
+                )
+                SignedInDestination.NOTIFICATIONS -> loadNotificationCenter(current)
             }
         }
     }
@@ -223,6 +235,29 @@ class AppViewModel(
         if (cached != null) {
             viewModelScope.launch { loadWeatherForecast(weatherState, cached.location, forceRefresh = false) }
         }
+    }
+
+    fun openProfile() {
+        val current = _state.value as? AppUiState.SignedIn ?: return
+        if (current.refreshing) return
+        _state.value = current.copy(
+            destination = SignedInDestination.PROFILE,
+            profileSession = repository.profileSessionSnapshot(current.actor),
+            message = null,
+        )
+    }
+
+    fun openNotifications() {
+        val current = _state.value as? AppUiState.SignedIn ?: return
+        if (current.refreshing) return
+        val cached = current.notificationCenter ?: repository.cachedNotificationCenter(current.actor)
+        val loading = current.copy(
+            destination = SignedInDestination.NOTIFICATIONS,
+            notificationCenter = cached,
+            notificationsStale = cached != null,
+            message = null,
+        )
+        viewModelScope.launch { loadNotificationCenter(loading) }
     }
 
     fun searchWeatherLocations(rawQuery: String) {
@@ -421,15 +456,21 @@ class AppViewModel(
                 refreshing = false,
                 message = null,
             )
+            SignedInDestination.PROFILE,
+            SignedInDestination.NOTIFICATIONS -> current.copy(
+                destination = SignedInDestination.OVERVIEW,
+                refreshing = false,
+                message = null,
+            )
             SignedInDestination.OVERVIEW -> current
         }
     }
 
     fun signOut() {
-        _state.value = AppUiState.Booting
+        val session = repository.signOutLocally()
+        _state.value = AppUiState.SignedOut()
         viewModelScope.launch {
-            repository.signOut()
-            _state.value = AppUiState.SignedOut()
+            repository.revokeSessionBestEffort(session)
         }
     }
 
@@ -715,9 +756,37 @@ class AppViewModel(
         }
     }
 
+    private suspend fun loadNotificationCenter(current: AppUiState.SignedIn) {
+        val existing = current.notificationCenter
+        val loading = current.copy(
+            destination = SignedInDestination.NOTIFICATIONS,
+            refreshing = true,
+            message = null,
+        )
+        _state.value = loading
+        try {
+            val live = repository.refreshNotificationCenter(current.actor)
+            _state.value = loading.copy(
+                notificationCenter = live,
+                notificationsStale = false,
+                refreshing = false,
+            )
+        } catch (error: Throwable) {
+            handleLoadError(
+                error,
+                loading.copy(
+                    notificationCenter = existing,
+                    notificationsStale = existing != null,
+                    refreshing = false,
+                    message = error.userMessage(),
+                ),
+            )
+        }
+    }
+
     private suspend fun handleLoadError(error: Throwable, fallback: AppUiState.SignedIn) {
         if (error is SessionExpiredException) {
-            repository.signOut()
+            repository.signOutLocally()
             _state.value = AppUiState.SignedOut(message = error.userMessage())
         } else {
             _state.value = fallback

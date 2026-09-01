@@ -9,6 +9,7 @@ import com.travkin.flow.domain.Actor
 import com.travkin.flow.domain.SupportedRole
 import com.travkin.flow.domain.PendingWeighbridgeQueue
 import com.travkin.flow.domain.CachedWeatherForecast
+import com.travkin.flow.domain.CachedNotificationCenter
 import java.util.UUID
 
 class LocalStateStore(
@@ -46,6 +47,11 @@ class LocalStateStore(
             ),
         )
     }
+
+    fun loadActorSavedAt(actorId: String): Long? =
+        decode(ACTOR_KEY, StoredActor::class.java)
+            ?.takeIf { it.id == actorId }
+            ?.savedAtEpochMillis
 
     fun clearActor() {
         storage.remove(ACTOR_KEY)
@@ -133,6 +139,19 @@ class LocalStateStore(
         storage.remove(WEATHER_FORECAST_KEY)
     }
 
+    fun loadNotificationCenter(actorId: String, companyId: String?): CachedNotificationCenter? {
+        val cached = decode(NOTIFICATION_CENTER_KEY, CachedNotificationCenter::class.java) ?: return null
+        return cached.takeIf { it.matchesScope(actorId, companyId) }
+    }
+
+    fun saveNotificationCenter(cache: CachedNotificationCenter) {
+        storage.put(NOTIFICATION_CENTER_KEY, gson.toJson(cache))
+    }
+
+    fun clearNotificationCenter() {
+        storage.remove(NOTIFICATION_CENTER_KEY)
+    }
+
     private fun <T> decode(key: String, type: Class<T>): T? = runCatching {
         storage.get(key)?.let { gson.fromJson(it, type) }
     }.getOrNull()
@@ -147,5 +166,6 @@ class LocalStateStore(
         const val WEIGHBRIDGE_QUEUE_KEY = "weighbridge_pending_commands"
         const val WORKSTATION_ID_KEY = "weighbridge_workstation_id"
         const val WEATHER_FORECAST_KEY = "weather_forecast"
+        const val NOTIFICATION_CENTER_KEY = "notification_center"
     }
 }

@@ -341,3 +341,35 @@ data class CachedWeatherForecast(
     val companyId: String?,
     val forecast: WeatherForecast,
 )
+
+data class ProfileSessionSnapshot(
+    val actorVerifiedAtEpochMillis: Long?,
+    val sessionExpiresAtEpochSeconds: Long?,
+)
+
+data class UserNotification(
+    val id: String,
+    val companyId: String,
+    val recipientUserId: String,
+    val category: String,
+    val eventType: String,
+    val title: String,
+    val body: String?,
+    val href: String,
+    val entityType: String?,
+    val entityId: String?,
+    val readAt: String?,
+    val createdAt: String,
+)
+
+data class NotificationCenterData(
+    val notifications: List<UserNotification>,
+    val unreadCount: Int,
+    val fetchedAtEpochMillis: Long,
+)
+
+data class CachedNotificationCenter(
+    val actorId: String,
+    val companyId: String?,
+    val center: NotificationCenterData,
+)

@@ -441,3 +441,18 @@ data class WeatherForecastDto(
     val updatedAt: String?,
     val stale: Boolean?,
 )
+
+data class UserNotificationDto(
+    val id: String?,
+    @SerializedName("company_id") val companyId: String?,
+    @SerializedName("recipient_user_id") val recipientUserId: String?,
+    val category: String?,
+    @SerializedName("event_type") val eventType: String?,
+    val title: String?,
+    val body: String?,
+    val href: String?,
+    @SerializedName("entity_type") val entityType: String?,
+    @SerializedName("entity_id") val entityId: String?,
+    @SerializedName("read_at") val readAt: String?,
+    @SerializedName("created_at") val createdAt: String?,
+)

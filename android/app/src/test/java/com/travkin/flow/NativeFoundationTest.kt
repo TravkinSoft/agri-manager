@@ -35,6 +35,7 @@ import com.travkin.flow.data.WeatherLocationDto
 import com.travkin.flow.data.WeatherPointDto
 import com.travkin.flow.data.WeatherProviderMetaDto
 import com.travkin.flow.data.WeatherSunDto
+import com.travkin.flow.data.UserNotificationDto
 import com.travkin.flow.data.matchesScope
 import com.travkin.flow.data.isSameSecureOrigin
 import com.travkin.flow.data.toOperationalOverview
@@ -45,6 +46,7 @@ import com.travkin.flow.data.toWarehouseOverview
 import com.travkin.flow.data.toWeighbridgeWorkspace
 import com.travkin.flow.data.toKatoLocalities
 import com.travkin.flow.data.toWeatherForecast
+import com.travkin.flow.data.toNotificationCenter
 import com.travkin.flow.domain.CachedOverview
 import com.travkin.flow.domain.OperationalOverview
 import com.travkin.flow.domain.SupportedRole
@@ -157,6 +159,63 @@ class NativeFoundationTest {
         assertEquals(1, mapped.hourlyForecast.size)
         assertEquals("Asia/Almaty", mapped.providerMeta.timezone)
         assertEquals(222L, mapped.fetchedAtEpochMillis)
+    }
+
+    @Test
+    fun `notification center rejects cross actor and cross company rows`() {
+        val center = listOf(
+            UserNotificationDto(
+                id = "notification-1",
+                companyId = "company-1",
+                recipientUserId = "actor-1",
+                category = "operation",
+                eventType = "operation_started",
+                title = "Операция начата",
+                body = "Поле 1",
+                href = "/operations/1",
+                entityType = "operation",
+                entityId = "operation-1",
+                readAt = null,
+                createdAt = "2026-09-02T12:00:00Z",
+            ),
+            UserNotificationDto(
+                id = "notification-2",
+                companyId = "company-1",
+                recipientUserId = "actor-other",
+                category = "system",
+                eventType = "ignored",
+                title = "Чужое",
+                body = null,
+                href = "/notifications",
+                entityType = null,
+                entityId = null,
+                readAt = null,
+                createdAt = "2026-09-02T12:01:00Z",
+            ),
+            UserNotificationDto(
+                id = "notification-3",
+                companyId = "company-other",
+                recipientUserId = "actor-1",
+                category = "system",
+                eventType = "ignored",
+                title = "Другая компания",
+                body = null,
+                href = "/notifications",
+                entityType = null,
+                entityId = null,
+                readAt = null,
+                createdAt = "2026-09-02T12:02:00Z",
+            ),
+        ).toNotificationCenter(
+            expectedActorId = "actor-1",
+            expectedCompanyId = "company-1",
+            fetchedAtEpochMillis = 333L,
+        )
+
+        assertEquals(1, center.notifications.size)
+        assertEquals("notification-1", center.notifications.single().id)
+        assertEquals(1, center.unreadCount)
+        assertEquals(333L, center.fetchedAtEpochMillis)
     }
 
     @Test

@@ -28,6 +28,9 @@ import com.travkin.flow.domain.WeatherLocation
 import com.travkin.flow.domain.WeatherPoint
 import com.travkin.flow.domain.WeatherProviderMeta
 import com.travkin.flow.domain.WeatherSun
+import com.travkin.flow.domain.CachedNotificationCenter
+import com.travkin.flow.domain.NotificationCenterData
+import com.travkin.flow.domain.UserNotification
 
 internal fun OperationalBootstrapDto.toOperationalOverview(
     fetchedAtEpochMillis: Long = System.currentTimeMillis(),
@@ -348,3 +351,42 @@ private fun WeatherPointDto.toDomainPoint(): WeatherPoint? {
         pressureMslHpa = pressureMslHpa,
     )
 }
+
+internal fun List<UserNotificationDto>.toNotificationCenter(
+    expectedActorId: String,
+    expectedCompanyId: String?,
+    fetchedAtEpochMillis: Long = System.currentTimeMillis(),
+): NotificationCenterData {
+    val notifications = mapNotNull { row ->
+        val id = row.id?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+        val companyId = row.companyId?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+        val recipientId = row.recipientUserId?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+        if (recipientId != expectedActorId || (expectedCompanyId != null && companyId != expectedCompanyId)) {
+            return@mapNotNull null
+        }
+        val title = row.title?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+        val createdAt = row.createdAt?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+        UserNotification(
+            id = id,
+            companyId = companyId,
+            recipientUserId = recipientId,
+            category = row.category?.trim()?.takeIf(String::isNotEmpty) ?: "system",
+            eventType = row.eventType?.trim()?.takeIf(String::isNotEmpty) ?: "unknown",
+            title = title,
+            body = row.body?.trim()?.takeIf(String::isNotEmpty),
+            href = row.href?.trim()?.takeIf { it.startsWith('/') } ?: "/notifications",
+            entityType = row.entityType?.trim()?.takeIf(String::isNotEmpty),
+            entityId = row.entityId?.trim()?.takeIf(String::isNotEmpty),
+            readAt = row.readAt,
+            createdAt = createdAt,
+        )
+    }
+    return NotificationCenterData(
+        notifications = notifications,
+        unreadCount = notifications.count { it.readAt.isNullOrBlank() },
+        fetchedAtEpochMillis = fetchedAtEpochMillis,
+    )
+}
+
+internal fun CachedNotificationCenter.matchesScope(actorId: String, companyId: String?): Boolean =
+    this.actorId == actorId && this.companyId == companyId

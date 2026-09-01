@@ -24,8 +24,12 @@ import com.travkin.flow.domain.CachedWeatherForecast
 import com.travkin.flow.domain.KatoLocality
 import com.travkin.flow.domain.WeatherForecast
 import com.travkin.flow.domain.WeatherLocation
+import com.travkin.flow.domain.CachedNotificationCenter
+import com.travkin.flow.domain.NotificationCenterData
+import com.travkin.flow.domain.ProfileSessionSnapshot
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.io.IOException
@@ -51,6 +55,7 @@ class TravkinRepository(context: Context) {
         .build()
 
     private val authApi = retrofit(BuildConfig.SUPABASE_URL).create(SupabaseAuthApi::class.java)
+    private val restApi = retrofit(BuildConfig.SUPABASE_URL).create(SupabaseRestApi::class.java)
     private val appApi = retrofit(BuildConfig.BASE_URL).create(TravkinFlowApi::class.java)
 
     suspend fun signIn(email: String, password: String): Actor {
@@ -199,6 +204,40 @@ class TravkinRepository(context: Context) {
         return localState.loadWeatherForecast(actor.id, actor.companyId)?.forecast
     }
 
+    fun profileSessionSnapshot(actor: Actor): ProfileSessionSnapshot = ProfileSessionSnapshot(
+        actorVerifiedAtEpochMillis = localState.loadActorSavedAt(actor.id),
+        sessionExpiresAtEpochSeconds = localState.loadSession()?.expiresAtEpochSeconds,
+    )
+
+    fun cachedNotificationCenter(actor: Actor): NotificationCenterData? =
+        localState.loadNotificationCenter(actor.id, actor.companyId)?.center
+
+    suspend fun refreshNotificationCenter(actor: Actor): NotificationCenterData {
+        var session = currentSession()
+        val companyFilter = actor.companyId?.let { "eq.$it" }
+        var response = restApi.notifications(
+            apiKey = BuildConfig.SUPABASE_ANON_KEY,
+            authorization = session.bearer(),
+            columns = NOTIFICATION_COLUMNS,
+            recipientFilter = "eq.${actor.id}",
+            companyFilter = companyFilter,
+        )
+        if (response.code() == 401) {
+            session = refreshSession(force = true)
+            response = restApi.notifications(
+                apiKey = BuildConfig.SUPABASE_ANON_KEY,
+                authorization = session.bearer(),
+                columns = NOTIFICATION_COLUMNS,
+                recipientFilter = "eq.${actor.id}",
+                companyFilter = companyFilter,
+            )
+        }
+        if (!response.isSuccessful) throw response.toApiFailure("Не удалось загрузить уведомления.")
+        val center = response.body().orEmpty().toNotificationCenter(actor.id, actor.companyId)
+        localState.saveNotificationCenter(CachedNotificationCenter(actor.id, actor.companyId, center))
+        return center
+    }
+
     suspend fun searchWeatherLocalities(actor: Actor, rawQuery: String): List<KatoLocality> {
         requireWeatherRole(actor)
         val query = rawQuery.trim()
@@ -306,7 +345,10 @@ class TravkinRepository(context: Context) {
             ),
         )
         // 401 here can mean an invalid PIN. Retrying would consume a second PIN attempt.
-        if (!response.isSuccessful) throw response.toApiFailure("Не удалось подтвердить весовщика.")
+        if (!response.isSuccessful) throw response.toApiFailure(
+            "Не удалось подтвердить весовщика.",
+            sessionAware = false,
+        )
         return loadWeighbridgeWorkspace(actor)
     }
 
@@ -394,12 +436,21 @@ class TravkinRepository(context: Context) {
 
     fun pendingWeighbridgeCommandCount(actor: Actor): Int = pendingCommands(actor).size
 
-    suspend fun signOut() {
+    fun signOutLocally(): StoredSession? {
         val session = localState.loadSession()
-        if (session != null && configured()) {
+        clearLocalSession()
+        return session
+    }
+
+    suspend fun revokeSessionBestEffort(session: StoredSession?) {
+        if (session == null || !configured()) return
+        withTimeoutOrNull(REMOTE_LOGOUT_TIMEOUT_MILLIS) {
             runCatching { authApi.signOut(BuildConfig.SUPABASE_ANON_KEY, session.bearer()) }
         }
-        clearLocalSession()
+    }
+
+    suspend fun signOut() {
+        revokeSessionBestEffort(signOutLocally())
     }
 
     private suspend fun fetchActor(initialSession: StoredSession): Actor {
@@ -540,6 +591,7 @@ class TravkinRepository(context: Context) {
         }
 
         if (!response.isSuccessful) {
+            if (response.code() == 401) throw SessionExpiredException()
             val payload = response.readErrorPayload()
             incrementAttempt(command)
             if (payload?.requiresConfirmation == true && command.type == COMMAND_FINALIZE) {
@@ -625,6 +677,7 @@ class TravkinRepository(context: Context) {
         localState.clearHarvestOverview()
         localState.clearWarehouseOverview()
         localState.clearWeatherForecast()
+        localState.clearNotificationCenter()
         localState.clearPendingWeighbridgeQueue()
         operatorCookieJar.clear()
     }
@@ -650,7 +703,7 @@ class TravkinRepository(context: Context) {
     }
 
     private fun Response<AuthTokenDto>.toSessionOrThrow(): StoredSession {
-        if (!isSuccessful) throw toApiFailure("Неверный email или пароль.")
+        if (!isSuccessful) throw toApiFailure("Неверный email или пароль.", sessionAware = false)
         val dto = body() ?: throw UserFacingException("Сервис авторизации вернул пустой ответ.")
         val accessToken = dto.accessToken?.takeIf(String::isNotBlank)
             ?: throw UserFacingException("Сервис авторизации не вернул access token.")
@@ -661,7 +714,11 @@ class TravkinRepository(context: Context) {
         return StoredSession(accessToken, refreshToken, expiresAt)
     }
 
-    private fun <T> Response<T>.toApiFailure(fallback: String): UserFacingException {
+    private fun <T> Response<T>.toApiFailure(
+        fallback: String,
+        sessionAware: Boolean = true,
+    ): UserFacingException {
+        if (sessionAware && code() == 401) return SessionExpiredException()
         val payload = runCatching {
             errorBody()?.string()?.let { gson.fromJson(it, ApiErrorDto::class.java) }
         }.getOrNull()
@@ -677,6 +734,8 @@ class TravkinRepository(context: Context) {
         const val MIN_TICKET_HISTORY = 10
         const val MAX_TICKET_HISTORY = 100
         const val MAX_PENDING_COMMANDS = 20
+        const val REMOTE_LOGOUT_TIMEOUT_MILLIS = 5_000L
+        const val NOTIFICATION_COLUMNS = "id,company_id,recipient_user_id,category,event_type,title,body,href,entity_type,entity_id,read_at,created_at"
         const val COMMAND_CREATE_HARVEST = "create_harvest"
         const val COMMAND_PATCH_GROSS = "patch_gross"
         const val COMMAND_FINALIZE = "finalize"

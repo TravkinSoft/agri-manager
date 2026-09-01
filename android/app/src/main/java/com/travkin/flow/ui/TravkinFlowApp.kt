@@ -79,6 +79,7 @@ import com.travkin.flow.domain.WeighbridgeWorkspace
 import com.travkin.flow.domain.KatoLocality
 import com.travkin.flow.domain.WeatherForecast
 import com.travkin.flow.domain.WeatherPoint
+import com.travkin.flow.domain.UserNotification
 import java.text.DateFormat
 import java.text.NumberFormat
 import java.time.Instant
@@ -107,6 +108,8 @@ fun TravkinFlowApp(viewModel: AppViewModel) {
                 onOpenWarehouses = viewModel::openWarehouses,
                 onOpenWeighbridge = viewModel::openWeighbridge,
                 onOpenWeather = viewModel::openWeather,
+                onOpenProfile = viewModel::openProfile,
+                onOpenNotifications = viewModel::openNotifications,
                 onSearchWeather = viewModel::searchWeatherLocations,
                 onSelectWeatherLocation = viewModel::selectWeatherLocation,
                 onSelectWeighbridgeTicket = viewModel::selectWeighbridgeTicket,
@@ -235,6 +238,8 @@ private fun SignedInScreen(
     onOpenWarehouses: () -> Unit,
     onOpenWeighbridge: () -> Unit,
     onOpenWeather: () -> Unit,
+    onOpenProfile: () -> Unit,
+    onOpenNotifications: () -> Unit,
     onSearchWeather: (String) -> Unit,
     onSelectWeatherLocation: (KatoLocality) -> Unit,
     onSelectWeighbridgeTicket: (TicketSummary?) -> Unit,
@@ -271,6 +276,8 @@ private fun SignedInScreen(
                                 SignedInDestination.WAREHOUSES -> "Склады и объекты"
                                 SignedInDestination.WEIGHBRIDGE -> "Весовая"
                                 SignedInDestination.WEATHER -> "Погода"
+                                SignedInDestination.PROFILE -> "Профиль"
+                                SignedInDestination.NOTIFICATIONS -> "Уведомления"
                             },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -306,6 +313,8 @@ private fun SignedInScreen(
                 onOpenWarehouses = onOpenWarehouses,
                 onOpenWeighbridge = onOpenWeighbridge,
                 onOpenWeather = onOpenWeather,
+                onOpenProfile = onOpenProfile,
+                onOpenNotifications = onOpenNotifications,
             )
             SignedInDestination.TICKETS -> TicketListContent(
                 state = state,
@@ -350,6 +359,16 @@ private fun SignedInScreen(
                 onSearch = onSearchWeather,
                 onSelectLocation = onSelectWeatherLocation,
             )
+            SignedInDestination.PROFILE -> ProfileContent(
+                state = state,
+                contentPadding = contentPadding,
+                onSignOut = onSignOut,
+            )
+            SignedInDestination.NOTIFICATIONS -> NotificationCenterContent(
+                state = state,
+                contentPadding = contentPadding,
+                onRefresh = onRefresh,
+            )
         }
     }
 }
@@ -364,6 +383,8 @@ private fun OperationalOverviewContent(
     onOpenWarehouses: () -> Unit,
     onOpenWeighbridge: () -> Unit,
     onOpenWeather: () -> Unit,
+    onOpenProfile: () -> Unit,
+    onOpenNotifications: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -438,6 +459,16 @@ private fun OperationalOverviewContent(
                     OutlinedButton(onClick = onOpenWeather, modifier = Modifier.fillMaxWidth()) {
                         Text("Погода")
                     }
+                }
+            }
+            item {
+                OutlinedButton(onClick = onOpenNotifications, modifier = Modifier.fillMaxWidth()) {
+                    Text("Уведомления")
+                }
+            }
+            item {
+                OutlinedButton(onClick = onOpenProfile, modifier = Modifier.fillMaxWidth()) {
+                    Text("Профиль и сессия")
                 }
             }
             item { RoleNextStepCard(state.actor.role) }
@@ -1146,6 +1177,149 @@ private fun formatWeatherTime(value: String, timezone: String?): String = runCat
     val zone = timezone?.let(ZoneId::of) ?: ZoneId.systemDefault()
     Instant.parse(value).atZone(zone).format(DateTimeFormatter.ofPattern("dd.MM HH:mm", RUSSIAN_LOCALE))
 }.getOrElse { formatServerDate(value) }
+
+@Composable
+private fun ProfileContent(
+    state: AppUiState.SignedIn,
+    contentPadding: PaddingValues,
+    onSignOut: () -> Unit,
+) {
+    val snapshot = state.profileSession
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(contentPadding),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(16.dp),
+    ) {
+        item {
+            Card {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text("Текущий пользователь", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    DetailRow("Email", state.actor.email ?: "Не указан сервером")
+                    DetailRow("Роль", state.actor.role.displayName)
+                    DetailRow("Actor ID", state.actor.id)
+                    DetailRow("Компания", state.actor.companyId ?: "Контекст компании не выбран")
+                    DetailRow("Канал приложения", com.travkin.flow.BuildConfig.APP_CHANNEL)
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Защищённая сессия", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    DetailRow(
+                        "Actor подтверждён",
+                        snapshot?.actorVerifiedAtEpochMillis?.let(::formatDateTime) ?: "Время проверки недоступно",
+                    )
+                    DetailRow(
+                        "Сессия действует до",
+                        snapshot?.sessionExpiresAtEpochSeconds?.let { formatDateTime(it * 1_000) }
+                            ?: "Срок недоступен",
+                    )
+                    Text(
+                        "Токены и пароль не показываются. Сессия и actor-scoped cache хранятся в Android Keystore AES-GCM.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        item {
+            Button(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) {
+                Text("Безопасно выйти")
+            }
+        }
+        item {
+            ReadOnlyCard(
+                "Logout сначала локально удаляет сессию, actor, operator cookie и все actor-scoped encrypted caches, сразу возвращает login, затем best-effort отзывает серверную сессию.",
+            )
+        }
+    }
+}
+
+@Composable
+private fun NotificationCenterContent(
+    state: AppUiState.SignedIn,
+    contentPadding: PaddingValues,
+    onRefresh: () -> Unit,
+) {
+    val center = state.notificationCenter
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(contentPadding),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(16.dp),
+    ) {
+        item {
+            ReadOnlyCard(
+                "Read-only центр загружается напрямую через Supabase PostgREST. RLS возвращает только записи, где recipient_user_id совпадает с текущим auth.uid().",
+            )
+        }
+        if (state.refreshing) item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
+        state.message?.let { message -> item { MessageCard(message, offline = center != null) } }
+        if (state.notificationsStale && center != null) {
+            item { ReadOnlyCard("Показаны последние защищённые локальные уведомления.") }
+        }
+        if (center == null) {
+            item { EmptyState("Уведомления пока недоступны.", onRefresh) }
+        } else {
+            item {
+                InfoCard("Непрочитанные", center.unreadCount.toString())
+            }
+            if (center.notifications.isEmpty()) {
+                item { ReadOnlyCard("Событий пока нет.") }
+            } else {
+                items(center.notifications, key = UserNotification::id) { notification ->
+                    NotificationCard(notification)
+                }
+            }
+            item { UpdatedAt(center.fetchedAtEpochMillis) }
+        }
+        item {
+            ReadOnlyCard(
+                "Push gap: Firebase/FCM SDK, регистрация device token и backend отправки push отсутствуют. Native push не симулируется; новые события появляются после ручного обновления.",
+            )
+        }
+        item {
+            ReadOnlyCard(
+                "Отметка «прочитано», переход по web href и Realtime в этом slice отключены: экран выполняет только SELECT и не делает DB writes.",
+            )
+        }
+    }
+}
+
+@Composable
+private fun NotificationCard(notification: UserNotification) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (notification.readAt == null) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        ),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(notification.title, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                if (notification.readAt == null) Text("Новое", color = MaterialTheme.colorScheme.primary)
+            }
+            notification.body?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            Text(
+                "${notificationCategoryLabel(notification.category)} · ${formatServerDate(notification.createdAt)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+private fun notificationCategoryLabel(category: String): String = when (category.lowercase()) {
+    "operation" -> "Операция"
+    "warehouse" -> "Склад"
+    "weighbridge" -> "Весовая"
+    "assistant" -> "Ассистент"
+    else -> "Система"
+}
 
 @Composable
 private fun WarehouseOverviewContent(
