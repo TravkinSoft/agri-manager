@@ -32,6 +32,7 @@ function isAllowedVisualPath(path: string): boolean {
     "app/(dashboard)/weather-lab/page.tsx",
     "components/dashboard/harvest-dashboard.tsx",
     "components/assistant/assistant-launcher.tsx",
+    "components/assistant/assistant-panel.tsx",
     "components/layout/dashboard-layout.tsx",
     "components/layout/header.tsx",
     "components/layout/mobile-bottom-nav.tsx",
@@ -91,6 +92,7 @@ function main() {
   const shell = read("components/layout/dashboard-layout.tsx");
   const mobileNav = read("components/layout/mobile-bottom-nav.tsx");
   const assistantLauncher = read("components/assistant/assistant-launcher.tsx");
+  const assistantPanel = read("components/assistant/assistant-panel.tsx");
   const dashboard = read("components/dashboard/harvest-dashboard.tsx");
   const ticketsPage = read("app/(dashboard)/tickets/page.tsx");
   const visualTickets = read("components/tickets/visual-v2-tickets-list.tsx");
@@ -208,6 +210,7 @@ function main() {
     assert.match(mobileNav, /if \(!includeCopilot\) return routeItems/);
     assert.match(mobileNav, /data-visual-reference=\{visualV2 \? "weather-mobile-dock" : undefined\}/);
     assert.match(assistantLauncher, /data-copilot-launcher="separate"/);
+    assert.match(assistantPanel, /!isOpen \? \(\{ inert: "" \}/);
     assert.match(shell, /!isWeatherLab \|\| shellVisualV2/);
   });
 

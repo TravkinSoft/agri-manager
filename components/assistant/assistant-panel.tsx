@@ -100,9 +100,11 @@ export function AssistantPanel() {
   const contextLabel = [runtimeContext.companyName, seasonLabel, access.role].filter(Boolean).join(" · ");
   const width = clampPanelWidth(panelWidth);
   const maxWidth = clampPanelWidth(1120);
+  const hiddenInteractionProps = !isOpen ? ({ inert: "" } as Record<string, string>) : {};
 
   return (
     <aside
+      {...hiddenInteractionProps}
       ref={contentRef}
       role="dialog"
       aria-label="Travkin Copilot"
