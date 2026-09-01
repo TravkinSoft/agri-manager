@@ -6,6 +6,10 @@ const migrationUrl = new URL(
   "../supabase/migrations/20260830221810_tz315_ticket_void_batch_reconcile_v1.sql",
   import.meta.url,
 );
+const reversalReasonRefCompatUrl = new URL(
+  "../supabase/migrations/20260901090910_tz315_ticket_void_reversal_reason_ref_compat_v1.sql",
+  import.meta.url,
+);
 
 type Row = Record<string, unknown>;
 const rows = async (db: PGlite, sql: string) => (await db.query(sql)).rows as Row[];
@@ -264,10 +268,15 @@ async function seedCanonicalTicket(db: PGlite) {
 async function main() {
   const db = new PGlite();
   const migration = await readFile(migrationUrl, "utf8");
+  const reversalReasonRefCompat = await readFile(reversalReasonRefCompatUrl, "utf8");
+  assert.match(reversalReasonRefCompat, /TZ315_STORNO_REASON_REF_COMPAT_V1/);
+  assert.doesNotMatch(reversalReasonRefCompat, /\b(?:insert|update|delete|truncate)\s+(?:into|from|table)?\s*public\./i);
   await bootstrap(db);
 
   await applyMigration(db, migration);
   await applyMigration(db, migration);
+  await applyMigration(db, reversalReasonRefCompat);
+  await applyMigration(db, reversalReasonRefCompat);
   console.log("PASS 01 migration compiles and is repeat-safe");
 
   assert.equal(
@@ -558,7 +567,7 @@ async function main() {
       is_storno,storno_of_entry_id
     )
     select company_id,ticket_id,processing_id,product_id,crop_id,warehouse_id,inventory_batch_id,batch_id,batch_id_text,
-      'out',quantity,uom,-delta_qty_signed,mass_kg,'storno_processing_reversal',processing_id,unit_source,unit_contract_version,
+      'out',quantity,uom,-delta_qty_signed,mass_kg,'storno_processing_reversal',id,unit_source,unit_contract_version,
       true,id
     from base;
   `);
