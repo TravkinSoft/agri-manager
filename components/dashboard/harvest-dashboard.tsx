@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { AlertTriangle, CalendarClock, ChevronDown, Clock3, Loader2, Scale, Warehouse } from "lucide-react";
 import { TicketPreviewDialog } from "@/components/weighbridge/ticket-preview-dialog";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,6 +13,11 @@ import { useAuth } from "@/lib/contexts/auth-context";
 import type { HarvestDashboardFilters, HarvestFilterOptions, HarvestOverview, HarvestParty, HarvestPartyTicket, HarvestPeriodPreset } from "@/lib/dashboard/harvest-summary";
 import { getHarvestFilters, getHarvestSummary, type HarvestDashboardQuery } from "@/lib/services/harvest-dashboard";
 import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
+import { isVisualSystemV2Enabled } from "@/lib/ui/visual-system";
+
+const VisualV2HarvestSummary = dynamic(
+  () => import("@/components/dashboard/visual-v2-harvest-summary").then((module) => module.VisualV2HarvestSummary)
+);
 
 type FiltersPayload = { options: HarvestFilterOptions; operationalDayStartHour: number };
 
@@ -122,6 +128,7 @@ export function HarvestDashboard() {
   const query = useMemo<HarvestDashboardQuery>(() => ({ period, start: period === "custom" ? localInputToIso(customStart) : null, end: period === "custom" ? localInputToIso(customEnd) : null, filters }), [customEnd, customStart, filters, period]);
   const customReady = period !== "custom" || Boolean(query.start && query.end);
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
+  const visualV2 = isVisualSystemV2Enabled("dashboard");
 
   const loadSummary = useCallback(async () => {
     if (!customReady) return;
@@ -134,6 +141,35 @@ export function HarvestDashboard() {
   useLiveRefresh({ enabled: Boolean(profile?.company_id), companyId: profile?.company_id, tables: LIVE_REFRESH_TABLES.weighbridge, intervalMs: 15_000, onRefresh: loadSummary });
 
   const setFilter = (key: keyof HarvestDashboardFilters, value: string | null) => setFilters((current) => ({ ...current, [key]: value }));
+
+  if (visualV2) {
+    return (
+      <>
+        <VisualV2HarvestSummary
+          period={period}
+          customStart={customStart}
+          customEnd={customEnd}
+          filters={filters}
+          options={options}
+          summary={summary}
+          filtersOpen={filtersOpen}
+          expandedParties={expandedParties}
+          error={error}
+          customReady={customReady}
+          activeFilterCount={activeFilterCount}
+          onPeriodChange={setPeriod}
+          onCustomStartChange={setCustomStart}
+          onCustomEndChange={setCustomEnd}
+          onFiltersOpenChange={setFiltersOpen}
+          onFilterChange={setFilter}
+          onResetFilters={() => setFilters(EMPTY_FILTERS)}
+          onPartyOpenChange={(key, open) => setExpandedParties((current) => ({ ...current, [key]: open }))}
+          onTicket={setTicketId}
+        />
+        <TicketPreviewDialog ticketId={ticketId} open={Boolean(ticketId)} onOpenChange={(open) => !open && setTicketId(null)} />
+      </>
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-[1500px] space-y-4 overflow-x-hidden">
