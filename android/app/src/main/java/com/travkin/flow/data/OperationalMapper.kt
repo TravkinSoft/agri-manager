@@ -16,6 +16,11 @@ import com.travkin.flow.domain.TicketPage
 import com.travkin.flow.domain.TicketSummary
 import com.travkin.flow.domain.WarehouseObjectSummary
 import com.travkin.flow.domain.WarehouseOverview
+import com.travkin.flow.domain.HarvestAllocationOption
+import com.travkin.flow.domain.WeighbridgeOperator
+import com.travkin.flow.domain.WeighbridgeResourceOption
+import com.travkin.flow.domain.WeighbridgeShift
+import com.travkin.flow.domain.WeighbridgeWorkspace
 
 internal fun OperationalBootstrapDto.toOperationalOverview(
     fetchedAtEpochMillis: Long = System.currentTimeMillis(),
@@ -149,7 +154,83 @@ internal fun WarehouseSummariesEnvelopeDto.toWarehouseOverview(
 internal fun CachedWarehouseOverview.matchesScope(actorId: String, companyId: String): Boolean =
     this.actorId == actorId && this.companyId == companyId
 
-private fun TicketDto.toTicketSummary(): TicketSummary? {
+internal fun OperatorStateDto.toWeighbridgeWorkspace(
+    localWorkstationId: String,
+    writesEnabled: Boolean,
+    pendingCommandCount: Int,
+    fetchedAtEpochMillis: Long = System.currentTimeMillis(),
+): WeighbridgeWorkspace {
+    val resources = initialWorkspace?.resources
+    val fields = resources?.fields.orEmpty().mapNotNull { row ->
+        val id = row.id?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+        WeighbridgeResourceOption(id, row.name?.trim()?.takeIf(String::isNotEmpty) ?: "Поле", row.area?.let { "$it га" })
+    }
+    val fieldNameById = fields.associate { it.id to it.name }
+    val allocations = initialWorkspace?.harvestAllocations?.byField.orEmpty().flatMap { (fieldId, rows) ->
+        rows.mapNotNull { row ->
+            val allocationId = row.allocationId?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+            val cropId = row.cropId?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+            HarvestAllocationOption(
+                id = allocationId,
+                fieldId = fieldId,
+                fieldName = fieldNameById[fieldId] ?: "Поле",
+                cropId = cropId,
+                cropName = row.cropName?.trim()?.takeIf(String::isNotEmpty) ?: "Культура",
+                varietyId = row.varietyId,
+                varietyName = row.varietyName,
+                reproductionId = row.reproductionId,
+                reproductionName = row.reproductionName,
+                incomplete = row.isIncomplete == true,
+            )
+        }
+    }
+    return WeighbridgeWorkspace(
+        shift = shift?.id?.trim()?.takeIf(String::isNotEmpty)?.let { id ->
+            WeighbridgeShift(id, shift.status.orEmpty(), shift.operatorPersonId, shift.openedAt)
+        },
+        unlocked = unlocked == true,
+        operator = operator.toDomainOperator(),
+        operators = operators.orEmpty().mapNotNull(WeighbridgeOperatorDto::toDomainOperator),
+        fields = fields,
+        destinations = resources?.destinations.orEmpty().mapNotNull { row ->
+            val id = row.id?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+            WeighbridgeResourceOption(id, row.name?.trim()?.takeIf(String::isNotEmpty) ?: "Объект", row.placeType)
+        },
+        vehicles = resources?.vehicles.orEmpty().mapNotNull { row ->
+            val id = row.id?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+            WeighbridgeResourceOption(
+                id,
+                row.name?.trim()?.takeIf(String::isNotEmpty) ?: "Транспорт",
+                listOf(row.plate, row.model).mapNotNull { it?.takeIf(String::isNotBlank) }.joinToString(" · ").ifBlank { null },
+            )
+        },
+        drivers = resources?.drivers.orEmpty().mapNotNull { row ->
+            val id = row.id?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+            WeighbridgeResourceOption(id, row.name?.trim()?.takeIf(String::isNotEmpty) ?: "Водитель", row.position)
+        },
+        allocations = allocations,
+        resourceErrors = resources?.resourceErrors.orEmpty().mapNotNull { it.message?.takeIf(String::isNotBlank) },
+        stationContractAvailable = false,
+        localWorkstationId = localWorkstationId,
+        writesEnabled = writesEnabled,
+        pendingCommandCount = pendingCommandCount,
+        fetchedAtEpochMillis = fetchedAtEpochMillis,
+    )
+}
+
+private fun WeighbridgeOperatorDto?.toDomainOperator(): WeighbridgeOperator? {
+    val dto = this ?: return null
+    val id = dto.id?.trim()?.takeIf(String::isNotEmpty) ?: return null
+    return WeighbridgeOperator(
+        id = id,
+        name = dto.name?.trim()?.takeIf(String::isNotEmpty) ?: "Весовщик",
+        hasPin = dto.hasPin != false,
+        pinActive = dto.pinActive != false,
+        lockedUntil = dto.lockedUntil,
+    )
+}
+
+internal fun TicketDto.toTicketSummary(): TicketSummary? {
     val normalizedId = id?.trim()?.takeIf(String::isNotEmpty) ?: return null
     return TicketSummary(
         id = normalizedId,
@@ -165,6 +246,10 @@ private fun TicketDto.toTicketSummary(): TicketSummary? {
         destinationName = warehouseTo ?: destinationText ?: buyerName ?: supplierName,
         netWeightKg = physicalNetKg ?: netWeightKg,
         requiresReview = requiresReview == true,
+        grossWeightKg = grossWeightKg,
+        tareWeightKg = tareWeightKg,
+        harvestLotId = harvestLotId,
+        linkedProcessingId = linkedProcessingId,
     )
 }
 
@@ -175,4 +260,6 @@ private fun TicketLineDto.toTicketLine(): TicketLine = TicketLine(
     quantity = quantity ?: 0.0,
     unit = uom?.trim()?.takeIf(String::isNotEmpty) ?: "kg",
     moisturePercent = moisturePercent,
+    lotId = lotId,
+    batchClass = batchClass,
 )

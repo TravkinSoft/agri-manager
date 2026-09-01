@@ -5,15 +5,18 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.travkin.flow.data.SessionExpiredException
+import com.travkin.flow.data.TareVarianceConfirmationException
 import com.travkin.flow.data.TravkinRepository
 import com.travkin.flow.data.UserFacingException
 import com.travkin.flow.domain.Actor
+import com.travkin.flow.domain.HarvestTicketDraft
 import com.travkin.flow.domain.HarvestOverview
 import com.travkin.flow.domain.OperationalOverview
 import com.travkin.flow.domain.TicketDetails
 import com.travkin.flow.domain.TicketPage
 import com.travkin.flow.domain.TicketSummary
 import com.travkin.flow.domain.WarehouseOverview
+import com.travkin.flow.domain.WeighbridgeWorkspace
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,7 +28,16 @@ enum class SignedInDestination {
     TICKET_DETAIL,
     HARVEST,
     WAREHOUSES,
+    WEIGHBRIDGE,
 }
+
+data class TareVarianceConfirmation(
+    val ticket: TicketSummary,
+    val tareWeightKg: Double,
+    val previousTareKg: Double?,
+    val currentTareKg: Double?,
+    val differencePercent: Double?,
+)
 
 sealed interface AppUiState {
     data object Booting : AppUiState
@@ -47,8 +59,12 @@ sealed interface AppUiState {
         val harvestStale: Boolean = false,
         val warehouseOverview: WarehouseOverview? = null,
         val warehousesStale: Boolean = false,
+        val weighbridgeWorkspace: WeighbridgeWorkspace? = null,
+        val selectedWeighbridgeTicket: TicketSummary? = null,
+        val tareVarianceConfirmation: TareVarianceConfirmation? = null,
         val destination: SignedInDestination = SignedInDestination.OVERVIEW,
         val refreshing: Boolean = false,
+        val writeBusy: Boolean = false,
         val message: String? = null,
     ) : AppUiState
 }
@@ -90,6 +106,7 @@ class AppViewModel(
                 }
                 SignedInDestination.HARVEST -> loadHarvestOverview(current)
                 SignedInDestination.WAREHOUSES -> loadWarehouseOverview(current)
+                SignedInDestination.WEIGHBRIDGE -> loadWeighbridge(current)
             }
         }
     }
@@ -160,6 +177,118 @@ class AppViewModel(
         }
     }
 
+    fun openWeighbridge() {
+        val current = _state.value as? AppUiState.SignedIn ?: return
+        if (current.refreshing || !current.actor.role.canUseWeighbridgeWorkspace) return
+        viewModelScope.launch {
+            loadWeighbridge(
+                current.copy(
+                    destination = SignedInDestination.WEIGHBRIDGE,
+                    selectedWeighbridgeTicket = null,
+                    tareVarianceConfirmation = null,
+                    message = null,
+                ),
+            )
+        }
+    }
+
+    fun selectWeighbridgeTicket(ticket: TicketSummary?) {
+        val current = _state.value as? AppUiState.SignedIn ?: return
+        if (current.destination != SignedInDestination.WEIGHBRIDGE || current.writeBusy) return
+        _state.value = current.copy(
+            selectedWeighbridgeTicket = ticket,
+            tareVarianceConfirmation = null,
+            message = null,
+        )
+    }
+
+    fun unlockWeighbridgeOperator(personId: String, pin: String, note: String?) {
+        mutateWeighbridge { current ->
+            val activeOperator = current.weighbridgeWorkspace?.shift?.operatorPersonId
+            repository.unlockWeighbridgeOperator(
+                actor = current.actor,
+                personId = personId,
+                pin = pin,
+                handover = activeOperator != null && activeOperator != personId,
+                note = note,
+            )
+            "Сменщик подтверждён."
+        }
+    }
+
+    fun lockWeighbridgeOperator() {
+        mutateWeighbridge { current ->
+            repository.lockWeighbridgeOperator(current.actor)
+            "Терминал Весовой заблокирован."
+        }
+    }
+
+    fun createHarvestTicket(draft: HarvestTicketDraft) {
+        mutateWeighbridge { current ->
+            repository.createHarvestTicket(current.actor, draft)
+            "Талон создан без повторной отправки."
+        }
+    }
+
+    fun saveGrossWeight(ticket: TicketSummary, grossWeightKg: Double) {
+        mutateWeighbridge { current ->
+            repository.saveGrossWeight(current.actor, ticket.id, grossWeightKg)
+            "Брутто сохранено."
+        }
+    }
+
+    fun finalizeWeighbridgeTicket(
+        ticket: TicketSummary,
+        tareWeightKg: Double,
+        confirmTareVariance: Boolean = false,
+    ) {
+        mutateWeighbridge(
+            clearSelectedTicket = true,
+            onTareConfirmation = { error ->
+                TareVarianceConfirmation(
+                    ticket = ticket,
+                    tareWeightKg = tareWeightKg,
+                    previousTareKg = error.previousTareKg,
+                    currentTareKg = error.currentTareKg,
+                    differencePercent = error.differencePercent,
+                )
+            },
+        ) { current ->
+            val gross = ticket.grossWeightKg
+                ?: throw UserFacingException("Сначала сохраните брутто.")
+            repository.finalizeWeighbridgeTicket(
+                actor = current.actor,
+                ticketId = ticket.id,
+                grossWeightKg = gross,
+                tareWeightKg = tareWeightKg,
+                confirmTareVariance = confirmTareVariance,
+            )
+            "Талон завершён. Нетто рассчитано сервером."
+        }
+    }
+
+    fun confirmTareVariance() {
+        val current = _state.value as? AppUiState.SignedIn ?: return
+        val confirmation = current.tareVarianceConfirmation ?: return
+        finalizeWeighbridgeTicket(
+            ticket = confirmation.ticket,
+            tareWeightKg = confirmation.tareWeightKg,
+            confirmTareVariance = true,
+        )
+    }
+
+    fun dismissTareVariance() {
+        val current = _state.value as? AppUiState.SignedIn ?: return
+        _state.value = current.copy(tareVarianceConfirmation = null, writeBusy = false)
+    }
+
+    fun retryPendingWeighbridgeCommands() {
+        mutateWeighbridge { current ->
+            val completed = repository.retryPendingWeighbridgeCommands(current.actor)
+            "Повторено команд: $completed."
+        }
+    }
+
     fun navigateBack() {
         val current = _state.value as? AppUiState.SignedIn ?: return
         _state.value = when (current.destination) {
@@ -183,6 +312,14 @@ class AppViewModel(
             SignedInDestination.WAREHOUSES -> current.copy(
                 destination = SignedInDestination.OVERVIEW,
                 refreshing = false,
+                message = null,
+            )
+            SignedInDestination.WEIGHBRIDGE -> current.copy(
+                destination = SignedInDestination.OVERVIEW,
+                selectedWeighbridgeTicket = null,
+                tareVarianceConfirmation = null,
+                refreshing = false,
+                writeBusy = false,
                 message = null,
             )
             SignedInDestination.OVERVIEW -> current
@@ -351,6 +488,98 @@ class AppViewModel(
                     message = error.userMessage(),
                 ),
             )
+        }
+    }
+
+    private suspend fun loadWeighbridge(
+        current: AppUiState.SignedIn,
+        completionMessage: String? = null,
+    ) {
+        val existingTickets = current.tickets
+        val loading = current.copy(
+            destination = SignedInDestination.WEIGHBRIDGE,
+            refreshing = true,
+            writeBusy = false,
+            message = null,
+        )
+        _state.value = loading
+        try {
+            val workspace = repository.loadWeighbridgeWorkspace(current.actor)
+            var ticketMessage: String? = null
+            val tickets = try {
+                repository.refreshTickets(current.actor, MAX_TICKET_HISTORY)
+            } catch (error: Throwable) {
+                if (error is SessionExpiredException) throw error
+                ticketMessage = "Рабочее место загружено, но очередь талонов не обновилась: ${error.userMessage()}"
+                existingTickets
+            }
+            _state.value = loading.copy(
+                weighbridgeWorkspace = workspace,
+                tickets = tickets,
+                ticketsStale = ticketMessage != null && tickets != null,
+                refreshing = false,
+                message = ticketMessage ?: completionMessage,
+            )
+        } catch (error: Throwable) {
+            handleLoadError(
+                error = error,
+                fallback = loading.copy(
+                    refreshing = false,
+                    message = error.userMessage(),
+                ),
+            )
+        }
+    }
+
+    private fun mutateWeighbridge(
+        clearSelectedTicket: Boolean = false,
+        onTareConfirmation: ((TareVarianceConfirmationException) -> TareVarianceConfirmation)? = null,
+        operation: suspend (AppUiState.SignedIn) -> String,
+    ) {
+        val current = _state.value as? AppUiState.SignedIn ?: return
+        if (current.destination != SignedInDestination.WEIGHBRIDGE || current.writeBusy || current.refreshing) return
+        val workspace = current.weighbridgeWorkspace ?: return
+        if (!workspace.writesEnabled || !workspace.stationContractAvailable) {
+            _state.value = current.copy(
+                message = "Запись заблокирована: сервер не предоставляет каталог и подтверждение весовой станции для native-клиента.",
+            )
+            return
+        }
+        val working = current.copy(
+            writeBusy = true,
+            message = null,
+            tareVarianceConfirmation = null,
+        )
+        _state.value = working
+        viewModelScope.launch {
+            try {
+                val successMessage = operation(working)
+                loadWeighbridge(
+                    working.copy(
+                        writeBusy = false,
+                        selectedWeighbridgeTicket = if (clearSelectedTicket) null else working.selectedWeighbridgeTicket,
+                    ),
+                    completionMessage = successMessage,
+                )
+            } catch (error: TareVarianceConfirmationException) {
+                val confirmation = onTareConfirmation?.invoke(error)
+                _state.value = working.copy(
+                    writeBusy = false,
+                    tareVarianceConfirmation = confirmation,
+                    message = if (confirmation == null) error.userMessage() else null,
+                )
+            } catch (error: Throwable) {
+                if (error is SessionExpiredException) {
+                    handleLoadError(error, working.copy(writeBusy = false))
+                } else {
+                    val pendingCount = repository.pendingWeighbridgeCommandCount(working.actor)
+                    _state.value = working.copy(
+                        weighbridgeWorkspace = working.weighbridgeWorkspace?.copy(pendingCommandCount = pendingCount),
+                        writeBusy = false,
+                        message = error.userMessage(),
+                    )
+                }
+            }
         }
     }
 

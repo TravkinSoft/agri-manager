@@ -14,9 +14,18 @@ import com.travkin.flow.domain.TicketDetails
 import com.travkin.flow.domain.TicketPage
 import com.travkin.flow.domain.WarehouseOverview
 import com.travkin.flow.domain.SupportedRole
+import com.travkin.flow.domain.HarvestTicketDraft
+import com.travkin.flow.domain.PendingWeighbridgeCommand
+import com.travkin.flow.domain.PendingWeighbridgeQueue
+import com.travkin.flow.domain.TicketSummary
+import com.travkin.flow.domain.WeighbridgeWorkspace
+import com.travkin.flow.domain.WeighbridgeWritePolicy
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import java.io.IOException
+import java.util.UUID
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -24,7 +33,9 @@ import java.util.concurrent.TimeUnit
 
 class TravkinRepository(context: Context) {
     private val gson = Gson()
-    private val localState = LocalStateStore(SecureStorage(context), gson)
+    private val secureStorage = SecureStorage(context)
+    private val localState = LocalStateStore(secureStorage, gson)
+    private val operatorCookieJar = OperatorCookieJar(secureStorage, BuildConfig.BASE_URL.toHttpUrl())
     private val refreshMutex = Mutex()
 
     private val httpClient = OkHttpClient.Builder()
@@ -32,6 +43,7 @@ class TravkinRepository(context: Context) {
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
+        .cookieJar(operatorCookieJar)
         .build()
 
     private val authApi = retrofit(BuildConfig.SUPABASE_URL).create(SupabaseAuthApi::class.java)
@@ -178,6 +190,141 @@ class TravkinRepository(context: Context) {
         return overview
     }
 
+    fun weighbridgeWritesEnabled(actor: Actor): Boolean = WeighbridgeWritePolicy.isAllowed(
+        enabled = BuildConfig.WEIGHBRIDGE_WRITE_ENABLED,
+        appChannel = BuildConfig.APP_CHANNEL,
+        baseUrl = BuildConfig.BASE_URL,
+        role = actor.role,
+    )
+
+    suspend fun loadWeighbridgeWorkspace(actor: Actor): WeighbridgeWorkspace {
+        if (!actor.role.canUseWeighbridgeWorkspace) throw UnsupportedRoleException(actor.role.wireValue)
+        val companyId = actor.companyId
+            ?: throw UserFacingException("Для Весовой сначала выберите контекст компании.")
+        var session = resolveSession(localState.loadSession() ?: throw SessionExpiredException())
+        var response = appApi.operatorState(session.bearer(), companyId)
+        if (response.code() == 401) {
+            session = refreshSession(force = true)
+            response = appApi.operatorState(session.bearer(), companyId)
+        }
+        if (!response.isSuccessful) throw response.toApiFailure("Не удалось загрузить рабочее место Весовой.")
+        val dto = response.body() ?: throw UserFacingException("Сервер вернул пустое рабочее место Весовой.")
+        return dto.toWeighbridgeWorkspace(
+            localWorkstationId = localState.loadOrCreateWorkstationId(),
+            writesEnabled = weighbridgeWritesEnabled(actor),
+            pendingCommandCount = pendingCommands(actor).size,
+        )
+    }
+
+    suspend fun unlockWeighbridgeOperator(
+        actor: Actor,
+        personId: String,
+        pin: String,
+        handover: Boolean,
+        note: String?,
+    ): WeighbridgeWorkspace {
+        val companyId = requireWeighbridgeWrites(actor)
+        if (personId.isBlank()) throw UserFacingException("Выберите сменщика.")
+        if (!pin.matches(Regex("^\\d{6}$"))) throw UserFacingException("PIN должен содержать 6 цифр.")
+        val response = appApi.mutateOperatorSession(
+            authorization = currentSession().bearer(),
+            body = OperatorMutationBody(
+                action = if (handover) "handover" else "unlock",
+                companyId = companyId,
+                personId = personId,
+                pin = pin,
+                note = note?.trim()?.takeIf(String::isNotEmpty),
+            ),
+        )
+        // 401 here can mean an invalid PIN. Retrying would consume a second PIN attempt.
+        if (!response.isSuccessful) throw response.toApiFailure("Не удалось подтвердить весовщика.")
+        return loadWeighbridgeWorkspace(actor)
+    }
+
+    suspend fun lockWeighbridgeOperator(actor: Actor): WeighbridgeWorkspace {
+        val companyId = requireWeighbridgeWrites(actor)
+        val response = appApi.mutateOperatorSession(
+            authorization = currentSession().bearer(),
+            body = OperatorMutationBody(action = "lock", companyId = companyId),
+        )
+        if (!response.isSuccessful) throw response.toApiFailure("Не удалось заблокировать терминал.")
+        operatorCookieJar.clear()
+        return loadWeighbridgeWorkspace(actor)
+    }
+
+    suspend fun createHarvestTicket(actor: Actor, draft: HarvestTicketDraft): TicketSummary {
+        val companyId = requireWeighbridgeWrites(actor)
+        validateHarvestDraft(draft)
+        val command = PendingWeighbridgeCommand(
+            idempotencyKey = UUID.randomUUID().toString(),
+            type = COMMAND_CREATE_HARVEST,
+            actorId = actor.id,
+            companyId = companyId,
+            draft = draft,
+            createdAtEpochMillis = System.currentTimeMillis(),
+        )
+        enqueue(command)
+        return executePendingCommand(actor, command)
+    }
+
+    suspend fun saveGrossWeight(actor: Actor, ticketId: String, grossWeightKg: Double): TicketSummary {
+        val companyId = requireWeighbridgeWrites(actor)
+        if (ticketId.isBlank() || !grossWeightKg.isFinite() || grossWeightKg <= 0) {
+            throw UserFacingException("Укажите корректное брутто больше нуля.")
+        }
+        val command = PendingWeighbridgeCommand(
+            idempotencyKey = UUID.randomUUID().toString(),
+            type = COMMAND_PATCH_GROSS,
+            actorId = actor.id,
+            companyId = companyId,
+            ticketId = ticketId,
+            grossWeightKg = grossWeightKg,
+            createdAtEpochMillis = System.currentTimeMillis(),
+        )
+        enqueue(command)
+        return executePendingCommand(actor, command)
+    }
+
+    suspend fun finalizeWeighbridgeTicket(
+        actor: Actor,
+        ticketId: String,
+        grossWeightKg: Double,
+        tareWeightKg: Double,
+        confirmTareVariance: Boolean = false,
+    ): TicketSummary {
+        val companyId = requireWeighbridgeWrites(actor)
+        if (ticketId.isBlank() || !grossWeightKg.isFinite() || !tareWeightKg.isFinite() || grossWeightKg <= 0 || tareWeightKg < 0 || tareWeightKg >= grossWeightKg) {
+            throw UserFacingException("Тара должна быть неотрицательной и меньше брутто.")
+        }
+        val existing = pendingCommands(actor).firstOrNull {
+            it.type == COMMAND_FINALIZE && it.ticketId == ticketId
+        }
+        val command = (existing ?: PendingWeighbridgeCommand(
+            idempotencyKey = UUID.randomUUID().toString(),
+            type = COMMAND_FINALIZE,
+            actorId = actor.id,
+            companyId = companyId,
+            ticketId = ticketId,
+            grossWeightKg = grossWeightKg,
+            tareWeightKg = tareWeightKg,
+            createdAtEpochMillis = System.currentTimeMillis(),
+        )).copy(confirmTareVariance = confirmTareVariance)
+        replaceOrEnqueue(command)
+        return executePendingCommand(actor, command)
+    }
+
+    suspend fun retryPendingWeighbridgeCommands(actor: Actor): Int {
+        requireWeighbridgeWrites(actor)
+        var completed = 0
+        for (command in pendingCommands(actor).sortedBy(PendingWeighbridgeCommand::createdAtEpochMillis)) {
+            executePendingCommand(actor, command)
+            completed += 1
+        }
+        return completed
+    }
+
+    fun pendingWeighbridgeCommandCount(actor: Actor): Int = pendingCommands(actor).size
+
     suspend fun signOut() {
         val session = localState.loadSession()
         if (session != null && configured()) {
@@ -244,6 +391,157 @@ class TravkinRepository(context: Context) {
         updated
     }
 
+    private suspend fun executePendingCommand(
+        actor: Actor,
+        command: PendingWeighbridgeCommand,
+    ): TicketSummary {
+        requireWeighbridgeWrites(actor)
+        var session = currentSession()
+        val request: suspend (StoredSession) -> Response<TicketMutationEnvelopeDto> = { activeSession ->
+            when (command.type) {
+                COMMAND_CREATE_HARVEST -> {
+                    val draft = command.draft ?: throw UserFacingException("Черновик талона повреждён.")
+                    appApi.createTicket(
+                        authorization = activeSession.bearer(),
+                        idempotencyKey = command.idempotencyKey,
+                        body = CreateTicketEnvelope(
+                            ticket = NativeTicketInputDto(
+                                companyId = command.companyId,
+                                sourceId = draft.fieldId,
+                                destinationId = draft.destinationId,
+                                fieldId = draft.fieldId,
+                                allocationId = draft.allocationId,
+                                warehouseToId = draft.destinationId,
+                                vehicleId = draft.vehicleId,
+                                driverId = draft.driverId,
+                                grossWeightKg = draft.grossWeightKg,
+                                createdBy = command.actorId,
+                                notes = draft.notes,
+                            ),
+                            lines = listOf(
+                                NativeTicketLineInputDto(
+                                    productId = draft.cropId,
+                                    cropId = draft.cropId,
+                                    quantity = draft.grossWeightKg,
+                                    warehouseToId = draft.destinationId,
+                                    varietyId = draft.varietyId,
+                                    reproductionId = draft.reproductionId,
+                                ),
+                            ),
+                        ),
+                    )
+                }
+                COMMAND_PATCH_GROSS -> appApi.patchTicketWeight(
+                    authorization = activeSession.bearer(),
+                    ticketId = command.ticketId ?: throw UserFacingException("Талон не указан."),
+                    companyId = command.companyId,
+                    body = TicketWeightPatchBody(
+                        companyId = command.companyId,
+                        grossWeightKg = command.grossWeightKg,
+                        status = "active",
+                    ),
+                )
+                COMMAND_FINALIZE -> appApi.finalizeTicket(
+                    authorization = activeSession.bearer(),
+                    idempotencyKey = command.idempotencyKey,
+                    ticketId = command.ticketId ?: throw UserFacingException("Талон не указан."),
+                    companyId = command.companyId,
+                    body = FinalizeTicketBody(
+                        companyId = command.companyId,
+                        tareWeightKg = command.tareWeightKg
+                            ?: throw UserFacingException("Тара не указана."),
+                        confirmTareVariance = command.confirmTareVariance,
+                        idempotencyKey = command.idempotencyKey,
+                    ),
+                )
+                else -> throw UserFacingException("Неизвестная команда Весовой.")
+            }
+        }
+
+        val response = try {
+            var result = request(session)
+            if (result.code() == 401) {
+                session = refreshSession(force = true)
+                result = request(session)
+            }
+            result
+        } catch (error: IOException) {
+            incrementAttempt(command)
+            throw OfflineQueuedException(cause = error)
+        }
+
+        if (!response.isSuccessful) {
+            val payload = response.readErrorPayload()
+            incrementAttempt(command)
+            if (payload?.requiresConfirmation == true && command.type == COMMAND_FINALIZE) {
+                throw TareVarianceConfirmationException(
+                    previousTareKg = payload.previousTareKg,
+                    currentTareKg = payload.currentTareKg ?: command.tareWeightKg,
+                    differencePercent = payload.differencePercent,
+                )
+            }
+            if (response.code() !in RETRYABLE_WRITE_CODES) removeCommand(command.idempotencyKey)
+            val safeMessage = payload?.description ?: payload?.message ?: payload?.error
+            throw UserFacingException(safeMessage?.takeIf(String::isNotBlank) ?: "Команда Весовой не выполнена.")
+        }
+
+        val ticket = response.body()?.ticket?.toTicketSummary()
+            ?: throw UserFacingException("Сервер не вернул обновлённый талон.")
+        removeCommand(command.idempotencyKey)
+        return ticket
+    }
+
+    private suspend fun currentSession(): StoredSession =
+        resolveSession(localState.loadSession() ?: throw SessionExpiredException())
+
+    private fun requireWeighbridgeWrites(actor: Actor): String {
+        if (!weighbridgeWritesEnabled(actor)) {
+            throw UserFacingException("Запись Весовой отключена. Она разрешается только отдельным QA feature flag.")
+        }
+        return actor.companyId ?: throw UserFacingException("Для Весовой выберите контекст компании.")
+    }
+
+    private fun validateHarvestDraft(draft: HarvestTicketDraft) {
+        if (listOf(draft.allocationId, draft.fieldId, draft.cropId, draft.destinationId).any(String::isBlank)) {
+            throw UserFacingException("Выберите поле, культуру и место приёмки.")
+        }
+        if (!draft.grossWeightKg.isFinite() || draft.grossWeightKg <= 0) {
+            throw UserFacingException("Брутто должно быть больше нуля.")
+        }
+    }
+
+    private fun pendingCommands(actor: Actor): List<PendingWeighbridgeCommand> =
+        localState.loadPendingWeighbridgeQueue().commands.filter {
+            it.actorId == actor.id && it.companyId == actor.companyId
+        }
+
+    private fun enqueue(command: PendingWeighbridgeCommand) {
+        val current = localState.loadPendingWeighbridgeQueue().commands
+        if (current.any { it.idempotencyKey == command.idempotencyKey }) return
+        localState.savePendingWeighbridgeQueue(PendingWeighbridgeQueue((current + command).takeLast(MAX_PENDING_COMMANDS)))
+    }
+
+    private fun replaceOrEnqueue(command: PendingWeighbridgeCommand) {
+        val current = localState.loadPendingWeighbridgeQueue().commands
+        val updated = current.filterNot { it.idempotencyKey == command.idempotencyKey } + command
+        localState.savePendingWeighbridgeQueue(PendingWeighbridgeQueue(updated.takeLast(MAX_PENDING_COMMANDS)))
+    }
+
+    private fun incrementAttempt(command: PendingWeighbridgeCommand) {
+        replaceOrEnqueue(command.copy(attempts = command.attempts + 1))
+    }
+
+    private fun removeCommand(idempotencyKey: String) {
+        val remaining = localState.loadPendingWeighbridgeQueue().commands.filterNot {
+            it.idempotencyKey == idempotencyKey
+        }
+        localState.savePendingWeighbridgeQueue(PendingWeighbridgeQueue(remaining))
+    }
+
+    private fun <T> Response<T>.readErrorPayload(): ApiErrorDto? = runCatching {
+        errorBody()?.string()?.let { gson.fromJson(it, ApiErrorDto::class.java) }
+    }.getOrNull()
+
     private fun clearLocalSession() {
         localState.clearSession()
         localState.clearActor()
@@ -251,6 +549,8 @@ class TravkinRepository(context: Context) {
         localState.clearTicketPage()
         localState.clearHarvestOverview()
         localState.clearWarehouseOverview()
+        localState.clearPendingWeighbridgeQueue()
+        operatorCookieJar.clear()
     }
 
     private fun configured(): Boolean =
@@ -300,6 +600,11 @@ class TravkinRepository(context: Context) {
         const val MAX_OFFLINE_ACTOR_AGE_MILLIS = 12L * 60L * 60L * 1_000L
         const val MIN_TICKET_HISTORY = 10
         const val MAX_TICKET_HISTORY = 100
+        const val MAX_PENDING_COMMANDS = 20
+        const val COMMAND_CREATE_HARVEST = "create_harvest"
+        const val COMMAND_PATCH_GROSS = "patch_gross"
+        const val COMMAND_FINALIZE = "finalize"
+        val RETRYABLE_WRITE_CODES = setOf(408, 423, 425, 429, 500, 502, 503, 504)
     }
 }
 
@@ -311,3 +616,14 @@ class SessionExpiredException(message: String = "Сессия истекла. В
 class UnsupportedRoleException(role: String?) : UserFacingException(
     "Роль ${role?.takeIf(String::isNotBlank) ?: "не определена"} пока не входит в native Android scope.",
 )
+
+class OfflineQueuedException(cause: Throwable? = null) : UserFacingException(
+    "Нет связи. Команда сохранена зашифрованно и будет повторена только с тем же ключом без дубля.",
+    cause,
+)
+
+class TareVarianceConfirmationException(
+    val previousTareKg: Double?,
+    val currentTareKg: Double?,
+    val differencePercent: Double?,
+) : UserFacingException("Текущая тара заметно отличается от предыдущей. Требуется повторное подтверждение.")

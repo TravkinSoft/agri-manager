@@ -25,9 +25,12 @@ import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Scale
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -39,10 +42,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -60,6 +65,8 @@ import com.travkin.flow.domain.HarvestFieldSummary
 import com.travkin.flow.domain.HarvestIssue
 import com.travkin.flow.domain.HarvestMoistureSummary
 import com.travkin.flow.domain.HarvestOverview
+import com.travkin.flow.domain.HarvestAllocationOption
+import com.travkin.flow.domain.HarvestTicketDraft
 import com.travkin.flow.domain.OperationalOverview
 import com.travkin.flow.domain.SupportedRole
 import com.travkin.flow.domain.TicketDetails
@@ -67,6 +74,8 @@ import com.travkin.flow.domain.TicketLine
 import com.travkin.flow.domain.TicketSummary
 import com.travkin.flow.domain.WarehouseObjectSummary
 import com.travkin.flow.domain.WarehouseOverview
+import com.travkin.flow.domain.WeighbridgeResourceOption
+import com.travkin.flow.domain.WeighbridgeWorkspace
 import java.text.DateFormat
 import java.text.NumberFormat
 import java.time.Instant
@@ -91,6 +100,16 @@ fun TravkinFlowApp(viewModel: AppViewModel) {
                 onOpenTicket = viewModel::openTicket,
                 onOpenHarvest = viewModel::openHarvestOverview,
                 onOpenWarehouses = viewModel::openWarehouses,
+                onOpenWeighbridge = viewModel::openWeighbridge,
+                onSelectWeighbridgeTicket = viewModel::selectWeighbridgeTicket,
+                onUnlockOperator = viewModel::unlockWeighbridgeOperator,
+                onLockOperator = viewModel::lockWeighbridgeOperator,
+                onCreateHarvestTicket = viewModel::createHarvestTicket,
+                onSaveGrossWeight = viewModel::saveGrossWeight,
+                onFinalizeTicket = viewModel::finalizeWeighbridgeTicket,
+                onRetryPending = viewModel::retryPendingWeighbridgeCommands,
+                onConfirmTareVariance = viewModel::confirmTareVariance,
+                onDismissTareVariance = viewModel::dismissTareVariance,
                 onLoadMore = viewModel::loadMoreTickets,
                 onBack = viewModel::navigateBack,
             )
@@ -206,6 +225,16 @@ private fun SignedInScreen(
     onOpenTicket: (TicketSummary) -> Unit,
     onOpenHarvest: () -> Unit,
     onOpenWarehouses: () -> Unit,
+    onOpenWeighbridge: () -> Unit,
+    onSelectWeighbridgeTicket: (TicketSummary?) -> Unit,
+    onUnlockOperator: (String, String, String?) -> Unit,
+    onLockOperator: () -> Unit,
+    onCreateHarvestTicket: (HarvestTicketDraft) -> Unit,
+    onSaveGrossWeight: (TicketSummary, Double) -> Unit,
+    onFinalizeTicket: (TicketSummary, Double, Boolean) -> Unit,
+    onRetryPending: () -> Unit,
+    onConfirmTareVariance: () -> Unit,
+    onDismissTareVariance: () -> Unit,
     onLoadMore: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -229,6 +258,7 @@ private fun SignedInScreen(
                                 SignedInDestination.TICKET_DETAIL -> "Талон"
                                 SignedInDestination.HARVEST -> "Урожай"
                                 SignedInDestination.WAREHOUSES -> "Склады и объекты"
+                                SignedInDestination.WEIGHBRIDGE -> "Весовая"
                             },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -262,6 +292,7 @@ private fun SignedInScreen(
                 onOpenTickets = onOpenTickets,
                 onOpenHarvest = onOpenHarvest,
                 onOpenWarehouses = onOpenWarehouses,
+                onOpenWeighbridge = onOpenWeighbridge,
             )
             SignedInDestination.TICKETS -> TicketListContent(
                 state = state,
@@ -285,6 +316,20 @@ private fun SignedInScreen(
                 contentPadding = contentPadding,
                 onRefresh = onRefresh,
             )
+            SignedInDestination.WEIGHBRIDGE -> WeighbridgeWorkspaceContent(
+                state = state,
+                contentPadding = contentPadding,
+                onRefresh = onRefresh,
+                onSelectTicket = onSelectWeighbridgeTicket,
+                onUnlockOperator = onUnlockOperator,
+                onLockOperator = onLockOperator,
+                onCreateHarvestTicket = onCreateHarvestTicket,
+                onSaveGrossWeight = onSaveGrossWeight,
+                onFinalizeTicket = onFinalizeTicket,
+                onRetryPending = onRetryPending,
+                onConfirmTareVariance = onConfirmTareVariance,
+                onDismissTareVariance = onDismissTareVariance,
+            )
         }
     }
 }
@@ -297,6 +342,7 @@ private fun OperationalOverviewContent(
     onOpenTickets: () -> Unit,
     onOpenHarvest: () -> Unit,
     onOpenWarehouses: () -> Unit,
+    onOpenWeighbridge: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -352,6 +398,17 @@ private fun OperationalOverviewContent(
                         Text(
                             if (state.actor.companyId == null) "Сначала выберите компанию" else "Склады и объекты",
                         )
+                    }
+                }
+            }
+            if (state.actor.role.canUseWeighbridgeWorkspace) {
+                item {
+                    OutlinedButton(
+                        onClick = onOpenWeighbridge,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = state.actor.companyId != null,
+                    ) {
+                        Text(if (state.actor.companyId == null) "Сначала выберите компанию" else "Весовая")
                     }
                 }
             }
@@ -512,6 +569,401 @@ private fun HarvestOverviewContent(
         }
     }
 }
+
+@Composable
+private fun WeighbridgeWorkspaceContent(
+    state: AppUiState.SignedIn,
+    contentPadding: PaddingValues,
+    onRefresh: () -> Unit,
+    onSelectTicket: (TicketSummary?) -> Unit,
+    onUnlockOperator: (String, String, String?) -> Unit,
+    onLockOperator: () -> Unit,
+    onCreateHarvestTicket: (HarvestTicketDraft) -> Unit,
+    onSaveGrossWeight: (TicketSummary, Double) -> Unit,
+    onFinalizeTicket: (TicketSummary, Double, Boolean) -> Unit,
+    onRetryPending: () -> Unit,
+    onConfirmTareVariance: () -> Unit,
+    onDismissTareVariance: () -> Unit,
+) {
+    val workspace = state.weighbridgeWorkspace
+    val writesAvailable = workspace?.writesEnabled == true && workspace.stationContractAvailable
+    val queue = state.tickets?.tickets.orEmpty().filter { ticket ->
+        ticket.operationType.equals("harvest_incoming", ignoreCase = true) &&
+            ticket.status.lowercase() !in setOf("finalized", "voided", "cancelled")
+    }
+
+    state.tareVarianceConfirmation?.let { confirmation ->
+        AlertDialog(
+            onDismissRequest = onDismissTareVariance,
+            title = { Text("Подтвердите отклонение тары") },
+            text = {
+                Text(
+                    listOfNotNull(
+                        confirmation.previousTareKg?.let { "Предыдущая: ${formatKg(it)}" },
+                        confirmation.currentTareKg?.let { "Текущая: ${formatKg(it)}" },
+                        confirmation.differencePercent?.let { "Отклонение: ${formatQuantity(it)} %" },
+                    ).joinToString("\n").ifBlank { "Тара заметно отличается от предыдущей." },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = onConfirmTareVariance, enabled = !state.writeBusy) {
+                    Text("Подтвердить повторно")
+                }
+            },
+            dismissButton = { TextButton(onClick = onDismissTareVariance) { Text("Отмена") } },
+        )
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(contentPadding),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(16.dp),
+    ) {
+        if (state.refreshing) item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
+        state.message?.let { message -> item { MessageCard(message, offline = workspace != null) } }
+        if (workspace == null) {
+            item { EmptyState("Рабочее место Весовой пока недоступно.", onRefresh) }
+        } else {
+            item { WeighbridgeStationCard(workspace) }
+            item {
+                WeighbridgeOperatorCard(
+                    workspace = workspace,
+                    writesAvailable = writesAvailable,
+                    busy = state.writeBusy,
+                    onUnlockOperator = onUnlockOperator,
+                    onLockOperator = onLockOperator,
+                )
+            }
+            if (workspace.resourceErrors.isNotEmpty()) {
+                item { MessageCard("Не все справочники доступны: ${workspace.resourceErrors.joinToString()}") }
+            }
+            if (workspace.pendingCommandCount > 0) {
+                item {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Ожидают отправки: ${workspace.pendingCommandCount}", fontWeight = FontWeight.SemiBold)
+                            Text("Команды хранятся зашифрованно и повторяются с теми же ключами без дублей.")
+                            Button(onClick = onRetryPending, enabled = writesAvailable && !state.writeBusy) {
+                                Text("Повторить отправку")
+                            }
+                        }
+                    }
+                }
+            }
+            item { SectionTitle("Очередь приёмки") }
+            if (queue.isEmpty()) {
+                item { ReadOnlyCard("Открытых талонов приёмки урожая нет.") }
+            } else {
+                items(queue, key = TicketSummary::id) { ticket ->
+                    TicketSummaryCard(ticket) { onSelectTicket(ticket) }
+                }
+            }
+            state.selectedWeighbridgeTicket?.let { selected ->
+                item {
+                    WeighbridgeTicketWorkCard(
+                        ticket = selected,
+                        writesAvailable = writesAvailable,
+                        unlocked = workspace.unlocked,
+                        busy = state.writeBusy,
+                        onClose = { onSelectTicket(null) },
+                        onSaveGrossWeight = onSaveGrossWeight,
+                        onFinalizeTicket = onFinalizeTicket,
+                    )
+                }
+            }
+            if (state.selectedWeighbridgeTicket == null && writesAvailable && workspace.unlocked && workspace.shift != null) {
+                item {
+                    CreateHarvestTicketCard(
+                        workspace = workspace,
+                        busy = state.writeBusy,
+                        onCreate = onCreateHarvestTicket,
+                    )
+                }
+            }
+            if (!writesAvailable) {
+                item {
+                    ReadOnlyCard(
+                        "Запись закрыта fail-closed. Backend gap: нет серверного каталога весовых станций и API подтверждения выбранной станции. Локальный ID не даёт права записи.",
+                    )
+                }
+            }
+            item { UpdatedAt(workspace.fetchedAtEpochMillis) }
+        }
+    }
+}
+
+@Composable
+private fun WeighbridgeStationCard(workspace: WeighbridgeWorkspace) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Весовая станция", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Локальное устройство: ${workspace.localWorkstationId}")
+            Text(
+                if (workspace.stationContractAvailable) "Станция подтверждена сервером."
+                else "Станция не подтверждена сервером: выбор и запись заблокированы.",
+                color = if (workspace.stationContractAvailable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WeighbridgeOperatorCard(
+    workspace: WeighbridgeWorkspace,
+    writesAvailable: Boolean,
+    busy: Boolean,
+    onUnlockOperator: (String, String, String?) -> Unit,
+    onLockOperator: () -> Unit,
+) {
+    var operatorId by rememberSaveable(workspace.localWorkstationId) { mutableStateOf<String?>(workspace.operator?.id) }
+    var pin by remember { mutableStateOf("") }
+    var note by rememberSaveable(workspace.localWorkstationId) { mutableStateOf("") }
+    Card {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Смена и оператор", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            DetailRow("Статус смены", workspace.shift?.status ?: "Нет открытой смены")
+            DetailRow("Открыта", workspace.shift?.openedAt?.let(::formatServerDate))
+            DetailRow("Сменщик", workspace.operator?.name)
+            if (!writesAvailable) {
+                Text("PIN-вход и открытие/передача смены заблокированы до появления серверного station contract.")
+            } else if (workspace.unlocked) {
+                Button(onClick = onLockOperator, enabled = !busy) { Text("Заблокировать терминал") }
+            } else {
+                ChoiceField(
+                    label = "Сменщик",
+                    selectedId = operatorId,
+                    choices = workspace.operators.map { Choice(it.id, it.name) },
+                    enabled = !busy,
+                    onSelect = { operatorId = it },
+                )
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { value -> pin = value.filter(Char::isDigit).take(6) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("PIN, 6 цифр") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    singleLine = true,
+                    enabled = !busy,
+                )
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it.take(300) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Комментарий передачи смены (необязательно)") },
+                    enabled = !busy,
+                )
+                Button(
+                    onClick = {
+                        val selected = operatorId ?: return@Button
+                        onUnlockOperator(selected, pin, note.takeIf(String::isNotBlank))
+                        pin = ""
+                    },
+                    enabled = !busy && operatorId != null && pin.length == 6,
+                ) { Text(if (workspace.shift == null) "Открыть смену" else "Подтвердить сменщика") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreateHarvestTicketCard(
+    workspace: WeighbridgeWorkspace,
+    busy: Boolean,
+    onCreate: (HarvestTicketDraft) -> Unit,
+) {
+    val allocations = workspace.allocations.filterNot(HarvestAllocationOption::incomplete)
+    var allocationId by rememberSaveable { mutableStateOf<String?>(null) }
+    var destinationId by rememberSaveable { mutableStateOf<String?>(null) }
+    var vehicleId by rememberSaveable { mutableStateOf<String?>(null) }
+    var driverId by rememberSaveable { mutableStateOf<String?>(null) }
+    var gross by rememberSaveable { mutableStateOf("") }
+    var notes by rememberSaveable { mutableStateOf("") }
+    var pendingDraft by remember { mutableStateOf<HarvestTicketDraft?>(null) }
+    val allocation = allocations.firstOrNull { it.id == allocationId }
+    val grossValue = gross.replace(',', '.').toDoubleOrNull()
+
+    pendingDraft?.let { draft ->
+        AlertDialog(
+            onDismissRequest = { pendingDraft = null },
+            title = { Text("Создать талон приёмки?") },
+            text = { Text("${allocation?.fieldName} → ${workspace.destinations.firstOrNull { it.id == draft.destinationId }?.name}\nБрутто: ${formatKg(draft.grossWeightKg)}") },
+            confirmButton = {
+                TextButton(onClick = { pendingDraft = null; onCreate(draft) }) { Text("Создать") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDraft = null }) { Text("Отмена") } },
+        )
+    }
+
+    Card {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Новый талон приёмки", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            ChoiceField(
+                label = "Поле и культура",
+                selectedId = allocationId,
+                choices = allocations.map { Choice(it.id, "${it.fieldName} · ${it.cropName}") },
+                enabled = !busy,
+                onSelect = { allocationId = it },
+            )
+            ChoiceField("Место приёмки", destinationId, workspace.destinations.toChoices(), !busy) { destinationId = it }
+            ChoiceField("Транспорт (необязательно)", vehicleId, workspace.vehicles.toChoices(optional = true), !busy) { vehicleId = it }
+            ChoiceField("Водитель (необязательно)", driverId, workspace.drivers.toChoices(optional = true), !busy) { driverId = it }
+            OutlinedTextField(
+                value = gross,
+                onValueChange = { gross = it.filter { char -> char.isDigit() || char == ',' || char == '.' }.take(12) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Брутто, кг") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                enabled = !busy,
+                singleLine = true,
+            )
+            OutlinedTextField(
+                value = notes,
+                onValueChange = { notes = it.take(500) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Примечание") },
+                enabled = !busy,
+            )
+            Button(
+                onClick = {
+                    val selected = allocation ?: return@Button
+                    val destination = destinationId ?: return@Button
+                    val weight = grossValue ?: return@Button
+                    pendingDraft = HarvestTicketDraft(
+                        allocationId = selected.id,
+                        fieldId = selected.fieldId,
+                        cropId = selected.cropId,
+                        varietyId = selected.varietyId,
+                        reproductionId = selected.reproductionId,
+                        destinationId = destination,
+                        vehicleId = vehicleId,
+                        driverId = driverId,
+                        grossWeightKg = weight,
+                        notes = notes.trim().takeIf(String::isNotEmpty),
+                    )
+                },
+                enabled = !busy && allocation != null && destinationId != null && grossValue != null && grossValue > 0,
+            ) { Text("Проверить и создать") }
+        }
+    }
+}
+
+@Composable
+private fun WeighbridgeTicketWorkCard(
+    ticket: TicketSummary,
+    writesAvailable: Boolean,
+    unlocked: Boolean,
+    busy: Boolean,
+    onClose: () -> Unit,
+    onSaveGrossWeight: (TicketSummary, Double) -> Unit,
+    onFinalizeTicket: (TicketSummary, Double, Boolean) -> Unit,
+) {
+    var grossInput by rememberSaveable(ticket.id) { mutableStateOf(ticket.grossWeightKg?.toString().orEmpty()) }
+    var tareInput by rememberSaveable(ticket.id) { mutableStateOf("") }
+    var confirmGross by remember { mutableStateOf<Double?>(null) }
+    var confirmTare by remember { mutableStateOf<Double?>(null) }
+    val gross = ticket.grossWeightKg ?: grossInput.replace(',', '.').toDoubleOrNull()
+    val tare = tareInput.replace(',', '.').toDoubleOrNull()
+
+    confirmGross?.let { value ->
+        AlertDialog(
+            onDismissRequest = { confirmGross = null },
+            title = { Text("Сохранить брутто?") },
+            text = { Text("Талон ${ticket.ticketNo}: ${formatKg(value)}") },
+            confirmButton = { TextButton(onClick = { confirmGross = null; onSaveGrossWeight(ticket, value) }) { Text("Сохранить") } },
+            dismissButton = { TextButton(onClick = { confirmGross = null }) { Text("Отмена") } },
+        )
+    }
+    confirmTare?.let { value ->
+        AlertDialog(
+            onDismissRequest = { confirmTare = null },
+            title = { Text("Завершить талон?") },
+            text = { Text("Тара: ${formatKg(value)}\nНетто: ${formatKg((ticket.grossWeightKg ?: 0.0) - value)}") },
+            confirmButton = { TextButton(onClick = { confirmTare = null; onFinalizeTicket(ticket, value, false) }) { Text("Завершить") } },
+            dismissButton = { TextButton(onClick = { confirmTare = null }) { Text("Отмена") } },
+        )
+    }
+
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Продолжить ${ticket.ticketNo}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                TextButton(onClick = onClose) { Text("Закрыть") }
+            }
+            DetailRow("Маршрут", listOfNotNull(ticket.fieldName, ticket.destinationName).joinToString(" → "))
+            DetailRow("Обработка", ticket.linkedProcessingId)
+            DetailRow("Партия", ticket.harvestLotId)
+            DetailRow("Брутто", ticket.grossWeightKg?.let(::formatKg))
+            DetailRow("Тара", ticket.tareWeightKg?.let(::formatKg))
+            DetailRow("Нетто", ticket.netWeightKg?.let(::formatKg))
+            if (!writesAvailable || !unlocked) {
+                Text("Изменение веса недоступно: нужна подтверждённая станция и разблокированный сменщик.")
+            } else if (ticket.grossWeightKg == null) {
+                OutlinedTextField(
+                    value = grossInput,
+                    onValueChange = { grossInput = it.filter { char -> char.isDigit() || char == ',' || char == '.' }.take(12) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Брутто, кг") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    enabled = !busy,
+                    singleLine = true,
+                )
+                Button(onClick = { gross?.takeIf { it > 0 }?.let { confirmGross = it } }, enabled = !busy && gross != null && gross > 0) {
+                    Text("Проверить брутто")
+                }
+            } else {
+                OutlinedTextField(
+                    value = tareInput,
+                    onValueChange = { tareInput = it.filter { char -> char.isDigit() || char == ',' || char == '.' }.take(12) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Тара, кг") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    enabled = !busy,
+                    singleLine = true,
+                )
+                if (tare != null && tare >= 0 && tare < ticket.grossWeightKg) {
+                    Text("Расчётное нетто: ${formatKg(ticket.grossWeightKg - tare)}", fontWeight = FontWeight.SemiBold)
+                }
+                Button(
+                    onClick = { tare?.let { confirmTare = it } },
+                    enabled = !busy && tare != null && tare >= 0 && tare < ticket.grossWeightKg,
+                ) { Text("Проверить и завершить") }
+            }
+        }
+    }
+}
+
+private data class Choice(val id: String?, val label: String)
+
+@Composable
+private fun ChoiceField(
+    label: String,
+    selectedId: String?,
+    choices: List<Choice>,
+    enabled: Boolean,
+    onSelect: (String?) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected = choices.firstOrNull { it.id == selectedId }?.label ?: "Не выбрано"
+    Box(modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth(), enabled = enabled) {
+            Text("$label: $selected", maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            choices.forEach { choice ->
+                DropdownMenuItem(
+                    text = { Text(choice.label) },
+                    onClick = { expanded = false; onSelect(choice.id) },
+                )
+            }
+        }
+    }
+}
+
+private fun List<WeighbridgeResourceOption>.toChoices(optional: Boolean = false): List<Choice> =
+    (if (optional) listOf(Choice(null, "Не указано")) else emptyList()) + map { option ->
+        Choice(option.id, listOfNotNull(option.name, option.secondary).joinToString(" · "))
+    }
 
 @Composable
 private fun WarehouseOverviewContent(

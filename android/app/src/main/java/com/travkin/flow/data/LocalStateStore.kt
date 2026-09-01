@@ -7,6 +7,8 @@ import com.travkin.flow.domain.CachedTicketPage
 import com.travkin.flow.domain.CachedWarehouseOverview
 import com.travkin.flow.domain.Actor
 import com.travkin.flow.domain.SupportedRole
+import com.travkin.flow.domain.PendingWeighbridgeQueue
+import java.util.UUID
 
 class LocalStateStore(
     private val storage: SecureStorage,
@@ -100,6 +102,23 @@ class LocalStateStore(
         storage.remove(WAREHOUSE_OVERVIEW_KEY)
     }
 
+    fun loadPendingWeighbridgeQueue(): PendingWeighbridgeQueue =
+        decode(WEIGHBRIDGE_QUEUE_KEY, PendingWeighbridgeQueue::class.java) ?: PendingWeighbridgeQueue(emptyList())
+
+    fun savePendingWeighbridgeQueue(queue: PendingWeighbridgeQueue) {
+        if (queue.commands.isEmpty()) storage.remove(WEIGHBRIDGE_QUEUE_KEY)
+        else storage.put(WEIGHBRIDGE_QUEUE_KEY, gson.toJson(queue))
+    }
+
+    fun clearPendingWeighbridgeQueue() {
+        storage.remove(WEIGHBRIDGE_QUEUE_KEY)
+    }
+
+    fun loadOrCreateWorkstationId(): String {
+        storage.get(WORKSTATION_ID_KEY)?.takeIf(String::isNotBlank)?.let { return it }
+        return UUID.randomUUID().toString().also { storage.put(WORKSTATION_ID_KEY, it) }
+    }
+
     private fun <T> decode(key: String, type: Class<T>): T? = runCatching {
         storage.get(key)?.let { gson.fromJson(it, type) }
     }.getOrNull()
@@ -111,5 +130,7 @@ class LocalStateStore(
         const val TICKET_PAGE_KEY = "ticket_page"
         const val HARVEST_OVERVIEW_KEY = "harvest_overview"
         const val WAREHOUSE_OVERVIEW_KEY = "warehouse_overview"
+        const val WEIGHBRIDGE_QUEUE_KEY = "weighbridge_pending_commands"
+        const val WORKSTATION_ID_KEY = "weighbridge_workstation_id"
     }
 }

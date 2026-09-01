@@ -5,12 +5,13 @@ enum class SupportedRole(
     val displayName: String,
     val canViewHarvest: Boolean,
     val canViewWarehouses: Boolean,
+    val canUseWeighbridgeWorkspace: Boolean,
 ) {
-    GLOBAL_ADMIN("global_admin", "Global Admin", true, true),
-    COMPANY_ADMIN("company_admin", "Company Admin", true, true),
-    AGRONOMIST("agronomist", "Агроном", true, true),
-    WEIGHMAN("weighman", "Весовщик", false, true),
-    SPECIALIST("specialist", "Специалист", false, false);
+    GLOBAL_ADMIN("global_admin", "Global Admin", true, true, true),
+    COMPANY_ADMIN("company_admin", "Company Admin", true, true, true),
+    AGRONOMIST("agronomist", "Агроном", true, true, false),
+    WEIGHMAN("weighman", "Весовщик", false, true, true),
+    SPECIALIST("specialist", "Специалист", false, false, false);
 
     companion object {
         fun fromWire(value: String?): SupportedRole? = entries.firstOrNull {
@@ -60,6 +61,10 @@ data class TicketSummary(
     val destinationName: String?,
     val netWeightKg: Double?,
     val requiresReview: Boolean,
+    val grossWeightKg: Double? = null,
+    val tareWeightKg: Double? = null,
+    val harvestLotId: String? = null,
+    val linkedProcessingId: String? = null,
 )
 
 data class TicketLine(
@@ -69,6 +74,8 @@ data class TicketLine(
     val quantity: Double,
     val unit: String,
     val moisturePercent: Double?,
+    val lotId: String? = null,
+    val batchClass: String? = null,
 )
 
 data class TicketDetails(
@@ -175,3 +182,98 @@ data class CachedWarehouseOverview(
     val companyId: String,
     val overview: WarehouseOverview,
 )
+
+data class WeighbridgeOperator(
+    val id: String,
+    val name: String,
+    val hasPin: Boolean,
+    val pinActive: Boolean,
+    val lockedUntil: String?,
+)
+
+data class WeighbridgeShift(
+    val id: String,
+    val status: String,
+    val operatorPersonId: String?,
+    val openedAt: String?,
+)
+
+data class WeighbridgeResourceOption(
+    val id: String,
+    val name: String,
+    val secondary: String? = null,
+)
+
+data class HarvestAllocationOption(
+    val id: String,
+    val fieldId: String,
+    val fieldName: String,
+    val cropId: String,
+    val cropName: String,
+    val varietyId: String?,
+    val varietyName: String?,
+    val reproductionId: String?,
+    val reproductionName: String?,
+    val incomplete: Boolean,
+)
+
+data class WeighbridgeWorkspace(
+    val shift: WeighbridgeShift?,
+    val unlocked: Boolean,
+    val operator: WeighbridgeOperator?,
+    val operators: List<WeighbridgeOperator>,
+    val fields: List<WeighbridgeResourceOption>,
+    val destinations: List<WeighbridgeResourceOption>,
+    val vehicles: List<WeighbridgeResourceOption>,
+    val drivers: List<WeighbridgeResourceOption>,
+    val allocations: List<HarvestAllocationOption>,
+    val resourceErrors: List<String>,
+    val stationContractAvailable: Boolean,
+    val localWorkstationId: String,
+    val writesEnabled: Boolean,
+    val pendingCommandCount: Int,
+    val fetchedAtEpochMillis: Long,
+)
+
+data class HarvestTicketDraft(
+    val allocationId: String,
+    val fieldId: String,
+    val cropId: String,
+    val varietyId: String?,
+    val reproductionId: String?,
+    val destinationId: String,
+    val vehicleId: String?,
+    val driverId: String?,
+    val grossWeightKg: Double,
+    val notes: String?,
+)
+
+data class PendingWeighbridgeCommand(
+    val idempotencyKey: String,
+    val type: String,
+    val actorId: String,
+    val companyId: String,
+    val ticketId: String? = null,
+    val draft: HarvestTicketDraft? = null,
+    val grossWeightKg: Double? = null,
+    val tareWeightKg: Double? = null,
+    val confirmTareVariance: Boolean = false,
+    val createdAtEpochMillis: Long,
+    val attempts: Int = 0,
+)
+
+data class PendingWeighbridgeQueue(
+    val commands: List<PendingWeighbridgeCommand>,
+)
+
+object WeighbridgeWritePolicy {
+    fun isAllowed(
+        enabled: Boolean,
+        appChannel: String,
+        baseUrl: String,
+        role: SupportedRole,
+    ): Boolean = enabled &&
+        appChannel == "qa" &&
+        baseUrl.trimEnd('/') == "https://qa.travkinflow.com" &&
+        role in setOf(SupportedRole.GLOBAL_ADMIN, SupportedRole.COMPANY_ADMIN, SupportedRole.WEIGHMAN)
+}

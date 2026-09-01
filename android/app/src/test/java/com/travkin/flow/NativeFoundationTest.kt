@@ -10,6 +10,11 @@ import com.travkin.flow.data.HarvestOverviewDto
 import com.travkin.flow.data.HarvestPeriodDto
 import com.travkin.flow.data.HarvestSummaryDto
 import com.travkin.flow.data.OperationalBootstrapDto
+import com.travkin.flow.data.OperatorStateDto
+import com.travkin.flow.data.InitialWeighbridgeWorkspaceDto
+import com.travkin.flow.data.HarvestAllocationDto
+import com.travkin.flow.data.HarvestAllocationsDto
+import com.travkin.flow.data.ResourceOptionDto
 import com.travkin.flow.data.ShiftDto
 import com.travkin.flow.data.ShiftGuardDto
 import com.travkin.flow.data.ShiftSummaryDto
@@ -20,20 +25,26 @@ import com.travkin.flow.data.TicketPageDto
 import com.travkin.flow.data.WarehouseDto
 import com.travkin.flow.data.WarehouseSummariesEnvelopeDto
 import com.travkin.flow.data.WarehouseSummaryDto
+import com.travkin.flow.data.WeighbridgeResourcesDto
+import com.travkin.flow.data.WeighbridgeShiftDto
 import com.travkin.flow.data.matchesScope
+import com.travkin.flow.data.isSameSecureOrigin
 import com.travkin.flow.data.toOperationalOverview
 import com.travkin.flow.data.toHarvestOverview
 import com.travkin.flow.data.toTicketDetails
 import com.travkin.flow.data.toTicketPage
 import com.travkin.flow.data.toWarehouseOverview
+import com.travkin.flow.data.toWeighbridgeWorkspace
 import com.travkin.flow.domain.CachedOverview
 import com.travkin.flow.domain.OperationalOverview
 import com.travkin.flow.domain.SupportedRole
+import com.travkin.flow.domain.WeighbridgeWritePolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import okhttp3.HttpUrl.Companion.toHttpUrl
 
 class NativeFoundationTest {
     @Test
@@ -56,6 +67,89 @@ class NativeFoundationTest {
         assertTrue(SupportedRole.AGRONOMIST.canViewWarehouses)
         assertTrue(SupportedRole.WEIGHMAN.canViewWarehouses)
         assertFalse(SupportedRole.SPECIALIST.canViewWarehouses)
+        assertTrue(SupportedRole.GLOBAL_ADMIN.canUseWeighbridgeWorkspace)
+        assertTrue(SupportedRole.COMPANY_ADMIN.canUseWeighbridgeWorkspace)
+        assertTrue(SupportedRole.WEIGHMAN.canUseWeighbridgeWorkspace)
+        assertFalse(SupportedRole.AGRONOMIST.canUseWeighbridgeWorkspace)
+        assertFalse(SupportedRole.SPECIALIST.canUseWeighbridgeWorkspace)
+    }
+
+    @Test
+    fun `weighbridge write policy is qa only and role limited`() {
+        assertTrue(
+            WeighbridgeWritePolicy.isAllowed(
+                enabled = true,
+                appChannel = "qa",
+                baseUrl = "https://qa.travkinflow.com/",
+                role = SupportedRole.WEIGHMAN,
+            ),
+        )
+        assertFalse(WeighbridgeWritePolicy.isAllowed(true, "release", "https://travkinflow.com", SupportedRole.WEIGHMAN))
+        assertFalse(WeighbridgeWritePolicy.isAllowed(true, "qa", "https://travkinflow.com", SupportedRole.WEIGHMAN))
+        assertFalse(WeighbridgeWritePolicy.isAllowed(false, "qa", "https://qa.travkinflow.com", SupportedRole.WEIGHMAN))
+        assertFalse(WeighbridgeWritePolicy.isAllowed(true, "qa", "https://qa.travkinflow.com", SupportedRole.AGRONOMIST))
+        assertFalse(WeighbridgeWritePolicy.isAllowed(true, "qa", "https://qa.travkinflow.com", SupportedRole.SPECIALIST))
+    }
+
+    @Test
+    fun `operator cookie origin never crosses into auth host`() {
+        val qaOrigin = "https://qa.travkinflow.com".toHttpUrl()
+        assertTrue(isSameSecureOrigin("https://qa.travkinflow.com/api/weighbridge/operator-session".toHttpUrl(), qaOrigin))
+        assertFalse(isSameSecureOrigin("https://example.supabase.co/auth/v1/token".toHttpUrl(), qaOrigin))
+        assertFalse(isSameSecureOrigin("http://qa.travkinflow.com/api/weighbridge/operator-session".toHttpUrl(), qaOrigin))
+    }
+
+    @Test
+    fun `weighbridge workspace maps resources but fails closed without station contract`() {
+        val mapped = OperatorStateDto(
+            shift = WeighbridgeShiftDto("shift-1", "open", "person-1", "2026-09-02T08:00:00Z"),
+            unlocked = true,
+            sessionExpiresAt = null,
+            operator = null,
+            operators = emptyList(),
+            unconfiguredOperatorCount = 0,
+            initialWorkspace = InitialWeighbridgeWorkspaceDto(
+                resources = WeighbridgeResourcesDto(
+                    fields = listOf(ResourceOptionDto("field-1", "Поле 1", 100.0, null, null)),
+                    destinations = listOf(ResourceOptionDto("warehouse-1", "Ток", null, "universal", "yard")),
+                    vehicles = emptyList(),
+                    drivers = emptyList(),
+                    resourceErrors = emptyList(),
+                ),
+                harvestAllocations = HarvestAllocationsDto(
+                    seasonId = "season-1",
+                    seasonYear = 2026,
+                    byField = mapOf(
+                        "field-1" to listOf(
+                            HarvestAllocationDto(
+                                allocationId = "allocation-1",
+                                areaHa = 100.0,
+                                cropId = "crop-1",
+                                cropName = "Пшеница",
+                                varietyId = null,
+                                varietyName = null,
+                                reproductionId = null,
+                                reproductionName = null,
+                                isIncomplete = false,
+                            ),
+                        ),
+                    ),
+                    incompleteByField = emptyMap(),
+                ),
+            ),
+        ).toWeighbridgeWorkspace(
+            localWorkstationId = "native-device-1",
+            writesEnabled = true,
+            pendingCommandCount = 2,
+            fetchedAtEpochMillis = 111L,
+        )
+
+        assertEquals("shift-1", mapped.shift?.id)
+        assertEquals("Поле 1", mapped.allocations.single().fieldName)
+        assertEquals("Пшеница", mapped.allocations.single().cropName)
+        assertEquals("Ток", mapped.destinations.single().name)
+        assertEquals(2, mapped.pendingCommandCount)
+        assertFalse(mapped.stationContractAvailable)
     }
 
     @Test
@@ -113,6 +207,8 @@ class NativeFoundationTest {
                     requiresReview = true,
                     notes = null,
                     lines = null,
+                    harvestLotId = "lot-1",
+                    linkedProcessingId = "processing-1",
                 ),
                 TicketDto(
                     id = null,
@@ -147,6 +243,9 @@ class NativeFoundationTest {
         assertEquals("ticket-1", mapped.tickets.single().id)
         assertEquals(7_950.0, mapped.tickets.single().netWeightKg ?: 0.0, 0.0)
         assertTrue(mapped.tickets.single().requiresReview)
+        assertEquals(12_500.0, mapped.tickets.single().grossWeightKg ?: 0.0, 0.0)
+        assertEquals("lot-1", mapped.tickets.single().harvestLotId)
+        assertEquals("processing-1", mapped.tickets.single().linkedProcessingId)
         assertTrue(mapped.historyHasMore)
         assertEquals(20, mapped.historyLimit)
         assertEquals(456L, mapped.fetchedAtEpochMillis)
@@ -189,6 +288,8 @@ class NativeFoundationTest {
                     quantity = 10_000.0,
                     uom = "kg",
                     moisturePercent = 12.5,
+                    lotId = "lot-line-1",
+                    batchClass = "food",
                 ),
             ),
         ).toTicketDetails()
@@ -198,6 +299,8 @@ class NativeFoundationTest {
         assertEquals(5_000.0, mapped.tareWeightKg ?: 0.0, 0.0)
         assertEquals("Пшеница", mapped.lines.single().productName)
         assertEquals(12.5, mapped.lines.single().moisturePercent ?: 0.0, 0.0)
+        assertEquals("lot-line-1", mapped.lines.single().lotId)
+        assertEquals("food", mapped.lines.single().batchClass)
     }
 
     @Test
