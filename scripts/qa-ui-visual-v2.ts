@@ -17,8 +17,10 @@ function git(args: string[]): string {
   return execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
 }
 
+const branchBase = git(["merge-base", "origin/master", "HEAD"]);
+
 function changedPaths(): string[] {
-  const tracked = git(["diff", "--name-only", "origin/master", "--"]);
+  const tracked = git(["diff", "--name-only", branchBase, "--"]);
   const untracked = git(["ls-files", "--others", "--exclude-standard"]);
   return Array.from(new Set(`${tracked}\n${untracked}`.split(/\r?\n/).map((path) => path.trim()).filter(Boolean)));
 }
@@ -48,7 +50,7 @@ function isAllowedVisualPath(path: string): boolean {
 }
 
 function addedSourceLines(): Array<{ path: string; line: string }> {
-  const diff = git(["diff", "origin/master", "--unified=0", "--", "."]);
+  const diff = git(["diff", branchBase, "--unified=0", "--", "."]);
   const rows: Array<{ path: string; line: string }> = [];
   let path = "";
   for (const line of diff.split(/\r?\n/)) {
@@ -181,7 +183,7 @@ function main() {
       const colors = directColorLiterals(line);
       if (!colors.length) return false;
       if (!baselineByPath.has(path)) {
-        try { baselineByPath.set(path, git(["show", `origin/master:${path}`]).toLowerCase()); }
+        try { baselineByPath.set(path, git(["show", `${branchBase}:${path}`]).toLowerCase()); }
         catch { baselineByPath.set(path, ""); }
       }
       const baseline = baselineByPath.get(path) || "";
