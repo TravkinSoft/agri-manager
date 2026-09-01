@@ -92,3 +92,48 @@ data class StoredActor(
     val email: String?,
     val savedAtEpochMillis: Long,
 )
+
+data class TicketPageDto(
+    val tickets: List<TicketDto>?,
+    val historyHasMore: Boolean?,
+)
+
+data class TicketDetailEnvelopeDto(
+    val ticket: TicketDto?,
+    val lines: List<TicketLineDto>?,
+)
+
+data class TicketDto(
+    val id: String?,
+    @SerializedName("ticket_no") val ticketNo: String?,
+    @SerializedName("op_type") val operationType: String?,
+    val direction: String?,
+    val status: String?,
+    @SerializedName("created_at") val createdAt: String?,
+    @SerializedName("company_name") val companyName: String?,
+    @SerializedName("field_name_snapshot") val fieldName: String?,
+    @SerializedName("vehicle_name_snapshot") val vehicleName: String?,
+    @SerializedName("vehicle_plate_snapshot") val vehiclePlate: String?,
+    @SerializedName("driver_name_snapshot") val driverName: String?,
+    @SerializedName("warehouse_from_name_snapshot") val warehouseFrom: String?,
+    @SerializedName("warehouse_to_name_snapshot") val warehouseTo: String?,
+    @SerializedName("supplier_name_snapshot") val supplierName: String?,
+    @SerializedName("buyer_name_snapshot") val buyerName: String?,
+    @SerializedName("destination_text") val destinationText: String?,
+    @SerializedName("gross_weight_kg") val grossWeightKg: Double?,
+    @SerializedName("tare_weight_kg") val tareWeightKg: Double?,
+    @SerializedName("net_weight_kg") val netWeightKg: Double?,
+    @SerializedName("physical_net_kg") val physicalNetKg: Double?,
+    @SerializedName("requires_review") val requiresReview: Boolean?,
+    val notes: String?,
+    val lines: List<TicketLineDto>?,
+)
+
+data class TicketLineDto(
+    @SerializedName("product_name") val productName: String?,
+    @SerializedName("variety_name") val varietyName: String?,
+    @SerializedName("reproduction_name") val reproductionName: String?,
+    val quantity: Double?,
+    val uom: String?,
+    @SerializedName("moisture_percent") val moisturePercent: Double?,
+)

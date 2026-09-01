@@ -5,6 +5,7 @@ import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
+import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface SupabaseAuthApi {
@@ -41,4 +42,19 @@ interface TravkinFlowApi {
         @Query("summary") includeSummary: Boolean = true,
         @Query("companyId") companyId: String? = null,
     ): Response<OperationalBootstrapDto>
+
+    @GET("api/weighbridge/tickets")
+    suspend fun tickets(
+        @Header("Authorization") authorization: String,
+        @Query("companyId") companyId: String? = null,
+        @Query("workspace") workspace: Boolean = true,
+        @Query("historyLimit") historyLimit: Int,
+    ): Response<TicketPageDto>
+
+    @GET("api/weighbridge/tickets/{id}")
+    suspend fun ticketDetails(
+        @Header("Authorization") authorization: String,
+        @Path("id") ticketId: String,
+        @Query("companyId") companyId: String? = null,
+    ): Response<TicketDetailEnvelopeDto>
 }

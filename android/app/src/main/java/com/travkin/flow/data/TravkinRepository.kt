@@ -5,7 +5,10 @@ import com.google.gson.Gson
 import com.travkin.flow.BuildConfig
 import com.travkin.flow.domain.Actor
 import com.travkin.flow.domain.CachedOverview
+import com.travkin.flow.domain.CachedTicketPage
 import com.travkin.flow.domain.OperationalOverview
+import com.travkin.flow.domain.TicketDetails
+import com.travkin.flow.domain.TicketPage
 import com.travkin.flow.domain.SupportedRole
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -87,6 +90,46 @@ class TravkinRepository(context: Context) {
         return overview
     }
 
+    fun cachedTicketPage(actor: Actor): TicketPage? =
+        localState.loadTicketPage(actor.id, actor.companyId)?.page
+
+    suspend fun refreshTickets(actor: Actor, requestedHistoryLimit: Int): TicketPage {
+        val historyLimit = requestedHistoryLimit.coerceIn(MIN_TICKET_HISTORY, MAX_TICKET_HISTORY)
+        var session = resolveSession(localState.loadSession() ?: throw SessionExpiredException())
+        var response = appApi.tickets(
+            authorization = session.bearer(),
+            companyId = actor.companyId,
+            historyLimit = historyLimit,
+        )
+        if (response.code() == 401) {
+            session = refreshSession(force = true)
+            response = appApi.tickets(
+                authorization = session.bearer(),
+                companyId = actor.companyId,
+                historyLimit = historyLimit,
+            )
+        }
+        if (!response.isSuccessful) throw response.toApiFailure("Не удалось загрузить талоны.")
+        val page = response.body()?.toTicketPage(historyLimit)
+            ?: throw UserFacingException("Сервер вернул пустой список талонов.")
+        localState.saveTicketPage(CachedTicketPage(actor.id, actor.companyId, page))
+        return page
+    }
+
+    suspend fun ticketDetails(actor: Actor, ticketId: String): TicketDetails {
+        val normalizedId = ticketId.trim().takeIf(String::isNotEmpty)
+            ?: throw UserFacingException("Не указан талон.")
+        var session = resolveSession(localState.loadSession() ?: throw SessionExpiredException())
+        var response = appApi.ticketDetails(session.bearer(), normalizedId, actor.companyId)
+        if (response.code() == 401) {
+            session = refreshSession(force = true)
+            response = appApi.ticketDetails(session.bearer(), normalizedId, actor.companyId)
+        }
+        if (!response.isSuccessful) throw response.toApiFailure("Не удалось загрузить талон.")
+        return response.body()?.toTicketDetails()
+            ?: throw UserFacingException("Сервер вернул пустой талон.")
+    }
+
     suspend fun signOut() {
         val session = localState.loadSession()
         if (session != null && configured()) {
@@ -157,6 +200,7 @@ class TravkinRepository(context: Context) {
         localState.clearSession()
         localState.clearActor()
         localState.clearOverview()
+        localState.clearTicketPage()
     }
 
     private fun configured(): Boolean =
@@ -204,6 +248,8 @@ class TravkinRepository(context: Context) {
     private companion object {
         const val REFRESH_EARLY_SECONDS = 90L
         const val MAX_OFFLINE_ACTOR_AGE_MILLIS = 12L * 60L * 60L * 1_000L
+        const val MIN_TICKET_HISTORY = 10
+        const val MAX_TICKET_HISTORY = 100
     }
 }
 

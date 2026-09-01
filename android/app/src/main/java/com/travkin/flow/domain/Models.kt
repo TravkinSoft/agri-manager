@@ -40,3 +40,54 @@ data class CachedOverview(
     val companyId: String?,
     val overview: OperationalOverview,
 )
+
+data class TicketSummary(
+    val id: String,
+    val ticketNo: String,
+    val operationType: String,
+    val direction: String,
+    val status: String,
+    val createdAt: String,
+    val fieldName: String?,
+    val vehicleName: String?,
+    val vehiclePlate: String?,
+    val driverName: String?,
+    val destinationName: String?,
+    val netWeightKg: Double?,
+    val requiresReview: Boolean,
+)
+
+data class TicketLine(
+    val productName: String,
+    val varietyName: String?,
+    val reproductionName: String?,
+    val quantity: Double,
+    val unit: String,
+    val moisturePercent: Double?,
+)
+
+data class TicketDetails(
+    val summary: TicketSummary,
+    val companyName: String?,
+    val supplierName: String?,
+    val buyerName: String?,
+    val warehouseFrom: String?,
+    val warehouseTo: String?,
+    val grossWeightKg: Double?,
+    val tareWeightKg: Double?,
+    val notes: String?,
+    val lines: List<TicketLine>,
+)
+
+data class TicketPage(
+    val tickets: List<TicketSummary>,
+    val historyHasMore: Boolean,
+    val historyLimit: Int,
+    val fetchedAtEpochMillis: Long,
+)
+
+data class CachedTicketPage(
+    val actorId: String,
+    val companyId: String?,
+    val page: TicketPage,
+)

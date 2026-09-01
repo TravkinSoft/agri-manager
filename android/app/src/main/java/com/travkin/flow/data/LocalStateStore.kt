@@ -2,6 +2,7 @@ package com.travkin.flow.data
 
 import com.google.gson.Gson
 import com.travkin.flow.domain.CachedOverview
+import com.travkin.flow.domain.CachedTicketPage
 import com.travkin.flow.domain.Actor
 import com.travkin.flow.domain.SupportedRole
 
@@ -58,6 +59,19 @@ class LocalStateStore(
         storage.remove(OVERVIEW_KEY)
     }
 
+    fun loadTicketPage(actorId: String, companyId: String?): CachedTicketPage? {
+        val cached = decode(TICKET_PAGE_KEY, CachedTicketPage::class.java) ?: return null
+        return cached.takeIf { it.matchesScope(actorId, companyId) }
+    }
+
+    fun saveTicketPage(cache: CachedTicketPage) {
+        storage.put(TICKET_PAGE_KEY, gson.toJson(cache))
+    }
+
+    fun clearTicketPage() {
+        storage.remove(TICKET_PAGE_KEY)
+    }
+
     private fun <T> decode(key: String, type: Class<T>): T? = runCatching {
         storage.get(key)?.let { gson.fromJson(it, type) }
     }.getOrNull()
@@ -66,5 +80,6 @@ class LocalStateStore(
         const val SESSION_KEY = "session"
         const val ACTOR_KEY = "actor"
         const val OVERVIEW_KEY = "operational_overview"
+        const val TICKET_PAGE_KEY = "ticket_page"
     }
 }
