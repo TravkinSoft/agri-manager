@@ -30,6 +30,7 @@ import type { TranslationKey } from "@/lib/i18n/translations";
 import { useAssistantShell } from "@/components/assistant/assistant-shell-provider";
 import { canUseAssistantShell } from "@/lib/assistant/shell";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { VisualSystemScope } from "@/components/ui/visual-system-scope";
 
 type BottomItem = {
   labelKey: TranslationKey;
@@ -171,7 +172,8 @@ export function MobileBottomNav({ visualV2 = false }: { visualV2?: boolean }) {
   return (
     <nav
       aria-label="Мобильная навигация"
-      data-visual-reference={visualV2 ? "weather-mobile-dock" : undefined}
+      data-visual-reference={visualV2 ? "shared-mobile-dock" : undefined}
+      data-visual-region={visualV2 ? "mobile-navigation" : undefined}
       className={cn(
         "fixed inset-x-3 bottom-3 z-40 px-2 py-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] md:hidden",
         visualV2 ? "tf-shell-mobile-dock tf-glass-chrome" : LEGACY_MOBILE_DOCK_CLASS
@@ -244,33 +246,50 @@ export function MobileBottomNav({ visualV2 = false }: { visualV2?: boolean }) {
         })}
       </div>
       <Dialog open={moreOpen} onOpenChange={setMoreOpen}>
-        <DialogContent className="!bottom-0 !left-0 !top-auto !w-full !max-w-none !translate-x-0 !translate-y-0 rounded-t-2xl border-[#2A3345] bg-[#101520] px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] pt-5 md:hidden">
-          <DialogHeader>
-            <DialogTitle className="text-left text-base text-[#F3F4F6]">{t("mobile_more")}</DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-2">
-            {moreItems.map((item) => {
-              const Icon = item.icon;
-              const label = t(item.labelKey);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href || "/dashboard"}
-                  onClick={() => setMoreOpen(false)}
-                  className={cn(
-                    "flex min-h-14 items-center gap-3 rounded-lg border border-[#2A3345] px-3 py-2 text-sm font-medium",
-                    isActivePath(pathname, item.href)
-                      ? "border-[#E0B100]/60 bg-[#E0B100]/10 text-[#E0B100]"
-                      : "bg-[#151C29] text-[#E4E7EC]"
-                  )}
-                >
-                  <Icon className="h-5 w-5 shrink-0" />
-                  <span className="min-w-0 leading-5">{label}</span>
-                </Link>
-              );
-            })}
-          </div>
-        </DialogContent>
+        <VisualSystemScope scope="shell" forceLegacy={!visualV2}>
+          <DialogContent
+            data-visual-pilot={visualV2 ? "mobile-navigation-more" : undefined}
+            data-visual-region={visualV2 ? "mobile-navigation-more" : undefined}
+            className={cn(
+              "!bottom-0 !left-0 !top-auto !w-full !max-w-none !translate-x-0 !translate-y-0 rounded-t-2xl px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] pt-5 md:hidden",
+              visualV2
+                ? "tf-glass-overlay border-[color:var(--tf-border-strong)] bg-[var(--tf-glass-fallback)] text-[color:var(--tf-text-primary)]"
+                : "border-[#2A3345] bg-[#101520]"
+            )}
+          >
+            <DialogHeader>
+              <DialogTitle className={cn("text-left text-base", visualV2 ? "text-[color:var(--tf-text-primary)]" : "text-[#F3F4F6]")}>
+                {t("mobile_more")}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-2">
+              {moreItems.map((item) => {
+                const Icon = item.icon;
+                const label = t(item.labelKey);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href || "/dashboard"}
+                    onClick={() => setMoreOpen(false)}
+                    className={cn(
+                      "flex min-h-14 items-center gap-3 rounded-lg border px-3 py-2 text-sm font-medium",
+                      visualV2
+                        ? isActivePath(pathname, item.href)
+                          ? "tf-focus-ring tf-shell-nav-active border-[color:var(--tf-border-strong)]"
+                          : "tf-focus-ring tf-work-surface border-[color:var(--tf-border-hairline)] text-[color:var(--tf-text-secondary)] hover:bg-[var(--tf-surface-work-raised)] hover:text-[color:var(--tf-text-primary)]"
+                        : isActivePath(pathname, item.href)
+                          ? "border-[#E0B100]/60 bg-[#E0B100]/10 text-[#E0B100]"
+                          : "border-[#2A3345] bg-[#151C29] text-[#E4E7EC]"
+                    )}
+                  >
+                    <Icon className="h-5 w-5 shrink-0" />
+                    <span className="min-w-0 leading-5">{label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </DialogContent>
+        </VisualSystemScope>
       </Dialog>
     </nav>
   );

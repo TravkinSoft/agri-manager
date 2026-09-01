@@ -293,6 +293,10 @@
     color: CanvasText;
     forced-color-adjust: auto;
   }
+
+  [data-visual-system="v2"] .tf-shell-mobile-dock::before {
+    display: none;
+  }
 }
 
 @layer utilities {
@@ -359,6 +363,23 @@
   [data-visual-system="v2"] .tf-shell-mobile-dock {
     border-radius: var(--tf-radius-dock);
     box-shadow: var(--tf-shadow-floating);
+  }
+
+  [data-visual-system="v2"] .tf-shell-mobile-dock::before {
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--tf-text-primary) 7%, transparent),
+      transparent 62%
+    );
+    border-radius: inherit;
+    content: "";
+    inset: 0;
+    pointer-events: none;
+    position: absolute;
+  }
+
+  [data-visual-system="v2"][data-effects="reduced"] .tf-shell-mobile-dock::before {
+    display: none;
   }
 
   [data-visual-system="v2"] .tf-shell-nav-active {

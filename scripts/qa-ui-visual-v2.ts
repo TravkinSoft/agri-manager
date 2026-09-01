@@ -203,12 +203,14 @@ function main() {
     assert.deepEqual(violations, []);
   });
 
-  check("weather-page dock is the explicit visual reference, not an ordinary route menu", () => {
+  check("weather page stays the visual reference while the shared dock is route-neutral", () => {
     assert.match(scope, /reference\?: "weather-mobile-dock"/);
     assert.match(mobileNav, /const isWeatherLab = pathname === "\/weather-lab"/);
     assert.match(mobileNav, /!isWeatherLab \|\| item\.kind !== "copilot"/);
     assert.match(mobileNav, /rounded-\[22px\][^\n]+backdrop-blur-xl/);
     assert.match(mobileNav, /isActivePath\(pathname, item\.href\)/);
+    assert.match(mobileNav, /data-visual-reference=\{visualV2 \? "shared-mobile-dock" : undefined\}/);
+    assert.match(mobileNav, /data-visual-region=\{visualV2 \? "mobile-navigation" : undefined\}/);
     if (weather.includes("<VisualSystemScope")) assert.match(weather, /reference="weather-mobile-dock"/);
     if (dashboard.includes("<VisualSystemScope")) assert.doesNotMatch(dashboard, /reference="weather-mobile-dock"/);
   });
@@ -216,10 +218,23 @@ function main() {
   check("V2 shell keeps route navigation stable and Copilot separate", () => {
     assert.match(mobileNav, /getRoleFilteredItems\(profile\?\.role, !visualV2\)/);
     assert.match(mobileNav, /if \(!includeCopilot\) return routeItems/);
-    assert.match(mobileNav, /data-visual-reference=\{visualV2 \? "weather-mobile-dock" : undefined\}/);
+    assert.match(mobileNav, /visualV2 \? "tf-shell-mobile-dock tf-glass-chrome" : LEGACY_MOBILE_DOCK_CLASS/);
     assert.match(assistantLauncher, /data-copilot-launcher="separate"/);
     assert.match(assistantPanel, /!isOpen \? \(\{ inert: "" \}/);
     assert.match(shell, /!isWeatherLab \|\| shellVisualV2/);
+  });
+
+  check("V2 mobile More portal inherits the shared shell surface contract", () => {
+    assert.match(mobileNav, /import \{ VisualSystemScope \} from "@\/components\/ui\/visual-system-scope"/);
+    assert.match(mobileNav, /<VisualSystemScope scope="shell" forceLegacy=\{!visualV2\}>/);
+    assert.match(mobileNav, /data-visual-pilot=\{visualV2 \? "mobile-navigation-more" : undefined\}/);
+    assert.match(mobileNav, /tf-glass-overlay/);
+    assert.match(mobileNav, /tf-work-surface/);
+    assert.match(mobileNav, /tf-shell-nav-active/);
+    assert.match(mobileNav, /forceLegacy=\{!visualV2\}/);
+    assert.match(css, /\.tf-shell-mobile-dock::before\s*\{[^}]+color-mix\(in srgb, var\(--tf-text-primary\) 7%, transparent\)/s);
+    assert.match(css, /data-effects="reduced"\][^{]+\.tf-shell-mobile-dock::before\s*\{\s*display: none/s);
+    assert.match(css, /@media \(forced-colors: active\)[\s\S]+\.tf-shell-mobile-dock::before\s*\{\s*display: none/s);
   });
 
   check("tickets V2 is list-and-tabs presentation only", () => {
