@@ -14,6 +14,10 @@ const stornoReasonRefCorrectiveUrl = new URL(
   "../supabase/migrations/20260901085144_tz315_processing_reversal_storno_reason_ref_corrective_v1.sql",
   import.meta.url,
 );
+const reversedDownstreamChainUrl = new URL(
+  "../supabase/migrations/20260901092138_tz315_processing_reversal_reversed_downstream_chain_v1.sql",
+  import.meta.url,
+);
 
 type Row = Record<string, unknown>;
 const rows = async (db: PGlite, sql: string) => (await db.query(sql)).rows as Row[];
@@ -96,6 +100,28 @@ const DOWNSTREAM: CaseSeed = {
   ],
 };
 
+const CHAIN_PARENT: CaseSeed = {
+  transformation: "31500000-0000-4000-8000-000000000701",
+  sourceBatch: "31500000-0000-4000-8000-000000000702",
+  transformationType: "cleaning",
+  inputQuantity: 70,
+  lossQuantity: 5,
+  lossType: "dust",
+  postsLossLedger: true,
+  outputs: [{ ticket: "31500000-0000-4000-8000-000000000703", batch: "31500000-0000-4000-8000-000000000704", quantity: 65 }],
+};
+
+const CHAIN_CHILD: CaseSeed = {
+  transformation: "31500000-0000-4000-8000-000000000711",
+  sourceBatch: "31500000-0000-4000-8000-000000000712",
+  transformationType: "drying",
+  inputQuantity: 65,
+  lossQuantity: 5,
+  lossType: "moisture_loss",
+  postsLossLedger: false,
+  outputs: [{ ticket: "31500000-0000-4000-8000-000000000713", batch: "31500000-0000-4000-8000-000000000714", quantity: 60 }],
+};
+
 const FOREIGN: CaseSeed = {
   transformation: "31500000-0000-4000-8000-000000000401",
   sourceBatch: "31500000-0000-4000-8000-000000000402",
@@ -152,6 +178,7 @@ async function bootstrap(db: PGlite) {
       company_id uuid not null,
       transformation_id uuid not null,
       batch_id uuid,
+      source_ticket_id uuid,
       warehouse_from_id uuid,
       node_warehouse_id uuid
     );
@@ -478,6 +505,7 @@ async function main() {
   const migration = await readFile(migrationUrl, "utf8");
   const privilegeMigration = await readFile(privilegeMigrationUrl, "utf8");
   const stornoReasonRefCorrective = await readFile(stornoReasonRefCorrectiveUrl, "utf8");
+  const reversedDownstreamChain = await readFile(reversedDownstreamChainUrl, "utf8");
 
   assert.match(migration, /create table if not exists public\.batch_processing_reversals/i);
   assert.match(migration, /create unique index if not exists uq_stock_ledger_storno_target_v1/i);
@@ -493,12 +521,16 @@ async function main() {
   assert.doesNotMatch(privilegeMigration, /\b(?:insert|update|delete|truncate)\b\s+(?:on|into|from|table)?\s*public\.batch_processing_reversals/i);
   assert.match(stornoReasonRefCorrective, /'storno_processing_reversal'', v_entry\.id, v_entry\.batch_id/i);
   assert.doesNotMatch(stornoReasonRefCorrective, /\b(?:insert|update|delete|truncate)\s+(?:into|from|table)?\s*public\./i);
+  assert.match(reversedDownstreamChain, /TZ315_REVERSED_DOWNSTREAM_CHAIN_V1/);
+  assert.doesNotMatch(reversedDownstreamChain, /\b(?:insert|update|delete|truncate)\s+(?:into|from|table)?\s*public\./i);
 
   const db = new PGlite();
   await bootstrap(db);
   await db.exec(migration);
   await db.exec(privilegeMigration);
   await db.exec(stornoReasonRefCorrective);
+  await db.exec(reversedDownstreamChain);
+  await db.exec(reversedDownstreamChain);
 
   const privilegeMatrix = await rows(db, `
     select role_name,
@@ -646,6 +678,36 @@ async function main() {
   assert.equal(afterBlocked.child_balance, beforeBlocked.child_balance);
   assert.equal(afterBlocked.status, beforeBlocked.status);
 
+  await seedCase(db, CHAIN_PARENT);
+  await seedCase(db, CHAIN_CHILD);
+  await db.exec(`
+    update public.tickets
+    set linked_processing_id='${CHAIN_CHILD.transformation}'
+    where id='${CHAIN_PARENT.outputs[0].ticket}';
+    update public.batch_transformation_inputs
+    set batch_id='${CHAIN_PARENT.outputs[0].batch}',
+        source_ticket_id='${CHAIN_PARENT.outputs[0].ticket}'
+    where transformation_id='${CHAIN_CHILD.transformation}';
+    delete from public.stock_ledger_entries
+    where reason_type='opening_balance'
+      and inventory_batch_id='${CHAIN_CHILD.sourceBatch}';
+    update public.stock_ledger_entries
+    set inventory_batch_id='${CHAIN_PARENT.outputs[0].batch}',
+        batch_id_text='${CHAIN_PARENT.outputs[0].batch}'
+    where processing_id='${CHAIN_CHILD.transformation}'
+      and reason_type='processing_input';
+  `);
+  await assert.rejects(
+    () => reverse(db, CHAIN_PARENT.transformation, "tz315-chain-parent-before-child"),
+    /PROCESSING_REVERSAL_(?:REFERENCE_MISMATCH|DOWNSTREAM_DEPENDENCY)/,
+  );
+  const childResult = await reverse(db, CHAIN_CHILD.transformation, "tz315-chain-child");
+  assert.equal(childResult.ok, true);
+  const parentResult = await reverse(db, CHAIN_PARENT.transformation, "tz315-chain-parent-after-child");
+  assert.equal(parentResult.ok, true);
+  assert.equal(await selectedEffect(db, CHAIN_PARENT.transformation), 0);
+  assert.equal(await selectedEffect(db, CHAIN_CHILD.transformation), 0);
+
   await seedCase(db, FOREIGN);
   await assert.rejects(
     () => reverse(db, FOREIGN.transformation, "tz315-foreign-actor", "foreign actor", OTHER_ACTOR),
@@ -689,6 +751,7 @@ async function main() {
       output_balance_kg: Number(await scalar(db, `select current_quantity from public.inventory_batches where id='${DRYING.outputs[0].batch}'`)),
     },
     downstream_partial_spend: "ATOMIC_BLOCK",
+    reversed_downstream_chain: "PASS",
     foreign_scope: "BLOCKED",
     immutable_receipt_and_state: "PASS",
     immutable_source_documents: "PASS",
