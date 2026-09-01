@@ -3663,7 +3663,26 @@ export default function WeighbridgeOperationsPage() {
   const selectOperation = async (operationType: OperationType) => {
     if (!workspaceReady) return false;
     if (operationType === form.operationType) return true;
-    if (isUniversalWorkspaceDirty(form, INITIAL_FORM, supplierReceiptLines.length)) {
+    const automaticHarvestDestinationId = (() => {
+      if (
+        typeof window === "undefined"
+        || form.operationType !== "harvest_incoming"
+        || !profile?.company_id
+        || !workstationId
+      ) return "";
+      const yards = warehouses.filter((warehouse) => warehouse.placeType === "YARD");
+      const savedDefaultId = getWeighbridgeDefaultDestinationId(
+        window.localStorage,
+        profile.company_id,
+        workstationId
+      );
+      const savedYard = yards.find((warehouse) => warehouse.id === savedDefaultId);
+      return savedYard?.id || (yards.length === 1 ? yards[0].id : "");
+    })();
+    const dirtyCheckForm = automaticHarvestDestinationId === form.warehouseToId
+      ? { ...form, warehouseToId: "" }
+      : form;
+    if (isUniversalWorkspaceDirty(dirtyCheckForm, INITIAL_FORM, supplierReceiptLines.length)) {
       const confirmed = await siteConfirm({
         title: "Сменить тип движения?",
         description: "Несохранённые данные этой вкладки будут очищены.",

@@ -76,6 +76,16 @@ check("operator can override destination without changing terminal default", () 
   assert.doesNotMatch(harvestPicker, /setWeighbridgeDefaultDestinationId/);
 });
 
+check("automatic YARD does not make an otherwise empty form dirty", () => {
+  const switchHandler = page.slice(
+    page.indexOf("const selectOperation = async"),
+    page.indexOf("const validate =", page.indexOf("const selectOperation = async"))
+  );
+  assert.match(switchHandler, /automaticHarvestDestinationId/);
+  assert.match(switchHandler, /automaticHarvestDestinationId === form\.warehouseToId[\s\S]*?warehouseToId: ""/);
+  assert.match(switchHandler, /isUniversalWorkspaceDirty\(dirtyCheckForm, INITIAL_FORM/);
+});
+
 check("manual-first weight source is truthful and auditable", () => {
   assert.match(page, /Ручной ввод/);
   assert.doesNotMatch(page, /Live вес/);
@@ -94,5 +104,5 @@ check("migration is additive and grants only execution", () => {
   assert.match(roleCorrective, /revoke all on function[\s\S]*?from public, anon/);
 });
 
-assert.equal(passed, 11);
-console.log(`TZ315 weighbridge initial/YARD/manual regression PASS: ${passed}/11`);
+assert.equal(passed, 12);
+console.log(`TZ315 weighbridge initial/YARD/manual regression PASS: ${passed}/12`);
