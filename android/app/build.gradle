@@ -1,5 +1,12 @@
 plugins {
     id "com.android.application"
+    id "org.jetbrains.kotlin.android"
+    id "org.jetbrains.kotlin.plugin.compose"
+}
+
+def buildConfigString = { value ->
+    def escaped = String.valueOf(value ?: "").replace("\\", "\\\\").replace('"', '\\"')
+    return '"' + escaped + '"'
 }
 
 def uploadKeystorePath = System.getenv("TRAVKINFLOW_UPLOAD_KEYSTORE")
@@ -20,6 +27,8 @@ android {
         versionName "3.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "String", "APP_CHANNEL", '"production"'
+        buildConfigField "String", "SUPABASE_URL", buildConfigString(System.getenv("TRAVKINFLOW_SUPABASE_URL"))
+        buildConfigField "String", "SUPABASE_ANON_KEY", buildConfigString(System.getenv("TRAVKINFLOW_SUPABASE_ANON_KEY"))
     }
 
     signingConfigs {
@@ -58,8 +67,13 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
     buildFeatures {
         buildConfig true
+        compose true
     }
 
     testOptions {
@@ -68,10 +82,29 @@ android {
 }
 
 dependencies {
-    implementation "androidx.activity:activity:1.10.1"
-    implementation "androidx.core:core:1.16.0"
+    implementation "androidx.core:core-ktx:1.16.0"
     implementation "androidx.core:core-splashscreen:1.0.1"
-    implementation "androidx.webkit:webkit:1.13.0"
+    implementation "androidx.activity:activity-compose:1.13.0"
+    implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.10.0"
+    implementation "androidx.lifecycle:lifecycle-runtime-compose:2.10.0"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0"
+
+    // Compose 1.12 requires compileSdk 37 / AGP 9.1. Keep the latest
+    // official Compose line compatible with the current API 36 Play target.
+    def composeBom = platform("androidx.compose:compose-bom:2026.06.00")
+    implementation composeBom
+    androidTestImplementation composeBom
+    implementation "androidx.compose.material3:material3"
+    implementation "androidx.compose.material:material-icons-extended"
+    implementation "androidx.compose.ui:ui"
+    implementation "androidx.compose.ui:ui-tooling-preview"
+    debugImplementation "androidx.compose.ui:ui-tooling"
+
+    implementation platform("com.squareup.okhttp3:okhttp-bom:5.3.0")
+    implementation "com.squareup.okhttp3:okhttp"
+    implementation "com.squareup.retrofit2:retrofit:3.0.0"
+    implementation "com.squareup.retrofit2:converter-gson:3.0.0"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2"
 
     testImplementation "junit:junit:4.13.2"
 }

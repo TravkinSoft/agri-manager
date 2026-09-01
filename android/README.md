@@ -1,46 +1,56 @@
-# TravkinFlow Android V1
+# TravkinFlow Native Android
 
-This is the native Android shell for the existing TravkinFlow application. It replaces the previous TWA-only delivery while keeping the established Play identity `com.travkin.flow`.
+Jetpack Compose client for the existing Play identity `com.travkin.flow`.
 
-## Runtime channels
+## Runtime boundary
 
-- `debug`: `com.travkin.flow.qa`, opens `https://qa.travkinflow.com`.
-- `release`: `com.travkin.flow`, opens `https://travkinflow.com`.
+- The business UI is native Compose.
+- The runtime has no WebView, TWA or embedded-site fallback.
+- `debug`: package `com.travkin.flow.qa`, API `https://qa.travkinflow.com`.
+- `release`: package `com.travkin.flow`, API `https://travkinflow.com`.
+- Supabase Auth URL and publishable/anon key are supplied at build time. No service role, signing password or database secret belongs in the app or Git.
 
-The shell contains no Supabase service role, Vercel token, database password, API secret, or signing password. Authentication remains in the protected web application and persists in the first-party WebView storage. The weighbridge PIN remains an independent server-side business gate.
+## Build configuration
 
-## Local verification
+Set these process-only variables before a QA build that needs login:
 
-```powershell
-$env:JAVA_HOME = "$HOME\.bubblewrap\jdk\jdk-17.0.11+9"
-$env:ANDROID_HOME = "$HOME\.bubblewrap\android_sdk"
-./gradlew.bat testDebugUnitTest assembleDebug
-```
+- `TRAVKINFLOW_SUPABASE_URL`
+- `TRAVKINFLOW_SUPABASE_ANON_KEY`
 
-The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk` and is intentionally ignored by Git.
+Without them the APK still compiles, but login fails closed with a configuration message.
 
-## Release AAB
-
-`./gradlew.bat bundleRelease` builds an unsigned release AAB unless all approved upload-signing environment variables are present:
+Release signing continues to use the existing external variables:
 
 - `TRAVKINFLOW_UPLOAD_KEYSTORE`
 - `TRAVKINFLOW_UPLOAD_STORE_PASSWORD`
 - `TRAVKINFLOW_UPLOAD_KEY_ALIAS`
 - `TRAVKINFLOW_UPLOAD_KEY_PASSWORD`
 
-No signing material is stored in this repository. Google Play publication remains an owner-controlled action.
+No signing material is stored in this repository.
 
-## Native capabilities
+## Current native foundation
 
-- no browser toolbar or URL bar;
-- safe-area/status/navigation bar integration;
-- Android Back closes a dismissible dialog first, then navigates application history;
-- first-party session persistence across process restarts;
-- trusted deep links for tickets, fields, warehouses and notifications;
-- network loss/recovery state;
-- authenticated PDF/file download using current first-party cookies;
-- native file picker and camera handoff without broad storage/camera permission;
-- native share bridge (`window.TravkinAndroid.share(...)`);
-- notification channels for important and agronomic events.
+- email/password authentication against Supabase Auth over HTTPS;
+- access/refresh token encryption with Android Keystore AES-GCM;
+- server-authoritative actor/role lookup through `GET /api/auth/actor`;
+- fail-closed scope for Global Admin, Company Admin, Агроном, Весовщик and Специалист;
+- a real read-only Compose operational overview from `GET /api/weighbridge/bootstrap?summary=true`;
+- encrypted company-scoped read cache with explicit stale/offline UI;
+- serialized token refresh and no automatic replay of write requests;
+- native logout and App Links intent filters.
 
-Remote push delivery still requires the owner-controlled Firebase configuration. The app does not request notification permission automatically.
+Write workflows, operator PIN, camera/files, FCM and offline command queue remain gated until their backend contracts and device E2E tests are complete.
+
+## Verification
+
+```powershell
+./gradlew.bat testDebugUnitTest lintDebug assembleDebug
+```
+
+Static runtime gate:
+
+```powershell
+rg -n "WebView|androidx\.webkit|loadUrl|TrustedWebActivity|bubblewrap" app/src/main
+```
+
+The static command must return no matches.
