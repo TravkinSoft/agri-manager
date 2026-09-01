@@ -41,6 +41,7 @@ type BottomItem = {
 const COPILOT_ITEM: BottomItem = { labelKey: "copilot", icon: Bot, kind: "copilot" };
 const MORE_ITEM: BottomItem = { labelKey: "mobile_more", icon: Menu, kind: "more" };
 const DASHBOARD_ITEM: BottomItem = { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard, kind: "route" };
+const LEGACY_MOBILE_DOCK_CLASS = "rounded-[22px] border border-white/10 bg-[#101520]/" + "92 shadow-[0_18px_45px_rgba(0,0,0,0.5)] backdrop-blur-xl";
 
 function getMobileRouteCandidates(role?: string | null): BottomItem[] {
   switch (role) {
@@ -126,7 +127,7 @@ function isActivePath(pathname: string, href?: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function getRoleFilteredItems(role?: string | null): BottomItem[] {
+function getRoleFilteredItems(role?: string | null, includeCopilot = true): BottomItem[] {
   const normalizedRole = String(role || "") as AppRole;
   if (normalizedRole === "global_admin" || normalizedRole === "company_admin") {
     return getMobileRouteCandidates(role).filter(
@@ -137,6 +138,7 @@ function getRoleFilteredItems(role?: string | null): BottomItem[] {
   const routeItems = getMobileRouteCandidates(role)
     .filter((item) => canAccessPath(normalizedRole, item.href || ""))
     .slice(0, routeLimit);
+  if (!includeCopilot) return routeItems;
   if (normalizedRole === "agronomist" && canUseAssistantShell(normalizedRole)) {
     const weather = routeItems.find((item) => item.href === "/weather-lab");
     return weather
@@ -146,7 +148,7 @@ function getRoleFilteredItems(role?: string | null): BottomItem[] {
   return canUseAssistantShell(normalizedRole) ? [...routeItems, COPILOT_ITEM] : routeItems;
 }
 
-export function MobileBottomNav() {
+export function MobileBottomNav({ visualV2 = false }: { visualV2?: boolean }) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
   const { profile } = useAuth();
@@ -160,14 +162,21 @@ export function MobileBottomNav() {
   if (!pathname) return null;
 
   const isWeatherLab = pathname === "/weather-lab" || pathname.startsWith("/weather-lab/");
-  const items = getRoleFilteredItems(profile?.role).filter(
+  const items = getRoleFilteredItems(profile?.role, !visualV2).filter(
     (item) => !isWeatherLab || item.kind !== "copilot"
   );
   const moreItems = getMoreRouteCandidates(profile?.role);
   if (items.length === 0) return null;
 
   return (
-    <nav className="fixed inset-x-3 bottom-3 z-40 rounded-[22px] border border-white/10 bg-[#101520]/92 px-2 py-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] shadow-[0_18px_45px_rgba(0,0,0,0.5)] backdrop-blur-xl md:hidden">
+    <nav
+      aria-label="Мобильная навигация"
+      data-visual-reference={visualV2 ? "weather-mobile-dock" : undefined}
+      className={cn(
+        "fixed inset-x-3 bottom-3 z-40 px-2 py-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] md:hidden",
+        visualV2 ? "tf-shell-mobile-dock tf-glass-chrome" : LEGACY_MOBILE_DOCK_CLASS
+      )}
+    >
       <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
         {items.map((item) => {
           const Icon = item.icon;
@@ -205,8 +214,8 @@ export function MobileBottomNav() {
                 className={cn(
                   "relative flex min-h-12 flex-col items-center justify-center rounded-2xl px-1 py-1 text-[10px] font-medium",
                   moreOpen
-                    ? "bg-white/[0.07] text-[#E0B100]"
-                    : "text-[#A9B2C2] hover:bg-[#202738] hover:text-[#F3F4F6]"
+                    ? visualV2 ? "tf-shell-nav-active" : "bg-white/[0.07] text-[#E0B100]"
+                    : visualV2 ? "tf-shell-nav-item" : "text-[#A9B2C2] hover:bg-[#202738] hover:text-[#F3F4F6]"
                 )}
               >
                 <Icon className="mb-1 h-4 w-4" />
@@ -223,11 +232,11 @@ export function MobileBottomNav() {
               className={cn(
                 "relative flex min-h-12 flex-col items-center justify-center rounded-2xl px-1 py-1 text-[10px] font-medium",
                 active
-                  ? "bg-white/[0.07] text-[#E0B100]"
-                  : "text-[#A9B2C2] hover:bg-[#202738] hover:text-[#F3F4F6]"
+                  ? visualV2 ? "tf-shell-nav-active" : "bg-white/[0.07] text-[#E0B100]"
+                  : visualV2 ? "tf-shell-nav-item" : "text-[#A9B2C2] hover:bg-[#202738] hover:text-[#F3F4F6]"
               )}
             >
-              {active ? <span className="absolute top-1 h-1 w-4 rounded-full bg-[#E0B100]" /> : null}
+              {active ? <span className={cn("absolute top-1 h-1 w-4 rounded-full", visualV2 ? "bg-[var(--tf-accent-primary)]" : "bg-[#E0B100]")} /> : null}
               <Icon className="mb-1 h-4 w-4" />
               <span className="line-clamp-2 max-w-full text-center leading-3">{label}</span>
             </Link>

@@ -3,11 +3,27 @@
 import { Sparkles } from "lucide-react";
 import { useAssistantShell } from "@/components/assistant/assistant-shell-provider";
 
-export function AssistantLauncher() {
+export function AssistantLauncher({ visualV2 = false }: { visualV2?: boolean }) {
   const { enabled, isOpen, open } = useAssistantShell();
 
   if (!enabled) return null;
   if (isOpen) return null;
+
+  if (visualV2) {
+    return (
+      <button
+        type="button"
+        onClick={open}
+        aria-label="Открыть Travkin Copilot"
+        title="Travkin Copilot"
+        data-copilot-launcher="separate"
+        className="tf-focus-ring tf-motion fixed bottom-[calc(env(safe-area-inset-bottom)+6.25rem)] right-4 z-40 flex min-h-11 items-center gap-2 rounded-[var(--tf-radius-pill)] border border-[color:var(--tf-accent-bright)] bg-[var(--tf-accent-primary)] px-3.5 py-2 text-sm font-semibold text-[color:var(--tf-accent-on-primary)] shadow-[var(--tf-shadow-floating)] hover:-translate-y-0.5 md:bottom-5 md:right-5"
+      >
+        <Sparkles aria-hidden="true" className="h-4 w-4" />
+        <span>Copilot</span>
+      </button>
+    );
+  }
 
   return (
     <div

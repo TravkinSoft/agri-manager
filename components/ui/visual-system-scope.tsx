@@ -11,11 +11,12 @@ type ScopeChildProps = {
 type VisualSystemScopeProps = {
   scope: VisualSystemScopeName;
   reference?: "weather-mobile-dock";
+  forceLegacy?: boolean;
   children: ReactElement<ScopeChildProps>;
 };
 
-export function VisualSystemScope({ scope, reference, children }: VisualSystemScopeProps) {
-  const enabled = isVisualSystemV2Enabled(scope);
+export function VisualSystemScope({ scope, reference, forceLegacy = false, children }: VisualSystemScopeProps) {
+  const enabled = !forceLegacy && isVisualSystemV2Enabled(scope);
   const [effects, setEffects] = useState<"full" | "reduced">("full");
 
   useEffect(() => {

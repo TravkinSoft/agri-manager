@@ -335,6 +335,53 @@
     background: #36435e;
   }
 
+  [data-visual-system="v2"].tf-shell-root {
+    background: var(--tf-canvas-base);
+    min-height: 100vh;
+  }
+
+  [data-visual-system="v2"] .tf-shell-main {
+    background: var(--tf-canvas-base);
+  }
+
+  [data-visual-system="v2"] .tf-shell-header {
+    border-color: var(--tf-border-hairline);
+    border-radius: 0;
+    border-width: 0 0 1px;
+    box-shadow: none;
+  }
+
+  [data-visual-system="v2"] .tf-shell-sidebar {
+    background: var(--tf-canvas-raised);
+    border-right: 1px solid var(--tf-border-hairline);
+  }
+
+  [data-visual-system="v2"] .tf-shell-mobile-dock {
+    border-radius: var(--tf-radius-dock);
+    box-shadow: var(--tf-shadow-floating);
+  }
+
+  [data-visual-system="v2"] .tf-shell-nav-active {
+    background: var(--tf-accent-soft);
+    color: var(--tf-accent-primary);
+  }
+
+  [data-visual-system="v2"] .tf-shell-nav-item {
+    color: var(--tf-text-muted);
+  }
+
+  [data-visual-system="v2"] .tf-shell-nav-item:hover {
+    background: var(--tf-surface-work-raised);
+    color: var(--tf-text-primary);
+  }
+
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    [data-visual-system="v2"][data-effects="full"] .tf-shell-mobile-dock {
+      -webkit-backdrop-filter: blur(var(--tf-blur-overlay));
+      backdrop-filter: blur(var(--tf-blur-overlay));
+    }
+  }
+
   [data-visual-system="v2"].tf-weather-page {
     isolation: isolate;
     position: relative;

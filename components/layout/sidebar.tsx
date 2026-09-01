@@ -124,7 +124,7 @@ function getNavigationByRole(role?: string | null): NavItem[] {
   return [];
 }
 
-export function Sidebar() {
+export function Sidebar({ visualV2 = false }: { visualV2?: boolean }) {
   const pathname = usePathname();
   const { isCollapsed } = useSidebar();
   const { profile } = useAuth();
@@ -134,20 +134,22 @@ export function Sidebar() {
   return (
     <div
       className={cn(
-        "flex h-full flex-col border-r border-[#262D3D] bg-[#11151E] text-[#F3F4F6] transition-all duration-300 ease-in-out",
+        "flex h-full flex-col transition-all duration-300 ease-in-out",
+        visualV2 ? "tf-shell-sidebar text-[color:var(--tf-text-primary)]" : "border-r border-[#262D3D] bg-[#11151E] text-[#F3F4F6]",
         isCollapsed ? "w-16" : "w-64"
       )}
     >
       <div
         className={cn(
-          "flex h-16 items-center border-b border-[#262D3D] transition-all duration-300",
+          "flex h-16 items-center border-b transition-all duration-300",
+          visualV2 ? "border-[color:var(--tf-border-hairline)]" : "border-[#262D3D]",
           isCollapsed ? "justify-center px-0" : "px-4"
         )}
       >
         <TravkinLogo compact={isCollapsed} />
       </div>
 
-      <nav className="travkin-scrollbar flex-1 space-y-1 overflow-y-auto p-3">
+      <nav aria-label="Основная навигация" className="travkin-scrollbar flex-1 space-y-1 overflow-y-auto p-3">
         <TooltipProvider delayDuration={0}>
           {navigation.map((item) => {
             const Icon = item.icon;
@@ -162,8 +164,8 @@ export function Sidebar() {
                   "flex items-center rounded-lg text-sm font-medium transition-all duration-200",
                   isCollapsed ? "justify-center px-3 py-2" : "gap-3 px-3 py-2",
                   isActive
-                    ? "bg-[#E0B100] text-[#111827] shadow-[0_0_0_1px_rgba(224,177,0,0.25)]"
-                    : "text-[#C7CDD8] hover:bg-[#202738] hover:text-[#F3F4F6]"
+                    ? visualV2 ? "tf-shell-nav-active" : "bg-[#E0B100] text-[#111827] shadow-[0_0_0_1px_rgba(224,177,0,0.25)]"
+                    : visualV2 ? "tf-shell-nav-item" : "text-[#C7CDD8] hover:bg-[#202738] hover:text-[#F3F4F6]"
                 )}
               >
                 <Icon className="h-5 w-5 flex-shrink-0" />
@@ -199,7 +201,7 @@ export function Sidebar() {
       ) : null}
 
       {!isCollapsed ? (
-        <div className="border-t border-[#262D3D] px-4 py-3 text-[11px] text-[#7F8A9B]">
+        <div className={cn("border-t px-4 py-3 text-[11px]", visualV2 ? "border-[color:var(--tf-border-hairline)] text-[color:var(--tf-text-muted)]" : "border-[#262D3D] text-[#7F8A9B]")}>
           Copyright © Сунгатов Айымбек
         </div>
       ) : null}

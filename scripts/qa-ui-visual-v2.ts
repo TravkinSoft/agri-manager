@@ -30,6 +30,11 @@ function isAllowedVisualPath(path: string): boolean {
     "app/(dashboard)/dashboard/page.tsx",
     "app/(dashboard)/weather-lab/page.tsx",
     "components/dashboard/harvest-dashboard.tsx",
+    "components/assistant/assistant-launcher.tsx",
+    "components/layout/dashboard-layout.tsx",
+    "components/layout/header.tsx",
+    "components/layout/mobile-bottom-nav.tsx",
+    "components/layout/sidebar.tsx",
     "components/ui/matte-surface.tsx",
     "components/ui/visual-system-scope.tsx",
     "components/weather/weather-lab.tsx",
@@ -82,7 +87,9 @@ function main() {
   const envExample = read(".env.example");
   const flags = read("lib/ui/visual-system.ts");
   const scope = read("components/ui/visual-system-scope.tsx");
+  const shell = read("components/layout/dashboard-layout.tsx");
   const mobileNav = read("components/layout/mobile-bottom-nav.tsx");
+  const assistantLauncher = read("components/assistant/assistant-launcher.tsx");
   const dashboard = read("components/dashboard/harvest-dashboard.tsx");
   const weather = read("components/weather/weather-lab.tsx");
   const paths = changedPaths();
@@ -124,6 +131,9 @@ function main() {
   check("weighbridge stays hard-protected regardless of allowlist", () => {
     assert.match(flags, /PROTECTED_SCOPES[^\n]+\["weighbridge"\]/);
     assert.match(flags, /PROTECTED_SCOPES\.has\(scope\)/);
+    assert.match(shell, /isWeighbridge[^;]+pathname\?\.startsWith\("\/weighbridge\/"\)/);
+    assert.match(shell, /shellVisualV2 = isVisualSystemV2Enabled\("shell"\) && !isWeighbridge/);
+    assert.match(shell, /forceLegacy=\{isWeighbridge\}/);
   });
 
   check("V2 styles are namespaced and legacy has no visual override", () => {
@@ -187,6 +197,14 @@ function main() {
     assert.match(mobileNav, /isActivePath\(pathname, item\.href\)/);
     if (weather.includes("<VisualSystemScope")) assert.match(weather, /reference="weather-mobile-dock"/);
     if (dashboard.includes("<VisualSystemScope")) assert.doesNotMatch(dashboard, /reference="weather-mobile-dock"/);
+  });
+
+  check("V2 shell keeps route navigation stable and Copilot separate", () => {
+    assert.match(mobileNav, /getRoleFilteredItems\(profile\?\.role, !visualV2\)/);
+    assert.match(mobileNav, /if \(!includeCopilot\) return routeItems/);
+    assert.match(mobileNav, /data-visual-reference=\{visualV2 \? "weather-mobile-dock" : undefined\}/);
+    assert.match(assistantLauncher, /data-copilot-launcher="separate"/);
+    assert.match(shell, /!isWeatherLab \|\| shellVisualV2/);
   });
 
   check("harness is read-only and has no data or network client imports", () => {

@@ -23,6 +23,7 @@ import { isGlobalAdmin } from "@/lib/auth/roles";
 import { supabase } from "@/lib/supabase/client";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { cachedClientValue, invalidateClientCache } from "@/lib/client/single-flight-cache";
+import { cn } from "@/lib/utils";
 
 type CompanyContextItem = {
   id: string;
@@ -36,7 +37,7 @@ type CompanyUserContextItem = {
   role: string | null;
 };
 
-export function Header() {
+export function Header({ visualV2 = false }: { visualV2?: boolean }) {
   const { toggleSidebar } = useSidebar();
   const { user, profile, signOut, setGlobalAdminCompanyContext, refreshProfile } = useAuth();
   const { t } = useLanguage();
@@ -287,7 +288,7 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-[#262D3D] bg-[#11151E]/95 px-3 backdrop-blur md:h-16 md:px-6">
+    <header className={cn("sticky top-0 z-30 flex h-14 items-center justify-between px-3 md:h-16 md:px-6", visualV2 ? "tf-shell-header tf-glass-chrome" : "border-b border-[#262D3D] bg-[#11151E]/95 backdrop-blur")}>
       <Button
         variant="ghost"
         size="icon"
