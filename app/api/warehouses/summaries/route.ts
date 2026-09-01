@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
 
     const [balancesResult, harvestLotsResult, ...latestLedgerResults] = await Promise.all([
       supabase
-        .from("v_stock_balance_canonical")
+        .from("v_stock_balance_identity")
         .select("warehouse_id,product_id,quantity,uom,batch_class")
         .eq("company_id", companyId)
         .in("warehouse_id", warehouseIds),

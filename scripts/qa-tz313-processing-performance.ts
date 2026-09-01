@@ -133,7 +133,8 @@ check("processing summary scope is bounded and has no ledger N plus one", () => 
 });
 
 check("default warehouse summaries remain backward compatible", () => {
-  assert.match(summariesRoute, /v_stock_balance_canonical/);
+  assert.match(summariesRoute, /v_stock_balance_identity/);
+  assert.match(summariesRoute, /warehouse_id,product_id,quantity,uom,batch_class/);
   assert.match(summariesRoute, /stock_ledger_entries/);
   assert.match(summariesRoute, /lastMovementByWarehouse/);
   assert.match(warehouseService, /options\?: \{ scope\?: "processing_cards"; signal\?: AbortSignal \}/);
