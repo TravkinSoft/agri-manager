@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { Clock3, FileCheck2, History, Loader2, Scale } from "lucide-react";
 import { TicketPreviewDialog } from "@/components/weighbridge/ticket-preview-dialog";
 import { Button } from "@/components/ui/button";
@@ -10,8 +11,15 @@ import { dateKey, isEffectiveFinalizedHarvestTicket, isOpenHarvestTicket, ticket
 import { listTickets } from "@/lib/services/weighbridge";
 import type { WeighbridgeTicket } from "@/lib/types/weighbridge";
 import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
+import { isVisualSystemV2Enabled } from "@/lib/ui/visual-system";
+import { VisualSystemScope } from "@/components/ui/visual-system-scope";
+import type { VisualTicketsMode, VisualV2TicketRow } from "@/components/tickets/visual-v2-tickets-list";
 
-type ViewMode = "open" | "today" | "history";
+const VisualV2TicketsList = dynamic(
+  () => import("@/components/tickets/visual-v2-tickets-list").then((module) => module.VisualV2TicketsList)
+);
+
+type ViewMode = VisualTicketsMode;
 
 function kg(value: number | null | undefined): string {
   return `${Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг`;
@@ -74,11 +82,47 @@ export default function TicketsPage() {
     return harvest;
   }, [mode, tickets]);
 
+  const visualRows = useMemo<VisualV2TicketRow[]>(() => rows.map((ticket) => {
+    const identity = ticketIdentity(ticket);
+    const finalized = isEffectiveFinalizedHarvestTicket(ticket);
+    const moisturePercent = ticket.lines?.[0]?.moisture_percent;
+    const paperNo = paperDocumentNo(ticket);
+    const eventDate = dateTime(paperNo ? ticket.created_at : (finalized ? ticket.finalized_at : ticket.created_at));
+    return {
+      id: ticket.id,
+      fieldName: ticket.field_name_snapshot || "Поле не указано",
+      status: statusLabel(ticket),
+      statusTone: ticket.is_voided || ticket.status === "voided" ? "danger" : finalized ? "success" : "warning",
+      crop: identity.crop,
+      variety: identity.variety || "не указан",
+      reproduction: identity.reproduction || "не указана",
+      moisture: moisturePercent != null && Number.isFinite(Number(moisturePercent)) ? `${Number(moisturePercent).toLocaleString("ru-RU", { maximumFractionDigits: 2 })}%` : null,
+      paperNo: paperNo || null,
+      tareWeight: paperNo ? kg(ticket.tare_weight_kg) : null,
+      ticketNo: String(ticket.ticket_no || ""),
+      dateLabel: paperNo ? `Дата рейса: ${eventDate}` : eventDate,
+      weight: kg(finalized ? ticket.net_weight_kg : ticket.gross_weight_kg),
+    };
+  }), [rows]);
+
+  const visualV2 = isVisualSystemV2Enabled("tickets");
+
   const modes: Array<{ id: ViewMode; label: string; icon: typeof Scale }> = [
     { id: "open", label: "Открытые", icon: Clock3 },
     { id: "today", label: "Сегодня завершены", icon: FileCheck2 },
     { id: "history", label: "История", icon: History },
   ];
+
+  if (visualV2) {
+    return (
+      <VisualSystemScope scope="tickets">
+        <div>
+          <VisualV2TicketsList mode={mode} rows={visualRows} loading={loading} error={error} onModeChange={setMode} onOpenTicket={setTicketId} />
+          <TicketPreviewDialog ticketId={ticketId} open={Boolean(ticketId)} onOpenChange={(open) => !open && setTicketId(null)} />
+        </div>
+      </VisualSystemScope>
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-[1350px] space-y-4 overflow-x-hidden">

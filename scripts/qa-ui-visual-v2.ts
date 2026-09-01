@@ -28,6 +28,7 @@ function isAllowedVisualPath(path: string): boolean {
     ".env.example",
     "app/globals.css",
     "app/(dashboard)/dashboard/page.tsx",
+    "app/(dashboard)/tickets/page.tsx",
     "app/(dashboard)/weather-lab/page.tsx",
     "components/dashboard/harvest-dashboard.tsx",
     "components/assistant/assistant-launcher.tsx",
@@ -42,7 +43,7 @@ function isAllowedVisualPath(path: string): boolean {
     "package.json",
     "scripts/qa-ui-visual-v2.ts",
   ]);
-  return exact.has(path) || path.startsWith("components/dashboard/visual-v2-") || path.startsWith("components/weather/visual-v2-");
+  return exact.has(path) || path.startsWith("components/dashboard/visual-v2-") || path.startsWith("components/tickets/visual-v2-") || path.startsWith("components/weather/visual-v2-");
 }
 
 function addedSourceLines(): Array<{ path: string; line: string }> {
@@ -91,6 +92,8 @@ function main() {
   const mobileNav = read("components/layout/mobile-bottom-nav.tsx");
   const assistantLauncher = read("components/assistant/assistant-launcher.tsx");
   const dashboard = read("components/dashboard/harvest-dashboard.tsx");
+  const ticketsPage = read("app/(dashboard)/tickets/page.tsx");
+  const visualTickets = read("components/tickets/visual-v2-tickets-list.tsx");
   const weather = read("components/weather/weather-lab.tsx");
   const paths = changedPaths();
   const added = addedSourceLines();
@@ -153,6 +156,7 @@ function main() {
 
   check("glass blur exists only in the two chrome primitives", () => {
     assert.doesNotMatch(dashboard, /backdrop-(?:blur|filter)|backdropFilter/);
+    assert.doesNotMatch(visualTickets, /backdrop-(?:blur|filter)|backdropFilter/);
     assert.doesNotMatch(weather, /backdrop-(?:blur|filter)|backdropFilter/);
     assert.match(css, /\.tf-glass-chrome/);
     assert.match(css, /\.tf-glass-overlay/);
@@ -205,6 +209,15 @@ function main() {
     assert.match(mobileNav, /data-visual-reference=\{visualV2 \? "weather-mobile-dock" : undefined\}/);
     assert.match(assistantLauncher, /data-copilot-launcher="separate"/);
     assert.match(shell, /!isWeatherLab \|\| shellVisualV2/);
+  });
+
+  check("tickets V2 is list-and-tabs presentation only", () => {
+    assert.match(ticketsPage, /isVisualSystemV2Enabled\("tickets"\)/);
+    assert.match(ticketsPage, /<VisualSystemScope scope="tickets">/);
+    assert.match(visualTickets, /role="tablist"/);
+    assert.match(visualTickets, /role="tabpanel"/);
+    assert.match(visualTickets, /<ul className="space-y-2"/);
+    assert.doesNotMatch(visualTickets, /listTickets|useLiveRefresh|\bfetch\s*\(|supabase/i);
   });
 
   check("harness is read-only and has no data or network client imports", () => {
