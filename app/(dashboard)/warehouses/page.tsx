@@ -636,20 +636,40 @@ export default function WarehousesPage() {
         )}
 
       <Dialog open={Boolean(selectedSummary)} onOpenChange={(open) => !open && setSelectedWarehouseId(null)}>
-        <DialogContent className="flex h-[100dvh] max-h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[92vh] sm:max-h-[92vh] sm:w-[min(1100px,calc(100vw-32px))] sm:max-w-[1100px] sm:rounded-lg">
+        <DialogContent
+          data-visual-system={visualV2 ? "v2" : "legacy"}
+          data-visual-scope="warehouses"
+          data-effects={visualV2 ? "full" : "reduced"}
+          data-visual-pilot={visualV2 ? "warehouse-detail" : undefined}
+          data-role-scope={visualV2 ? "agronomist" : undefined}
+          overlayClassName={visualV2 ? "bg-[var(--tf-scrim)]" : undefined}
+          className={
+            visualV2
+              ? "tf-glass-overlay flex h-[100dvh] max-h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 bg-[var(--tf-glass-fallback)] p-0 text-[color:var(--tf-text-primary)] shadow-[var(--tf-shadow-floating)] sm:h-[92vh] sm:max-h-[92vh] sm:w-[min(1100px,calc(100vw-32px))] sm:max-w-[1100px] sm:rounded-[var(--tf-radius-panel)] sm:border"
+              : "flex h-[100dvh] max-h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[92vh] sm:max-h-[92vh] sm:w-[min(1100px,calc(100vw-32px))] sm:max-w-[1100px] sm:rounded-lg"
+          }
+        >
           {selectedSummary ? (
             <>
-              <DialogHeader className="shrink-0 border-b border-slate-800 px-5 py-4 text-left">
+              <DialogHeader
+                className={
+                  visualV2
+                    ? "shrink-0 border-b border-[color:var(--tf-border-hairline)] px-5 py-4 text-left"
+                    : "shrink-0 border-b border-slate-800 px-5 py-4 text-left"
+                }
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3 pr-8">
                   <div className="flex min-w-0 items-center gap-3">
                     <ObjectVisual placeType={selectedSummary.warehouse.place_type} className="h-11 w-12" />
                     <div className="min-w-0">
-                    <DialogTitle className="truncate text-xl">{selectedSummary.warehouse.name}</DialogTitle>
-                    <DialogDescription className="mt-1">
-                      {normalizeStoragePlaceType(selectedSummary.warehouse.place_type) === "WAREHOUSE"
-                        ? warehouseTypeLabel(selectedSummary.warehouse.warehouse_type)
-                        : storagePlaceTypeLabel(selectedSummary.warehouse.place_type)} · {selectedSummary.positionCount} групп остатков · последнее движение {formatDate(selectedSummary.lastMovementAt)}
-                    </DialogDescription>
+                      <DialogTitle className={visualV2 ? "truncate text-xl text-[color:var(--tf-text-primary)]" : "truncate text-xl"}>
+                        {selectedSummary.warehouse.name}
+                      </DialogTitle>
+                      <DialogDescription className={visualV2 ? "mt-1 text-[color:var(--tf-text-secondary)]" : "mt-1"}>
+                        {normalizeStoragePlaceType(selectedSummary.warehouse.place_type) === "WAREHOUSE"
+                          ? warehouseTypeLabel(selectedSummary.warehouse.warehouse_type)
+                          : storagePlaceTypeLabel(selectedSummary.warehouse.place_type)} · {selectedSummary.positionCount} групп остатков · последнее движение {formatDate(selectedSummary.lastMovementAt)}
+                      </DialogDescription>
                     </div>
                   </div>
                   {selectedCanReceive ? (
@@ -668,14 +688,26 @@ export default function WarehousesPage() {
                       </Button>
                     </div>
                   ) : (
-                    <Badge variant="outline">Только просмотр</Badge>
+                    <Badge
+                      variant="outline"
+                      className={visualV2 ? "border-[color:var(--tf-border-strong)] bg-[var(--tf-surface-work)] text-[color:var(--tf-text-secondary)]" : undefined}
+                    >
+                      Только просмотр
+                    </Badge>
                   )}
                 </div>
               </DialogHeader>
 
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <div className={visualV2 ? "travkin-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-4" : "min-h-0 flex-1 overflow-y-auto px-5 py-4"}>
                 {detailsLoading ? (
-                  <div className="rounded-md border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-400" role="status">
+                  <div
+                    className={
+                      visualV2
+                        ? "tf-work-surface rounded-[var(--tf-radius-control)] border border-[color:var(--tf-border-hairline)] px-4 py-3 text-sm text-[color:var(--tf-text-muted)]"
+                        : "rounded-md border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-400"
+                    }
+                    role="status"
+                  >
                     Обновляем остатки...
                   </div>
                 ) : null}
@@ -683,8 +715,16 @@ export default function WarehousesPage() {
                   <Alert variant="destructive"><AlertDescription>{detailsError}</AlertDescription></Alert>
                 ) : null}
                 <section className="mt-4">
-                  <h3 className="mb-3 flex items-center gap-2 text-base font-semibold"><Boxes className="h-4 w-4 text-yellow-400" />Остатки</h3>
-                  <div className="divide-y divide-slate-800 overflow-hidden rounded-md border border-slate-800 bg-slate-950/35">
+                  <h3 className={visualV2 ? "mb-3 flex items-center gap-2 text-base font-semibold text-[color:var(--tf-text-primary)]" : "mb-3 flex items-center gap-2 text-base font-semibold"}>
+                    <Boxes className={visualV2 ? "h-4 w-4 text-[color:var(--tf-accent-bright)]" : "h-4 w-4 text-yellow-400"} />Остатки
+                  </h3>
+                  <div
+                    className={
+                      visualV2
+                        ? "tf-work-surface divide-y divide-[color:var(--tf-border-hairline)] overflow-hidden rounded-[var(--tf-radius-card)] border border-[color:var(--tf-border-hairline)]"
+                        : "divide-y divide-slate-800 overflow-hidden rounded-md border border-slate-800 bg-slate-950/35"
+                    }
+                  >
                     {selectedSummary.batches.map((batch) => {
                       const identity = batch.reviewState === "requires_review"
                         ? "Требуется уточнение"
@@ -694,13 +734,17 @@ export default function WarehousesPage() {
                           key={`harvest-${batch.id}`}
                           type="button"
                           onClick={() => void openHarvestBatch(batch)}
-                          className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-yellow-400"
+                          className={
+                            visualV2
+                              ? "tf-focus-ring tf-motion flex min-h-12 w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-[var(--tf-surface-work-raised)]"
+                              : "flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-yellow-400"
+                          }
                         >
                           <div className="min-w-0">
-                            <div className="truncate font-semibold text-slate-100">{batch.cropName}</div>
-                            <div className={`mt-0.5 truncate text-sm ${batch.reviewState === "requires_review" ? "text-amber-300" : "text-slate-400"}`}>{identity}</div>
+                            <div className={visualV2 ? "truncate font-semibold text-[color:var(--tf-text-primary)]" : "truncate font-semibold text-slate-100"}>{batch.cropName}</div>
+                            <div className={`mt-0.5 truncate text-sm ${batch.reviewState === "requires_review" ? (visualV2 ? "text-[color:var(--tf-status-warning)]" : "text-amber-300") : (visualV2 ? "text-[color:var(--tf-text-muted)]" : "text-slate-400")}`}>{identity}</div>
                           </div>
-                          <div className="shrink-0 font-semibold text-emerald-300">{quantity(batch.cleanMassKg)} кг</div>
+                          <div className={visualV2 ? "shrink-0 font-semibold text-[color:var(--tf-status-success)]" : "shrink-0 font-semibold text-emerald-300"}>{quantity(batch.cleanMassKg)} кг</div>
                         </button>
                       );
                     })}
@@ -709,27 +753,37 @@ export default function WarehousesPage() {
                         key={`material-${row.product_id}-${row.unit}-${row.batch_class || "commodity"}`}
                         type="button"
                         onClick={() => setDetailBalance(row)}
-                        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-yellow-400"
+                        className={
+                          visualV2
+                            ? "tf-focus-ring tf-motion flex min-h-12 w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-[var(--tf-surface-work-raised)]"
+                            : "flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-yellow-400"
+                        }
                       >
                         <div className="min-w-0">
-                          <div className="truncate font-semibold text-slate-100">{row.product_name}</div>
-                          {row.identity_name ? <div className="mt-0.5 truncate text-sm text-slate-400">{row.identity_name}</div> : null}
+                          <div className={visualV2 ? "truncate font-semibold text-[color:var(--tf-text-primary)]" : "truncate font-semibold text-slate-100"}>{row.product_name}</div>
+                          {row.identity_name ? <div className={visualV2 ? "mt-0.5 truncate text-sm text-[color:var(--tf-text-muted)]" : "mt-0.5 truncate text-sm text-slate-400"}>{row.identity_name}</div> : null}
                         </div>
-                        <div className="shrink-0 font-semibold text-slate-100">{quantity(row.quantity)} {localizeUnit(row.unit, language)}</div>
+                        <div className={visualV2 ? "shrink-0 font-semibold text-[color:var(--tf-text-primary)]" : "shrink-0 font-semibold text-slate-100"}>{quantity(row.quantity)} {localizeUnit(row.unit, language)}</div>
                       </button>
                     ))}
                     {selectedSummary.detailsLoaded && selectedSummary.batches.length === 0 && selectedMaterialStock.length === 0 ? (
                       <div className="px-4"><EmptyState /></div>
                     ) : null}
                     {!detailsLoading && selectedSummary.batches.length === 0 && selectedMaterialStock.length === 0 ? (
-                      <div className="px-4 py-10 text-center text-sm text-slate-500">Склад пуст</div>
+                      <div className={visualV2 ? "px-4 py-10 text-center text-sm text-[color:var(--tf-text-muted)]" : "px-4 py-10 text-center text-sm text-slate-500"}>Склад пуст</div>
                     ) : null}
                   </div>
                 </section>
               </div>
 
-              <DialogFooter className="shrink-0 border-t border-slate-800 px-5 py-3">
-                <Button variant="outline" onClick={() => setSelectedWarehouseId(null)}>Закрыть</Button>
+              <DialogFooter className={visualV2 ? "shrink-0 border-t border-[color:var(--tf-border-hairline)] px-5 py-3" : "shrink-0 border-t border-slate-800 px-5 py-3"}>
+                <Button
+                  variant="outline"
+                  className={visualV2 ? "tf-focus-ring border-[color:var(--tf-border-strong)] bg-[var(--tf-surface-work)] text-[color:var(--tf-text-primary)] hover:bg-[var(--tf-surface-work-raised)] hover:text-[color:var(--tf-text-primary)]" : undefined}
+                  onClick={() => setSelectedWarehouseId(null)}
+                >
+                  Закрыть
+                </Button>
               </DialogFooter>
             </>
           ) : null}

@@ -248,6 +248,19 @@ function main() {
     assert.doesNotMatch(imports, /services|hooks\/use-live-refresh|supabase|weighbridge/i);
   });
 
+  check("warehouse detail overlay is an agronomist-only portal presentation", () => {
+    assert.match(warehousesPage, /data-visual-system=\{visualV2 \? "v2" : "legacy"\}/);
+    assert.match(warehousesPage, /data-visual-scope="warehouses"/);
+    assert.match(warehousesPage, /data-visual-pilot=\{visualV2 \? "warehouse-detail" : undefined\}/);
+    assert.match(warehousesPage, /data-role-scope=\{visualV2 \? "agronomist" : undefined\}/);
+    assert.match(warehousesPage, /overlayClassName=\{visualV2 \? "bg-\[var\(--tf-scrim\)\]" : undefined\}/);
+    assert.match(warehousesPage, /tf-glass-overlay/);
+    assert.match(warehousesPage, /tf-work-surface/);
+    assert.match(warehousesPage, /selectedCanReceive/);
+    assert.match(warehousesPage, /<WarehouseStockDetailsDialog/);
+    assert.match(warehousesPage, /<HarvestBatchDialog/);
+  });
+
   check("harness is read-only and has no data or network client imports", () => {
     const self = read("scripts/qa-ui-visual-v2.ts");
     const imports = self.split(/\r?\n/).filter((line) => line.startsWith("import ")).join("\n");
