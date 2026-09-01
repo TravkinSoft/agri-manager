@@ -249,8 +249,10 @@ function main() {
   });
 
   check("warehouse detail overlay is an agronomist-only portal presentation", () => {
-    assert.match(warehousesPage, /data-visual-system=\{visualV2 \? "v2" : "legacy"\}/);
-    assert.match(warehousesPage, /data-visual-scope="warehouses"/);
+    assert.equal(
+      Array.from(warehousesPage.matchAll(/<VisualSystemScope scope="warehouses" forceLegacy=\{!visualV2\}>/g)).length,
+      2
+    );
     assert.match(warehousesPage, /data-visual-pilot=\{visualV2 \? "warehouse-detail" : undefined\}/);
     assert.match(warehousesPage, /data-role-scope=\{visualV2 \? "agronomist" : undefined\}/);
     assert.match(warehousesPage, /overlayClassName=\{visualV2 \? "bg-\[var\(--tf-scrim\)\]" : undefined\}/);

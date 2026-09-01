@@ -636,19 +636,17 @@ export default function WarehousesPage() {
         )}
 
       <Dialog open={Boolean(selectedSummary)} onOpenChange={(open) => !open && setSelectedWarehouseId(null)}>
-        <DialogContent
-          data-visual-system={visualV2 ? "v2" : "legacy"}
-          data-visual-scope="warehouses"
-          data-effects={visualV2 ? "full" : "reduced"}
-          data-visual-pilot={visualV2 ? "warehouse-detail" : undefined}
-          data-role-scope={visualV2 ? "agronomist" : undefined}
-          overlayClassName={visualV2 ? "bg-[var(--tf-scrim)]" : undefined}
-          className={
-            visualV2
-              ? "tf-glass-overlay flex h-[100dvh] max-h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 bg-[var(--tf-glass-fallback)] p-0 text-[color:var(--tf-text-primary)] shadow-[var(--tf-shadow-floating)] sm:h-[92vh] sm:max-h-[92vh] sm:w-[min(1100px,calc(100vw-32px))] sm:max-w-[1100px] sm:rounded-[var(--tf-radius-panel)] sm:border"
-              : "flex h-[100dvh] max-h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[92vh] sm:max-h-[92vh] sm:w-[min(1100px,calc(100vw-32px))] sm:max-w-[1100px] sm:rounded-lg"
-          }
-        >
+        <VisualSystemScope scope="warehouses" forceLegacy={!visualV2}>
+          <DialogContent
+            data-visual-pilot={visualV2 ? "warehouse-detail" : undefined}
+            data-role-scope={visualV2 ? "agronomist" : undefined}
+            overlayClassName={visualV2 ? "bg-[var(--tf-scrim)]" : undefined}
+            className={
+              visualV2
+                ? "tf-glass-overlay flex h-[100dvh] max-h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 bg-[var(--tf-glass-fallback)] p-0 text-[color:var(--tf-text-primary)] shadow-[var(--tf-shadow-floating)] sm:h-[92vh] sm:max-h-[92vh] sm:w-[min(1100px,calc(100vw-32px))] sm:max-w-[1100px] sm:rounded-[var(--tf-radius-panel)] sm:border"
+                : "flex h-[100dvh] max-h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[92vh] sm:max-h-[92vh] sm:w-[min(1100px,calc(100vw-32px))] sm:max-w-[1100px] sm:rounded-lg"
+            }
+          >
           {selectedSummary ? (
             <>
               <DialogHeader
@@ -787,7 +785,8 @@ export default function WarehousesPage() {
               </DialogFooter>
             </>
           ) : null}
-        </DialogContent>
+          </DialogContent>
+        </VisualSystemScope>
       </Dialog>
 
       {profile?.company_id && canStockOperate ? (
