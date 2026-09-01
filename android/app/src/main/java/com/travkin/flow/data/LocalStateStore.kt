@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.travkin.flow.domain.CachedOverview
 import com.travkin.flow.domain.CachedHarvestOverview
 import com.travkin.flow.domain.CachedTicketPage
+import com.travkin.flow.domain.CachedWarehouseOverview
 import com.travkin.flow.domain.Actor
 import com.travkin.flow.domain.SupportedRole
 
@@ -86,6 +87,19 @@ class LocalStateStore(
         storage.remove(HARVEST_OVERVIEW_KEY)
     }
 
+    fun loadWarehouseOverview(actorId: String, companyId: String): CachedWarehouseOverview? {
+        val cached = decode(WAREHOUSE_OVERVIEW_KEY, CachedWarehouseOverview::class.java) ?: return null
+        return cached.takeIf { it.matchesScope(actorId, companyId) }
+    }
+
+    fun saveWarehouseOverview(cache: CachedWarehouseOverview) {
+        storage.put(WAREHOUSE_OVERVIEW_KEY, gson.toJson(cache))
+    }
+
+    fun clearWarehouseOverview() {
+        storage.remove(WAREHOUSE_OVERVIEW_KEY)
+    }
+
     private fun <T> decode(key: String, type: Class<T>): T? = runCatching {
         storage.get(key)?.let { gson.fromJson(it, type) }
     }.getOrNull()
@@ -96,5 +110,6 @@ class LocalStateStore(
         const val OVERVIEW_KEY = "operational_overview"
         const val TICKET_PAGE_KEY = "ticket_page"
         const val HARVEST_OVERVIEW_KEY = "harvest_overview"
+        const val WAREHOUSE_OVERVIEW_KEY = "warehouse_overview"
     }
 }

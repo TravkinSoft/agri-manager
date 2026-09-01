@@ -3,6 +3,7 @@ package com.travkin.flow.data
 import com.travkin.flow.domain.CachedOverview
 import com.travkin.flow.domain.CachedHarvestOverview
 import com.travkin.flow.domain.CachedTicketPage
+import com.travkin.flow.domain.CachedWarehouseOverview
 import com.travkin.flow.domain.HarvestCropTotal
 import com.travkin.flow.domain.HarvestFieldSummary
 import com.travkin.flow.domain.HarvestIssue
@@ -13,6 +14,8 @@ import com.travkin.flow.domain.TicketDetails
 import com.travkin.flow.domain.TicketLine
 import com.travkin.flow.domain.TicketPage
 import com.travkin.flow.domain.TicketSummary
+import com.travkin.flow.domain.WarehouseObjectSummary
+import com.travkin.flow.domain.WarehouseOverview
 
 internal fun OperationalBootstrapDto.toOperationalOverview(
     fetchedAtEpochMillis: Long = System.currentTimeMillis(),
@@ -114,6 +117,36 @@ internal fun HarvestOverviewDto.toHarvestOverview(
 )
 
 internal fun CachedHarvestOverview.matchesScope(actorId: String, companyId: String): Boolean =
+    this.actorId == actorId && this.companyId == companyId
+
+internal fun WarehouseSummariesEnvelopeDto.toWarehouseOverview(
+    fetchedAtEpochMillis: Long = System.currentTimeMillis(),
+): WarehouseOverview = WarehouseOverview(
+    objects = summaries.orEmpty().mapNotNull { row ->
+        val warehouse = row.warehouse ?: return@mapNotNull null
+        val id = warehouse.id?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+        WarehouseObjectSummary(
+            id = id,
+            name = warehouse.name?.trim()?.takeIf(String::isNotEmpty) ?: "Объект без названия",
+            placeType = warehouse.placeType?.trim()?.uppercase()?.takeIf(String::isNotEmpty) ?: "WAREHOUSE",
+            warehouseType = warehouse.warehouseType,
+            capacityValue = warehouse.capacityValue,
+            capacityUnit = warehouse.capacityUnit,
+            location = warehouse.location,
+            description = warehouse.description,
+            positionCount = row.positionCount ?: 0,
+            harvestLotCount = row.harvestLotCount ?: 0,
+            harvestWeightKg = row.harvestWeightKg ?: 0.0,
+            totalWeightKg = row.totalWeightKg ?: 0.0,
+            seedWeightKg = row.seedWeightKg ?: 0.0,
+            otherMaterialWeightKg = row.otherMaterialWeightKg ?: 0.0,
+            lastMovementAt = row.lastMovementAt,
+        )
+    },
+    fetchedAtEpochMillis = fetchedAtEpochMillis,
+)
+
+internal fun CachedWarehouseOverview.matchesScope(actorId: String, companyId: String): Boolean =
     this.actorId == actorId && this.companyId == companyId
 
 private fun TicketDto.toTicketSummary(): TicketSummary? {

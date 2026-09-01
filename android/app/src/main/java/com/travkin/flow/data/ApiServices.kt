@@ -65,4 +65,11 @@ interface TravkinFlowApi {
         @Query("period") period: String = "current_day",
         @Query("section") section: String = "summary",
     ): Response<HarvestOverviewDto>
+
+    @GET("api/warehouses/summaries")
+    suspend fun warehouseSummaries(
+        @Header("Authorization") authorization: String,
+        @Query("companyId") companyId: String,
+        @Query("includeArchived") includeArchived: Boolean = false,
+    ): Response<WarehouseSummariesEnvelopeDto>
 }

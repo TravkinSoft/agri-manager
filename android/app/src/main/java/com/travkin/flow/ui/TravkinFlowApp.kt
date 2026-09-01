@@ -65,6 +65,8 @@ import com.travkin.flow.domain.SupportedRole
 import com.travkin.flow.domain.TicketDetails
 import com.travkin.flow.domain.TicketLine
 import com.travkin.flow.domain.TicketSummary
+import com.travkin.flow.domain.WarehouseObjectSummary
+import com.travkin.flow.domain.WarehouseOverview
 import java.text.DateFormat
 import java.text.NumberFormat
 import java.time.Instant
@@ -88,6 +90,7 @@ fun TravkinFlowApp(viewModel: AppViewModel) {
                 onOpenTickets = viewModel::openTickets,
                 onOpenTicket = viewModel::openTicket,
                 onOpenHarvest = viewModel::openHarvestOverview,
+                onOpenWarehouses = viewModel::openWarehouses,
                 onLoadMore = viewModel::loadMoreTickets,
                 onBack = viewModel::navigateBack,
             )
@@ -202,6 +205,7 @@ private fun SignedInScreen(
     onOpenTickets: () -> Unit,
     onOpenTicket: (TicketSummary) -> Unit,
     onOpenHarvest: () -> Unit,
+    onOpenWarehouses: () -> Unit,
     onLoadMore: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -224,6 +228,7 @@ private fun SignedInScreen(
                                 SignedInDestination.TICKETS -> "Талоны"
                                 SignedInDestination.TICKET_DETAIL -> "Талон"
                                 SignedInDestination.HARVEST -> "Урожай"
+                                SignedInDestination.WAREHOUSES -> "Склады и объекты"
                             },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -256,6 +261,7 @@ private fun SignedInScreen(
                 onRefresh = onRefresh,
                 onOpenTickets = onOpenTickets,
                 onOpenHarvest = onOpenHarvest,
+                onOpenWarehouses = onOpenWarehouses,
             )
             SignedInDestination.TICKETS -> TicketListContent(
                 state = state,
@@ -274,6 +280,11 @@ private fun SignedInScreen(
                 contentPadding = contentPadding,
                 onRefresh = onRefresh,
             )
+            SignedInDestination.WAREHOUSES -> WarehouseOverviewContent(
+                state = state,
+                contentPadding = contentPadding,
+                onRefresh = onRefresh,
+            )
         }
     }
 }
@@ -285,6 +296,7 @@ private fun OperationalOverviewContent(
     onRefresh: () -> Unit,
     onOpenTickets: () -> Unit,
     onOpenHarvest: () -> Unit,
+    onOpenWarehouses: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -326,6 +338,19 @@ private fun OperationalOverviewContent(
                     ) {
                         Text(
                             if (state.actor.companyId == null) "Сначала выберите компанию" else "Сводка урожая",
+                        )
+                    }
+                }
+            }
+            if (state.actor.role.canViewWarehouses) {
+                item {
+                    OutlinedButton(
+                        onClick = onOpenWarehouses,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = state.actor.companyId != null,
+                    ) {
+                        Text(
+                            if (state.actor.companyId == null) "Сначала выберите компанию" else "Склады и объекты",
                         )
                     }
                 }
@@ -483,6 +508,111 @@ private fun HarvestOverviewContent(
                     }
                 }
                 item { UpdatedAt(overview.fetchedAtEpochMillis) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WarehouseOverviewContent(
+    state: AppUiState.SignedIn,
+    contentPadding: PaddingValues,
+    onRefresh: () -> Unit,
+) {
+    val overview = state.warehouseOverview
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(contentPadding),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(16.dp),
+    ) {
+        item { ReadOnlyCard("Склады, площадки и объекты показаны только для чтения в контексте компании.") }
+        if (state.refreshing) item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
+        if (state.warehousesStale) {
+            item { MessageCard("Показан последний защищённый локальный список объектов.", offline = true) }
+        }
+        state.message?.let { message -> item { MessageCard(message, offline = overview != null) } }
+
+        when {
+            overview == null && state.refreshing -> item { LoadingCard("Загружаем склады и объекты…") }
+            overview == null -> item { EmptyState("Склады и объекты недоступны.", onRefresh) }
+            overview.objects.isEmpty() -> item { EmptyState("Активных складов и объектов пока нет.", onRefresh) }
+            else -> {
+                item { WarehouseHeadlineCard(overview) }
+                items(overview.objects, key = WarehouseObjectSummary::id) { warehouse ->
+                    WarehouseObjectCard(warehouse)
+                }
+                item { UpdatedAt(overview.fetchedAtEpochMillis) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WarehouseHeadlineCard(overview: WarehouseOverview) {
+    val totalPositions = overview.objects.sumOf { it.positionCount }
+    val totalWeightKg = overview.objects.sumOf { it.totalWeightKg }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Объекты компании", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("${overview.objects.size}", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            HorizontalDivider()
+            Text("Позиций: $totalPositions · подтверждённая масса: ${formatKg(totalWeightKg)}")
+        }
+    }
+}
+
+@Composable
+private fun WarehouseObjectCard(warehouse: WarehouseObjectSummary) {
+    val occupied = warehouse.positionCount > 0 || warehouse.harvestLotCount > 0 || warehouse.totalWeightKg > 0.0001
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(warehouse.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        placeTypeLabel(warehouse.placeType),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Surface(
+                    color = if (occupied) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Text(
+                        if (occupied) "Есть остаток" else "Пусто",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
+            warehouse.warehouseType?.takeIf(String::isNotBlank)?.let {
+                Text("Тип склада: ${warehouseTypeLabel(it)}")
+            }
+            warehouse.location?.takeIf(String::isNotBlank)?.let { Text("Место: $it") }
+            if (warehouse.totalWeightKg > 0.0001) {
+                Text("Всего: ${formatKg(warehouse.totalWeightKg)}", fontWeight = FontWeight.SemiBold)
+            }
+            Text("Материальных позиций: ${warehouse.positionCount}")
+            if (warehouse.harvestLotCount > 0 || warehouse.harvestWeightKg > 0.0001) {
+                Text("Партий урожая: ${warehouse.harvestLotCount} · ${formatKg(warehouse.harvestWeightKg)}")
+            }
+            if (warehouse.seedWeightKg > 0.0001) Text("Семена: ${formatKg(warehouse.seedWeightKg)}")
+            if (warehouse.otherMaterialWeightKg > 0.0001) {
+                Text("Прочие материалы: ${formatKg(warehouse.otherMaterialWeightKg)}")
+            }
+            capacityLabel(warehouse)?.let { Text("Вместимость: $it") }
+            warehouse.lastMovementAt?.takeIf(String::isNotBlank)?.let {
+                Text("Последнее движение: ${formatServerDate(it)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            warehouse.description?.takeIf(String::isNotBlank)?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -766,10 +896,10 @@ private fun MetricCard(metric: Metric, modifier: Modifier = Modifier) {
 @Composable
 private fun RoleNextStepCard(role: SupportedRole) {
     val message = when (role) {
-        SupportedRole.AGRONOMIST -> "Сводка урожая и талоны доступны в режиме чтения; структура посевов — следующий этап."
-        SupportedRole.WEIGHMAN -> "Талоны доступны в режиме чтения; запись веса закрыта до отдельного E2E-гейта."
+        SupportedRole.AGRONOMIST -> "Сводка урожая, талоны и склады доступны в режиме чтения."
+        SupportedRole.WEIGHMAN -> "Талоны и склады доступны в режиме чтения; запись веса закрыта до отдельного E2E-гейта."
         SupportedRole.SPECIALIST -> "Следующий native-модуль: мои задачи и детали операций."
-        SupportedRole.COMPANY_ADMIN -> "Сводка урожая и талоны доступны в режиме чтения; управление не включено."
+        SupportedRole.COMPANY_ADMIN -> "Сводка урожая, талоны и склады доступны в режиме чтения; управление не включено."
         SupportedRole.GLOBAL_ADMIN -> "Для сводки урожая нужен подтверждённый контекст компании; platform overview — следующий этап."
     }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
@@ -883,6 +1013,34 @@ private fun statusLabel(status: String): String = when (status.lowercase()) {
     "finalized" -> "Завершён"
     "voided" -> "Аннулирован"
     else -> status.replace('_', ' ').takeIf(String::isNotBlank) ?: "Статус не указан"
+}
+
+private fun placeTypeLabel(value: String): String = when (value.uppercase()) {
+    "WAREHOUSE" -> "Склад"
+    "YARD" -> "Площадка"
+    "DRYER" -> "Сушилка"
+    "CLEANER" -> "Очистка"
+    else -> value.replace('_', ' ').ifBlank { "Объект" }
+}
+
+private fun warehouseTypeLabel(value: String): String = when (value.lowercase()) {
+    "agrochemical" -> "Агрохимия"
+    "grain" -> "Зерно"
+    "vegetable" -> "Овощи"
+    "seed" -> "Семена"
+    "fertilizer" -> "Удобрения"
+    "pesticide" -> "СЗР"
+    "universal" -> "Универсальный"
+    "potato_storage" -> "Картофелехранилище"
+    "fuel" -> "Топливо"
+    "temporary" -> "Временный"
+    else -> value.replace('_', ' ')
+}
+
+private fun capacityLabel(warehouse: WarehouseObjectSummary): String? {
+    val value = warehouse.capacityValue ?: return null
+    val unit = warehouse.capacityUnit?.takeIf(String::isNotBlank) ?: return null
+    return "${formatQuantity(value)} $unit"
 }
 
 private fun formatKg(value: Double): String = "${formatQuantity(value)} кг"

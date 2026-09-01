@@ -13,6 +13,7 @@ import com.travkin.flow.domain.OperationalOverview
 import com.travkin.flow.domain.TicketDetails
 import com.travkin.flow.domain.TicketPage
 import com.travkin.flow.domain.TicketSummary
+import com.travkin.flow.domain.WarehouseOverview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,6 +24,7 @@ enum class SignedInDestination {
     TICKETS,
     TICKET_DETAIL,
     HARVEST,
+    WAREHOUSES,
 }
 
 sealed interface AppUiState {
@@ -43,6 +45,8 @@ sealed interface AppUiState {
         val selectedTicketFallback: TicketSummary? = null,
         val harvestOverview: HarvestOverview? = null,
         val harvestStale: Boolean = false,
+        val warehouseOverview: WarehouseOverview? = null,
+        val warehousesStale: Boolean = false,
         val destination: SignedInDestination = SignedInDestination.OVERVIEW,
         val refreshing: Boolean = false,
         val message: String? = null,
@@ -85,6 +89,7 @@ class AppViewModel(
                     loadTicketDetails(current, it)
                 }
                 SignedInDestination.HARVEST -> loadHarvestOverview(current)
+                SignedInDestination.WAREHOUSES -> loadWarehouseOverview(current)
             }
         }
     }
@@ -139,6 +144,22 @@ class AppViewModel(
         }
     }
 
+    fun openWarehouses() {
+        val current = _state.value as? AppUiState.SignedIn ?: return
+        if (current.refreshing || !current.actor.role.canViewWarehouses) return
+        viewModelScope.launch {
+            val cached = current.warehouseOverview ?: repository.cachedWarehouseOverview(current.actor)
+            loadWarehouseOverview(
+                current.copy(
+                    destination = SignedInDestination.WAREHOUSES,
+                    warehouseOverview = cached,
+                    warehousesStale = cached != null,
+                    message = null,
+                ),
+            )
+        }
+    }
+
     fun navigateBack() {
         val current = _state.value as? AppUiState.SignedIn ?: return
         _state.value = when (current.destination) {
@@ -155,6 +176,11 @@ class AppViewModel(
                 message = null,
             )
             SignedInDestination.HARVEST -> current.copy(
+                destination = SignedInDestination.OVERVIEW,
+                refreshing = false,
+                message = null,
+            )
+            SignedInDestination.WAREHOUSES -> current.copy(
                 destination = SignedInDestination.OVERVIEW,
                 refreshing = false,
                 message = null,
@@ -293,6 +319,34 @@ class AppViewModel(
                 fallback = loading.copy(
                     harvestOverview = existing,
                     harvestStale = existing != null,
+                    refreshing = false,
+                    message = error.userMessage(),
+                ),
+            )
+        }
+    }
+
+    private suspend fun loadWarehouseOverview(current: AppUiState.SignedIn) {
+        val existing = current.warehouseOverview
+        val loading = current.copy(
+            destination = SignedInDestination.WAREHOUSES,
+            refreshing = true,
+            message = null,
+        )
+        _state.value = loading
+        try {
+            val live = repository.refreshWarehouseOverview(current.actor)
+            _state.value = loading.copy(
+                warehouseOverview = live,
+                warehousesStale = false,
+                refreshing = false,
+            )
+        } catch (error: Throwable) {
+            handleLoadError(
+                error = error,
+                fallback = loading.copy(
+                    warehouseOverview = existing,
+                    warehousesStale = existing != null,
                     refreshing = false,
                     message = error.userMessage(),
                 ),

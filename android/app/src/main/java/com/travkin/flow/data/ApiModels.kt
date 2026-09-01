@@ -186,3 +186,29 @@ data class HarvestIssueDto(
     val title: String?,
     val detail: String?,
 )
+
+data class WarehouseSummariesEnvelopeDto(
+    val summaries: List<WarehouseSummaryDto>?,
+)
+
+data class WarehouseSummaryDto(
+    val warehouse: WarehouseDto?,
+    @SerializedName("position_count") val positionCount: Int?,
+    @SerializedName("harvest_lot_count") val harvestLotCount: Int?,
+    @SerializedName("harvest_weight_kg") val harvestWeightKg: Double?,
+    @SerializedName("total_weight_kg") val totalWeightKg: Double?,
+    @SerializedName("seed_weight_kg") val seedWeightKg: Double?,
+    @SerializedName("other_material_weight_kg") val otherMaterialWeightKg: Double?,
+    @SerializedName("last_movement_at") val lastMovementAt: String?,
+)
+
+data class WarehouseDto(
+    val id: String?,
+    val name: String?,
+    @SerializedName("place_type") val placeType: String?,
+    @SerializedName("warehouse_type") val warehouseType: String?,
+    @SerializedName("capacity_value") val capacityValue: Double?,
+    @SerializedName("capacity_unit") val capacityUnit: String?,
+    val location: String?,
+    val description: String?,
+)

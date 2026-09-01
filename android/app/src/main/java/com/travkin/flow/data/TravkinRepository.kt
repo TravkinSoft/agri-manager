@@ -7,10 +7,12 @@ import com.travkin.flow.domain.Actor
 import com.travkin.flow.domain.CachedOverview
 import com.travkin.flow.domain.CachedHarvestOverview
 import com.travkin.flow.domain.CachedTicketPage
+import com.travkin.flow.domain.CachedWarehouseOverview
 import com.travkin.flow.domain.OperationalOverview
 import com.travkin.flow.domain.HarvestOverview
 import com.travkin.flow.domain.TicketDetails
 import com.travkin.flow.domain.TicketPage
+import com.travkin.flow.domain.WarehouseOverview
 import com.travkin.flow.domain.SupportedRole
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -154,6 +156,28 @@ class TravkinRepository(context: Context) {
         return overview
     }
 
+    fun cachedWarehouseOverview(actor: Actor): WarehouseOverview? {
+        val companyId = actor.companyId ?: return null
+        return localState.loadWarehouseOverview(actor.id, companyId)?.overview
+    }
+
+    suspend fun refreshWarehouseOverview(actor: Actor): WarehouseOverview {
+        if (!actor.role.canViewWarehouses) throw UnsupportedRoleException(actor.role.wireValue)
+        val companyId = actor.companyId
+            ?: throw UserFacingException("Для складов сначала выберите контекст компании.")
+        var session = resolveSession(localState.loadSession() ?: throw SessionExpiredException())
+        var response = appApi.warehouseSummaries(session.bearer(), companyId)
+        if (response.code() == 401) {
+            session = refreshSession(force = true)
+            response = appApi.warehouseSummaries(session.bearer(), companyId)
+        }
+        if (!response.isSuccessful) throw response.toApiFailure("Не удалось загрузить склады и объекты.")
+        val overview = response.body()?.toWarehouseOverview()
+            ?: throw UserFacingException("Сервер вернул пустой список складов и объектов.")
+        localState.saveWarehouseOverview(CachedWarehouseOverview(actor.id, companyId, overview))
+        return overview
+    }
+
     suspend fun signOut() {
         val session = localState.loadSession()
         if (session != null && configured()) {
@@ -226,6 +250,7 @@ class TravkinRepository(context: Context) {
         localState.clearOverview()
         localState.clearTicketPage()
         localState.clearHarvestOverview()
+        localState.clearWarehouseOverview()
     }
 
     private fun configured(): Boolean =

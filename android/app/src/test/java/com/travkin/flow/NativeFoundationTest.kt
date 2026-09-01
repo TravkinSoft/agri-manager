@@ -17,11 +17,15 @@ import com.travkin.flow.data.TicketDetailEnvelopeDto
 import com.travkin.flow.data.TicketDto
 import com.travkin.flow.data.TicketLineDto
 import com.travkin.flow.data.TicketPageDto
+import com.travkin.flow.data.WarehouseDto
+import com.travkin.flow.data.WarehouseSummariesEnvelopeDto
+import com.travkin.flow.data.WarehouseSummaryDto
 import com.travkin.flow.data.matchesScope
 import com.travkin.flow.data.toOperationalOverview
 import com.travkin.flow.data.toHarvestOverview
 import com.travkin.flow.data.toTicketDetails
 import com.travkin.flow.data.toTicketPage
+import com.travkin.flow.data.toWarehouseOverview
 import com.travkin.flow.domain.CachedOverview
 import com.travkin.flow.domain.OperationalOverview
 import com.travkin.flow.domain.SupportedRole
@@ -47,6 +51,11 @@ class NativeFoundationTest {
         assertTrue(SupportedRole.AGRONOMIST.canViewHarvest)
         assertFalse(SupportedRole.WEIGHMAN.canViewHarvest)
         assertFalse(SupportedRole.SPECIALIST.canViewHarvest)
+        assertTrue(SupportedRole.GLOBAL_ADMIN.canViewWarehouses)
+        assertTrue(SupportedRole.COMPANY_ADMIN.canViewWarehouses)
+        assertTrue(SupportedRole.AGRONOMIST.canViewWarehouses)
+        assertTrue(SupportedRole.WEIGHMAN.canViewWarehouses)
+        assertFalse(SupportedRole.SPECIALIST.canViewWarehouses)
     }
 
     @Test
@@ -222,5 +231,49 @@ class NativeFoundationTest {
         assertEquals(12.5, mapped.moisture.single().averagePercent, 0.0)
         assertEquals("Нет влажности", mapped.issues.single().title)
         assertEquals(789L, mapped.fetchedAtEpochMillis)
+    }
+
+    @Test
+    fun `warehouse summaries map only identified objects and confirmed balances`() {
+        val mapped = WarehouseSummariesEnvelopeDto(
+            summaries = listOf(
+                WarehouseSummaryDto(
+                    warehouse = WarehouseDto(
+                        id = "warehouse-1",
+                        name = "Главный ток",
+                        placeType = "yard",
+                        warehouseType = "universal",
+                        capacityValue = 5_000.0,
+                        capacityUnit = "t",
+                        location = "Север",
+                        description = "Приём урожая",
+                    ),
+                    positionCount = 3,
+                    harvestLotCount = 2,
+                    harvestWeightKg = 12_000.0,
+                    totalWeightKg = 15_000.0,
+                    seedWeightKg = 1_000.0,
+                    otherMaterialWeightKg = 2_000.0,
+                    lastMovementAt = "2026-09-02T11:00:00Z",
+                ),
+                WarehouseSummaryDto(
+                    warehouse = WarehouseDto(null, "broken", null, null, null, null, null, null),
+                    positionCount = null,
+                    harvestLotCount = null,
+                    harvestWeightKg = null,
+                    totalWeightKg = null,
+                    seedWeightKg = null,
+                    otherMaterialWeightKg = null,
+                    lastMovementAt = null,
+                ),
+            ),
+        ).toWarehouseOverview(fetchedAtEpochMillis = 987L)
+
+        assertEquals(1, mapped.objects.size)
+        assertEquals("warehouse-1", mapped.objects.single().id)
+        assertEquals("YARD", mapped.objects.single().placeType)
+        assertEquals(3, mapped.objects.single().positionCount)
+        assertEquals(15_000.0, mapped.objects.single().totalWeightKg, 0.0)
+        assertEquals(987L, mapped.fetchedAtEpochMillis)
     }
 }

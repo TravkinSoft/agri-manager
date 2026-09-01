@@ -4,12 +4,13 @@ enum class SupportedRole(
     val wireValue: String,
     val displayName: String,
     val canViewHarvest: Boolean,
+    val canViewWarehouses: Boolean,
 ) {
-    GLOBAL_ADMIN("global_admin", "Global Admin", true),
-    COMPANY_ADMIN("company_admin", "Company Admin", true),
-    AGRONOMIST("agronomist", "Агроном", true),
-    WEIGHMAN("weighman", "Весовщик", false),
-    SPECIALIST("specialist", "Специалист", false);
+    GLOBAL_ADMIN("global_admin", "Global Admin", true, true),
+    COMPANY_ADMIN("company_admin", "Company Admin", true, true),
+    AGRONOMIST("agronomist", "Агроном", true, true),
+    WEIGHMAN("weighman", "Весовщик", false, true),
+    SPECIALIST("specialist", "Специалист", false, false);
 
     companion object {
         fun fromWire(value: String?): SupportedRole? = entries.firstOrNull {
@@ -144,4 +145,33 @@ data class CachedHarvestOverview(
     val actorId: String,
     val companyId: String,
     val overview: HarvestOverview,
+)
+
+data class WarehouseObjectSummary(
+    val id: String,
+    val name: String,
+    val placeType: String,
+    val warehouseType: String?,
+    val capacityValue: Double?,
+    val capacityUnit: String?,
+    val location: String?,
+    val description: String?,
+    val positionCount: Int,
+    val harvestLotCount: Int,
+    val harvestWeightKg: Double,
+    val totalWeightKg: Double,
+    val seedWeightKg: Double,
+    val otherMaterialWeightKg: Double,
+    val lastMovementAt: String?,
+)
+
+data class WarehouseOverview(
+    val objects: List<WarehouseObjectSummary>,
+    val fetchedAtEpochMillis: Long,
+)
+
+data class CachedWarehouseOverview(
+    val actorId: String,
+    val companyId: String,
+    val overview: WarehouseOverview,
 )
