@@ -35,17 +35,23 @@ No signing material is stored in this repository.
 - server-authoritative actor/role lookup through `GET /api/auth/actor`;
 - fail-closed scope for Global Admin, Company Admin, Агроном, Весовщик and Специалист;
 - a real read-only Compose operational overview from `GET /api/weighbridge/bootstrap?summary=true`;
+- read-only ticket list and details, harvest summary, warehouse/object balances, KATO weather and notifications;
+- profile/session screen, immediate local logout and explicit expired-session return to login;
+- native Weighbridge workspace with operator/shift/queue/weight UI and encrypted idempotent retry queue;
+- Weighbridge mutations are disabled in every release build and can run only in a QA build with an explicit process flag;
 - encrypted company-scoped read cache with explicit stale/offline UI;
 - serialized token refresh and no automatic replay of write requests;
 - native logout and App Links intent filters.
 
-Write workflows, operator PIN, camera/files, FCM and offline command queue remain gated until their backend contracts and device E2E tests are complete.
+FCM/device-token delivery, camera/files, complete native deep-link routing and device E2E acceptance are not implemented. The Weighbridge station/backend contract remains fail-closed and does not block the read-only release materials.
 
 ## Verification
 
 ```powershell
-./gradlew.bat testDebugUnitTest lintDebug assembleDebug
+./gradlew.bat testDebugUnitTest testReleaseUnitTest lintDebug lintRelease assembleDebug assembleRelease bundleRelease
 ```
+
+For the final signed Play bundle, set only the Supabase URL/publishable key in the current terminal and run `build-play-bundle.ps1`. The script always prompts for both upload-key passwords without echoing them and removes signing variables when it exits. It creates `app/build/outputs/bundle/release/app-release.aab`; it does not upload or publish anything.
 
 Static runtime gate:
 

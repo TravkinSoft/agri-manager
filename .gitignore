@@ -42,6 +42,7 @@ tmp-dev-*.log
 
 # Android generated artifacts and local SDK/signing state
 /android/.gradle/
+/android/.kotlin/
 /android/build/
 /android/local.properties
 /android/app/build/

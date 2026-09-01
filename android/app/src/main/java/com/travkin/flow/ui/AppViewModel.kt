@@ -156,6 +156,20 @@ class AppViewModel(
         }
     }
 
+    fun openDashboard() {
+        val current = _state.value as? AppUiState.SignedIn ?: return
+        if (current.refreshing) return
+        viewModelScope.launch {
+            loadOverview(
+                actor = current.actor,
+                previous = current.copy(
+                    destination = SignedInDestination.OVERVIEW,
+                    message = null,
+                ),
+            )
+        }
+    }
+
     fun loadMoreTickets() {
         val current = _state.value as? AppUiState.SignedIn ?: return
         val page = current.tickets ?: return

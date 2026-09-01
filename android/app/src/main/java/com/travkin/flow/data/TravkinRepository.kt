@@ -32,6 +32,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.io.IOException
 import java.util.UUID
 import retrofit2.Response
@@ -683,7 +684,7 @@ class TravkinRepository(context: Context) {
     }
 
     private fun configured(): Boolean =
-        BuildConfig.SUPABASE_URL.isNotBlank() && BuildConfig.SUPABASE_ANON_KEY.isNotBlank()
+        isSecureApiBaseUrl(BuildConfig.SUPABASE_URL) && BuildConfig.SUPABASE_ANON_KEY.isNotBlank()
 
     private fun requireConfiguration() {
         if (!configured()) {
@@ -694,9 +695,11 @@ class TravkinRepository(context: Context) {
     }
 
     private fun retrofit(rawBaseUrl: String): Retrofit {
-        val baseUrl = rawBaseUrl.trim().takeIf(String::isNotEmpty) ?: "https://invalid.local/"
+        val baseUrl = rawBaseUrl.trim().toHttpUrlOrNull()
+            ?.takeIf { isSecureApiBaseUrl(rawBaseUrl) }
+            ?: "https://invalid.local/".toHttpUrl()
         return Retrofit.Builder()
-            .baseUrl(if (baseUrl.endsWith('/')) baseUrl else "$baseUrl/")
+            .baseUrl(baseUrl)
             .client(httpClient)
             .addConverterFactory(GsonConverterFactory.create(gson))
             .build()
@@ -742,6 +745,15 @@ class TravkinRepository(context: Context) {
         val RETRYABLE_WRITE_CODES = setOf(408, 423, 425, 429, 500, 502, 503, 504)
     }
 }
+
+internal fun isSecureApiBaseUrl(rawUrl: String): Boolean = rawUrl.trim().toHttpUrlOrNull()?.let { url ->
+    url.isHttps &&
+        url.encodedPath == "/" &&
+        url.query == null &&
+        url.fragment == null &&
+        url.username.isEmpty() &&
+        url.password.isEmpty()
+} == true
 
 open class UserFacingException(message: String, cause: Throwable? = null) : Exception(message, cause)
 

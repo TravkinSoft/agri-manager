@@ -1,5 +1,6 @@
 package com.travkin.flow
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -19,6 +20,21 @@ class MainActivity : ComponentActivity() {
             TravkinFlowTheme {
                 TravkinFlowApp(viewModel)
             }
+        }
+        routeDashboardLink(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        routeDashboardLink(intent)
+    }
+
+    private fun routeDashboardLink(intent: Intent?) {
+        val uri = intent?.data ?: return
+        val trustedHost = uri.host == "travkinflow.com" || uri.host == "qa.travkinflow.com"
+        if (uri.scheme == "https" && trustedHost && uri.path == "/dashboard") {
+            viewModel.openDashboard()
         }
     }
 }

@@ -38,6 +38,7 @@ import com.travkin.flow.data.WeatherSunDto
 import com.travkin.flow.data.UserNotificationDto
 import com.travkin.flow.data.matchesScope
 import com.travkin.flow.data.isSameSecureOrigin
+import com.travkin.flow.data.isSecureApiBaseUrl
 import com.travkin.flow.data.toOperationalOverview
 import com.travkin.flow.data.toHarvestOverview
 import com.travkin.flow.data.toTicketDetails
@@ -59,6 +60,18 @@ import org.junit.Test
 import okhttp3.HttpUrl.Companion.toHttpUrl
 
 class NativeFoundationTest {
+
+    @Test
+    fun `API base URL requires valid HTTPS`() {
+        assertTrue(isSecureApiBaseUrl("https://travkinflow.com"))
+        assertTrue(isSecureApiBaseUrl("https://project.supabase.co/"))
+        assertFalse(isSecureApiBaseUrl("http://travkinflow.com"))
+        assertFalse(isSecureApiBaseUrl("https://travkinflow.com/api"))
+        assertFalse(isSecureApiBaseUrl("https://user:pass@travkinflow.com/"))
+        assertFalse(isSecureApiBaseUrl("not-a-url"))
+        assertFalse(isSecureApiBaseUrl(""))
+    }
+
     @Test
     fun `only approved roles are accepted`() {
         assertEquals(SupportedRole.GLOBAL_ADMIN, SupportedRole.fromWire("global_admin"))

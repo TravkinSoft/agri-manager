@@ -30,14 +30,20 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="travkinflow.com" />
+                <data
+                    android:scheme="https"
+                    android:host="travkinflow.com"
+                    android:path="/dashboard" />
             </intent-filter>
 
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="qa.travkinflow.com" />
+                <data
+                    android:scheme="https"
+                    android:host="qa.travkinflow.com"
+                    android:path="/dashboard" />
             </intent-filter>
         </activity>
 
