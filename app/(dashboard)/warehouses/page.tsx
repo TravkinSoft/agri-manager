@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRightLeft,
@@ -24,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/layout/page-header";
+import { VisualSystemScope } from "@/components/ui/visual-system-scope";
 import { HarvestBatchDialog } from "@/components/warehouses/harvest-batch-dialog";
 import { WarehouseReceiptDialog } from "@/components/warehouses/warehouse-receipt-dialog";
 import { WarehouseStockDetailsDialog } from "@/components/warehouses/warehouse-stock-details-dialog";
@@ -48,6 +50,8 @@ import type {
   WarehouseSummary,
 } from "@/lib/types/warehouse";
 import { warehouseCapacityPercent } from "@/lib/warehouse/warehouse-summary-math";
+import { isVisualSystemV2Enabled } from "@/lib/ui/visual-system";
+import type { VisualV2WarehouseRow } from "@/components/warehouses/visual-v2-warehouses-overview";
 import {
   isAgrochemicalWarehouseType,
   isReceiptWarehouseType,
@@ -55,6 +59,10 @@ import {
   storagePlaceTypeLabel,
   warehouseTypeLabel,
 } from "@/lib/warehouse/warehouse-scope";
+
+const VisualV2WarehousesOverview = dynamic(
+  () => import("@/components/warehouses/visual-v2-warehouses-overview").then((module) => module.VisualV2WarehousesOverview)
+);
 
 function formatDate(value?: string | null): string {
   if (!value) return "Движений пока нет";
@@ -159,6 +167,7 @@ export default function WarehousesPage() {
   const canManageWarehouses = ["company_admin", "global_admin"].includes(role);
   const canView = canStockOperate || canManageWarehouses || ["agronomist", "director", "weighman"].includes(role);
   const isReadOnlyRole = ["weighman", "agronomist", "director"].includes(role);
+  const visualV2 = role === "agronomist" && isVisualSystemV2Enabled("warehouses");
 
   const loadWarehouseList = async ({ foreground = true, force = false }: { foreground?: boolean; force?: boolean } = {}) => {
     if (!profile?.company_id) return;
@@ -416,6 +425,31 @@ export default function WarehousesPage() {
 
   const activeSummaries = filteredSummaries.filter((row) => !isArchived(row.warehouse));
   const archivedSummaries = filteredSummaries.filter((row) => isArchived(row.warehouse));
+  const visualRows: VisualV2WarehouseRow[] = activeSummaries.map((summary) => {
+    const placeType = normalizeStoragePlaceType(summary.warehouse.place_type);
+    const capacity = capacityKg(summary.warehouse);
+    const fillPercent = warehouseCapacityPercent(summary.totalWeightKg, capacity);
+    const empty = summary.summaryLoaded && summary.totalWeightKg <= 0.000001;
+    return {
+      id: summary.warehouse.id,
+      name: summary.warehouse.name,
+      typeLabel: placeType === "WAREHOUSE" ? warehouseTypeLabel(summary.warehouse.warehouse_type) : storagePlaceTypeLabel(placeType),
+      statusLabel: empty ? "Свободен" : placeType === "WAREHOUSE" ? "Активный" : "В работе",
+      statusTone: empty ? "empty" : placeType === "WAREHOUSE" ? "active" : "working",
+      summaryLoaded: summary.summaryLoaded,
+      totalMass: summary.totalWeightKg > 0.000001 ? formatMass(summary.totalWeightKg) : null,
+      harvestMass: summary.harvestWeightKg > 0.000001 ? formatMass(summary.harvestWeightKg) : null,
+      seedMass: summary.seedWeightKg > 0.000001 ? formatMass(summary.seedWeightKg) : null,
+      otherMaterialMass: summary.otherMaterialWeightKg > 0.000001 ? formatMass(summary.otherMaterialWeightKg) : null,
+      positionCount: summary.positionCount,
+      lastMovement: formatDate(summary.lastMovementAt),
+      capacity: fillPercent == null ? null : {
+        label: `${formatMass(summary.totalWeightKg)} из ${formatMass(capacity || 0)}`,
+        percent: fillPercent,
+        exceeded: fillPercent > 100,
+      },
+    };
+  });
   const selectedSummary = summaries.find((row) => row.warehouse.id === selectedWarehouseId) || null;
   const selectedCanReceive = Boolean(
     selectedSummary &&
@@ -452,9 +486,14 @@ export default function WarehousesPage() {
       : [row];
   });
 
-  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== "Enter" || !query || filteredSummaries.length === 0) return;
+  const openFirstSearchResult = () => {
+    if (!query || filteredSummaries.length === 0) return;
     openWarehouse(filteredSummaries[0].warehouse.id);
+  };
+
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter") return;
+    openFirstSearchResult();
   };
 
   if (!canView) {
@@ -529,8 +568,22 @@ export default function WarehousesPage() {
   };
 
   return (
-    <div className="space-y-5">
-      <PageHeader title="Склады" description="Все склады компании, текущие остатки, партии и движения">
+    <VisualSystemScope scope="warehouses" forceLegacy={!visualV2}>
+      <div className="space-y-5">
+        {visualV2 ? (
+          <VisualV2WarehousesOverview
+            rows={visualRows}
+            loading={loading}
+            error={error}
+            search={search}
+            searchLoading={searchDataLoading}
+            onSearchChange={setSearch}
+            onSearchSubmit={openFirstSearchResult}
+            onOpenWarehouse={openWarehouse}
+          />
+        ) : (
+          <>
+            <PageHeader title="Склады" description="Все склады компании, текущие остатки, партии и движения">
         <div className="flex flex-wrap gap-2">
           {isReadOnlyRole ? <Badge variant="outline">Только просмотр</Badge> : null}
           {canManageWarehouses ? (
@@ -544,10 +597,10 @@ export default function WarehousesPage() {
             </Button>
           ) : null}
         </div>
-      </PageHeader>
+            </PageHeader>
 
-      {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
-      <div className="relative max-w-md">
+            {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
+            <div className="relative max-w-md">
         <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-500" />
         <Input
           className="pl-9"
@@ -556,29 +609,31 @@ export default function WarehousesPage() {
           onKeyDown={handleSearchKeyDown}
           placeholder="Найти склад, материал, культуру, поле или партию"
         />
-      </div>
-      {searchDataLoading ? (
-        <div className="text-xs text-slate-500" role="status">Ищем по остаткам и партиям...</div>
-      ) : null}
+            </div>
+            {searchDataLoading ? (
+              <div className="text-xs text-slate-500" role="status">Ищем по остаткам и партиям...</div>
+            ) : null}
 
-      {loading ? (
-        <div className="py-12 text-center text-sm text-slate-400">Загрузка складов...</div>
-      ) : activeSummaries.length === 0 ? (
-        <div className="border-y border-slate-800 py-12 text-center text-sm text-slate-400">Активные склады не найдены.</div>
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {activeSummaries.map(renderWarehouseCard)}
-        </div>
-      )}
+            {loading ? (
+              <div className="py-12 text-center text-sm text-slate-400">Загрузка складов...</div>
+            ) : activeSummaries.length === 0 ? (
+              <div className="border-y border-slate-800 py-12 text-center text-sm text-slate-400">Активные склады не найдены.</div>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {activeSummaries.map(renderWarehouseCard)}
+              </div>
+            )}
 
-      {canManageWarehouses && archivedSummaries.length > 0 ? (
-        <section className="space-y-3 border-t border-slate-800 pt-5">
-          <h2 className="text-base font-semibold text-slate-300">Архивные склады</h2>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {archivedSummaries.map(renderWarehouseCard)}
-          </div>
-        </section>
-      ) : null}
+            {canManageWarehouses && archivedSummaries.length > 0 ? (
+              <section className="space-y-3 border-t border-slate-800 pt-5">
+                <h2 className="text-base font-semibold text-slate-300">Архивные склады</h2>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {archivedSummaries.map(renderWarehouseCard)}
+                </div>
+              </section>
+            ) : null}
+          </>
+        )}
 
       <Dialog open={Boolean(selectedSummary)} onOpenChange={(open) => !open && setSelectedWarehouseId(null)}>
         <DialogContent className="flex h-[100dvh] max-h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[92vh] sm:max-h-[92vh] sm:w-[min(1100px,calc(100vw-32px))] sm:max-w-[1100px] sm:rounded-lg">
@@ -738,6 +793,7 @@ export default function WarehousesPage() {
         batch={selectedBatch}
         loading={selectedBatchLoading}
       />
-    </div>
+      </div>
+    </VisualSystemScope>
   );
 }

@@ -31,6 +31,7 @@ function isAllowedVisualPath(path: string): boolean {
     "app/globals.css",
     "app/(dashboard)/dashboard/page.tsx",
     "app/(dashboard)/tickets/page.tsx",
+    "app/(dashboard)/warehouses/page.tsx",
     "app/(dashboard)/weather-lab/page.tsx",
     "components/dashboard/harvest-dashboard.tsx",
     "components/assistant/assistant-launcher.tsx",
@@ -46,7 +47,7 @@ function isAllowedVisualPath(path: string): boolean {
     "package.json",
     "scripts/qa-ui-visual-v2.ts",
   ]);
-  return exact.has(path) || path.startsWith("components/dashboard/visual-v2-") || path.startsWith("components/tickets/visual-v2-") || path.startsWith("components/weather/visual-v2-");
+  return exact.has(path) || path.startsWith("components/dashboard/visual-v2-") || path.startsWith("components/tickets/visual-v2-") || path.startsWith("components/warehouses/visual-v2-") || path.startsWith("components/weather/visual-v2-");
 }
 
 function addedSourceLines(): Array<{ path: string; line: string }> {
@@ -98,6 +99,8 @@ function main() {
   const dashboard = read("components/dashboard/harvest-dashboard.tsx");
   const ticketsPage = read("app/(dashboard)/tickets/page.tsx");
   const visualTickets = read("components/tickets/visual-v2-tickets-list.tsx");
+  const warehousesPage = read("app/(dashboard)/warehouses/page.tsx");
+  const visualWarehouses = read("components/warehouses/visual-v2-warehouses-overview.tsx");
   const weather = read("components/weather/weather-lab.tsx");
   const paths = changedPaths();
   const added = addedSourceLines();
@@ -161,6 +164,7 @@ function main() {
   check("glass blur exists only in the two chrome primitives", () => {
     assert.doesNotMatch(dashboard, /backdrop-(?:blur|filter)|backdropFilter/);
     assert.doesNotMatch(visualTickets, /backdrop-(?:blur|filter)|backdropFilter/);
+    assert.doesNotMatch(visualWarehouses, /backdrop-(?:blur|filter)|backdropFilter/);
     assert.doesNotMatch(weather, /backdrop-(?:blur|filter)|backdropFilter/);
     assert.match(css, /\.tf-glass-chrome/);
     assert.match(css, /\.tf-glass-overlay/);
@@ -223,6 +227,25 @@ function main() {
     assert.match(visualTickets, /role="tabpanel"/);
     assert.match(visualTickets, /<ul className="space-y-2"/);
     assert.doesNotMatch(visualTickets, /listTickets|useLiveRefresh|\bfetch\s*\(|supabase/i);
+  });
+
+  check("warehouses V2 is agronomist-only presentation with legacy behavior intact", () => {
+    assert.match(warehousesPage, /const visualV2 = role === "agronomist" && isVisualSystemV2Enabled\("warehouses"\)/);
+    assert.match(warehousesPage, /<VisualSystemScope scope="warehouses" forceLegacy=\{!visualV2\}>/);
+    assert.match(warehousesPage, /components\/warehouses\/visual-v2-warehouses-overview/);
+    assert.match(warehousesPage, /getWarehouses\(/);
+    assert.match(warehousesPage, /getWarehouseSummaries\(/);
+    assert.match(warehousesPage, /getInventoryBalances\(/);
+    assert.match(warehousesPage, /listHarvestBatchSummaries\(/);
+    assert.match(warehousesPage, /useLiveRefresh\(/);
+    assert.match(warehousesPage, /<WarehouseReceiptDialog/);
+    assert.match(warehousesPage, /<WarehouseTransferDialog/);
+    assert.match(warehousesPage, /<WarehouseStockDetailsDialog/);
+    assert.match(warehousesPage, /<HarvestBatchDialog/);
+    assert.match(visualWarehouses, /data-role-scope="agronomist"/);
+    assert.doesNotMatch(visualWarehouses, /getWarehouses|getWarehouseSummaries|getInventoryBalances|listHarvestBatchSummaries|useLiveRefresh|\bfetch\s*\(|supabase|WarehouseReceiptDialog|WarehouseTransferDialog/i);
+    const imports = Array.from(visualWarehouses.matchAll(/from\s+["']([^"']+)["']/g)).map((match) => match[1]).join("\n");
+    assert.doesNotMatch(imports, /services|hooks\/use-live-refresh|supabase|weighbridge/i);
   });
 
   check("harness is read-only and has no data or network client imports", () => {
