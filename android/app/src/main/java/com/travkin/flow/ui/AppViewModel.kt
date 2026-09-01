@@ -17,6 +17,9 @@ import com.travkin.flow.domain.TicketPage
 import com.travkin.flow.domain.TicketSummary
 import com.travkin.flow.domain.WarehouseOverview
 import com.travkin.flow.domain.WeighbridgeWorkspace
+import com.travkin.flow.domain.KatoLocality
+import com.travkin.flow.domain.WeatherForecast
+import com.travkin.flow.domain.WeatherLocation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,6 +32,7 @@ enum class SignedInDestination {
     HARVEST,
     WAREHOUSES,
     WEIGHBRIDGE,
+    WEATHER,
 }
 
 data class TareVarianceConfirmation(
@@ -62,6 +66,11 @@ sealed interface AppUiState {
         val weighbridgeWorkspace: WeighbridgeWorkspace? = null,
         val selectedWeighbridgeTicket: TicketSummary? = null,
         val tareVarianceConfirmation: TareVarianceConfirmation? = null,
+        val weatherForecast: WeatherForecast? = null,
+        val weatherStale: Boolean = false,
+        val weatherSearchResults: List<KatoLocality> = emptyList(),
+        val weatherQuery: String = "",
+        val weatherSearching: Boolean = false,
         val destination: SignedInDestination = SignedInDestination.OVERVIEW,
         val refreshing: Boolean = false,
         val writeBusy: Boolean = false,
@@ -107,6 +116,11 @@ class AppViewModel(
                 SignedInDestination.HARVEST -> loadHarvestOverview(current)
                 SignedInDestination.WAREHOUSES -> loadWarehouseOverview(current)
                 SignedInDestination.WEIGHBRIDGE -> loadWeighbridge(current)
+                SignedInDestination.WEATHER -> current.weatherForecast?.location?.let { location ->
+                    loadWeatherForecast(current, location, forceRefresh = true)
+                } ?: run {
+                    _state.value = current.copy(message = "Найдите и выберите населённый пункт.")
+                }
             }
         }
     }
@@ -189,6 +203,83 @@ class AppViewModel(
                     message = null,
                 ),
             )
+        }
+    }
+
+    fun openWeather() {
+        val current = _state.value as? AppUiState.SignedIn ?: return
+        if (current.refreshing || !current.actor.role.canViewWeather) return
+        val cached = current.weatherForecast ?: repository.cachedWeatherForecast(current.actor)
+        val weatherState = current.copy(
+            destination = SignedInDestination.WEATHER,
+            weatherForecast = cached,
+            weatherStale = cached != null,
+            weatherSearchResults = emptyList(),
+            weatherQuery = "",
+            weatherSearching = false,
+            message = null,
+        )
+        _state.value = weatherState
+        if (cached != null) {
+            viewModelScope.launch { loadWeatherForecast(weatherState, cached.location, forceRefresh = false) }
+        }
+    }
+
+    fun searchWeatherLocations(rawQuery: String) {
+        val current = _state.value as? AppUiState.SignedIn ?: return
+        if (current.destination != SignedInDestination.WEATHER || !current.actor.role.canViewWeather) return
+        val query = rawQuery.trim()
+        if (query.length < 2) {
+            _state.value = current.copy(
+                weatherQuery = rawQuery,
+                weatherSearchResults = emptyList(),
+                weatherSearching = false,
+                message = null,
+            )
+            return
+        }
+        _state.value = current.copy(
+            weatherQuery = rawQuery,
+            weatherSearching = true,
+            message = null,
+        )
+        viewModelScope.launch {
+            try {
+                val results = repository.searchWeatherLocalities(current.actor, query)
+                val latest = _state.value as? AppUiState.SignedIn ?: return@launch
+                if (latest.destination == SignedInDestination.WEATHER && latest.weatherQuery.trim() == query) {
+                    _state.value = latest.copy(weatherSearchResults = results, weatherSearching = false)
+                }
+            } catch (error: Throwable) {
+                val latest = _state.value as? AppUiState.SignedIn ?: return@launch
+                if (error is SessionExpiredException) {
+                    handleLoadError(error, latest.copy(weatherSearching = false))
+                } else if (latest.destination == SignedInDestination.WEATHER && latest.weatherQuery.trim() == query) {
+                    _state.value = latest.copy(weatherSearching = false, message = error.userMessage())
+                }
+            }
+        }
+    }
+
+    fun selectWeatherLocation(locality: KatoLocality) {
+        val current = _state.value as? AppUiState.SignedIn ?: return
+        if (current.destination != SignedInDestination.WEATHER || current.refreshing || !current.actor.role.canViewWeather) return
+        val loading = current.copy(refreshing = true, weatherSearching = false, message = null)
+        _state.value = loading
+        viewModelScope.launch {
+            try {
+                val location = repository.resolveWeatherLocation(current.actor, locality.code)
+                loadWeatherForecast(
+                    loading.copy(weatherSearchResults = emptyList(), weatherQuery = ""),
+                    location,
+                    forceRefresh = false,
+                )
+            } catch (error: Throwable) {
+                handleLoadError(
+                    error,
+                    loading.copy(refreshing = false, message = error.userMessage()),
+                )
+            }
         }
     }
 
@@ -320,6 +411,14 @@ class AppViewModel(
                 tareVarianceConfirmation = null,
                 refreshing = false,
                 writeBusy = false,
+                message = null,
+            )
+            SignedInDestination.WEATHER -> current.copy(
+                destination = SignedInDestination.OVERVIEW,
+                weatherSearchResults = emptyList(),
+                weatherQuery = "",
+                weatherSearching = false,
+                refreshing = false,
                 message = null,
             )
             SignedInDestination.OVERVIEW -> current
@@ -580,6 +679,39 @@ class AppViewModel(
                     )
                 }
             }
+        }
+    }
+
+    private suspend fun loadWeatherForecast(
+        current: AppUiState.SignedIn,
+        location: WeatherLocation,
+        forceRefresh: Boolean,
+    ) {
+        val existing = current.weatherForecast
+        val loading = current.copy(
+            destination = SignedInDestination.WEATHER,
+            refreshing = true,
+            weatherSearching = false,
+            message = null,
+        )
+        _state.value = loading
+        try {
+            val live = repository.refreshWeatherForecast(current.actor, location, forceRefresh)
+            _state.value = loading.copy(
+                weatherForecast = live,
+                weatherStale = live.stale,
+                refreshing = false,
+            )
+        } catch (error: Throwable) {
+            handleLoadError(
+                error,
+                loading.copy(
+                    weatherForecast = existing,
+                    weatherStale = existing != null,
+                    refreshing = false,
+                    message = error.userMessage(),
+                ),
+            )
         }
     }
 

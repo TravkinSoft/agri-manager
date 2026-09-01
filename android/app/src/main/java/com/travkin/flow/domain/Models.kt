@@ -6,12 +6,13 @@ enum class SupportedRole(
     val canViewHarvest: Boolean,
     val canViewWarehouses: Boolean,
     val canUseWeighbridgeWorkspace: Boolean,
+    val canViewWeather: Boolean,
 ) {
-    GLOBAL_ADMIN("global_admin", "Global Admin", true, true, true),
-    COMPANY_ADMIN("company_admin", "Company Admin", true, true, true),
-    AGRONOMIST("agronomist", "Агроном", true, true, false),
-    WEIGHMAN("weighman", "Весовщик", false, true, true),
-    SPECIALIST("specialist", "Специалист", false, false, false);
+    GLOBAL_ADMIN("global_admin", "Global Admin", true, true, true, true),
+    COMPANY_ADMIN("company_admin", "Company Admin", true, true, true, false),
+    AGRONOMIST("agronomist", "Агроном", true, true, false, true),
+    WEIGHMAN("weighman", "Весовщик", false, true, true, false),
+    SPECIALIST("specialist", "Специалист", false, false, false, false);
 
     companion object {
         fun fromWire(value: String?): SupportedRole? = entries.firstOrNull {
@@ -277,3 +278,66 @@ object WeighbridgeWritePolicy {
         baseUrl.trimEnd('/') == "https://qa.travkinflow.com" &&
         role in setOf(SupportedRole.GLOBAL_ADMIN, SupportedRole.COMPANY_ADMIN, SupportedRole.WEIGHMAN)
 }
+
+data class KatoLocality(
+    val code: String,
+    val nameRu: String,
+    val nameKz: String?,
+    val districtRu: String?,
+    val regionRu: String?,
+)
+
+data class WeatherLocation(
+    val latitude: Double,
+    val longitude: Double,
+    val region: String?,
+    val district: String?,
+    val locality: String?,
+    val displayName: String,
+    val katoCode: String?,
+)
+
+data class WeatherPoint(
+    val time: String,
+    val temperatureC: Double?,
+    val dewPointC: Double?,
+    val windMs: Double?,
+    val gustMs: Double?,
+    val precipitationProbabilityPct: Double?,
+    val precipitationRateMmH: Double?,
+    val precipitationType: String?,
+    val cloudCoverPct: Double?,
+    val visibilityKm: Double?,
+    val humidityPct: Double?,
+    val pressureMslHpa: Double?,
+)
+
+data class WeatherSun(
+    val date: String,
+    val sunrise: String?,
+    val sunset: String?,
+)
+
+data class WeatherProviderMeta(
+    val provider: String,
+    val timezone: String?,
+    val cache: String,
+    val forecastHours: Int,
+)
+
+data class WeatherForecast(
+    val location: WeatherLocation,
+    val current: WeatherPoint,
+    val hourlyForecast: List<WeatherPoint>,
+    val sun: List<WeatherSun>,
+    val providerMeta: WeatherProviderMeta,
+    val updatedAt: String,
+    val stale: Boolean,
+    val fetchedAtEpochMillis: Long,
+)
+
+data class CachedWeatherForecast(
+    val actorId: String,
+    val companyId: String?,
+    val forecast: WeatherForecast,
+)

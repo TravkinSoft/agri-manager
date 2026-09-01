@@ -373,3 +373,71 @@ data class FinalizeTicketBody(
     @SerializedName("confirm_tare_variance") val confirmTareVariance: Boolean,
     @SerializedName("idempotency_key") val idempotencyKey: String,
 )
+
+data class KatoSearchEnvelopeDto(
+    val items: List<KatoLocalityDto>?,
+)
+
+data class KatoLocalityDto(
+    val code: String?,
+    val nameRu: String?,
+    val nameKz: String?,
+    val districtRu: String?,
+    val regionRu: String?,
+)
+
+data class WeatherLocationEnvelopeDto(
+    val location: WeatherLocationDto?,
+)
+
+data class WeatherForecastEnvelopeDto(
+    val weather: WeatherForecastDto?,
+)
+
+data class WeatherLocationDto(
+    val latitude: Double?,
+    val longitude: Double?,
+    val region: String?,
+    val district: String?,
+    val locality: String?,
+    val displayName: String?,
+    val katoCode: String?,
+)
+
+data class WeatherPointDto(
+    val time: String?,
+    val temperatureC: Double?,
+    val dewPointC: Double?,
+    val windMs: Double?,
+    val gustMs: Double?,
+    val precipitationProbabilityPct: Double?,
+    val precipitationRateMmH: Double?,
+    val precipitationType: String?,
+    val cloudCoverPct: Double?,
+    val visibilityKm: Double?,
+    val humidityPct: Double?,
+    val pressureMslHpa: Double?,
+)
+
+data class WeatherSunDto(
+    val date: String?,
+    val sunrise: String?,
+    val sunset: String?,
+)
+
+data class WeatherProviderMetaDto(
+    val provider: String?,
+    val timezone: String?,
+    val cache: String?,
+    val forecastHours: Int?,
+)
+
+data class WeatherForecastDto(
+    val location: WeatherLocationDto?,
+    val current: WeatherPointDto?,
+    val hourlyForecast: List<WeatherPointDto>?,
+    val sun: List<WeatherSunDto>?,
+    val providerMeta: WeatherProviderMetaDto?,
+    val updatedAt: String?,
+    val stale: Boolean?,
+)

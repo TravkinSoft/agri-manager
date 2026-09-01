@@ -110,4 +110,30 @@ interface TravkinFlowApi {
         @Query("companyId") companyId: String,
         @Body body: FinalizeTicketBody,
     ): Response<TicketMutationEnvelopeDto>
+
+    @GET("api/weather-lab/kato")
+    suspend fun searchKatoLocalities(
+        @Header("Authorization") authorization: String,
+        @Query("mode") mode: String = "search",
+        @Query("q") query: String,
+    ): Response<KatoSearchEnvelopeDto>
+
+    @GET("api/weather-lab/location")
+    suspend fun resolveWeatherLocation(
+        @Header("Authorization") authorization: String,
+        @Query("katoCode") katoCode: String,
+    ): Response<WeatherLocationEnvelopeDto>
+
+    @GET("api/weather-lab/forecast")
+    suspend fun weatherForecast(
+        @Header("Authorization") authorization: String,
+        @Query("lat") latitude: Double,
+        @Query("lon") longitude: Double,
+        @Query("displayName") displayName: String,
+        @Query("region") region: String?,
+        @Query("district") district: String?,
+        @Query("locality") locality: String?,
+        @Query("katoCode") katoCode: String?,
+        @Query("refresh") refresh: Int? = null,
+    ): Response<WeatherForecastEnvelopeDto>
 }

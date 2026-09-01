@@ -76,9 +76,14 @@ import com.travkin.flow.domain.WarehouseObjectSummary
 import com.travkin.flow.domain.WarehouseOverview
 import com.travkin.flow.domain.WeighbridgeResourceOption
 import com.travkin.flow.domain.WeighbridgeWorkspace
+import com.travkin.flow.domain.KatoLocality
+import com.travkin.flow.domain.WeatherForecast
+import com.travkin.flow.domain.WeatherPoint
 import java.text.DateFormat
 import java.text.NumberFormat
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
 
@@ -101,6 +106,9 @@ fun TravkinFlowApp(viewModel: AppViewModel) {
                 onOpenHarvest = viewModel::openHarvestOverview,
                 onOpenWarehouses = viewModel::openWarehouses,
                 onOpenWeighbridge = viewModel::openWeighbridge,
+                onOpenWeather = viewModel::openWeather,
+                onSearchWeather = viewModel::searchWeatherLocations,
+                onSelectWeatherLocation = viewModel::selectWeatherLocation,
                 onSelectWeighbridgeTicket = viewModel::selectWeighbridgeTicket,
                 onUnlockOperator = viewModel::unlockWeighbridgeOperator,
                 onLockOperator = viewModel::lockWeighbridgeOperator,
@@ -226,6 +234,9 @@ private fun SignedInScreen(
     onOpenHarvest: () -> Unit,
     onOpenWarehouses: () -> Unit,
     onOpenWeighbridge: () -> Unit,
+    onOpenWeather: () -> Unit,
+    onSearchWeather: (String) -> Unit,
+    onSelectWeatherLocation: (KatoLocality) -> Unit,
     onSelectWeighbridgeTicket: (TicketSummary?) -> Unit,
     onUnlockOperator: (String, String, String?) -> Unit,
     onLockOperator: () -> Unit,
@@ -259,6 +270,7 @@ private fun SignedInScreen(
                                 SignedInDestination.HARVEST -> "Урожай"
                                 SignedInDestination.WAREHOUSES -> "Склады и объекты"
                                 SignedInDestination.WEIGHBRIDGE -> "Весовая"
+                                SignedInDestination.WEATHER -> "Погода"
                             },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -293,6 +305,7 @@ private fun SignedInScreen(
                 onOpenHarvest = onOpenHarvest,
                 onOpenWarehouses = onOpenWarehouses,
                 onOpenWeighbridge = onOpenWeighbridge,
+                onOpenWeather = onOpenWeather,
             )
             SignedInDestination.TICKETS -> TicketListContent(
                 state = state,
@@ -330,6 +343,13 @@ private fun SignedInScreen(
                 onConfirmTareVariance = onConfirmTareVariance,
                 onDismissTareVariance = onDismissTareVariance,
             )
+            SignedInDestination.WEATHER -> WeatherContent(
+                state = state,
+                contentPadding = contentPadding,
+                onRefresh = onRefresh,
+                onSearch = onSearchWeather,
+                onSelectLocation = onSelectWeatherLocation,
+            )
         }
     }
 }
@@ -343,6 +363,7 @@ private fun OperationalOverviewContent(
     onOpenHarvest: () -> Unit,
     onOpenWarehouses: () -> Unit,
     onOpenWeighbridge: () -> Unit,
+    onOpenWeather: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -409,6 +430,13 @@ private fun OperationalOverviewContent(
                         enabled = state.actor.companyId != null,
                     ) {
                         Text(if (state.actor.companyId == null) "Сначала выберите компанию" else "Весовая")
+                    }
+                }
+            }
+            if (state.actor.role.canViewWeather) {
+                item {
+                    OutlinedButton(onClick = onOpenWeather, modifier = Modifier.fillMaxWidth()) {
+                        Text("Погода")
                     }
                 }
             }
@@ -966,6 +994,160 @@ private fun List<WeighbridgeResourceOption>.toChoices(optional: Boolean = false)
     }
 
 @Composable
+private fun WeatherContent(
+    state: AppUiState.SignedIn,
+    contentPadding: PaddingValues,
+    onRefresh: () -> Unit,
+    onSearch: (String) -> Unit,
+    onSelectLocation: (KatoLocality) -> Unit,
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val forecast = state.weatherForecast
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(contentPadding),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(16.dp),
+    ) {
+        item {
+            ReadOnlyCard(
+                "Нативный прогноз работает только через подтверждённые read-only API КАТО и UAV Forecast. Weather Lab profiles не изменяются.",
+            )
+        }
+        if (state.refreshing) item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
+        state.message?.let { message -> item { MessageCard(message, offline = forecast != null) } }
+        item {
+            Card {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Населённый пункт", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it.take(100) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Название на русском или казахском") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { if (query.trim().length >= 2) onSearch(query) }),
+                    )
+                    Button(
+                        onClick = { onSearch(query) },
+                        enabled = query.trim().length >= 2 && !state.weatherSearching,
+                    ) {
+                        if (state.weatherSearching) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        } else {
+                            Text("Найти по КАТО")
+                        }
+                    }
+                }
+            }
+        }
+        if (state.weatherSearchResults.isNotEmpty()) {
+            item { SectionTitle("Результаты поиска") }
+            items(state.weatherSearchResults, key = KatoLocality::code) { locality ->
+                Card(onClick = { onSelectLocation(locality) }, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(locality.nameRu, fontWeight = FontWeight.SemiBold)
+                        locality.nameKz?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        Text(
+                            listOfNotNull(locality.districtRu, locality.regionRu).distinct().joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        } else if (state.weatherQuery.trim().length >= 2 && !state.weatherSearching) {
+            item { ReadOnlyCard("По запросу ничего не найдено.") }
+        }
+        if (forecast == null) {
+            item { ReadOnlyCard("Выберите населённый пункт, чтобы загрузить прогноз.") }
+        } else {
+            item { WeatherCurrentCard(forecast, state.weatherStale) }
+            forecast.sun.firstOrNull()?.let { sun ->
+                item {
+                    InfoCard(
+                        "Солнце",
+                        "Восход: ${sun.sunrise?.let { formatWeatherTime(it, forecast.providerMeta.timezone) } ?: "—"} · Закат: ${sun.sunset?.let { formatWeatherTime(it, forecast.providerMeta.timezone) } ?: "—"}",
+                    )
+                }
+            }
+            item { SectionTitle("Ближайшие 24 часа") }
+            if (forecast.hourlyForecast.isEmpty()) {
+                item { ReadOnlyCard("Почасовой прогноз не получен.") }
+            } else {
+                items(forecast.hourlyForecast.take(24), key = WeatherPoint::time) { point ->
+                    WeatherHourCard(point, forecast.providerMeta.timezone)
+                }
+            }
+            item {
+                Text(
+                    "Источник: ${forecast.providerMeta.provider} · кэш: ${forecast.providerMeta.cache} · горизонт: ${forecast.providerMeta.forecastHours} ч",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            item { UpdatedAt(forecast.fetchedAtEpochMillis) }
+        }
+    }
+}
+
+@Composable
+private fun WeatherCurrentCard(forecast: WeatherForecast, stale: Boolean) {
+    val point = forecast.current
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(forecast.location.displayName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(point.temperatureC?.let { "${formatQuantity(it)} °C" } ?: "Температура не указана", style = MaterialTheme.typography.headlineMedium)
+            DetailRow("Ветер", point.windMs?.let { "${formatQuantity(it)} м/с" })
+            DetailRow("Порывы", point.gustMs?.let { "${formatQuantity(it)} м/с" })
+            DetailRow("Осадки", weatherPrecipitation(point))
+            DetailRow("Влажность", point.humidityPct?.let { "${formatQuantity(it)} %" })
+            DetailRow("Видимость", point.visibilityKm?.let { "${formatQuantity(it)} км" })
+            if (stale || forecast.stale) {
+                Text("Показан последний защищённый локальный прогноз.", color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeatherHourCard(point: WeatherPoint, timezone: String?) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(formatWeatherTime(point.time, timezone), modifier = Modifier.weight(1.2f), fontWeight = FontWeight.SemiBold)
+            Text(point.temperatureC?.let { "${formatQuantity(it)} °C" } ?: "—", modifier = Modifier.weight(0.8f))
+            Text(point.windMs?.let { "${formatQuantity(it)} м/с" } ?: "—", modifier = Modifier.weight(0.8f))
+            Text(
+                point.precipitationProbabilityPct?.let { "${formatQuantity(it)} %" } ?: "—",
+                modifier = Modifier.weight(0.7f),
+            )
+        }
+    }
+}
+
+private fun weatherPrecipitation(point: WeatherPoint): String? {
+    val values = listOfNotNull(
+        point.precipitationProbabilityPct?.let { "${formatQuantity(it)} %" },
+        point.precipitationRateMmH?.let { "${formatQuantity(it)} мм/ч" },
+        point.precipitationType?.takeIf(String::isNotBlank),
+    )
+    return values.joinToString(" · ").takeIf(String::isNotEmpty)
+}
+
+private fun formatWeatherTime(value: String, timezone: String?): String = runCatching {
+    val zone = timezone?.let(ZoneId::of) ?: ZoneId.systemDefault()
+    Instant.parse(value).atZone(zone).format(DateTimeFormatter.ofPattern("dd.MM HH:mm", RUSSIAN_LOCALE))
+}.getOrElse { formatServerDate(value) }
+
+@Composable
 private fun WarehouseOverviewContent(
     state: AppUiState.SignedIn,
     contentPadding: PaddingValues,
@@ -1348,11 +1530,11 @@ private fun MetricCard(metric: Metric, modifier: Modifier = Modifier) {
 @Composable
 private fun RoleNextStepCard(role: SupportedRole) {
     val message = when (role) {
-        SupportedRole.AGRONOMIST -> "Сводка урожая, талоны и склады доступны в режиме чтения."
+        SupportedRole.AGRONOMIST -> "Сводка урожая, талоны, склады и погода доступны в режиме чтения."
         SupportedRole.WEIGHMAN -> "Талоны и склады доступны в режиме чтения; запись веса закрыта до отдельного E2E-гейта."
         SupportedRole.SPECIALIST -> "Следующий native-модуль: мои задачи и детали операций."
         SupportedRole.COMPANY_ADMIN -> "Сводка урожая, талоны и склады доступны в режиме чтения; управление не включено."
-        SupportedRole.GLOBAL_ADMIN -> "Для сводки урожая нужен подтверждённый контекст компании; platform overview — следующий этап."
+        SupportedRole.GLOBAL_ADMIN -> "Доступны native-сводки и погода; для данных компании нужен подтверждённый контекст."
     }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

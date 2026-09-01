@@ -8,6 +8,7 @@ import com.travkin.flow.domain.CachedWarehouseOverview
 import com.travkin.flow.domain.Actor
 import com.travkin.flow.domain.SupportedRole
 import com.travkin.flow.domain.PendingWeighbridgeQueue
+import com.travkin.flow.domain.CachedWeatherForecast
 import java.util.UUID
 
 class LocalStateStore(
@@ -119,6 +120,19 @@ class LocalStateStore(
         return UUID.randomUUID().toString().also { storage.put(WORKSTATION_ID_KEY, it) }
     }
 
+    fun loadWeatherForecast(actorId: String, companyId: String?): CachedWeatherForecast? {
+        val cached = decode(WEATHER_FORECAST_KEY, CachedWeatherForecast::class.java) ?: return null
+        return cached.takeIf { it.matchesScope(actorId, companyId) }
+    }
+
+    fun saveWeatherForecast(cache: CachedWeatherForecast) {
+        storage.put(WEATHER_FORECAST_KEY, gson.toJson(cache))
+    }
+
+    fun clearWeatherForecast() {
+        storage.remove(WEATHER_FORECAST_KEY)
+    }
+
     private fun <T> decode(key: String, type: Class<T>): T? = runCatching {
         storage.get(key)?.let { gson.fromJson(it, type) }
     }.getOrNull()
@@ -132,5 +146,6 @@ class LocalStateStore(
         const val WAREHOUSE_OVERVIEW_KEY = "warehouse_overview"
         const val WEIGHBRIDGE_QUEUE_KEY = "weighbridge_pending_commands"
         const val WORKSTATION_ID_KEY = "weighbridge_workstation_id"
+        const val WEATHER_FORECAST_KEY = "weather_forecast"
     }
 }

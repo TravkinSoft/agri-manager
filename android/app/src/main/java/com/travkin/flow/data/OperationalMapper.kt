@@ -21,6 +21,13 @@ import com.travkin.flow.domain.WeighbridgeOperator
 import com.travkin.flow.domain.WeighbridgeResourceOption
 import com.travkin.flow.domain.WeighbridgeShift
 import com.travkin.flow.domain.WeighbridgeWorkspace
+import com.travkin.flow.domain.CachedWeatherForecast
+import com.travkin.flow.domain.KatoLocality
+import com.travkin.flow.domain.WeatherForecast
+import com.travkin.flow.domain.WeatherLocation
+import com.travkin.flow.domain.WeatherPoint
+import com.travkin.flow.domain.WeatherProviderMeta
+import com.travkin.flow.domain.WeatherSun
 
 internal fun OperationalBootstrapDto.toOperationalOverview(
     fetchedAtEpochMillis: Long = System.currentTimeMillis(),
@@ -263,3 +270,81 @@ private fun TicketLineDto.toTicketLine(): TicketLine = TicketLine(
     lotId = lotId,
     batchClass = batchClass,
 )
+
+internal fun KatoSearchEnvelopeDto.toKatoLocalities(): List<KatoLocality> =
+    items.orEmpty().mapNotNull { row ->
+        val code = row.code?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+        val name = row.nameRu?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+        KatoLocality(
+            code = code,
+            nameRu = name,
+            nameKz = row.nameKz?.trim()?.takeIf(String::isNotEmpty),
+            districtRu = row.districtRu?.trim()?.takeIf(String::isNotEmpty),
+            regionRu = row.regionRu?.trim()?.takeIf(String::isNotEmpty),
+        )
+    }
+
+internal fun WeatherLocationEnvelopeDto.toWeatherLocation(): WeatherLocation? = location?.toDomainLocation()
+
+internal fun WeatherForecastEnvelopeDto.toWeatherForecast(
+    fetchedAtEpochMillis: Long = System.currentTimeMillis(),
+): WeatherForecast? {
+    val dto = weather ?: return null
+    val location = dto.location?.toDomainLocation() ?: return null
+    val current = dto.current?.toDomainPoint() ?: return null
+    val meta = dto.providerMeta
+    return WeatherForecast(
+        location = location,
+        current = current,
+        hourlyForecast = dto.hourlyForecast.orEmpty().mapNotNull(WeatherPointDto::toDomainPoint).take(24 * 7),
+        sun = dto.sun.orEmpty().mapNotNull { row ->
+            val date = row.date?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+            WeatherSun(date, row.sunrise, row.sunset)
+        },
+        providerMeta = WeatherProviderMeta(
+            provider = meta?.provider?.trim()?.takeIf(String::isNotEmpty) ?: "UAV Forecast",
+            timezone = meta?.timezone?.trim()?.takeIf(String::isNotEmpty),
+            cache = meta?.cache?.trim()?.takeIf(String::isNotEmpty) ?: "unknown",
+            forecastHours = meta?.forecastHours ?: dto.hourlyForecast.orEmpty().size,
+        ),
+        updatedAt = dto.updatedAt.orEmpty(),
+        stale = dto.stale == true,
+        fetchedAtEpochMillis = fetchedAtEpochMillis,
+    )
+}
+
+internal fun CachedWeatherForecast.matchesScope(actorId: String, companyId: String?): Boolean =
+    this.actorId == actorId && this.companyId == companyId
+
+private fun WeatherLocationDto.toDomainLocation(): WeatherLocation? {
+    val latitude = latitude?.takeIf { it.isFinite() && it in -90.0..90.0 } ?: return null
+    val longitude = longitude?.takeIf { it.isFinite() && it in -180.0..180.0 } ?: return null
+    return WeatherLocation(
+        latitude = latitude,
+        longitude = longitude,
+        region = region?.trim()?.takeIf(String::isNotEmpty),
+        district = district?.trim()?.takeIf(String::isNotEmpty),
+        locality = locality?.trim()?.takeIf(String::isNotEmpty),
+        displayName = displayName?.trim()?.takeIf(String::isNotEmpty)
+            ?: "$latitude, $longitude",
+        katoCode = katoCode?.trim()?.takeIf(String::isNotEmpty),
+    )
+}
+
+private fun WeatherPointDto.toDomainPoint(): WeatherPoint? {
+    val time = time?.trim()?.takeIf(String::isNotEmpty) ?: return null
+    return WeatherPoint(
+        time = time,
+        temperatureC = temperatureC,
+        dewPointC = dewPointC,
+        windMs = windMs,
+        gustMs = gustMs,
+        precipitationProbabilityPct = precipitationProbabilityPct,
+        precipitationRateMmH = precipitationRateMmH,
+        precipitationType = precipitationType,
+        cloudCoverPct = cloudCoverPct,
+        visibilityKm = visibilityKm,
+        humidityPct = humidityPct,
+        pressureMslHpa = pressureMslHpa,
+    )
+}

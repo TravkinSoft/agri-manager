@@ -20,6 +20,10 @@ import com.travkin.flow.domain.PendingWeighbridgeQueue
 import com.travkin.flow.domain.TicketSummary
 import com.travkin.flow.domain.WeighbridgeWorkspace
 import com.travkin.flow.domain.WeighbridgeWritePolicy
+import com.travkin.flow.domain.CachedWeatherForecast
+import com.travkin.flow.domain.KatoLocality
+import com.travkin.flow.domain.WeatherForecast
+import com.travkin.flow.domain.WeatherLocation
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
@@ -188,6 +192,71 @@ class TravkinRepository(context: Context) {
             ?: throw UserFacingException("Сервер вернул пустой список складов и объектов.")
         localState.saveWarehouseOverview(CachedWarehouseOverview(actor.id, companyId, overview))
         return overview
+    }
+
+    fun cachedWeatherForecast(actor: Actor): WeatherForecast? {
+        if (!actor.role.canViewWeather) return null
+        return localState.loadWeatherForecast(actor.id, actor.companyId)?.forecast
+    }
+
+    suspend fun searchWeatherLocalities(actor: Actor, rawQuery: String): List<KatoLocality> {
+        requireWeatherRole(actor)
+        val query = rawQuery.trim()
+        if (query.length < 2) return emptyList()
+        var session = currentSession()
+        var response = appApi.searchKatoLocalities(session.bearer(), query = query)
+        if (response.code() == 401) {
+            session = refreshSession(force = true)
+            response = appApi.searchKatoLocalities(session.bearer(), query = query)
+        }
+        if (!response.isSuccessful) throw response.toApiFailure("Не удалось выполнить поиск населённого пункта.")
+        return response.body()?.toKatoLocalities().orEmpty()
+    }
+
+    suspend fun resolveWeatherLocation(actor: Actor, katoCode: String): WeatherLocation {
+        requireWeatherRole(actor)
+        if (katoCode.isBlank()) throw UserFacingException("Код КАТО не указан.")
+        var session = currentSession()
+        var response = appApi.resolveWeatherLocation(session.bearer(), katoCode)
+        if (response.code() == 401) {
+            session = refreshSession(force = true)
+            response = appApi.resolveWeatherLocation(session.bearer(), katoCode)
+        }
+        if (!response.isSuccessful) throw response.toApiFailure("Не удалось определить координаты населённого пункта.")
+        return response.body()?.toWeatherLocation()
+            ?: throw UserFacingException("Сервер вернул некорректное местоположение.")
+    }
+
+    suspend fun refreshWeatherForecast(
+        actor: Actor,
+        location: WeatherLocation,
+        forceRefresh: Boolean,
+    ): WeatherForecast {
+        requireWeatherRole(actor)
+        var session = currentSession()
+        val request: suspend (StoredSession) -> Response<WeatherForecastEnvelopeDto> = { activeSession ->
+            appApi.weatherForecast(
+                authorization = activeSession.bearer(),
+                latitude = location.latitude,
+                longitude = location.longitude,
+                displayName = location.displayName,
+                region = location.region,
+                district = location.district,
+                locality = location.locality,
+                katoCode = location.katoCode,
+                refresh = if (forceRefresh) 1 else null,
+            )
+        }
+        var response = request(session)
+        if (response.code() == 401) {
+            session = refreshSession(force = true)
+            response = request(session)
+        }
+        if (!response.isSuccessful) throw response.toApiFailure("Не удалось получить прогноз погоды.")
+        val forecast = response.body()?.toWeatherForecast()
+            ?: throw UserFacingException("Сервер вернул некорректный прогноз погоды.")
+        localState.saveWeatherForecast(CachedWeatherForecast(actor.id, actor.companyId, forecast))
+        return forecast
     }
 
     fun weighbridgeWritesEnabled(actor: Actor): Boolean = WeighbridgeWritePolicy.isAllowed(
@@ -501,6 +570,12 @@ class TravkinRepository(context: Context) {
         return actor.companyId ?: throw UserFacingException("Для Весовой выберите контекст компании.")
     }
 
+    private fun requireWeatherRole(actor: Actor) {
+        if (!actor.role.canViewWeather) {
+            throw UnsupportedRoleException(actor.role.wireValue)
+        }
+    }
+
     private fun validateHarvestDraft(draft: HarvestTicketDraft) {
         if (listOf(draft.allocationId, draft.fieldId, draft.cropId, draft.destinationId).any(String::isBlank)) {
             throw UserFacingException("Выберите поле, культуру и место приёмки.")
@@ -549,6 +624,7 @@ class TravkinRepository(context: Context) {
         localState.clearTicketPage()
         localState.clearHarvestOverview()
         localState.clearWarehouseOverview()
+        localState.clearWeatherForecast()
         localState.clearPendingWeighbridgeQueue()
         operatorCookieJar.clear()
     }

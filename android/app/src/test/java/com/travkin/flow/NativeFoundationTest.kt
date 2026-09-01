@@ -12,6 +12,8 @@ import com.travkin.flow.data.HarvestSummaryDto
 import com.travkin.flow.data.OperationalBootstrapDto
 import com.travkin.flow.data.OperatorStateDto
 import com.travkin.flow.data.InitialWeighbridgeWorkspaceDto
+import com.travkin.flow.data.KatoLocalityDto
+import com.travkin.flow.data.KatoSearchEnvelopeDto
 import com.travkin.flow.data.HarvestAllocationDto
 import com.travkin.flow.data.HarvestAllocationsDto
 import com.travkin.flow.data.ResourceOptionDto
@@ -27,6 +29,12 @@ import com.travkin.flow.data.WarehouseSummariesEnvelopeDto
 import com.travkin.flow.data.WarehouseSummaryDto
 import com.travkin.flow.data.WeighbridgeResourcesDto
 import com.travkin.flow.data.WeighbridgeShiftDto
+import com.travkin.flow.data.WeatherForecastDto
+import com.travkin.flow.data.WeatherForecastEnvelopeDto
+import com.travkin.flow.data.WeatherLocationDto
+import com.travkin.flow.data.WeatherPointDto
+import com.travkin.flow.data.WeatherProviderMetaDto
+import com.travkin.flow.data.WeatherSunDto
 import com.travkin.flow.data.matchesScope
 import com.travkin.flow.data.isSameSecureOrigin
 import com.travkin.flow.data.toOperationalOverview
@@ -35,6 +43,8 @@ import com.travkin.flow.data.toTicketDetails
 import com.travkin.flow.data.toTicketPage
 import com.travkin.flow.data.toWarehouseOverview
 import com.travkin.flow.data.toWeighbridgeWorkspace
+import com.travkin.flow.data.toKatoLocalities
+import com.travkin.flow.data.toWeatherForecast
 import com.travkin.flow.domain.CachedOverview
 import com.travkin.flow.domain.OperationalOverview
 import com.travkin.flow.domain.SupportedRole
@@ -72,6 +82,11 @@ class NativeFoundationTest {
         assertTrue(SupportedRole.WEIGHMAN.canUseWeighbridgeWorkspace)
         assertFalse(SupportedRole.AGRONOMIST.canUseWeighbridgeWorkspace)
         assertFalse(SupportedRole.SPECIALIST.canUseWeighbridgeWorkspace)
+        assertTrue(SupportedRole.GLOBAL_ADMIN.canViewWeather)
+        assertTrue(SupportedRole.AGRONOMIST.canViewWeather)
+        assertFalse(SupportedRole.COMPANY_ADMIN.canViewWeather)
+        assertFalse(SupportedRole.WEIGHMAN.canViewWeather)
+        assertFalse(SupportedRole.SPECIALIST.canViewWeather)
     }
 
     @Test
@@ -97,6 +112,51 @@ class NativeFoundationTest {
         assertTrue(isSameSecureOrigin("https://qa.travkinflow.com/api/weighbridge/operator-session".toHttpUrl(), qaOrigin))
         assertFalse(isSameSecureOrigin("https://example.supabase.co/auth/v1/token".toHttpUrl(), qaOrigin))
         assertFalse(isSameSecureOrigin("http://qa.travkinflow.com/api/weighbridge/operator-session".toHttpUrl(), qaOrigin))
+    }
+
+    @Test
+    fun `weather read only responses map validated KATO and forecast`() {
+        val localities = KatoSearchEnvelopeDto(
+            items = listOf(
+                KatoLocalityDto("123", "Астана", "Астана", "Астана Г.А.", "Астана"),
+                KatoLocalityDto(null, "broken", null, null, null),
+            ),
+        ).toKatoLocalities()
+        assertEquals(1, localities.size)
+        assertEquals("123", localities.single().code)
+
+        val point = WeatherPointDto(
+            time = "2026-09-02T12:00:00Z",
+            temperatureC = 24.5,
+            dewPointC = 10.0,
+            windMs = 3.2,
+            gustMs = 5.5,
+            precipitationProbabilityPct = 20.0,
+            precipitationRateMmH = 0.0,
+            precipitationType = null,
+            cloudCoverPct = 30.0,
+            visibilityKm = 10.0,
+            humidityPct = 45.0,
+            pressureMslHpa = 1012.0,
+        )
+        val mapped = WeatherForecastEnvelopeDto(
+            weather = WeatherForecastDto(
+                location = WeatherLocationDto(51.1694, 71.4491, "Астана", null, "Астана", "Астана", "123"),
+                current = point,
+                hourlyForecast = listOf(point),
+                sun = listOf(WeatherSunDto("2026-09-02", "2026-09-02T01:00:00Z", "2026-09-02T14:00:00Z")),
+                providerMeta = WeatherProviderMetaDto("UAV Forecast", "Asia/Almaty", "hit", 168),
+                updatedAt = "2026-09-02T12:00:00Z",
+                stale = false,
+            ),
+        ).toWeatherForecast(fetchedAtEpochMillis = 222L)
+
+        requireNotNull(mapped)
+        assertEquals("Астана", mapped.location.displayName)
+        assertEquals(24.5, mapped.current.temperatureC ?: 0.0, 0.0)
+        assertEquals(1, mapped.hourlyForecast.size)
+        assertEquals("Asia/Almaty", mapped.providerMeta.timezone)
+        assertEquals(222L, mapped.fetchedAtEpochMillis)
     }
 
     @Test
