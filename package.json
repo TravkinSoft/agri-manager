@@ -76,6 +76,8 @@
     "qa:tz315:universal-processing-gate": "npx --no-install tsx scripts/qa-tz315-universal-processing-gate.ts",
     "qa:tz315:reversal-document-preservation": "npx --no-install tsx scripts/qa-tz315-reversal-document-preservation.ts",
     "qa:tz315:supplier-batch-trace": "npx --no-install tsx scripts/qa-tz315-supplier-batch-trace.ts",
+    "qa:tz315:shipment-gross-stock": "npx --no-install tsx scripts/qa-tz315-shipment-gross-stock.ts",
+    "qa:tz315:weighbridge-cache-shape": "npx --no-install tsx scripts/qa-tz315-weighbridge-cache-shape.ts",
     "qa:tz315:s19-s20-s23-corrective": "npx --no-install tsx scripts/qa-tz315-s19-s20-s23-corrective.ts",
     "qa:tz315:prod-p0-final": "npx --no-install tsx scripts/qa-tz315-prod-p0-final-corrective.ts",
     "qa:agronomist:weighbridge-assist": "npx --no-install tsx scripts/qa-agronomist-weighbridge-assist-v1.ts",

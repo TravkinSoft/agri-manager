@@ -1,7 +1,10 @@
 import type { ActiveHarvestRoute, HarvestBatchSummary, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket, WeighingInput } from "@/lib/types/weighbridge";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
-import type { WeighbridgeTransportPickerData } from "@/lib/weighbridge/transport-pairing";
+import {
+  normalizeWeighbridgeTransportPickerData,
+  type WeighbridgeTransportPickerData,
+} from "@/lib/weighbridge/transport-pairing";
 
 async function parseJsonOrThrow(response: Response) {
   const payload = await response.json().catch(() => ({}));
@@ -147,7 +150,7 @@ export async function getWeighbridgeTransportPickerData(
     ? `/api/weighbridge/transport-pairs?companyId=${encodeURIComponent(companyId)}`
     : "/api/weighbridge/transport-pairs";
   const response = await fetch(url, { method: "GET", cache: "no-store", headers, signal: options?.signal });
-  return parseJsonOrThrow(response) as Promise<WeighbridgeTransportPickerData>;
+  return normalizeWeighbridgeTransportPickerData(await parseJsonOrThrow(response));
 }
 
 export async function listHarvestBatchSummaries(

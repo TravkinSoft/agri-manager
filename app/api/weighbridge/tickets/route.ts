@@ -16,6 +16,7 @@ import { isWeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
 import { isCargoVehicle, isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
 import { enrichTicketCombineOperators, validateActiveCombineOperator } from "@/lib/server/weighbridge-combine-operator";
+import { resolveStockOutQuantityAtCreate } from "@/lib/weighbridge/stock-out-availability";
 
 function buildTicketNo(companyId: string): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -1306,13 +1307,22 @@ export async function POST(request: NextRequest) {
     }
     if (isShipment || isDisposal) {
       const line = lines[0];
-      const requiredQty = Number(line.quantity || 0);
+      const stockOutQuantityAtCreate = resolveStockOutQuantityAtCreate({
+        lineQuantity: line.quantity,
+        grossWeightKg: ticket.gross_weight_kg,
+        tareWeightKg: ticket.tare_weight_kg,
+        weighMethod: ticket.weigh_method,
+      });
       let available = 0;
       try { available = await selectedStockAvailability(line); }
       catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Остаток недоступен." }, { status: 400 }); }
-      if (available < requiredQty) {
+      // A normal first weighing only knows gross. Vehicle tare is not stock and
+      // must not make a valid shipment/write-off look larger than its balance.
+      // Finalization replaces the line quantity with net before the canonical
+      // stock RPC performs the authoritative availability check.
+      if (stockOutQuantityAtCreate != null && available < stockOutQuantityAtCreate) {
         return NextResponse.json(
-          { error: `Недостаточно остатка по выбранной складской идентичности. Доступно: ${available.toFixed(3)} кг, нужно: ${requiredQty.toFixed(3)} кг` },
+          { error: `Недостаточно остатка по выбранной складской идентичности. Доступно: ${available.toFixed(3)} кг, нужно: ${stockOutQuantityAtCreate.toFixed(3)} кг` },
           { status: 400 }
         );
       }

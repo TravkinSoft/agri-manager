@@ -40,6 +40,35 @@ export type WeighbridgeTransportPickerData = {
   fetchedAt: string;
 };
 
+function stringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result: Record<string, string> = {};
+  Object.entries(value as Record<string, unknown>).forEach(([key, item]) => {
+    if (key && typeof item === "string") result[key] = item;
+  });
+  return result;
+}
+
+export function normalizeWeighbridgeTransportPickerData(
+  value: unknown
+): WeighbridgeTransportPickerData {
+  const row = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const startHour = Number(row.operationalDayStartHour);
+  return {
+    seasonId: typeof row.seasonId === "string" && row.seasonId ? row.seasonId : null,
+    operationalDayStartHour: Number.isFinite(startHour) ? startHour : 7,
+    recentPairs: Array.isArray(row.recentPairs) ? row.recentPairs as RecentTransportPair[] : [],
+    latestDriverByVehicle: stringRecord(row.latestDriverByVehicle),
+    latestVehicleByDriver: stringRecord(row.latestVehicleByDriver),
+    openAssignments: Array.isArray(row.openAssignments)
+      ? row.openAssignments as OpenTransportAssignment[]
+      : [],
+    fetchedAt: typeof row.fetchedAt === "string" ? row.fetchedAt : "",
+  };
+}
+
 export function normalizeTransportSearchText(value: unknown): string {
   return String(value || "")
     .normalize("NFKC")

@@ -57,7 +57,10 @@ import { isOpenProcessingWorkItem, processingMassSnapshot } from "@/lib/weighbri
 import { DailyReconciliation } from "@/components/weighbridge/daily-reconciliation";
 import { CompactField, PrimaryActionBar } from "@/components/operations/operational-ui";
 import { performProcessingAction, type BatchTransformationRow } from "@/lib/services/processing";
-import type { WeighbridgeTransportPickerData } from "@/lib/weighbridge/transport-pairing";
+import {
+  normalizeWeighbridgeTransportPickerData,
+  type WeighbridgeTransportPickerData,
+} from "@/lib/weighbridge/transport-pairing";
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import {
   UNIVERSAL_WORKSPACE_MAX_TABS,
@@ -1242,8 +1245,9 @@ export default function WeighbridgeOperationsPage() {
   };
 
   const applyTransportPickerData = (payload: WeighbridgeTransportPickerData) => {
-    setTransportPickerData(payload);
-    if (profile?.company_id) transportPickerDataCache.set(profile.company_id, payload);
+    const normalized = normalizeWeighbridgeTransportPickerData(payload);
+    setTransportPickerData(normalized);
+    if (profile?.company_id) transportPickerDataCache.set(profile.company_id, normalized);
   };
 
   const refreshTransportPickerData = async () => {
@@ -1914,7 +1918,9 @@ export default function WeighbridgeOperationsPage() {
       setDrivers(cached.drivers || []);
       setDriverNames(cached.driverNames || {});
       setCombineOperators(cached.combineOperators || []);
-      setTransportPickerData(cached.transportPickerData || transportPickerDataCache.get(companyId) || emptyTransportPickerData());
+      setTransportPickerData(normalizeWeighbridgeTransportPickerData(
+        cached.transportPickerData || transportPickerDataCache.get(companyId) || emptyTransportPickerData()
+      ));
       setHarvestStructureByField(cached.harvestStructureByField || {});
       setHarvestIncompleteFields(cached.harvestIncompleteFields || {});
       const cachedTickets = (cached.tickets || []) as WeighbridgeTicket[];
