@@ -80,5 +80,5 @@ Conservative form inputs supported by current evidence:
 1. Download/export the exact active V2 bundle from Play Console and audit its merged manifest, SDK Index and permissions.
 2. Execute a consented V2 runtime network trace for login, map geolocation, KML/document upload and voice transcription.
 3. Document Vercel, Supabase, TravkinFlow API and OpenAI retention/deletion settings and processor contracts.
-4. Approve the legal owner and support contact on `/privacy`, deploy that single approved page separately, and test its public URL.
+4. Deploy the locally completed `/privacy` page separately and test its public URL; Console-verified operator/support values are already applied in source.
 5. Reconcile the final form against every artifact still active in each Play track immediately before submission.

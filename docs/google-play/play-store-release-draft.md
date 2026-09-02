@@ -73,11 +73,11 @@ Provisional security answers:
 
 Critical scope rule: the app is currently active only in Internal Testing, which Google exempts from the Data Safety section. Before any closed, open or Production release, reconcile the form against every artifact still active or servable on a covered track/device configuration. If versionCode 2 remains active or servable there, audit it together with native V3; native V3 evidence alone is then insufficient.
 
-## Privacy policy source — proposed legal fields awaiting approval
+## Privacy policy source — Console-verified legal fields applied locally
 
 Proposed public URL: `https://travkinflow.com/privacy` — live check on 2026-09-02 returned **HTTP 404**.
 
-Production-ready route source is prepared at `app/privacy/page.tsx` and linked from the public home-page footer. It includes the union of native and legacy-web data practices. A read-only Console audit verified `LWP LTD, TOO` as the organization and `travkin.group@gmail.com` as the public developer-profile email; an evidence-linked proposed patch is recorded in `play-console-readonly-audit-2026-09-02.md`. The source placeholders were intentionally not changed. No deployment was performed; owner/data-controller approval is still required before the route can be deployed or entered in Play Console.
+Production-ready route source is prepared at `app/privacy/page.tsx` and linked from the public home-page footer. It includes the union of native and legacy-web data practices. A read-only Console audit verified `LWP LTD, TOO` as the organization and `travkin.group@gmail.com` as the public developer-profile email; both values are now applied locally and the placeholders are removed. No deployment was performed; the route must still be separately deployed and live-verified before it is entered in Play Console.
 
 ## Store assets draft
 
@@ -113,7 +113,7 @@ Do not use fabricated UI, production names, emails, UUIDs, weights or notificati
 ## Submission blockers
 
 1. Device/emulator acceptance and real screenshots are absent.
-2. Privacy route source is ready and Console-backed legal owner/support values are proposed, but owner approval, Production deploy and live public verification are absent.
+2. Privacy route source is ready with Console-backed legal owner/support values, but Production deploy and live public verification are absent.
 3. Data Safety is exempt while the app remains internal-only; the covered-track V2/V3 union and backend/CDN retention audit remain incomplete before closed/open/Production.
 4. Permanent Play reviewer account/instructions are not prepared in this repository.
 5. Feature graphic and store icon source files are ready but still await owner visual approval.

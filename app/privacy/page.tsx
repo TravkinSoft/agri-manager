@@ -12,8 +12,8 @@ export const metadata: Metadata = {
   },
 };
 
-const operatorName = "[ЮРИДИЧЕСКОЕ НАИМЕНОВАНИЕ ОПЕРАТОРА]";
-const supportEmail = "[EMAIL СЛУЖБЫ ПОДДЕРЖКИ]";
+const operatorName = "LWP LTD, TOO";
+const supportEmail = "travkin.group@gmail.com";
 
 export default function PrivacyPage() {
   return (

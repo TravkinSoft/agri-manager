@@ -20,18 +20,16 @@ The same page explicitly separates the Google-only contact block from the data s
 
 The app-specific Store settings contact fields are still empty: email, phone and website have not been entered for this app.
 
-## Proposed privacy source patch — not applied
+## Privacy source patch — applied after the audit
 
 Source: the verified organization and public-profile email in Play Console > Developer account on 2026-09-02.
 
-```diff
--const operatorName = "[ЮРИДИЧЕСКОЕ НАИМЕНОВАНИЕ ОПЕРАТОРА]";
--const supportEmail = "[EMAIL СЛУЖБЫ ПОДДЕРЖКИ]";
-+const operatorName = "LWP LTD, TOO";
-+const supportEmail = "travkin.group@gmail.com";
+```ts
+const operatorName = "LWP LTD, TOO";
+const supportEmail = "travkin.group@gmail.com";
 ```
 
-This patch is evidence-backed but remains proposed. It was not applied to `app/privacy/page.tsx`, deployed to Production or entered in Play Console.
+The evidence-backed patch was applied to `app/privacy/page.tsx` in the next local checkpoint. It has not been deployed to Production or entered in Play Console.
 
 ## App content declarations
 
