@@ -10,6 +10,7 @@ const page = read("app/(dashboard)/weighbridge/page.tsx");
 const resourcesRoute = read("app/api/weighbridge/resources/route.ts");
 const allocationsRoute = read("app/api/weighbridge/harvest-allocations/route.ts");
 const harvestContext = read("lib/server/harvest-ticket-context.ts");
+const liveRefresh = read("hooks/use-live-refresh.ts");
 
 let checks = 0;
 function check(name: string, run: () => void) {
@@ -70,6 +71,18 @@ check("one crop structure auto-selects but multiple rows require a choice", () =
   ], { allowIncompleteIdentity: true }), null);
 });
 
+check("same field crop variety and reproduction remain separate physical plots", () => {
+  const potatoPlots = ["plot-a", "plot-b", "plot-c", "plot-d"].map((allocationId) => ({
+    ...oneAllocation,
+    allocationId,
+    areaHa: 12,
+  }));
+  assert.equal(potatoPlots.length, 4);
+  assert.deepEqual(potatoPlots.map((plot) => plot.areaHa), [12, 12, 12, 12]);
+  assert.equal(new Set(potatoPlots.map((plot) => plot.allocationId)).size, 4);
+  assert.equal(automaticHarvestAllocation(potatoPlots, { allowIncompleteIdentity: true }), null);
+});
+
 check("field code is an optional physical-field search attribute", () => {
   assert.match(resourcesRoute, /\.select\("id,name,area,field_code"\)/);
   assert.match(resourcesRoute, /fieldCode: row\.field_code \? String\(row\.field_code\) : null/);
@@ -109,6 +122,20 @@ check("ticket payload keeps exact field and crop-structure UUIDs", () => {
   assert.match(page, /field_id: form\.operationType === "supplier_receipt" \? null : form\.fieldId \|\| null/);
   assert.match(harvestContext, /\.eq\("id", allocationId\)[\s\S]*\.eq\("company_id", companyId\)[\s\S]*\.eq\("field_id", fieldId\)/);
   assert.match(harvestContext, /String\(allocation\?\.season_id \|\| ""\) !== String\(activeSeason\.id\)/);
+});
+
+check("fresh operator workspace cannot be overwritten by the persistent acceleration cache", () => {
+  assert.match(page, /if \(cached && !initialWorkspaceHydratedRef\.current\)/);
+  assert.match(page, /const usedInitialWorkspace = initialWorkspaceHydratedRef\.current/);
+  assert.match(page, /if \(usedInitialWorkspace\)[\s\S]*loadTransportPickerDataCached/);
+});
+
+check("open weighbridge refreshes canonical allocations on crop-structure realtime and focus", () => {
+  assert.match(liveRefresh, /"crop_structure"/);
+  assert.match(page, /const cropStructureChanged = !hasScopedTables \|\| changedTables\.has\("crop_structure"\)/);
+  assert.match(page, /if \(cropStructureChanged\) \{[\s\S]*tasks\.push\(refreshHarvestAllocations\(\)\)/);
+  assert.match(page, /harvestAllocationsRequestRef\.current/);
+  assert.match(page, /harvestAllocationsGenerationRef\.current/);
 });
 
 console.log(`TZ313 FIELD PICKER ${checks}/${checks} PASS`);

@@ -1036,6 +1036,9 @@ export default function WeighbridgeOperationsPage() {
   const grossInputRef = useRef<HTMLInputElement | null>(null);
   const tareInputRef = useRef<HTMLInputElement | null>(null);
   const coreLoadRequestRef = useRef<Promise<void> | null>(null);
+  const harvestAllocationsRequestRef = useRef<Promise<void> | null>(null);
+  const harvestAllocationsAbortRef = useRef<AbortController | null>(null);
+  const harvestAllocationsGenerationRef = useRef(0);
   const ticketsRequestRef = useRef<Promise<void> | null>(null);
   const harvestBatchesRequestRef = useRef<Promise<void> | null>(null);
   const harvestBatchesAbortRef = useRef<AbortController | null>(null);
@@ -1191,6 +1194,37 @@ export default function WeighbridgeOperationsPage() {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(String(payload?.error || "Не удалось загрузить структуру урожая"));
     return payload;
+  };
+
+  const applyHarvestAllocations = (payload: any) => {
+    setActiveHarvestSeasonId(payload?.seasonId ? String(payload.seasonId) : null);
+    setActiveHarvestSeasonYear(payload?.seasonYear ? Number(payload.seasonYear) : null);
+    setHarvestStructureByField((payload?.byField || {}) as Record<string, HarvestStructureOption[]>);
+    setHarvestIncompleteFields((payload?.incompleteByField || {}) as Record<string, boolean>);
+  };
+
+  const refreshHarvestAllocations = async (parentSignal?: AbortSignal) => {
+    if (!profile?.company_id) return;
+    if (harvestAllocationsRequestRef.current) return harvestAllocationsRequestRef.current;
+
+    const companyId = profile.company_id;
+    const controller = new AbortController();
+    const generation = ++harvestAllocationsGenerationRef.current;
+    const abortFromParent = () => controller.abort();
+    parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+    harvestAllocationsAbortRef.current = controller;
+
+    const request = (async () => {
+      const payload = await loadHarvestAllocations(companyId, controller.signal);
+      if (controller.signal.aborted || generation !== harvestAllocationsGenerationRef.current) return;
+      applyHarvestAllocations(payload);
+    })().finally(() => {
+      parentSignal?.removeEventListener("abort", abortFromParent);
+      if (harvestAllocationsRequestRef.current === request) harvestAllocationsRequestRef.current = null;
+      if (harvestAllocationsAbortRef.current === controller) harvestAllocationsAbortRef.current = null;
+    });
+    harvestAllocationsRequestRef.current = request;
+    return request;
   };
 
   const applyActiveHarvestRouteList = (payload: ActiveHarvestRouteList) => {
@@ -1449,10 +1483,7 @@ export default function WeighbridgeOperationsPage() {
           addIssue("WB_TRANSPORT_PAIRS", "Не удалось обновить последние связки транспорта. Ранее загруженные данные сохранены.");
         }
         if (allocationsResult.status === "fulfilled") {
-          setActiveHarvestSeasonId(allocationsResult.value?.seasonId ? String(allocationsResult.value.seasonId) : null);
-          setActiveHarvestSeasonYear(allocationsResult.value?.seasonYear ? Number(allocationsResult.value.seasonYear) : null);
-          setHarvestStructureByField((allocationsResult.value?.byField || {}) as Record<string, HarvestStructureOption[]>);
-          setHarvestIncompleteFields((allocationsResult.value?.incompleteByField || {}) as Record<string, boolean>);
+          applyHarvestAllocations(allocationsResult.value);
         } else {
           addIssue("WB_HARVEST_ALLOCATIONS", "Не удалось обновить структуру посевов. Ранее загруженные данные сохранены.");
         }
@@ -1748,8 +1779,12 @@ export default function WeighbridgeOperationsPage() {
     }
     const ticketChanged = !hasScopedTables || ["tickets", "ticket_lines", "ticket_weighings"].some((name) => changedTables.has(name));
     const stockChanged = !hasScopedTables || ["inventory_batches", "stock_ledger_entries"].some((name) => changedTables.has(name));
+    const cropStructureChanged = !hasScopedTables || changedTables.has("crop_structure");
     if (stockChanged) stockIdentityCacheRef.current.clear();
     const tasks: Promise<unknown>[] = [];
+    if (cropStructureChanged) {
+      tasks.push(refreshHarvestAllocations());
+    }
     if (ticketChanged) {
       tasks.push(refreshTickets());
     }
@@ -1841,6 +1876,11 @@ export default function WeighbridgeOperationsPage() {
     const controller = new AbortController();
     let refreshTimer: number | null = null;
 
+    harvestAllocationsGenerationRef.current += 1;
+    harvestAllocationsAbortRef.current?.abort();
+    harvestAllocationsAbortRef.current = null;
+    harvestAllocationsRequestRef.current = null;
+
     secondaryCatalogRequestsRef.current.forEach((entry) => entry.controller.abort());
     secondaryCatalogRequestsRef.current.clear();
     secondaryCatalogReadyRef.current.clear();
@@ -1862,7 +1902,10 @@ export default function WeighbridgeOperationsPage() {
     setSecondaryCatalogStatus({ key: "", status: "idle", error: "" });
     setHistoryLimit(10);
     setHistoryHasMore(false);
-    if (cached) {
+    // The operator-session RPC is canonical and may contain crop-structure edits
+    // made after the 12-hour acceleration snapshot was written. Never let that
+    // snapshot overwrite a workspace that was just hydrated from the RPC.
+    if (cached && !initialWorkspaceHydratedRef.current) {
       setFields(cached.fields || []);
       setWarehouses(cached.warehouses || []);
       setVehicles(((cached.vehicles || []) as VehicleOption[])
@@ -1914,6 +1957,10 @@ export default function WeighbridgeOperationsPage() {
     return () => {
       if (refreshTimer != null) window.clearTimeout(refreshTimer);
       controller.abort();
+      harvestAllocationsGenerationRef.current += 1;
+      harvestAllocationsAbortRef.current?.abort();
+      harvestAllocationsAbortRef.current = null;
+      harvestAllocationsRequestRef.current = null;
       coreLoadRequestRef.current = null;
       ticketsRequestRef.current = null;
       bootstrapRequestRef.current = null;
