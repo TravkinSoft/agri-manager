@@ -14,7 +14,6 @@ def uploadStorePassword = System.getenv("TRAVKINFLOW_UPLOAD_STORE_PASSWORD")
 def uploadKeyAlias = System.getenv("TRAVKINFLOW_UPLOAD_KEY_ALIAS")
 def uploadKeyPassword = System.getenv("TRAVKINFLOW_UPLOAD_KEY_PASSWORD")
 def uploadSigningConfigured = uploadKeystorePath && uploadStorePassword && uploadKeyAlias && uploadKeyPassword
-def qaWeighbridgeWritesEnabled = String.valueOf(System.getenv("TRAVKINFLOW_QA_WEIGHBRIDGE_WRITES") ?: "false").equalsIgnoreCase("true")
 
 android {
     namespace "com.travkin.flow"
@@ -30,7 +29,6 @@ android {
         buildConfigField "String", "APP_CHANNEL", '"production"'
         buildConfigField "String", "SUPABASE_URL", buildConfigString(System.getenv("TRAVKINFLOW_SUPABASE_URL"))
         buildConfigField "String", "SUPABASE_ANON_KEY", buildConfigString(System.getenv("TRAVKINFLOW_SUPABASE_ANON_KEY"))
-        buildConfigField "boolean", "WEIGHBRIDGE_WRITE_ENABLED", "false"
     }
 
     signingConfigs {
@@ -51,7 +49,6 @@ android {
             resValue "string", "app_name", "TravkinFlow QA"
             buildConfigField "String", "BASE_URL", '"https://qa.travkinflow.com"'
             buildConfigField "String", "APP_CHANNEL", '"qa"'
-            buildConfigField "boolean", "WEIGHBRIDGE_WRITE_ENABLED", String.valueOf(qaWeighbridgeWritesEnabled)
         }
         release {
             minifyEnabled true
@@ -59,7 +56,6 @@ android {
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
             resValue "string", "app_name", "TravkinFlow"
             buildConfigField "String", "BASE_URL", '"https://travkinflow.com"'
-            buildConfigField "boolean", "WEIGHBRIDGE_WRITE_ENABLED", "false"
             if (uploadSigningConfigured) {
                 signingConfig signingConfigs.upload
             }

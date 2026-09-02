@@ -117,10 +117,24 @@ function Assert-NativeReleaseSource {
         'androidx\.browser',
         'androidbrowserhelper',
         '\bbubblewrap\b',
-        '\bCustomTabs?\b'
+        '\bCustomTabs?\b',
+        '\bweighbridge\b',
+        '\bweighman\b',
+        'Весов',
+        '\bcopilot\b',
+        '\bassistant\b',
+        '\bglobal_admin\b',
+        '\bcompany_admin\b',
+        '\bspecialist\b',
+        '\bwarehouse\b',
+        '\bnotifications?\b',
+        '\bweather\b',
+        '\bharvest\b',
+        '\btickets?\b',
+        '\bmap\b'
     )
     if (@($runtimeFiles | Select-String -Pattern $forbiddenRuntimePatterns).Count -gt 0) {
-        throw 'Forbidden WebView/TWA/custom-tabs runtime code detected in app/src/main.'
+        throw 'Forbidden mobile runtime or out-of-scope feature detected in app/src/main.'
     }
 
     Push-Location $projectDirectory
@@ -138,7 +152,7 @@ function Assert-NativeReleaseSource {
     }
 
     Write-Output "Native release source verified: $branch @ $head"
-    Write-Output 'WebView/TWA runtime and dependency matches: 0'
+    Write-Output 'Forbidden mobile runtime, feature, and dependency matches: 0'
 }
 
 function Assert-UploadCertificate {
@@ -247,7 +261,6 @@ try {
     $env:TRAVKINFLOW_UPLOAD_KEY_ALIAS = $keyAlias
     $env:TRAVKINFLOW_UPLOAD_STORE_PASSWORD = $storePassword
     $env:TRAVKINFLOW_UPLOAD_KEY_PASSWORD = $keyPassword
-    $env:TRAVKINFLOW_QA_WEIGHBRIDGE_WRITES = 'false'
 
     $keytool = Join-Path $env:JAVA_HOME 'bin\keytool.exe'
     Assert-UploadCertificate -Keytool $keytool -Path $KeystorePath -Alias $keyAlias
@@ -267,9 +280,8 @@ try {
         throw "Release AAB не создан: $bundlePath"
     }
 
-    if (-not (Test-Path -LiteralPath $generatedBuildConfig -PathType Leaf) -or
-        -not (Select-String -LiteralPath $generatedBuildConfig -SimpleMatch 'WEIGHBRIDGE_WRITE_ENABLED = false' -Quiet)) {
-        throw 'Release BuildConfig не подтвердил WEIGHBRIDGE_WRITE_ENABLED=false.'
+    if (-not (Test-Path -LiteralPath $generatedBuildConfig -PathType Leaf)) {
+        throw 'Release BuildConfig не создан.'
     }
 
     Assert-BundletoolValid -Path $bundlePath
@@ -311,5 +323,4 @@ finally {
     Remove-Item Env:TRAVKINFLOW_UPLOAD_KEY_ALIAS -ErrorAction SilentlyContinue
     Remove-Item Env:TRAVKINFLOW_UPLOAD_STORE_PASSWORD -ErrorAction SilentlyContinue
     Remove-Item Env:TRAVKINFLOW_UPLOAD_KEY_PASSWORD -ErrorAction SilentlyContinue
-    Remove-Item Env:TRAVKINFLOW_QA_WEIGHBRIDGE_WRITES -ErrorAction SilentlyContinue
 }
