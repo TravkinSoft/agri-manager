@@ -299,6 +299,7 @@ export default function Home() {
             <Link href="/auth/login" className="hover:text-white">Войти</Link>
             <Link href="/auth/register" className="hover:text-white">Создать компанию</Link>
             <Link href="/demo" className="hover:text-white">Демо</Link>
+            <Link href="/privacy" className="hover:text-white">Конфиденциальность</Link>
           </div>
         </div>
       </footer>

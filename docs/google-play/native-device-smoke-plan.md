@@ -4,6 +4,8 @@ Date: 2026-09-02
 
 Run this plan only on QA accounts/data until a separate Production acceptance is authorized.
 
+Local RC host check: neither an Android Emulator installation nor a system image/AVD is present in the configured Bubblewrap SDK, and `adb devices -l` reports no connected device. The device-independent build/static gates were run; the steps below remain manual acceptance, not simulated evidence.
+
 ## Test matrix
 
 Minimum devices:

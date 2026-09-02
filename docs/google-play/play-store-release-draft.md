@@ -51,13 +51,16 @@ Recommended review path:
 
 Google Play defines collection as transmission of user data off the device. The native V3 client directly transmits authentication and authenticated business requests to TravkinFlow/Supabase over HTTPS.
 
+The artifact-by-artifact evidence and conservative union declaration are maintained in `data-safety-v2-v3-audit.md`. Legacy V2 is a TWA over the full role-authorized web app; its optional voice transcription, file upload, geolocation and write workflows must not be inferred from the native V3 manifest.
+
 | Play data type | Native V3 evidence | Draft declaration | Purpose | Required/optional |
 | --- | --- | --- | --- | --- |
 | Personal info — Email address | Email is sent to Supabase Auth during sign-in and returned in actor profile | Collected | App functionality; account management | Required for login |
 | Personal info — User IDs | Auth UID/actor ID is sent with authenticated requests and used for RLS | Collected | App functionality; account management; security | Required |
 | App activity — App interactions | Authenticated API requests and server logs may describe used features | Backend retention/log audit required | App functionality; security/fraud prevention if applicable | To be confirmed |
 | User-generated content / business records | Production V3 reads operational data; release Weighbridge writes are compile-time disabled | Do not declare from V3 alone; audit every active Play artifact and backend first | To be confirmed | To be confirmed |
-| Approximate/precise location | No Android location permission; weather uses user-entered KATO search | Not collected by native permission/API | N/A | N/A |
+| Approximate location | No device-location API; user-entered KATO/locality and server-resolved locality coordinates are sent to weather endpoints | Collected by native V3 | Weather functionality | Optional/user-initiated |
+| Precise device location | No Android location permission or device-location API | Not collected by native V3; legacy V2 remains open pending runtime trace | N/A | N/A |
 | Photos/videos/files, contacts, SMS, call logs, health, financial, advertising ID | No relevant manifest permission or SDK/API found | Not collected by native V3 | N/A | N/A |
 | Crash/diagnostic data | No crash reporting or analytics SDK is bundled | Backend/CDN log audit required before declaring "not collected" | To be confirmed | To be confirmed |
 
@@ -70,29 +73,11 @@ Provisional security answers:
 
 Critical scope rule: Play has one Data Safety declaration covering the sum of data practices across active versions. The currently distributed versionCode 2 TWA/web artifact must therefore be audited together with native V3 before the form can be submitted. Native V3 evidence alone is insufficient.
 
-## Privacy policy draft — legal fields still required
+## Privacy policy source — legal fields still required
 
 Proposed public URL: `https://travkinflow.com/privacy` — live check on 2026-09-02 returned **HTTP 404**.
 
-The final policy must replace every bracketed field and be approved by the data controller before publication.
-
-### Политика конфиденциальности TravkinFlow
-
-Дата вступления в силу: [дата]
-
-[Полное юридическое наименование], далее «Оператор», предоставляет сервис TravkinFlow организациям и их уполномоченным сотрудникам.
-
-TravkinFlow обрабатывает данные, необходимые для входа и предоставления рабочих функций: адрес электронной почты, идентификатор пользователя, роль, контекст организации, а также производственные записи, доступные пользователю в соответствии с его правами. Приложение передаёт данные только по защищённому HTTPS-соединению.
-
-На Android-устройстве токены сессии и рабочие кэши хранятся в зашифрованном виде с использованием Android Keystore. Пароль пользователя не сохраняется. При выходе приложение немедленно удаляет локальную сессию и кэши, связанные с текущим пользователем.
-
-Приложение не запрашивает доступ к геолокации устройства, контактам, сообщениям, звонкам, камере или файлам. В текущей версии отсутствуют рекламные, аналитические и push/FCM SDK.
-
-Данные могут обрабатываться поставщиками инфраструктуры, действующими по поручению Оператора, включая хостинг приложения и сервис аутентификации. Перечень поставщиков, страны обработки и сроки хранения: [заполнить по действующим договорам и backend retention policy].
-
-Пользователь или его организация может запросить доступ, исправление или удаление данных по адресу [контактный email/URL]. Часть производственных записей может храниться в сроки, предусмотренные законом или договорными обязательствами; такие исключения должны быть описаны Оператором.
-
-По вопросам конфиденциальности: [полное юридическое наименование, адрес, email].
+Production-ready route source is prepared at `app/privacy/page.tsx` and linked from the public home-page footer. It includes the union of native and legacy-web data practices and has exactly two unresolved business inputs: legal operator name and support contact. No deployment was performed. The owner/data controller must replace both values and approve the policy before the route can be deployed or entered in Play Console.
 
 ## Store assets draft
 
@@ -100,20 +85,21 @@ TravkinFlow обрабатывает данные, необходимые для
 
 - Store icon candidate: `android/app/src/main/res/drawable/travkinflow_icon.png`.
 - Measured: 512 × 512, 32-bit ARGB with alpha, 285,283 bytes.
+- Upload-ready copy: `docs/google-play/store-assets/play-store-icon-512.png`, byte-identical SHA-256 `81B73BE1E9755DE816FB5E97E546620E5450A52E67886203C9BC2568AF8C996A`.
 - It meets the Play file-shape limits (512 × 512 PNG, alpha, less than 1 MB); final visual approval is still required.
 - The existing gold/black TravkinFlow mark is authoritative and must not be redrawn or reinterpreted.
 
-### Feature graphic — production brief, not generated
+### Feature graphic — production source ready
 
-- Required export: 1024 × 500, JPEG or 24-bit PNG without alpha.
-- Keep the focal area near the centre and avoid edge-critical copy.
-- Proposed direction only: restrained gold-on-deep-neutral composition extending the existing mark, with minimal operational/agricultural geometry and no device frame, Play badge, rankings, testimonials or time-sensitive claims.
-- Typography and exact palette have not been supplied/approved. A text-bearing final graphic must not be generated until these brand slots are confirmed.
-- Proposed alt text: `Золотой знак TravkinFlow на фоне полевых и производственных данных`.
+- Final candidate: `docs/google-play/store-assets/feature-graphic-1024x500.png`.
+- Measured: 1024 × 500, opaque 24-bit RGB PNG, 169,702 bytes, SHA-256 `3515E7C9BABE68A30A0610BD6ABC286C8DF84F38238BC3A07122EE9816940266`.
+- Deterministic source: `docs/google-play/store-assets/generate-store-assets.ps1`; it uses the existing official wordmark pixel-for-pixel and the established `#0F1115` / `#E0B100` palette.
+- No device frame, Play badge, ranking, testimonial or time-sensitive claim is present. Final owner visual approval remains required.
+- Alt text: `Логотип TravkinFlow на светлом фоне с золотыми линиями и тёмными геометрическими полями`.
 
 ### Phone screenshots — capture plan
 
-Capture at least four actual 1080 × 1920 portrait screenshots after device acceptance, without production personal data:
+Capture at least four actual 1080 × 1920 portrait screenshots after device acceptance, without production personal data. The reproducible capture checklist is in `docs/google-play/store-assets/README.md`:
 
 1. Login — alt text: `Экран входа TravkinFlow с полями email и пароля`.
 2. Operational overview — alt text: `Оперативная сводка смены и приёмки урожая`.
@@ -127,10 +113,10 @@ Do not use fabricated UI, production names, emails, UUIDs, weights or notificati
 ## Submission blockers
 
 1. Device/emulator acceptance and real screenshots are absent.
-2. Public Privacy Policy URL and in-app privacy access are absent.
+2. Privacy route source is ready, but legal owner/support values, Production deploy and live public verification are absent.
 3. Data Safety audit of active Play versionCode 2 and backend/CDN retention is incomplete.
 4. Permanent Play reviewer account/instructions are not prepared in this repository.
-5. Final feature graphic awaits authoritative palette/typography approval.
+5. Feature graphic and store icon source files are ready but still await owner visual approval.
 6. The signed V3 AAB has not been built with the user-entered upload-key secrets.
 7. Nothing has been uploaded to Play Console; this is intentional until checkpoint approval.
 

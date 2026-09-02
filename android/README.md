@@ -43,7 +43,7 @@ No signing material is stored in this repository.
 - serialized token refresh and no automatic replay of write requests;
 - native logout and App Links intent filters.
 
-FCM/device-token delivery, camera/files, complete native deep-link routing and device E2E acceptance are not implemented. The Weighbridge station/backend contract remains fail-closed and does not block the read-only release materials.
+FCM/device-token delivery, camera/files, complete native deep-link routing and device E2E acceptance are not implemented. The main backend stream reports the QA Weighbridge contract deployed; positive E2E still waits for a safely provisioned QA auth session/PIN. Release writes remain fail-closed, so this does not block the read-only release materials.
 
 ## Verification
 
