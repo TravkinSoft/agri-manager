@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$KeystorePath = 'C:\Users\TRAVKIN\Documents\TravkinFlow Secure\Google Play\travkinflow-upload.jks'
+    [string]$KeystorePath = 'C:\Users\TRAVKIN\Documents\TravkinFlow Secure\Google Play\travkinflow-upload-reset-20260902.jks',
+    [string]$PasswordVaultPath = 'C:\Users\TRAVKIN\Documents\TravkinFlow Secure\Google Play\travkinflow-upload-reset-20260902.password.clixml'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,7 +18,7 @@ $expectedVersionCode = 3
 $expectedVersionName = '3.0.0'
 $expectedTargetSdk = 36
 $expectedKeyAlias = 'travkinflow-upload'
-$expectedUploadFingerprint = '8B:A7:30:4A:03:68:01:4A:F7:24:4B:76:7E:B4:4D:7A:AD:DB:1E:45:E3:04:03:C6:05:0C:CD:0D:B5:AE:7B:2D'
+$expectedUploadFingerprint = '8B:29:80:B8:07:E2:99:1F:A5:54:C2:B6:61:7D:89:9F:9F:58:AA:EC:2D:77:DE:37:12:A3:89:70:38:C5:A3:CB'
 
 $bundledJdk = Join-Path $env:USERPROFILE '.bubblewrap\jdk\jdk-17.0.11+9'
 $bundledAndroidSdk = Join-Path $env:USERPROFILE '.bubblewrap\android_sdk'
@@ -251,8 +252,19 @@ $storePassword = $null
 $keyPassword = $null
 
 try {
-    $storePassword = ConvertTo-PlainText (Read-Host 'Введите пароль keystore' -AsSecureString)
-    $keyPassword = ConvertTo-PlainText (Read-Host 'Введите пароль upload key' -AsSecureString)
+    if (Test-Path -LiteralPath $PasswordVaultPath -PathType Leaf) {
+        $storedCredential = Import-Clixml -LiteralPath $PasswordVaultPath
+        if ($storedCredential -isnot [Management.Automation.PSCredential] -or
+            $storedCredential.UserName -cne $expectedKeyAlias) {
+            throw 'DPAPI password vault has an unexpected format or alias.'
+        }
+        $storePassword = ConvertTo-PlainText $storedCredential.Password
+        $keyPassword = $storePassword
+    }
+    else {
+        $storePassword = ConvertTo-PlainText (Read-Host 'Введите пароль keystore' -AsSecureString)
+        $keyPassword = ConvertTo-PlainText (Read-Host 'Введите пароль upload key' -AsSecureString)
+    }
     if ([string]::IsNullOrWhiteSpace($storePassword) -or [string]::IsNullOrWhiteSpace($keyPassword)) {
         throw 'Пароли keystore/upload key не могут быть пустыми.'
     }
