@@ -25,8 +25,8 @@ function asText(value: unknown): string | null {
 }
 
 function requireKnowledgeAdmin(role: string | null | undefined) {
-  if (role !== "global_admin" && role !== "company_admin") {
-    throw new SessionAuthError("Knowledge base management is available only for admins", 403);
+  if (role !== "global_admin") {
+    throw new SessionAuthError("Knowledge base management is available only for global_admin", 403);
   }
 }
 

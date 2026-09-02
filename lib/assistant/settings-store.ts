@@ -1,7 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 import { DEFAULT_ASSISTANT_PLATFORM_SETTINGS } from "@/lib/assistant/settings-types";
-import { normalizeRoleKey, parseCanonicalRole } from "@/lib/auth/role-contract";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -21,30 +20,8 @@ function deepMerge<T extends JsonRecord>(base: T, extra: JsonRecord): T {
   return out as T;
 }
 
-function normalizeRoleList(input: unknown): AssistantPlatformSettings["allowedRoles"] {
-  if (!Array.isArray(input)) return [...DEFAULT_ASSISTANT_PLATFORM_SETTINGS.allowedRoles];
-  const canonicalAllowSet = new Set([
-    "global_admin",
-    "company_admin",
-    "agronomist",
-    "director",
-    "warehouse_operator",
-    "weighman",
-    "specialist",
-    "brigadier",
-    "legal_operator",
-    "fuel_operator",
-  ]);
-  const roles = input
-    .map((item) => {
-      const key = normalizeRoleKey(item);
-      if (!canonicalAllowSet.has(key)) return null;
-      return parseCanonicalRole(key);
-    })
-    .filter((item): item is NonNullable<typeof item> => !!item)
-    .filter((role) => canonicalAllowSet.has(role));
-  const unique = Array.from(new Set(roles));
-  return (unique.length ? unique : DEFAULT_ASSISTANT_PLATFORM_SETTINGS.allowedRoles) as AssistantPlatformSettings["allowedRoles"];
+function normalizeRoleList(_input: unknown): AssistantPlatformSettings["allowedRoles"] {
+  return ["global_admin"];
 }
 
 function normalizeStringArray(input: unknown): string[] {

@@ -115,15 +115,6 @@ export const DEFAULT_ASSISTANT_PLATFORM_SETTINGS: AssistantPlatformSettings = {
   enabled: true,
   allowedRoles: [
     "global_admin",
-    "company_admin",
-    "agronomist",
-    "director",
-    "warehouse_operator",
-    "weighman",
-    "specialist",
-    "brigadier",
-    "legal_operator",
-    "fuel_operator",
   ],
   allowedTools: [
     "get_current_context",

@@ -1,10 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
-  Bot,
   ClipboardList,
   Lock,
   Map,
@@ -14,14 +13,13 @@ import {
 } from "lucide-react";
 import { TravkinLogo } from "@/components/layout/travkin-logo";
 
-type DemoModule = "fields" | "operations" | "warehouses" | "weighbridge" | "copilot";
+type DemoModule = "fields" | "operations" | "warehouses" | "weighbridge";
 
 const modules: Array<{ id: DemoModule; label: string; icon: typeof Map }> = [
   { id: "fields", label: "Поля", icon: Map },
   { id: "operations", label: "Операции", icon: ClipboardList },
   { id: "warehouses", label: "Склады", icon: Warehouse },
   { id: "weighbridge", label: "Весовая", icon: Scale },
-  { id: "copilot", label: "Copilot", icon: Bot },
 ];
 
 const fieldCards = [
@@ -195,50 +193,11 @@ function WeighbridgeDemo() {
   );
 }
 
-function CopilotDemo() {
-  const answer = useMemo(
-    () => [
-      "Короткий вывод: по демо-хозяйству активны 4 операции.",
-      "Факты: картофель 84 га, поле 28 требует фертигацию, склад СЗР держит Ревус Топ 1 260 л.",
-      "Следующий шаг: проверить готовность материалов по фунгицидной обработке.",
-    ],
-    []
-  );
-
-  return (
-    <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-      <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
-        <div className="font-black text-white">Примеры вопросов</div>
-        <div className="mt-4 space-y-3">
-          {["Что по картофелю?", "Какие операции стоят?", "Сколько осталось обработать?", "Какие материалы заканчиваются?"].map((prompt) => (
-            <div key={prompt} className="rounded-xl bg-slate-950/35 p-3 text-sm text-slate-200">{prompt}</div>
-          ))}
-        </div>
-      </div>
-      <div className="rounded-2xl border border-yellow-400/20 bg-yellow-400/10 p-5">
-        <div className="flex items-center gap-2 font-black text-yellow-100">
-          <Bot className="h-5 w-5" />
-          Copilot response
-        </div>
-        <div className="mt-4 space-y-3">
-          {answer.map((line) => (
-            <div key={line} className="rounded-xl bg-slate-950/45 p-3 text-sm leading-6 text-slate-100">{line}</div>
-          ))}
-        </div>
-        <div className="mt-5">
-          <ReadOnlyButton>Отправить вопрос</ReadOnlyButton>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ModuleContent({ active }: { active: DemoModule }) {
   if (active === "fields") return <FieldsDemo />;
   if (active === "operations") return <OperationsDemo />;
   if (active === "warehouses") return <WarehousesDemo />;
-  if (active === "weighbridge") return <WeighbridgeDemo />;
-  return <CopilotDemo />;
+  return <WeighbridgeDemo />;
 }
 
 export default function DemoPage() {

@@ -47,6 +47,7 @@ export default function NotificationsPage() {
       .order("created_at", { ascending: false })
       .limit(100);
     if (companyId) query = query.eq("company_id", companyId);
+    if (profile?.role !== "global_admin") query = query.neq("category", "assistant");
     const { data, error } = await query;
     if (error) {
       console.error("Failed to load notification history", error);
@@ -54,7 +55,7 @@ export default function NotificationsPage() {
       setNotifications((data || []) as UserNotification[]);
     }
     setLoading(false);
-  }, [companyId, user?.id]);
+  }, [companyId, profile?.role, user?.id]);
 
   useEffect(() => {
     void loadNotifications();
@@ -80,6 +81,7 @@ export default function NotificationsPage() {
       .eq("recipient_user_id", user.id)
       .is("read_at", null);
     if (companyId) query = query.eq("company_id", companyId);
+    if (profile?.role !== "global_admin") query = query.neq("category", "assistant");
     const { error } = await query;
     if (error) console.error("Failed to mark notification history as read", error);
     await loadNotifications();
@@ -101,7 +103,11 @@ export default function NotificationsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-slate-100">Уведомления</h1>
-          <p className="mt-1 text-sm text-slate-400">События операций, склада, весовой и рекомендации Assist</p>
+          <p className="mt-1 text-sm text-slate-400">
+            {profile?.role === "global_admin"
+              ? "События операций, склада, весовой и рекомендации Assist"
+              : "События операций, склада и весовой"}
+          </p>
         </div>
         <Button type="button" variant="outline" disabled={unreadCount === 0} onClick={() => void markAllRead()}>
           <CheckCheck className="mr-2 h-4 w-4" />

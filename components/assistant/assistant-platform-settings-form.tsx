@@ -158,16 +158,7 @@ type TestResponse = {
 };
 
 const ROLE_OPTIONS = [
-  { key: "warehouse_operator", label: "Складовщик" },
-  { key: "weighman", label: "Весовщик" },
-  { key: "specialist", label: "Специалист" },
-  { key: "brigadier", label: "Бригадир" },
-  { key: "legal_operator", label: "Юрист / бухгалтер" },
-  { key: "fuel_operator", label: "Оператор ГСМ" },
   { key: "global_admin", label: "Глобальный администратор" },
-  { key: "company_admin", label: "Администратор компании" },
-  { key: "agronomist", label: "Агроном" },
-  { key: "director", label: "Директор" },
 ] as const;
 
 const MODEL_OPTIONS = ["gpt-5.4-mini", "gpt-5.5"] as const;
@@ -388,7 +379,7 @@ export function AssistantPlatformSettingsForm() {
     });
   };
 
-  const loadSettings = async () => {
+  const loadSettings = useCallback(async () => {
     try {
       setLoading(true);
       const headers = await buildAuthHeaders("none");
@@ -410,11 +401,11 @@ export function AssistantPlatformSettingsForm() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   useEffect(() => {
     void loadSettings();
-  }, []);
+  }, [loadSettings]);
 
   const loadKnowledgeDocuments = useCallback(async () => {
     if (!activeKnowledgeCompanyId) {
@@ -661,18 +652,6 @@ export function AssistantPlatformSettingsForm() {
     } finally {
       setTesting(false);
     }
-  };
-
-  const toggleAllowedRole = (role: (typeof ROLE_OPTIONS)[number]["key"], nextChecked: boolean) => {
-    setSettings((prev) => {
-      const roleSet = new Set(prev.allowedRoles || []);
-      if (nextChecked) roleSet.add(role);
-      else roleSet.delete(role);
-      return {
-        ...prev,
-        allowedRoles: Array.from(roleSet) as AssistantPlatformSettings["allowedRoles"],
-      };
-    });
   };
 
   const toggleAllowedTool = (tool: string, nextChecked: boolean) => {
@@ -1229,12 +1208,13 @@ export function AssistantPlatformSettingsForm() {
               {ROLE_OPTIONS.map((role) => {
                 const active = (settings.allowedRoles || []).includes(role.key);
                 return (
-                  <button key={role.key} type="button" onClick={() => toggleAllowedRole(role.key, !active)} disabled={loading || saving} className="rounded-full">
+                  <span key={role.key} className="rounded-full">
                     <Badge variant={active ? "default" : "secondary"}>{role.label}</Badge>
-                  </button>
+                  </span>
                 );
               })}
             </div>
+            <p className="text-xs text-slate-500">Политика владельца: Travkin Copilot доступен только global_admin.</p>
           </div>
 
           <details className="rounded-lg border bg-slate-50 p-3">

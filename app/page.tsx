@@ -1,12 +1,8 @@
 import Link from "next/link";
 import {
-  ArrowRight,
-  Bot,
-  CheckCircle2,
   ClipboardList,
   Leaf,
   Map,
-  MessageSquare,
   Play,
   Scale,
   ShieldCheck,
@@ -35,11 +31,6 @@ const features = [
     text: "Остатки, партии, выдачи, возвраты и ledger, который показывает откуда пришёл каждый килограмм.",
     icon: Warehouse,
   },
-  {
-    title: "AI Copilot",
-    text: "Ассистент, который понимает поля, операции, склады и помогает быстро найти ответ по хозяйству.",
-    icon: Bot,
-  },
 ];
 
 const potatoFlow = [
@@ -50,13 +41,6 @@ const potatoFlow = [
   "Уборка",
   "Хранение",
   "Партии",
-];
-
-const copilotPrompts = [
-  "Сколько осталось обработать?",
-  "Какие операции стоят?",
-  "Какие материалы заканчиваются?",
-  "Что сделали вчера?",
 ];
 
 function ProductLogo() {
@@ -77,11 +61,11 @@ function ProductMockup() {
         </div>
       </div>
 
-      <div className="grid gap-0 lg:grid-cols-[230px_minmax(0,1fr)_300px]">
+      <div className="grid gap-0 lg:grid-cols-[230px_minmax(0,1fr)]">
         <aside className="hidden border-r border-white/10 bg-[#0d141d] p-4 lg:block">
           <ProductLogo />
           <div className="mt-8 space-y-2 text-sm">
-            {["Структура посевов", "Операции", "Склады", "Весовая", "Copilot"].map((item, index) => (
+            {["Структура посевов", "Операции", "Склады", "Весовая"].map((item, index) => (
               <div
                 key={item}
                 className={`rounded-xl px-3 py-2 ${index === 0 ? "bg-yellow-400 text-slate-950" : "text-slate-300"}`}
@@ -124,22 +108,6 @@ function ProductMockup() {
           </div>
         </section>
 
-        <aside className="border-t border-white/10 bg-[#0d141d] p-4 lg:border-l lg:border-t-0">
-          <div className="flex items-center gap-2 text-sm font-bold text-white">
-            <Bot className="h-4 w-4 text-yellow-300" />
-            AI Copilot
-          </div>
-          <div className="mt-4 space-y-3">
-            {copilotPrompts.map((prompt) => (
-              <div key={prompt} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-sm text-slate-200">
-                {prompt}
-              </div>
-            ))}
-          </div>
-          <div className="mt-5 rounded-2xl bg-yellow-400 p-4 text-sm font-semibold text-slate-950">
-            “По картофелю: 84 га, 5 активных операций, критично проверить остаток ленты и КАС.”
-          </div>
-        </aside>
       </div>
     </div>
   );
@@ -192,7 +160,7 @@ export default function Home() {
               AgriOS for modern farming operations
             </h1>
             <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-300 sm:text-xl">
-              Поля. Операции. Склады. Весовая. AI Copilot. Одна система для всего хозяйства.
+              Поля. Операции. Склады. Весовая. Одна система для всего хозяйства.
             </p>
             <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
               <Link href="/auth/login" className="inline-flex h-12 items-center justify-center rounded-xl border border-white/15 px-6 font-bold text-white hover:bg-white/10">
@@ -225,7 +193,7 @@ export default function Home() {
               TravkinFlow связывает агрономию, склад, весовую и исполнение в одну производственную цепочку.
             </p>
           </div>
-          <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {features.map(({ title, text, icon: Icon }) => (
               <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
                 <Icon className="h-6 w-6 text-yellow-300" />
@@ -258,36 +226,6 @@ export default function Home() {
                 <div className="font-bold text-white">{step}</div>
               </div>
             ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="border-t border-white/10 bg-[#0d131b] px-4 py-16 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[1fr_1fr] lg:items-center">
-          <div>
-            <div className="text-sm font-bold uppercase tracking-[0.28em] text-emerald-300">AI Copilot</div>
-            <h2 className="mt-3 text-3xl font-black text-white sm:text-4xl">Не просто чат. Контекст хозяйства.</h2>
-            <p className="mt-5 text-base leading-7 text-slate-400">
-              Copilot отвечает по данным хозяйства, помогает найти риски и быстро открыть нужный модуль.
-            </p>
-            <div className="mt-8">
-              <Link href="/demo" className="inline-flex h-12 items-center justify-center rounded-xl bg-yellow-400 px-6 font-black text-slate-950 hover:bg-yellow-300">
-                Открыть TravkinFlow Demo
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </div>
-          </div>
-          <div className="space-y-3">
-            {copilotPrompts.map((prompt) => (
-              <div key={prompt} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#101720] p-4">
-                <MessageSquare className="h-5 w-5 text-yellow-300" />
-                <span className="font-semibold text-white">{prompt}</span>
-              </div>
-            ))}
-            <div className="rounded-2xl border border-emerald-400/25 bg-emerald-400/10 p-5 text-sm leading-6 text-emerald-100">
-              <CheckCircle2 className="mb-3 h-5 w-5 text-emerald-300" />
-              Demo открывается без регистрации и работает только на просмотр. Создание, редактирование и закрытие операций отключены.
-            </div>
           </div>
         </div>
       </section>

@@ -52,7 +52,7 @@ check("desktop menu order matches owner contract", () => {
 
 check("mobile menu has all five routes and stable labels", () => {
   assert.match(mobileNav, /case "agronomist":[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?warehouses[\s\S]*?tickets_nav[\s\S]*?weather/);
-  assert.match(mobileNav, /COPILOT_ITEM, weather/);
+  assert.doesNotMatch(mobileNav, /COPILOT_ITEM|mobile-nav-copilot|canUseAssistantShell/);
   assert.match(mobileNav, /normalizedRole === "agronomist" \? 5 : 4/);
   assert.match(mobileNav, /line-clamp-2/);
 });
@@ -107,9 +107,9 @@ check("wind direction is visible in current and hourly forecast", () => {
   assert.match(weatherUi, /windDirection\(point\.windBearingDeg\)/);
 });
 
-check("assistant is available to agronomist without broad admin access", () => {
-  assert.match(assistantShell, /AssistantAllowedRole = "global_admin" \| "agronomist"/);
-  assert.match(assistantShell, /ASSISTANT_ALLOWED_ROLES = new Set<AssistantAllowedRole>\(\[[\s\S]*?"global_admin",[\s\S]*?"agronomist",[\s\S]*?\]\)/);
+check("assistant is hidden from agronomist", () => {
+  assert.match(assistantShell, /AssistantAllowedRole = "global_admin"/);
+  assert.doesNotMatch(assistantShell, /"agronomist"/);
 });
 
 check("ticket cards lead with field and identity while keeping optional moisture", () => {

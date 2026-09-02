@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   BookOpen,
-  Bot,
   CheckSquare,
   CloudSun,
   Droplets,
@@ -27,18 +26,15 @@ import { canAccessPath } from "@/lib/auth/role-access";
 import type { AppRole } from "@/lib/auth/roles";
 import { useLanguage } from "@/lib/contexts/language-context";
 import type { TranslationKey } from "@/lib/i18n/translations";
-import { useAssistantShell } from "@/components/assistant/assistant-shell-provider";
-import { canUseAssistantShell } from "@/lib/assistant/shell";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type BottomItem = {
   labelKey: TranslationKey;
   href?: string;
   icon: ComponentType<{ className?: string }>;
-  kind: "route" | "copilot" | "more";
+  kind: "route" | "more";
 };
 
-const COPILOT_ITEM: BottomItem = { labelKey: "copilot", icon: Bot, kind: "copilot" };
 const MORE_ITEM: BottomItem = { labelKey: "mobile_more", icon: Menu, kind: "more" };
 const DASHBOARD_ITEM: BottomItem = { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard, kind: "route" };
 
@@ -134,23 +130,15 @@ function getRoleFilteredItems(role?: string | null): BottomItem[] {
     );
   }
   const routeLimit = normalizedRole === "agronomist" ? 5 : 4;
-  const routeItems = getMobileRouteCandidates(role)
+  return getMobileRouteCandidates(role)
     .filter((item) => canAccessPath(normalizedRole, item.href || ""))
     .slice(0, routeLimit);
-  if (normalizedRole === "agronomist" && canUseAssistantShell(normalizedRole)) {
-    const weather = routeItems.find((item) => item.href === "/weather-lab");
-    return weather
-      ? [...routeItems.filter((item) => item !== weather), COPILOT_ITEM, weather]
-      : [...routeItems, COPILOT_ITEM];
-  }
-  return canUseAssistantShell(normalizedRole) ? [...routeItems, COPILOT_ITEM] : routeItems;
 }
 
 export function MobileBottomNav() {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
   const { profile } = useAuth();
-  const { enabled, isOpen, toggle } = useAssistantShell();
   const { t } = useLanguage();
 
   useEffect(() => {
@@ -159,10 +147,7 @@ export function MobileBottomNav() {
 
   if (!pathname) return null;
 
-  const isWeatherLab = pathname === "/weather-lab" || pathname.startsWith("/weather-lab/");
-  const items = getRoleFilteredItems(profile?.role).filter(
-    (item) => !isWeatherLab || item.kind !== "copilot"
-  );
+  const items = getRoleFilteredItems(profile?.role);
   const moreItems = getMoreRouteCandidates(profile?.role);
   if (items.length === 0) return null;
 
@@ -171,29 +156,8 @@ export function MobileBottomNav() {
       <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
         {items.map((item) => {
           const Icon = item.icon;
-          const active = item.kind === "copilot" ? isOpen : isActivePath(pathname, item.href);
+          const active = isActivePath(pathname, item.href);
           const label = t(item.labelKey);
-
-          if (item.kind === "copilot") {
-            return (
-              <button
-                key="mobile-nav-copilot"
-                type="button"
-                onClick={toggle}
-                disabled={!enabled}
-                aria-label={label}
-                className={cn(
-                  "relative flex min-h-12 flex-col items-center justify-center rounded-2xl px-1 py-1 text-[10px] font-medium disabled:cursor-not-allowed disabled:opacity-60",
-                  active
-                    ? "bg-[#E0B100] text-[#111827]"
-                    : "text-[#A9B2C2] hover:bg-[#202738] hover:text-[#F3F4F6]"
-                )}
-              >
-                <Icon className="mb-1 h-4 w-4" />
-                <span className="max-w-full truncate">{label}</span>
-              </button>
-            );
-          }
 
           if (item.kind === "more") {
             return (

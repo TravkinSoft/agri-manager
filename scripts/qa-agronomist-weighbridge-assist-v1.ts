@@ -80,7 +80,7 @@ check("notification payload carries agronomic and physical context", () => {
   assert.match(migration, /'\/weighbridge\?ticket=' \|\| new\.id::text/);
 });
 
-check("proactive Assist is silent and idempotent when no new signal exists", () => {
+check("legacy proactive Assist remains idempotent while UI access is disabled", () => {
   assert.match(migration, /if not exists \([\s\S]*?idempotency_key = concat\('assist:stale-ticket:/);
   assert.match(migration, /v_created := v_created \+ 1/);
   assert.match(migration, /return v_created/);
@@ -97,9 +97,13 @@ check("proactive RPC is authenticated, role and company scoped", () => {
   assert.match(proactiveRoute, /getUserScopedClientFromRequest/);
 });
 
-check("agronomist receives Assist without Company Admin access", () => {
-  assert.match(shell, /"global_admin" \| "agronomist"/);
-  assert.match(serverSession, /ASSISTANT_ALLOWED_ROLES[\s\S]*?"global_admin",[\s\S]*?"agronomist"/);
+check("agronomist Assist UI and server access are disabled", () => {
+  assert.match(shell, /AssistantAllowedRole = "global_admin"/);
+  assert.doesNotMatch(shell, /"agronomist"/);
+  const assistantRoleSet = serverSession.match(/const ASSISTANT_ALLOWED_ROLES[\s\S]*?\]\);/)?.[0] || "";
+  assert.match(assistantRoleSet, /"global_admin"/);
+  assert.doesNotMatch(assistantRoleSet, /"agronomist"/);
+  assert.match(notificationCenter, /String\(role \|\| ""\) !== "global_admin"/);
   assert.match(roleAccess, /AGRONOMIST_ALLOWED_EXACT = \["\/warehouses", "\/settings"\]/);
   assert.doesNotMatch(roleAccess.match(/const AGRONOMIST_ALLOWED_PREFIXES[\s\S]*?\];/)?.[0] || "", /\/platform|\/users/);
 });

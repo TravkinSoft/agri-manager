@@ -4,35 +4,10 @@ import { getAssistantPlatformSettings, saveAssistantPlatformSettings } from "@/l
 import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 import { DEFAULT_ASSISTANT_PLATFORM_SETTINGS } from "@/lib/assistant/settings-types";
 import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
-import { normalizeRoleKey, parseCanonicalRole } from "@/lib/auth/role-contract";
 import { resolveTravkinCorePrompt } from "@/lib/assistant/prompts/travkin-core-prompt";
 
-function sanitizeRoleList(input: unknown): AssistantPlatformSettings["allowedRoles"] {
-  if (!Array.isArray(input)) return DEFAULT_ASSISTANT_PLATFORM_SETTINGS.allowedRoles;
-  const allowed = new Set([
-    "global_admin",
-    "company_admin",
-    "agronomist",
-    "director",
-    "warehouse_operator",
-    "weighman",
-    "specialist",
-    "brigadier",
-    "legal_operator",
-    "fuel_operator",
-  ]);
-  return Array.from(
-    new Set(
-      input
-        .map((x) => {
-          const key = normalizeRoleKey(x);
-          if (!allowed.has(key)) return null;
-          return parseCanonicalRole(key);
-        })
-        .filter((x): x is NonNullable<typeof x> => !!x)
-        .filter((x) => allowed.has(x))
-    )
-  ) as AssistantPlatformSettings["allowedRoles"];
+function sanitizeRoleList(_input: unknown): AssistantPlatformSettings["allowedRoles"] {
+  return ["global_admin"];
 }
 
 function sanitizeSettingsPayload(raw: unknown): AssistantPlatformSettings {

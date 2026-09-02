@@ -77,6 +77,7 @@ export function NotificationCenter({ userId, companyId, role }: NotificationCent
         .order("created_at", { ascending: false })
         .limit(30);
       if (companyId) query = query.eq("company_id", companyId);
+      if (String(role || "") !== "global_admin") query = query.neq("category", "assistant");
 
       const { data, error } = await query;
       if (error) throw error;
@@ -91,10 +92,10 @@ export function NotificationCenter({ userId, companyId, role }: NotificationCent
         void loadNotifications();
       }
     }
-  }, [companyId, userId]);
+  }, [companyId, role, userId]);
 
   const runProactiveAudit = useCallback(async () => {
-    if (!companyId || String(role || "") !== "agronomist") return;
+    if (!companyId || String(role || "") !== "global_admin") return;
     if (proactiveRunningRef.current) return;
     proactiveRunningRef.current = true;
     try {
@@ -209,6 +210,7 @@ export function NotificationCenter({ userId, companyId, role }: NotificationCent
       .eq("recipient_user_id", userId)
       .is("read_at", null);
     if (companyId) query = query.eq("company_id", companyId);
+    if (String(role || "") !== "global_admin") query = query.neq("category", "assistant");
     const { error } = await query;
     if (error) console.error("Failed to mark all notifications as read", error);
     await loadNotifications();
