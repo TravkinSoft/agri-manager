@@ -10,6 +10,10 @@ const identityMigrationUrl = new URL(
   "../supabase/migrations/20260821002912_tz294_correction_lot_identity_v2.sql",
   import.meta.url,
 );
+const nonTransferCorrectionMigrationUrl = new URL(
+  "../supabase/migrations/20260902225536_tz315_nontransfer_correction_stock_postcondition_v1.sql",
+  import.meta.url,
+);
 const pageUrl = new URL("../app/(dashboard)/weighbridge/page.tsx", import.meta.url);
 const paperUrl = new URL("../components/weighbridge/weighbridge-ticket-paper.tsx", import.meta.url);
 const ticketPatchRouteUrl = new URL("../app/api/weighbridge/tickets/[id]/route.ts", import.meta.url);
@@ -32,10 +36,12 @@ const CORRECTION = "c6b13eac-9ac5-4b05-aae7-5605bfc3d864";
 
 type Row = Record<string, unknown>;
 const rows = async (db: PGlite, sql: string) => (await db.query(sql)).rows as Row[];
+const scalar = async (db: PGlite, sql: string) => Object.values((await rows(db, sql))[0] ?? {})[0];
 
 async function main() {
   const migration = await readFile(migrationUrl, "utf8");
   const identityMigration = await readFile(identityMigrationUrl, "utf8");
+  const nonTransferCorrectionMigration = await readFile(nonTransferCorrectionMigrationUrl, "utf8");
   const page = await readFile(pageUrl, "utf8");
   const paper = await readFile(paperUrl, "utf8");
   const ticketPatchRoute = await readFile(ticketPatchRouteUrl, "utf8");
@@ -58,6 +64,9 @@ async function main() {
   assert.match(identityMigration, /Correction aggregate lot trace postcondition failed/);
   assert.doesNotMatch(identityMigration, /disable\s+trigger/i);
   assert.doesNotMatch(identityMigration, /delete\s+from\s+public\.(tickets|stock_ledger_entries|inventory_batches)/i);
+  assert.match(nonTransferCorrectionMigration, /TZ315_NONTRANSFER_CORRECTION_STOCK_POSTCONDITION_V1/);
+  assert.match(nonTransferCorrectionMigration, /if v_old\.direction::text = ''transfer''/);
+  assert.doesNotMatch(nonTransferCorrectionMigration, /delete\s+from\s+public\.(tickets|stock_ledger_entries|inventory_batches)/i);
   assert.match(page, /Исправляется/);
   assert.match(page, /Исходный талон/);
   assert.match(page, /Новое исправление/);
@@ -255,7 +264,16 @@ async function main() {
   await db.exec(migration);
   await db.exec("set check_function_bodies = false");
   await db.exec(identityMigration);
+  await db.exec(nonTransferCorrectionMigration);
   await db.exec("set check_function_bodies = true");
+
+  const correctedDefinition = String(await scalar(db, `
+    select pg_get_functiondef(
+      'public.finalize_weighbridge_ticket_correction_v1(uuid,uuid,uuid)'::regprocedure
+    )
+  `));
+  assert.match(correctedDefinition, /TZ315_NONTRANSFER_CORRECTION_STOCK_POSTCONDITION_V1/);
+  assert.match(correctedDefinition, /if v_old\.direction::text = 'transfer'/);
 
   const repaired = (await rows(db, `
     select t.harvest_lot_id,
