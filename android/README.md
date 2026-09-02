@@ -53,6 +53,28 @@ FCM/device-token delivery, camera/files, complete native deep-link routing and d
 
 For the final signed Play bundle, set only the Supabase URL/publishable key in the current terminal and run `build-play-bundle.ps1`. The script always prompts for both upload-key passwords without echoing them and removes signing variables when it exits. It creates `app/build/outputs/bundle/release/app-release.aab`; it does not upload or publish anything.
 
+The signing command is fail-closed and accepts only this native release source:
+
+- worktree: `C:\Users\TRAVKIN\Downloads\CodecSaaS\project-google-market-native-v1`;
+- branch: `codex/google-market-native-v1`;
+- HEAD must descend from approved native baseline `909bd1eed3c367f0fcca68c2d765ef567d09e300`;
+- Git worktree must be clean;
+- package/version/target must be `com.travkin.flow` / `3` / `3.0.0` / API 36;
+- alias must be `travkinflow-upload`, and its SHA-256 must match the Play Upload certificate;
+- WebView, TWA, Bubblewrap, Android Browser Helper and Custom Tabs matches must be zero in both runtime source and `releaseRuntimeClasspath`.
+
+The legacy `C:\Users\TRAVKIN\Downloads\CodecSaaS\project-google-market\android` TWA project is explicitly rejected and must never be used for Play V3 signing.
+
+After the build, the script requires `bundletool validate`, a valid `jarsigner` AAB signature and an exact signer-certificate match. `apksigner` is only for APK artifacts, not AAB files; a Play-installed APK must report the Play App Signing certificate rather than the upload certificate.
+
+## V3-over-V2 device smoke
+
+- Install V2 from the Play Internal track, then update to V3 without uninstalling; Android must accept the update for the same `com.travkin.flow` identity.
+- V3 must launch the native Compose UI without a browser bar, WebView, TWA or website fallback and must tolerate leftover V2 app data without crashing.
+- A one-time login is expected because the legacy TWA browser session is not a native encrypted session; after native login, restart must retain the V3 session.
+- Verify one allowed role and one excluded role: allowed-role read screens load, while excluded access fails closed.
+- Confirm version `3.0.0` / code `3`, exercise Back/background/resume/logout, and verify that release weighbridge/business writes remain disabled.
+
 Static runtime gate:
 
 ```powershell

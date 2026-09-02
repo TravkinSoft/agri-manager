@@ -7,6 +7,17 @@ $ErrorActionPreference = 'Stop'
 $projectDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $bundlePath = Join-Path $projectDirectory 'app\build\outputs\bundle\release\app-release.aab'
 $generatedBuildConfig = Join-Path $projectDirectory 'app\build\generated\source\buildConfig\release\com\travkin\flow\BuildConfig.java'
+$expectedRepositoryRoot = 'C:\Users\TRAVKIN\Downloads\CodecSaaS\project-google-market-native-v1'
+$expectedProjectDirectory = Join-Path $expectedRepositoryRoot 'android'
+$legacyProjectDirectory = 'C:\Users\TRAVKIN\Downloads\CodecSaaS\project-google-market\android'
+$expectedBranch = 'codex/google-market-native-v1'
+$nativeReleaseBaseline = '909bd1eed3c367f0fcca68c2d765ef567d09e300'
+$expectedPackage = 'com.travkin.flow'
+$expectedVersionCode = 3
+$expectedVersionName = '3.0.0'
+$expectedTargetSdk = 36
+$expectedKeyAlias = 'travkinflow-upload'
+$expectedUploadFingerprint = '8B:A7:30:4A:03:68:01:4A:F7:24:4B:76:7E:B4:4D:7A:AD:DB:1E:45:E3:04:03:C6:05:0C:CD:0D:B5:AE:7B:2D'
 
 $bundledJdk = Join-Path $env:USERPROFILE '.bubblewrap\jdk\jdk-17.0.11+9'
 $bundledAndroidSdk = Join-Path $env:USERPROFILE '.bubblewrap\android_sdk'
@@ -39,9 +50,164 @@ function ConvertTo-PlainText {
     }
 }
 
+function Get-GitText {
+    param([Parameter(Mandatory)][string[]]$Arguments)
+
+    $result = & git -C $projectDirectory @Arguments 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Git preflight failed: git $($Arguments -join ' ')"
+    }
+    ($result | Out-String).Trim()
+}
+
+function Assert-NativeReleaseSource {
+    $actualProjectDirectory = [IO.Path]::GetFullPath($projectDirectory).TrimEnd('\')
+    $requiredProjectDirectory = [IO.Path]::GetFullPath($expectedProjectDirectory).TrimEnd('\')
+    $rejectedLegacyDirectory = [IO.Path]::GetFullPath($legacyProjectDirectory).TrimEnd('\')
+
+    if ($actualProjectDirectory -ieq $rejectedLegacyDirectory) {
+        throw 'Legacy TWA source project-google-market\android is forbidden for Play V3 signing.'
+    }
+    if ($actualProjectDirectory -ine $requiredProjectDirectory) {
+        throw "Play V3 signing is allowed only from: $requiredProjectDirectory"
+    }
+
+    $repositoryRoot = [IO.Path]::GetFullPath((Get-GitText @('rev-parse', '--show-toplevel'))).TrimEnd('\')
+    if ($repositoryRoot -ine [IO.Path]::GetFullPath($expectedRepositoryRoot).TrimEnd('\')) {
+        throw "Unexpected Git worktree: $repositoryRoot"
+    }
+
+    $branch = Get-GitText @('branch', '--show-current')
+    if ($branch -cne $expectedBranch) {
+        throw "Unexpected Git branch: $branch. Required: $expectedBranch"
+    }
+
+    $head = Get-GitText @('rev-parse', 'HEAD')
+    & git -C $projectDirectory merge-base --is-ancestor $nativeReleaseBaseline $head
+    if ($LASTEXITCODE -ne 0) {
+        throw "HEAD $head is not in the approved native release family rooted at $nativeReleaseBaseline."
+    }
+
+    $status = Get-GitText @('status', '--porcelain=v1', '--untracked-files=all')
+    if (-not [string]::IsNullOrWhiteSpace($status)) {
+        throw 'Git worktree is not clean. Commit or remove every change before Play signing.'
+    }
+
+    $buildGradle = Get-Content -LiteralPath (Join-Path $projectDirectory 'app\build.gradle') -Raw
+    $requiredBuildValues = @(
+        "applicationId `"$expectedPackage`"",
+        "versionCode $expectedVersionCode",
+        "versionName `"$expectedVersionName`"",
+        "targetSdk $expectedTargetSdk"
+    )
+    foreach ($requiredValue in $requiredBuildValues) {
+        if (-not $buildGradle.Contains($requiredValue)) {
+            throw "Native release build.gradle failed required invariant: $requiredValue"
+        }
+    }
+
+    $runtimeSourceRoot = Join-Path $projectDirectory 'app\src\main'
+    $runtimeFiles = Get-ChildItem -LiteralPath $runtimeSourceRoot -Recurse -File |
+        Where-Object { $_.Extension -in @('.kt', '.java', '.xml') }
+    $forbiddenRuntimePatterns = @(
+        'android\.webkit',
+        '\bWebView\b',
+        '\bloadUrl\s*\(',
+        'TrustedWebActivity',
+        'androidx\.browser',
+        'androidbrowserhelper',
+        '\bbubblewrap\b',
+        '\bCustomTabs?\b'
+    )
+    if (@($runtimeFiles | Select-String -Pattern $forbiddenRuntimePatterns).Count -gt 0) {
+        throw 'Forbidden WebView/TWA/custom-tabs runtime code detected in app/src/main.'
+    }
+
+    Push-Location $projectDirectory
+    try {
+        $dependencyReport = & .\gradlew.bat :app:dependencies --configuration releaseRuntimeClasspath --no-daemon --console=plain 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to resolve releaseRuntimeClasspath for native-runtime verification.'
+        }
+    }
+    finally {
+        Pop-Location
+    }
+    if (($dependencyReport | Out-String) -match '(?i)androidx\.browser|androidx\.webkit|androidbrowserhelper|trustedwebactivity|bubblewrap|customtabs') {
+        throw 'Forbidden WebView/TWA/custom-tabs dependency detected in releaseRuntimeClasspath.'
+    }
+
+    Write-Output "Native release source verified: $branch @ $head"
+    Write-Output 'WebView/TWA runtime and dependency matches: 0'
+}
+
+function Assert-UploadCertificate {
+    param(
+        [Parameter(Mandatory)][string]$Keytool,
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Alias
+    )
+
+    $certificateDetails = & $Keytool -list -v -keystore $Path -alias $Alias '-storepass:env' TRAVKINFLOW_UPLOAD_STORE_PASSWORD 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Upload keystore could not be opened with the supplied password and alias.'
+    }
+    $fingerprintMatch = [regex]::Match(
+        ($certificateDetails | Out-String),
+        '(?im)^\s*SHA256:\s*([0-9A-F:]{95})\s*$'
+    )
+    if (-not $fingerprintMatch.Success -or $fingerprintMatch.Groups[1].Value -cne $expectedUploadFingerprint) {
+        throw 'Upload certificate SHA-256 does not match the Google Play Upload key. Do not sign or upload.'
+    }
+}
+
+function Assert-BundletoolValid {
+    param([Parameter(Mandatory)][string]$Path)
+
+    $gradleCache = Join-Path $env:USERPROFILE '.gradle\caches\modules-2\files-2.1'
+    $bundletoolArtifacts = @(
+        'com.android.tools.build\bundletool',
+        'com.android.tools.build\aapt2-proto',
+        'com.google.auto.value\auto-value-annotations',
+        'com.google.errorprone\error_prone_annotations',
+        'com.google.guava\guava',
+        'com.google.guava\failureaccess',
+        'com.google.guava\listenablefuture',
+        'com.google.protobuf\protobuf-java',
+        'com.google.protobuf\protobuf-java-util',
+        'com.google.dagger\dagger',
+        'javax.inject\javax.inject',
+        'org.bitbucket.b_c\jose4j',
+        'org.slf4j\slf4j-api',
+        'com.google.code.gson\gson',
+        'org.checkerframework\checker-qual',
+        'com.google.j2objc\j2objc-annotations',
+        'com.google.code.findbugs\jsr305'
+    )
+    $bundletoolClasspath = foreach ($artifact in $bundletoolArtifacts) {
+        $artifactRoot = Join-Path $gradleCache $artifact
+        if (Test-Path -LiteralPath $artifactRoot -PathType Container) {
+            Get-ChildItem -LiteralPath $artifactRoot -Recurse -File -Filter '*.jar' |
+                Select-Object -ExpandProperty FullName
+        }
+    }
+    if (-not ($bundletoolClasspath | Where-Object { $_ -match '\\bundletool-[^\\]+\.jar$' })) {
+        throw 'bundletool library is not available in the local Gradle cache.'
+    }
+
+    $java = Join-Path $env:JAVA_HOME 'bin\java.exe'
+    $bundletoolResult = & $java -cp ($bundletoolClasspath -join [IO.Path]::PathSeparator) `
+        com.android.tools.build.bundletool.BundleToolMain validate "--bundle=$Path" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Release AAB failed bundletool validate.'
+    }
+}
+
 if (-not (Test-Path -LiteralPath $KeystorePath -PathType Leaf)) {
     throw "Upload keystore не найден: $KeystorePath"
 }
+
+Assert-NativeReleaseSource
 
 if ([string]::IsNullOrWhiteSpace($env:TRAVKINFLOW_SUPABASE_URL)) {
     throw 'Перед запуском задайте TRAVKINFLOW_SUPABASE_URL только в текущем терминале.'
@@ -61,15 +227,10 @@ if ([string]::IsNullOrWhiteSpace($env:TRAVKINFLOW_SUPABASE_ANON_KEY)) {
     throw 'Перед запуском задайте TRAVKINFLOW_SUPABASE_ANON_KEY только в текущем терминале.'
 }
 
-$keyAlias = $env:TRAVKINFLOW_UPLOAD_KEY_ALIAS
-if ([string]::IsNullOrWhiteSpace($keyAlias)) {
-    $keyAlias = Read-Host 'Введите alias upload key [travkinflow-upload]'
-    if ([string]::IsNullOrWhiteSpace($keyAlias)) {
-        $keyAlias = 'travkinflow-upload'
-    }
-}
-if ([string]::IsNullOrWhiteSpace($keyAlias)) {
-    throw 'Alias upload key не может быть пустым.'
+$keyAlias = $expectedKeyAlias
+if (-not [string]::IsNullOrWhiteSpace($env:TRAVKINFLOW_UPLOAD_KEY_ALIAS) -and
+    $env:TRAVKINFLOW_UPLOAD_KEY_ALIAS -cne $expectedKeyAlias) {
+    throw "Upload key alias must be exactly $expectedKeyAlias."
 }
 
 $storePassword = $null
@@ -87,6 +248,9 @@ try {
     $env:TRAVKINFLOW_UPLOAD_STORE_PASSWORD = $storePassword
     $env:TRAVKINFLOW_UPLOAD_KEY_PASSWORD = $keyPassword
     $env:TRAVKINFLOW_QA_WEIGHBRIDGE_WRITES = 'false'
+
+    $keytool = Join-Path $env:JAVA_HOME 'bin\keytool.exe'
+    Assert-UploadCertificate -Keytool $keytool -Path $KeystorePath -Alias $keyAlias
 
     Push-Location $projectDirectory
     try {
@@ -108,10 +272,29 @@ try {
         throw 'Release BuildConfig не подтвердил WEIGHBRIDGE_WRITE_ENABLED=false.'
     }
 
+    Assert-BundletoolValid -Path $bundlePath
+
     $jarsigner = Join-Path $env:JAVA_HOME 'bin\jarsigner.exe'
-    $signatureCheck = & $jarsigner -verify -strict $bundlePath 2>&1
-    if ($LASTEXITCODE -ne 0 -or $signatureCheck -match 'jar is unsigned') {
+    $signatureCheck = & $jarsigner -verify -verbose -certs $bundlePath 2>&1
+    $jarsignerExitCode = $LASTEXITCODE
+    $signatureText = $signatureCheck | Out-String
+    if ($jarsignerExitCode -ne 0 -or
+        $signatureText -notmatch '(?im)^jar verified\.$' -or
+        $signatureText -match '(?i)jar is unsigned|unsigned entry|signature.*(?:invalid|error)') {
         throw 'Release AAB не прошёл проверку upload-подписи.'
+    }
+
+    $signedCertificate = & $keytool -printcert -jarfile $bundlePath 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Unable to read the release AAB signer certificate.'
+    }
+    $signedFingerprintMatch = [regex]::Match(
+        ($signedCertificate | Out-String),
+        '(?im)^\s*SHA256:\s*([0-9A-F:]{95})\s*$'
+    )
+    if (-not $signedFingerprintMatch.Success -or
+        $signedFingerprintMatch.Groups[1].Value -cne $expectedUploadFingerprint) {
+        throw 'Release AAB signer does not match the Google Play Upload key. Do not upload.'
     }
 
     $bundle = Get-Item -LiteralPath $bundlePath
