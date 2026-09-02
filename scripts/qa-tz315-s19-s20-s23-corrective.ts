@@ -77,6 +77,17 @@ check("S23 global-admin fallback refreshes summaries without refetching the ware
   assert.match(loadBlock, /getWarehouseSummaries/);
 });
 
+check("S23 refreshes the currently open warehouse after the canonical summary", () => {
+  assert.match(warehouses, /const selectedWarehouseIdRef = useRef<string \| null>\(null\)/);
+  assert.match(warehouses, /selectedWarehouseIdRef\.current = warehouseId;[\s\S]*setSelectedWarehouseId\(warehouseId\)/);
+  const refreshBlock = warehouses.match(/onRefresh: async \(event\) => \{[\s\S]*?setDetailRevision\(\(current\) => current \+ 1\);/)?.[0] || "";
+  const summaryIndex = refreshBlock.indexOf("await loadWarehouseList");
+  const selectedIndex = refreshBlock.indexOf("selectedWarehouseIdRef.current");
+  const detailIndex = refreshBlock.indexOf("await loadWarehouseDetails");
+  assert(summaryIndex >= 0 && selectedIndex > summaryIndex && detailIndex > selectedIndex);
+  assert.doesNotMatch(refreshBlock, /Promise\.all/);
+});
+
 check("corrective scope contains no crop-structure or hard-delete writes", () => {
   const joined = [stockRoute, weighbridge, warehouses].join("\n");
   assert.doesNotMatch(joined, /from\(["'](?:crop_structure_allocations|fields|seasons|crops|varieties|seed_reproductions)["']\)[\s\S]{0,120}\.(?:insert|update|delete)\(/i);

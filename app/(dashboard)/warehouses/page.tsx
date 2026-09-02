@@ -147,6 +147,7 @@ export default function WarehousesPage() {
   const [productsLoading, setProductsLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
+  const selectedWarehouseIdRef = useRef<string | null>(null);
   const [receiptWarehouseId, setReceiptWarehouseId] = useState<string | null>(null);
   const [openingBalanceOpen, setOpeningBalanceOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
@@ -289,8 +290,14 @@ export default function WarehousesPage() {
   };
 
   const openWarehouse = (warehouseId: string) => {
+    selectedWarehouseIdRef.current = warehouseId;
     setSelectedWarehouseId(warehouseId);
     void loadWarehouseDetails(warehouseId, { foreground: !loadedWarehouseIds.includes(warehouseId) });
+  };
+
+  const closeWarehouse = () => {
+    selectedWarehouseIdRef.current = null;
+    setSelectedWarehouseId(null);
   };
 
   const openHarvestBatch = async (batch: HarvestBatchSummary) => {
@@ -355,6 +362,7 @@ export default function WarehousesPage() {
     setBalances(cached?.balances || []);
     setHarvestBatches(cached?.harvestBatches || []);
     setLoadedWarehouseIds(cached?.loadedWarehouseIds || []);
+    selectedWarehouseIdRef.current = null;
     setSelectedWarehouseId(null);
     setSearchDataLoaded(false);
     setLoading(!cached);
@@ -368,15 +376,18 @@ export default function WarehousesPage() {
     onRefresh: async (event) => {
       const globalAdminConsistencyPoll = profile?.role === "global_admin" && event?.source === "interval";
       const force = event?.source === "realtime" || event?.source === "online" || globalAdminConsistencyPoll;
-      const tasks: Promise<unknown>[] = [loadWarehouseList({
+      await loadWarehouseList({
         foreground: false,
         force,
         summariesOnly: globalAdminConsistencyPoll,
-      })];
-      if (selectedWarehouseId) {
-        tasks.push(loadWarehouseDetails(selectedWarehouseId, { foreground: false, force }));
+      });
+      // Read the current open warehouse after the summary refresh. Realtime may
+      // fire while React is still publishing a newly selected dialog state;
+      // the ref prevents that event from leaving the visible stock detail stale.
+      const openWarehouseId = selectedWarehouseIdRef.current;
+      if (openWarehouseId) {
+        await loadWarehouseDetails(openWarehouseId, { foreground: false, force });
       }
-      await Promise.all(tasks);
       setDetailRevision((current) => current + 1);
     },
     companyId: profile?.company_id,
@@ -606,7 +617,7 @@ export default function WarehousesPage() {
         </section>
       ) : null}
 
-      <Dialog open={Boolean(selectedSummary)} onOpenChange={(open) => !open && setSelectedWarehouseId(null)}>
+      <Dialog open={Boolean(selectedSummary)} onOpenChange={(open) => !open && closeWarehouse()}>
         <DialogContent className="flex h-[100dvh] max-h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[92vh] sm:max-h-[92vh] sm:w-[min(1100px,calc(100vw-32px))] sm:max-w-[1100px] sm:rounded-lg">
           {selectedSummary ? (
             <>
@@ -700,7 +711,7 @@ export default function WarehousesPage() {
               </div>
 
               <DialogFooter className="shrink-0 border-t border-slate-800 px-5 py-3">
-                <Button variant="outline" onClick={() => setSelectedWarehouseId(null)}>Закрыть</Button>
+                <Button variant="outline" onClick={closeWarehouse}>Закрыть</Button>
               </DialogFooter>
             </>
           ) : null}

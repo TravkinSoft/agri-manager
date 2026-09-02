@@ -50,8 +50,8 @@ const checks: Array<[string, () => void]> = [
     assert.doesNotMatch(body, /getProducts|getInventoryTransactions|getWarehouseReceipts|getWarehouseIssueRequests/);
   }],
   ["realtime refreshes the list and only the selected details", () => {
-    assert.match(page, /loadWarehouseList\(\{ foreground: false, force \}\)/);
-    assert.match(page, /if \(selectedWarehouseId\)[\s\S]*loadWarehouseDetails\(selectedWarehouseId, \{ foreground: false, force \}\)/);
+    assert.match(page, /await loadWarehouseList\(\{[\s\S]*?foreground: false,[\s\S]*?force,[\s\S]*?\}\)/);
+    assert.match(page, /const openWarehouseId = selectedWarehouseIdRef\.current;[\s\S]*if \(openWarehouseId\)[\s\S]*await loadWarehouseDetails\(openWarehouseId, \{ foreground: false, force \}\)/);
   }],
   ["client services send warehouseId filters", () => {
     assert.match(warehouseService, /params\.set\("warehouseId", options\.warehouseId\)/);
