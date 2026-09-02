@@ -415,6 +415,88 @@ export async function createWarehouseReceipt(
   return payload.receipt;
 }
 
+export type WarehouseOpeningBalanceSourceInput = {
+  crop_structure_id: string;
+  quantity_kg?: number | null;
+};
+
+export type WarehouseOpeningBalanceLineInput = {
+  warehouse_id: string;
+  crop_id: string;
+  variety_id?: string | null;
+  reproduction_id?: string | null;
+  field_id?: string | null;
+  batch_code: string;
+  batch_name?: string | null;
+  quantity_kg: number;
+  physical_state: "SOURCE" | "AFTER_CLEANING" | "AFTER_DRYING" | "COMMODITY_GRAIN" | "SCREENINGS" | "TRIER_WASTE" | "OTHER";
+  origin_mode: "explicit" | "auto" | "unknown";
+  sources: WarehouseOpeningBalanceSourceInput[];
+  parent_batch_id?: string | null;
+  moisture_percent?: number | null;
+  dockage_percent?: number | null;
+  notes?: string | null;
+};
+
+export async function createWarehouseOpeningBalance(
+  companyId: string,
+  input: {
+    season_id: string;
+    document_no: string;
+    snapshot_at: string;
+    notes?: string | null;
+    lines: WarehouseOpeningBalanceLineInput[];
+  },
+  idempotencyKey = crypto.randomUUID(),
+) {
+  const headers = await buildAuthHeaders("json");
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch("/api/warehouses/opening-balances", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ ...input, companyId, idempotency_key: idempotencyKey }),
+  });
+  const payload = await parseJsonOrThrow(response);
+  return payload.opening_balance as {
+    ok: boolean;
+    document_id: string;
+    document_no: string;
+    season_id: string;
+    snapshot_at: string;
+    line_count: number;
+    idempotent_replay: boolean;
+  };
+}
+
+export async function getWarehouseOpeningBalanceReferences(
+  companyId: string,
+  options?: { signal?: AbortSignal },
+) {
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(
+    `/api/crop-structure/bootstrap?companyId=${encodeURIComponent(companyId)}`,
+    { method: "GET", headers, cache: "no-store", signal: options?.signal },
+  );
+  return parseJsonOrThrow(response) as Promise<{
+    activeSeasonId: string | null;
+    fields: Array<{ id: string; name: string; area?: number | null }>;
+    crops: Array<{ id: string; name?: string; name_ru?: string | null; archived?: boolean; is_active?: boolean }>;
+    varieties: Array<{ id: string; crop_id: string; name?: string; name_ru?: string | null; archived?: boolean; is_active?: boolean }>;
+    reproductions: Array<{ id: string; name?: string; name_ru?: string | null; code?: string | null; archived?: boolean; is_active?: boolean }>;
+    cropStructure: Array<{
+      id: string;
+      field_id: string;
+      land_use_type?: string | null;
+      crop_id: string | null;
+      variety_id: string | null;
+      reproduction_id: string | null;
+      area: number;
+      identity_review_required?: boolean;
+      identity_review_reason?: string | null;
+    }>;
+  }>;
+}
+
 export async function getSeedMaterialReferences(
   companyId: string
 ): Promise<import("@/lib/types/warehouse").SeedMaterialReferences> {

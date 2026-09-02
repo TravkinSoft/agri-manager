@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/layout/page-header";
 import { HarvestBatchDialog } from "@/components/warehouses/harvest-batch-dialog";
 import { WarehouseReceiptDialog } from "@/components/warehouses/warehouse-receipt-dialog";
+import { WarehouseOpeningBalanceDialog } from "@/components/warehouses/warehouse-opening-balance-dialog";
 import { WarehouseStockDetailsDialog } from "@/components/warehouses/warehouse-stock-details-dialog";
 import { WarehouseTransferDialog } from "@/components/warehouses/warehouse-transfer-dialog";
 import { useToast } from "@/hooks/use-toast";
@@ -147,6 +148,7 @@ export default function WarehousesPage() {
   const [search, setSearch] = useState("");
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
   const [receiptWarehouseId, setReceiptWarehouseId] = useState<string | null>(null);
+  const [openingBalanceOpen, setOpeningBalanceOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [detailBalance, setDetailBalance] = useState<InventoryBalance | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<HarvestBatchSummary | null>(null);
@@ -553,9 +555,14 @@ export default function WarehousesPage() {
         <div className="flex flex-wrap gap-2">
           {isReadOnlyRole ? <Badge variant="outline">Только просмотр</Badge> : null}
           {canManageWarehouses ? (
-            <Button asChild variant="outline">
-              <Link href="/warehouses/manage"><Settings2 className="mr-2 h-4 w-4" />Управление складами</Link>
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setOpeningBalanceOpen(true)}>
+                <PackagePlus className="mr-2 h-4 w-4" />Начальный остаток
+              </Button>
+              <Button asChild variant="outline">
+                <Link href="/warehouses/manage"><Settings2 className="mr-2 h-4 w-4" />Управление складами</Link>
+              </Button>
+            </>
           ) : null}
           {canStockOperate ? (
             <Button asChild variant="outline">
@@ -714,6 +721,23 @@ export default function WarehousesPage() {
               loadWarehouseList({ foreground: false, force: true }),
               receiptWarehouseId ? loadWarehouseDetails(receiptWarehouseId, { foreground: false, force: true }) : Promise.resolve(),
             ]);
+            setDetailRevision((current) => current + 1);
+          }}
+        />
+      ) : null}
+      {profile?.company_id && canManageWarehouses ? (
+        <WarehouseOpeningBalanceDialog
+          open={openingBalanceOpen}
+          onOpenChange={setOpeningBalanceOpen}
+          companyId={profile.company_id}
+          warehouses={warehouses.filter((warehouse) => !isArchived(warehouse))}
+          defaultWarehouseId={selectedWarehouseId}
+          onCreated={async (result) => {
+            toast({
+              title: "Начальный остаток проведён",
+              description: `${result.document_no}: ${result.line_count} строк, без фиктивных талонов.`,
+            });
+            await loadWarehouseList({ foreground: false, force: true });
             setDetailRevision((current) => current + 1);
           }}
         />
