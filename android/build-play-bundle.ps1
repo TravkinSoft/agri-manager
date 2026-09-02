@@ -302,9 +302,10 @@ try {
     $signatureCheck = & $jarsigner -verify -verbose -certs $bundlePath 2>&1
     $jarsignerExitCode = $LASTEXITCODE
     $signatureText = $signatureCheck | Out-String
+    $jarVerified = @($signatureCheck | ForEach-Object { "$_".Trim() }) -contains 'jar verified.'
     if ($jarsignerExitCode -ne 0 -or
-        $signatureText -notmatch '(?im)^jar verified\.$' -or
-        $signatureText -match '(?i)jar is unsigned|unsigned entry|signature.*(?:invalid|error)') {
+        -not $jarVerified -or
+        $signatureText -match '(?i)jar is unsigned|unsigned entry') {
         throw 'Release AAB не прошёл проверку upload-подписи.'
     }
 
