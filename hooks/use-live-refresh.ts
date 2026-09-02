@@ -31,6 +31,7 @@ export const LIVE_REFRESH_TABLES = {
     "operations",
     "operation_lines",
     "weighbridge_active_harvests",
+    "crop_structure",
   ],
 } as const;
 
