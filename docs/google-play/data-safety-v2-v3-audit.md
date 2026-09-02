@@ -9,7 +9,7 @@ Status: code/manifest audit for the Play form draft. This is not a legal approva
 - Legacy V2 source was recovered read-only from `C:\Users\TRAVKIN\Downloads\CodecSaaS\project-google-market\android`. Its `twa-manifest.json` identifies `com.travkin.flow`, versionCode `2`, Bubblewrap TWA start URL `https://travkinflow.com/dashboard`, full web scope and Custom Tabs fallback. That worktree contains uncommitted generated Android files, so V2 findings are source evidence and **not a byte-for-byte audit of the Play-delivered bundle**.
 - Native V3 evidence is commit-based in `codex/google-market-native-v1`: `com.travkin.flow`, versionCode `3`, release channel `production`, release writes hard-coded off.
 - Server/CDN/Auth retention and the exact Play V2 binary still require owner/vendor evidence. Those unknowns are never converted into a negative declaration.
-- Google Play requires one declaration covering the union of data practices in all active app versions. V2 therefore remains in scope until it is no longer distributed to any active users covered by the form.
+- Play Console live verification on 2026-09-02 found this app active only on the internal-testing track. Google exempts internal-only apps from the Data Safety section. Before any closed, open or Production release, the declaration must be reconciled against every artifact still active or servable on a covered track or device configuration. V2 remains in the conservative union until Console proves it is no longer active or servable there.
 
 ## Legacy V2 — TWA/web app
 
@@ -62,6 +62,8 @@ Artifact facts:
 | Device or other IDs | No advertising ID, Firebase Installation ID or hardware identifier API | Random local workstation/idempotency IDs are feature-scoped and are not advertising identifiers | **Not found as Play “device or other IDs”** | Confirm backend classification |
 
 ## Union declaration while V2 remains active
+
+Current transition note: versionCode 2 remains the active Internal Testing release. A versionCode 3 draft would not change delivery. After an explicitly authorized V3 internal rollout, eligible testers receive the highest compatible version code; verify that V2 is fully shadowed/deactivated across device configurations before removing V2-only practices from any later covered-track declaration. Preserve V2 release history and audit evidence either way.
 
 Conservative form inputs supported by current evidence:
 

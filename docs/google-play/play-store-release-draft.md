@@ -71,13 +71,13 @@ Provisional security answers:
 - Data sharing: no advertising or marketing SDK is present. Whether Supabase/Vercel processing qualifies for a Play sharing exception must be confirmed against actual contracts and legal ownership.
 - Independent security review: do not claim unless a qualifying review has actually been completed.
 
-Critical scope rule: Play has one Data Safety declaration covering the sum of data practices across active versions. The currently distributed versionCode 2 TWA/web artifact must therefore be audited together with native V3 before the form can be submitted. Native V3 evidence alone is insufficient.
+Critical scope rule: the app is currently active only in Internal Testing, which Google exempts from the Data Safety section. Before any closed, open or Production release, reconcile the form against every artifact still active or servable on a covered track/device configuration. If versionCode 2 remains active or servable there, audit it together with native V3; native V3 evidence alone is then insufficient.
 
-## Privacy policy source — legal fields still required
+## Privacy policy source — proposed legal fields awaiting approval
 
 Proposed public URL: `https://travkinflow.com/privacy` — live check on 2026-09-02 returned **HTTP 404**.
 
-Production-ready route source is prepared at `app/privacy/page.tsx` and linked from the public home-page footer. It includes the union of native and legacy-web data practices and has exactly two unresolved business inputs: legal operator name and support contact. No deployment was performed. The owner/data controller must replace both values and approve the policy before the route can be deployed or entered in Play Console.
+Production-ready route source is prepared at `app/privacy/page.tsx` and linked from the public home-page footer. It includes the union of native and legacy-web data practices. A read-only Console audit verified `LWP LTD, TOO` as the organization and `travkin.group@gmail.com` as the public developer-profile email; an evidence-linked proposed patch is recorded in `play-console-readonly-audit-2026-09-02.md`. The source placeholders were intentionally not changed. No deployment was performed; owner/data-controller approval is still required before the route can be deployed or entered in Play Console.
 
 ## Store assets draft
 
@@ -113,8 +113,8 @@ Do not use fabricated UI, production names, emails, UUIDs, weights or notificati
 ## Submission blockers
 
 1. Device/emulator acceptance and real screenshots are absent.
-2. Privacy route source is ready, but legal owner/support values, Production deploy and live public verification are absent.
-3. Data Safety audit of active Play versionCode 2 and backend/CDN retention is incomplete.
+2. Privacy route source is ready and Console-backed legal owner/support values are proposed, but owner approval, Production deploy and live public verification are absent.
+3. Data Safety is exempt while the app remains internal-only; the covered-track V2/V3 union and backend/CDN retention audit remain incomplete before closed/open/Production.
 4. Permanent Play reviewer account/instructions are not prepared in this repository.
 5. Feature graphic and store icon source files are ready but still await owner visual approval.
 6. The signed V3 AAB has not been built with the user-entered upload-key secrets.
