@@ -51,6 +51,7 @@ import type {
 import {
   countVisibleWarehousePositions,
   findWarehouseScopedHarvestBatch,
+  warehousePositionCountLabel,
 } from "@/lib/warehouse/harvest-batch-selection";
 import { warehouseCapacityPercent } from "@/lib/warehouse/warehouse-summary-math";
 import {
@@ -636,7 +637,7 @@ export default function WarehousesPage() {
                     <DialogDescription className="mt-1">
                       {normalizeStoragePlaceType(selectedSummary.warehouse.place_type) === "WAREHOUSE"
                         ? warehouseTypeLabel(selectedSummary.warehouse.warehouse_type)
-                        : storagePlaceTypeLabel(selectedSummary.warehouse.place_type)} · {selectedSummary.positionCount} групп остатков · последнее движение {formatDate(selectedSummary.lastMovementAt)}
+                        : storagePlaceTypeLabel(selectedSummary.warehouse.place_type)} · {warehousePositionCountLabel(selectedSummary.positionCount)} · последнее движение {formatDate(selectedSummary.lastMovementAt)}
                     </DialogDescription>
                     </div>
                   </div>

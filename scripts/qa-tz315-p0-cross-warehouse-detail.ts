@@ -4,8 +4,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  countColdWarehousePositions,
   countVisibleWarehousePositions,
   findWarehouseScopedHarvestBatch,
+  warehousePositionCountLabel,
 } from "../lib/warehouse/harvest-batch-selection";
 import {
   resolveEffectiveHarvestTicketCandidatesByBatch,
@@ -31,6 +33,28 @@ const realtimeReordered = [rows[1], rows[0], rows[3], rows[2]];
 assert.deepEqual(
   findWarehouseScopedHarvestBatch(realtimeReordered, selected),
   { id: lotId, warehouseId: "kymyzkhana", cleanMassKg: 16_125 }
+);
+
+const splitInputLineage = resolveHarvestLotTicketLineage(
+  [{ harvest_lot_id: "lot-split", inventory_batch_id: "split-output" }],
+  [
+    { harvest_lot_id: "lot-split", inventory_batch_id: "split-output" },
+    { harvest_lot_id: "lot-split", inventory_batch_id: "split-a", source_ticket_id: "ticket-split" },
+    { harvest_lot_id: "lot-split", inventory_batch_id: "split-b", source_ticket_id: "ticket-split" },
+  ],
+  [{ id: "split-output" }, { id: "split-a" }, { id: "split-b" }],
+  [
+    { output_batch_id: "split-output", input_batch_id: "split-a", input_weight_kg: 4_000 },
+    { output_batch_id: "split-output", input_batch_id: "split-b", input_weight_kg: 6_000 },
+  ],
+);
+const splitCandidates = resolveEffectiveHarvestTicketCandidatesByBatch(splitInputLineage, [
+  { id: "ticket-split", op_type: "harvest_incoming", status: "finalized", is_finalized: true },
+]);
+assert.deepEqual(
+  resolveHarvestTicketContributionsForBatches(splitCandidates, ["split-output"]),
+  new Map([["ticket-split", 10_000]]),
+  "two distinct transformation input batches from one ticket must add their contributions",
 );
 assert.notEqual(findWarehouseScopedHarvestBatch(realtimeReordered, selected)?.warehouseId, "dryer-1");
 assert.equal(
@@ -91,6 +115,26 @@ assert.equal(countVisibleWarehousePositions([
 
 assert.match(page, /countVisibleWarehousePositions\(batches, stock\)/);
 
+assert.equal(countColdWarehousePositions(
+  ["rapeseed-lot", "potato-lot", "wheat-likamero-lot", "wheat-lamis-lot"],
+  [
+    { product_id: "rapeseed", batch_class: "commodity", uom: "kg", material_quantity: 0 },
+    { product_id: "potato", batch_class: "commodity", uom: "kg", material_quantity: 0 },
+    { product_id: "wheat", batch_class: "commodity", uom: "kg", material_quantity: 0 },
+  ],
+), 4, "cold Площадка summary must expose four clickable lot rows before details load");
+assert.equal(countColdWarehousePositions(
+  ["rapeseed-lot", "potato-lot", "wheat-likamero-lot", "wheat-lamis-lot"],
+  [{ product_id: "seed", batch_class: "seed", uom: "kg", material_quantity: 250 }],
+), 5, "a real non-harvest material row remains an additional clickable position");
+assert.equal(warehousePositionCountLabel(1), "1 группа остатков");
+assert.equal(warehousePositionCountLabel(2), "2 группы остатков");
+assert.equal(warehousePositionCountLabel(4), "4 группы остатков");
+assert.equal(warehousePositionCountLabel(5), "5 групп остатков");
+assert.equal(warehousePositionCountLabel(11), "11 групп остатков");
+assert.equal(warehousePositionCountLabel(21), "21 группа остатков");
+assert.match(page, /warehousePositionCountLabel\(selectedSummary\.positionCount\)/);
+
 const dialog = readFileSync(path.join(root, "components/warehouses/harvest-batch-dialog.tsx"), "utf8");
 assert.match(dialog, /<details key=/);
 assert.match(dialog, /Исходно принято/);
@@ -98,4 +142,4 @@ assert.match(dialog, /Вошло в обработку/);
 assert.match(dialog, /Операции по партии/);
 assert.doesNotMatch(dialog, />История партии</);
 
-console.log("PASS TZ315 P0 warehouse detail and lineage regressions (18/18)");
+console.log("PASS TZ315 P0 warehouse detail, cold summary, declension and lineage regressions (27/27)");

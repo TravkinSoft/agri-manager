@@ -86,14 +86,14 @@ export function resolveHarvestLotTicketLineage(
     const inventoryBatchId = valueId(link.inventory_batch_id);
     if (!harvestLotId || !inventoryBatchId) return [];
 
-    const rawCandidates: Array<[HarvestLotTicketSource, unknown, number | null]> = [];
-    const queue: Array<{ batchId: string; enteredProcessingKg: number | null; hop: "root" | "parent" | "transformation" }> = [
-      { batchId: inventoryBatchId, enteredProcessingKg: null, hop: "root" },
+    const rawCandidates: Array<[HarvestLotTicketSource, unknown, number | null, string]> = [];
+    const queue: Array<{ batchId: string; enteredProcessingKg: number | null; contributionKey: string; hop: "root" | "parent" | "transformation" }> = [
+      { batchId: inventoryBatchId, enteredProcessingKg: null, contributionKey: "direct", hop: "root" },
     ];
     const visitedBatchWeights = new Set<string>();
     while (queue.length) {
-      const current = queue.shift() as { batchId: string; enteredProcessingKg: number | null; hop: "root" | "parent" | "transformation" };
-      const visitKey = `${current.batchId}|${current.enteredProcessingKg ?? "direct"}`;
+      const current = queue.shift() as { batchId: string; enteredProcessingKg: number | null; contributionKey: string; hop: "root" | "parent" | "transformation" };
+      const visitKey = `${current.batchId}|${current.enteredProcessingKg ?? "direct"}|${current.contributionKey}`;
       if (visitedBatchWeights.has(visitKey)) continue;
       visitedBatchWeights.add(visitKey);
       const currentLink = linksByBatchId.get(current.batchId);
@@ -105,33 +105,54 @@ export function resolveHarvestLotTicketLineage(
         ? "inventory_batch"
         : current.hop === "parent" ? "parent_batch" : "transformation_input";
       rawCandidates.push(
-        [linkSource, currentLink?.source_ticket_id, current.enteredProcessingKg],
-        [batchSource, currentBatch?.source_ticket_id, current.enteredProcessingKg]
+        [linkSource, currentLink?.source_ticket_id, current.enteredProcessingKg, current.contributionKey],
+        [batchSource, currentBatch?.source_ticket_id, current.enteredProcessingKg, current.contributionKey]
       );
       const parentBatchId = valueId(currentBatch?.parent_batch_id);
       if (parentBatchId) {
-        queue.push({ batchId: parentBatchId, enteredProcessingKg: current.enteredProcessingKg, hop: "parent" });
+        queue.push({
+          batchId: parentBatchId,
+          enteredProcessingKg: current.enteredProcessingKg,
+          contributionKey: current.contributionKey,
+          hop: "parent",
+        });
       }
-      for (const input of transformationInputsByOutputBatchId.get(current.batchId) || []) {
+      for (const [inputIndex, input] of Array.from(
+        (transformationInputsByOutputBatchId.get(current.batchId) || []).entries()
+      )) {
         queue.push({
           batchId: input.batchId,
           enteredProcessingKg: input.weightKg,
+          contributionKey: `${current.batchId}->${input.batchId}:${inputIndex}`,
           hop: "transformation",
         });
       }
     }
-    const candidatesByTicketId = new Map<string, HarvestLotTicketCandidate>();
-    rawCandidates.forEach(([source, value, enteredProcessingKg]) => {
+    const candidateBranchesByTicketId = new Map<string, Map<string, HarvestLotTicketCandidate>>();
+    rawCandidates.forEach(([source, value, enteredProcessingKg, contributionKey]) => {
       const ticketId = valueId(value);
       if (!ticketId) return;
-      const existing = candidatesByTicketId.get(ticketId);
+      const branches = candidateBranchesByTicketId.get(ticketId) || new Map<string, HarvestLotTicketCandidate>();
+      const existing = branches.get(contributionKey);
       const existingWeight = Number(existing?.enteredProcessingKg);
       const incomingWeight = Number(enteredProcessingKg);
       if (!existing || (Number.isFinite(incomingWeight) && (!Number.isFinite(existingWeight) || incomingWeight > existingWeight))) {
-        candidatesByTicketId.set(ticketId, { ticketId, source, enteredProcessingKg });
+        branches.set(contributionKey, { ticketId, source, enteredProcessingKg });
       }
+      candidateBranchesByTicketId.set(ticketId, branches);
     });
-    const candidates = Array.from(candidatesByTicketId.values());
+    const candidates = Array.from(candidateBranchesByTicketId.entries()).map(([ticketId, branches]) => {
+      const branchCandidates = Array.from(branches.values());
+      const weighted = branchCandidates.filter((candidate) => candidate.enteredProcessingKg != null);
+      if (!weighted.length) return branchCandidates[0];
+      return {
+        ticketId,
+        source: weighted.some((candidate) => candidate.source === "transformation_input")
+          ? "transformation_input" as const
+          : weighted[0].source,
+        enteredProcessingKg: weighted.reduce((sum, candidate) => sum + Number(candidate.enteredProcessingKg || 0), 0),
+      };
+    });
     const resolved = candidates[0] || null;
 
     return [{

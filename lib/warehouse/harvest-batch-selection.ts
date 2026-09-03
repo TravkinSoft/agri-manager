@@ -26,9 +26,35 @@ type WarehouseHarvestPosition = {
 type WarehouseMaterialPosition = {
   product_id: string;
   product_ids?: string[];
+  uom?: string | null;
   batch_class?: string | null;
   material_quantity?: number | null;
 };
+
+export function countColdWarehousePositions(
+  harvestLotIds: readonly string[],
+  materialBalances: readonly WarehouseMaterialPosition[]
+): number {
+  const harvestLots = new Set(harvestLotIds.map((value) => String(value || "").trim()).filter(Boolean));
+  const materialPositions = new Set(materialBalances.flatMap((row) => {
+    if (Number(row.material_quantity || 0) <= 0.000001) return [];
+    const productIds = row.product_ids?.length ? row.product_ids : [row.product_id];
+    const batchClass = String(row.batch_class || "commodity").trim().toLowerCase() || "commodity";
+    const uom = String(row.uom || "").trim().toLowerCase();
+    return productIds.filter(Boolean).map((productId) => `${productId}|${batchClass}|${uom}`);
+  }));
+  return harvestLots.size + materialPositions.size;
+}
+
+export function warehousePositionCountLabel(count: number): string {
+  const normalized = Math.max(0, Math.trunc(Number(count) || 0));
+  const mod100 = normalized % 100;
+  const mod10 = normalized % 10;
+  const noun = mod100 >= 11 && mod100 <= 14
+    ? "групп"
+    : mod10 === 1 ? "группа" : mod10 >= 2 && mod10 <= 4 ? "группы" : "групп";
+  return `${normalized} ${noun} остатков`;
+}
 
 export function countVisibleWarehousePositions(
   harvestBatches: readonly WarehouseHarvestPosition[],
