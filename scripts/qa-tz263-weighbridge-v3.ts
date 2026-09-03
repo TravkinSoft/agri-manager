@@ -26,6 +26,7 @@ const ticketPreview = read("components/weighbridge/ticket-preview-dialog.tsx");
 const ticketPaper = read("components/weighbridge/weighbridge-ticket-paper.tsx");
 const correctionRoute = read("app/api/weighbridge/tickets/[id]/correction/route.ts");
 const printPage = read("app/(dashboard)/weighbridge/[id]/print/page.tsx");
+const warehouseOperationDisplay = read("lib/weighbridge/warehouse-operation-display.ts");
 
 let passed = 0;
 function check(name: string, run: () => void) {
@@ -235,7 +236,8 @@ check("stornoed outgoing movements are excluded from active source documents", (
   assert.match(batchRoute, /!stornoTargetEntryIds\.has\(String\(entry\.id \|\| ""\)\)/);
 });
 check("impurity movement opens its existing weighbridge ticket", () => {
-  assert.match(batchRoute, /movementLabel[\s\S]*reason\.includes\("impurit"\)/);
+  assert.match(batchRoute, /warehouseOperationLabel/);
+  assert.match(warehouseOperationDisplay, /reason\.includes\("impurit"\)/);
   assert.match(batchRoute, /movementTicketIds[\s\S]*entry\.ticket_id/);
   assert.match(lotDialog, /sourceType === "weighbridge_ticket"[\s\S]*openTicketPreview\(document\.ticketId/);
 });
