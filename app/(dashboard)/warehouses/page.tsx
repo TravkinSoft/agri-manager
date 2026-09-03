@@ -670,7 +670,7 @@ export default function WarehousesPage() {
       ) : activeSummaries.length === 0 ? (
         <div className="border-y border-slate-800 py-12 text-center text-sm text-slate-400">Активные склады не найдены.</div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+        <div className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {activeSummaries.map(renderWarehouseCard)}
         </div>
       )}
@@ -678,7 +678,7 @@ export default function WarehousesPage() {
       {canManageWarehouses && archivedSummaries.length > 0 ? (
         <section className="space-y-3 border-t border-slate-800 pt-5">
           <h2 className="text-base font-semibold text-slate-300">Архивные склады</h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+          <div className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {archivedSummaries.map(renderWarehouseCard)}
           </div>
         </section>

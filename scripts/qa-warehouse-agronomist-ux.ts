@@ -46,6 +46,7 @@ const page = readFileSync(new URL("../app/(dashboard)/warehouses/page.tsx", impo
 const component = readFileSync(new URL("../components/warehouses/stock-availability.tsx", import.meta.url), "utf8");
 const dialog = readFileSync(new URL("../components/warehouses/harvest-batch-dialog.tsx", import.meta.url), "utf8");
 test("tabs limited to agronomist", () => assert.match(page, /isAgronomist = profile\?\.role === "agronomist"/));
+test("capacity warning does not stretch neighboring cards", () => assert.equal((page.match(/grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4/g) || []).length, 2));
 test("availability without required search", () => assert.match(page, /selectedView === "availability"/));
 test("abort and stale scope isolation", () => { assert.match(component, /return \(\) => controller.abort\(\)/); assert.match(component, /payload\?\.scope === scope/); assert.match(component, /controller.signal.aborted/); });
 test("identity change clears open details and stale requests", () => { const effect = page.slice(page.indexOf("const cached = warehousePageCache.get(cacheKey);"), page.indexOf("  useLiveRefresh({")); assert.match(effect, /selectedBatchRequestGeneration.current \+= 1/); assert.match(effect, /setSelectedBatch\(null\)/); assert.match(effect, /setDetailBalance\(null\)/); assert.match(effect, /profile\?\.id, profile\?\.company_id, profile\?\.role, user\?\.id/); });
