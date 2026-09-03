@@ -98,6 +98,13 @@ const unitLabel = (unit: string | null | undefined) => {
 const quantity = (value: unknown, unit?: string | null) =>
   `${formatWeightNumber(value, "0")} ${unitLabel(unit)}`;
 
+const cargoIdentity = (line: NonNullable<WeighbridgeTicket["lines"]>[number]) =>
+  [
+    first(line.product_name, line.product_name_snapshot, "Груз"),
+    first(line.variety_name, line.variety_name_snapshot),
+    first(line.reproduction_name, line.reproduction_name_snapshot),
+  ].filter(Boolean).join(" · ");
+
 const percent = (value: unknown) => {
   if (value == null || value === "" || !Number.isFinite(Number(value))) return "";
   return `${formatWeightNumber(value)} %`;
@@ -309,12 +316,11 @@ export function WeighbridgeTicketPaper({
       ) : null}
 
       {showProductLines ? (
-        <PaperSection title="СОСТАВ ГРУЗА">
+        <PaperSection title="ГРУЗ">
           <div className="space-y-1 text-xs">
             {cargoLines.map((line, index) => (
-              <div key={line.id || index} className="grid grid-cols-[22px_1fr_auto] gap-2 border-b border-[#c7b797] pb-1 last:border-0 last:pb-0">
-                <div className="font-bold">{index + 1}.</div>
-                <div className="font-semibold">{first(line.product_name, line.product_name_snapshot, "Товар")}</div>
+              <div key={line.id || index} className="grid grid-cols-[1fr_auto] gap-2 border-b border-[#c7b797] pb-1 last:border-0 last:pb-0">
+                <div className="font-semibold">{cargoIdentity(line)}</div>
                 <div className="text-right font-bold">{quantity(displayedLineQuantity(line), line.uom)}</div>
               </div>
             ))}

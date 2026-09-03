@@ -46,8 +46,11 @@ const differentUnits = aggregateTicketCargoLines([
 ]);
 assert.equal(differentUnits.length, 2);
 
-assert.match(paper, /PaperSection title="СОСТАВ ГРУЗА"/);
+assert.match(paper, /PaperSection title="ГРУЗ"/);
 assert.match(paper, /aggregateTicketCargoLines\(lines\)/);
+assert.match(paper, /line\.variety_name/);
+assert.match(paper, /line\.reproduction_name/);
 assert.doesNotMatch(paper, /ТОВАРЫ В ДОКУМЕНТЕ/);
+assert.doesNotMatch(paper, /СОСТАВ ГРУЗА/);
 
-console.log("TZ315 ticket cargo composition PASS: 7/7");
+console.log("TZ315 ticket cargo composition PASS: 10/10");
