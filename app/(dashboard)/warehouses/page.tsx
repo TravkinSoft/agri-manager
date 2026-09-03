@@ -10,7 +10,7 @@ import {
   Search,
   Settings2,
 } from "lucide-react";
-import { EmptyState, MetricStrip, ObjectVisual, StatusBadge } from "@/components/operations/operational-ui";
+import { EmptyState, ObjectVisual, StatusBadge } from "@/components/operations/operational-ui";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/layout/page-header";
 import { HarvestBatchDialog } from "@/components/warehouses/harvest-batch-dialog";
+import { StockAvailability } from "@/components/warehouses/stock-availability";
+import { compareStoragePlaces, parseWarehouseView, warehouseViewKey, type WarehouseView } from "@/lib/warehouse/stock-availability";
 import { WarehouseReceiptDialog } from "@/components/warehouses/warehouse-receipt-dialog";
 import { WarehouseOpeningBalanceDialog } from "@/components/warehouses/warehouse-opening-balance-dialog";
 import { WarehouseStockDetailsDialog } from "@/components/warehouses/warehouse-stock-details-dialog";
@@ -134,7 +136,7 @@ const warehouseDetailsLoadedAt = new Map<string, number>();
 const warehouseSummariesLoadedAt = new Map<string, number>();
 
 export default function WarehousesPage() {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const { language } = useLanguage();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
@@ -161,6 +163,24 @@ export default function WarehousesPage() {
   const [selectedBatchLoading, setSelectedBatchLoading] = useState(false);
   const selectedBatchRequestGeneration = useRef(0);
   const [detailRevision, setDetailRevision] = useState(0);
+  const preferenceKey = user?.id && profile?.company_id ? warehouseViewKey(user.id, profile.company_id) : null;
+  const [viewPreference, setViewPreference] = useState<{ key: string; view: WarehouseView } | null>(null);
+  const selectedView = viewPreference?.key === preferenceKey ? viewPreference.view : "availability";
+  const isAgronomist = profile?.role === "agronomist";
+  useEffect(() => {
+    if (!preferenceKey) return;
+    let view: WarehouseView = "availability";
+    try { view = parseWarehouseView(window.localStorage.getItem(preferenceKey)); } catch { /* Local preferences are optional. */ }
+    setViewPreference({ key: preferenceKey, view });
+  }, [preferenceKey]);
+  const selectView = (view: WarehouseView) => {
+    if (!preferenceKey) return;
+    setViewPreference({ key: preferenceKey, view });
+    try { window.localStorage.setItem(preferenceKey, view); } catch { /* Keep the selected tab usable when storage is blocked. */ }
+  };
+  const currentScope = `${profile?.id}:${profile?.company_id}:${language}`;
+  const scopeRef = useRef(currentScope);
+  scopeRef.current = currentScope;
 
   const role = String(profile?.role || "");
   const canStockOperate = ["warehouse", "warehouse_operator", "global_admin"].includes(role);
@@ -178,6 +198,7 @@ export default function WarehousesPage() {
     summariesOnly?: boolean;
   } = {}) => {
     if (!profile?.company_id) return;
+    const requestScope = scopeRef.current;
     if (foreground) {
       setLoading(true);
       setError(null);
@@ -194,6 +215,7 @@ export default function WarehousesPage() {
           warehouseListRequestCache.set(cacheKey, warehouseRequest);
         }
         warehouseRows = await warehouseRequest;
+        if (scopeRef.current !== requestScope) return;
         warehouseListLoaded = true;
         setWarehouses(warehouseRows);
         const cached = warehousePageCache.get(cacheKey) || { summaries: [] };
@@ -210,19 +232,21 @@ export default function WarehousesPage() {
         warehouseSummaryRequestCache.set(cacheKey, request);
       }
       const summaryRows = await request;
+      if (scopeRef.current !== requestScope) return;
       setWarehouseSummaryRows(summaryRows);
       setWarehouses(summaryRows.map((row) => row.warehouse));
       warehousePageCache.set(cacheKey, { ...warehousePageCache.get(cacheKey), warehouses: warehouseRows, summaries: summaryRows });
       warehouseSummariesLoadedAt.set(cacheKey, Date.now());
       setError(null);
     } catch (cause) {
+      if (scopeRef.current !== requestScope) return;
       if (foreground && !warehouseListLoaded) {
         setError(cause instanceof Error ? cause.message : "Не удалось загрузить склады");
       } else {
-        console.error("Background warehouse refresh failed", cause);
+        setError(cause instanceof Error ? `Данные остатков не обновлены: ${cause.message}` : "Данные остатков не обновлены");
       }
     } finally {
-      if (foreground) setLoading(false);
+      if (foreground && scopeRef.current === requestScope) setLoading(false);
     }
   };
 
@@ -231,6 +255,7 @@ export default function WarehousesPage() {
     { foreground = true, force = false }: { foreground?: boolean; force?: boolean } = {}
   ) => {
     if (!profile?.company_id) return;
+    const requestScope = scopeRef.current;
     if (foreground) {
       setDetailsLoading(true);
       setDetailsError(null);
@@ -248,6 +273,7 @@ export default function WarehousesPage() {
         warehouseDetailsRequestCache.set(requestKey, request);
       }
       const { balanceRows, batchRows } = await request;
+      if (scopeRef.current !== requestScope) return;
       setBalances((current) => [
         ...current.filter((row) => row.warehouse_id !== warehouseId),
         ...balanceRows,
@@ -268,29 +294,32 @@ export default function WarehousesPage() {
       });
       setDetailsError(null);
     } catch (cause) {
+      if (scopeRef.current !== requestScope) return;
       const message = cause instanceof Error ? cause.message : "Не удалось загрузить данные склада";
       if (foreground) setDetailsError(message);
       else console.error("Background warehouse details refresh failed", cause);
     } finally {
-      if (foreground) setDetailsLoading(false);
+      if (foreground && scopeRef.current === requestScope) setDetailsLoading(false);
     }
   };
 
   const loadSearchData = async () => {
     if (!profile?.company_id || searchDataLoading) return;
+    const requestScope = scopeRef.current;
     setSearchDataLoading(true);
     try {
       const [balanceRows, batchRows] = await Promise.all([
         getInventoryBalances(profile.company_id, language),
         listHarvestBatchSummaries(profile.company_id, { aggregateLots: true, summaryOnly: true }),
       ]);
+      if (scopeRef.current !== requestScope) return;
       setBalances(balanceRows);
       setHarvestBatches(batchRows);
       setSearchDataLoaded(true);
     } catch (cause) {
       console.error("Warehouse content search preload failed", cause);
     } finally {
-      setSearchDataLoading(false);
+      if (scopeRef.current === requestScope) setSearchDataLoading(false);
     }
   };
 
@@ -303,6 +332,12 @@ export default function WarehousesPage() {
   const closeWarehouse = () => {
     selectedWarehouseIdRef.current = null;
     setSelectedWarehouseId(null);
+    selectedBatchRequestGeneration.current += 1;
+    setSelectedBatch(null);
+    setSelectedBatchLoading(false);
+    setDetailBalance(null);
+    setDetailsLoading(false);
+    setDetailsError(null);
   };
 
   const openHarvestBatch = async (batch: HarvestBatchSummary) => {
@@ -369,12 +404,21 @@ export default function WarehousesPage() {
     setLoadedWarehouseIds(cached?.loadedWarehouseIds || []);
     selectedWarehouseIdRef.current = null;
     setSelectedWarehouseId(null);
+    selectedBatchRequestGeneration.current += 1;
+    setSelectedBatch(null);
+    setSelectedBatchLoading(false);
+    setDetailBalance(null);
+    setReceiptWarehouseId(null);
+    setDetailsLoading(false);
+    setDetailsError(null);
+    setSearchDataLoading(false);
+    setSearch("");
     setSearchDataLoaded(false);
     setLoading(!cached);
     void loadWarehouseList({ foreground: !cached });
     // Loading is intentionally tied to the selected company and role contract.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.company_id, profile?.role, language]);
+  }, [profile?.id, profile?.company_id, profile?.role, user?.id, language]);
 
   useLiveRefresh({
     enabled: Boolean(profile?.company_id && canView),
@@ -410,7 +454,7 @@ export default function WarehousesPage() {
     if (current && current !== selectedBatch && selectedBatch.detailLevel !== "full") setSelectedBatch(current);
   }, [harvestBatches, selectedBatch]);
 
-  const summaries = useMemo<Summary[]>(() => warehouses.map((warehouse) => {
+  const summaries = useMemo<Summary[]>(() => warehouses.filter((warehouse) => warehouse.company_id === profile?.company_id).map((warehouse) => {
     const stock = balances.filter((row) => row.warehouse_id === warehouse.id);
     const batches = harvestBatches.filter((row) => row.warehouseId === warehouse.id);
     const serverSummary = warehouseSummaryRows.find((row) => row.warehouse.id === warehouse.id);
@@ -424,23 +468,24 @@ export default function WarehousesPage() {
         : serverSummary?.position_count || 0,
       harvestLotCount: serverSummary?.harvest_lot_count || 0,
       harvestWeightKg: serverSummary?.harvest_weight_kg || 0,
-      totalWeightKg: serverSummary?.total_weight_kg || 0,
+      totalWeightKg: serverSummary?.total_weight_kg ?? 0,
       seedWeightKg: serverSummary?.seed_weight_kg || 0,
       otherMaterialWeightKg: serverSummary?.other_material_weight_kg || 0,
       lastMovementAt: serverSummary?.last_movement_at || null,
       summaryLoaded: Boolean(serverSummary),
       detailsLoaded,
     };
-  }), [warehouses, balances, harvestBatches, warehouseSummaryRows, loadedWarehouseIds]);
+  }).sort((a, b) => compareStoragePlaces(a.warehouse, b.warehouse)), [warehouses, balances, harvestBatches, warehouseSummaryRows, loadedWarehouseIds, profile?.company_id]);
 
   const query = search.trim().toLowerCase();
   useEffect(() => {
+    if (isAgronomist && selectedView === "availability") return;
     if (!query || searchDataLoaded || searchDataLoading) return;
     const timer = window.setTimeout(() => void loadSearchData(), 300);
     return () => window.clearTimeout(timer);
     // Search data is intentionally loaded only after the user searches warehouse contents.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, profile?.company_id, language, searchDataLoaded]);
+  }, [query, profile?.company_id, language, searchDataLoaded, isAgronomist, selectedView]);
 
   const filteredSummaries = useMemo(() => summaries.filter(({ warehouse, stock, batches }) => {
     if (!query || searchDataLoading) return true;
@@ -500,8 +545,9 @@ export default function WarehousesPage() {
     return <Alert variant="destructive"><AlertDescription>Доступ к складам запрещён для текущей роли.</AlertDescription></Alert>;
   }
 
-  const renderWarehouseCard = ({ warehouse, positionCount, harvestWeightKg, totalWeightKg, seedWeightKg, otherMaterialWeightKg, lastMovementAt, summaryLoaded }: Summary) => {
-    const empty = summaryLoaded && totalWeightKg <= 0.000001;
+  const renderWarehouseCard = ({ warehouse, positionCount, totalWeightKg, lastMovementAt, summaryLoaded }: Summary) => {
+    const invalidStock = summaryLoaded && (!Number.isFinite(totalWeightKg) || totalWeightKg < -0.000001);
+    const empty = summaryLoaded && !invalidStock && Math.abs(totalWeightKg) <= 0.000001 && positionCount === 0;
     const placeType = normalizeStoragePlaceType(warehouse.place_type);
     const capacity = capacityKg(warehouse);
     const fillPercent = warehouseCapacityPercent(totalWeightKg, capacity);
@@ -520,47 +566,43 @@ export default function WarehousesPage() {
             openWarehouse(warehouse.id);
           }
         }}
-        className="group cursor-pointer rounded-md border border-slate-800/80 bg-[#101724] p-4 transition-colors hover:border-yellow-500/45 hover:bg-[#121b2b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+        className="group relative min-h-[124px] min-w-0 cursor-pointer rounded-lg border border-slate-700/55 bg-gradient-to-br from-[#172131] to-[#101722] p-3 shadow-[0_3px_10px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.035)] transition-colors hover:border-yellow-500/45 hover:from-[#1b293b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 2xl:min-h-[164px]"
       >
-        <div className="flex items-start gap-3">
-          <ObjectVisual placeType={placeType} />
+        <div className="flex items-start gap-2.5">
+          <ObjectVisual placeType={placeType} className="h-9 w-9 shrink-0" />
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <h2 className="truncate text-base font-semibold text-slate-50">{warehouse.name}</h2>
+                <h2 className="break-words text-sm font-semibold leading-5 text-slate-50">{warehouse.name}</h2>
                 <div className="mt-0.5 truncate text-xs text-slate-400">
                   {placeType === "WAREHOUSE" ? warehouseTypeLabel(warehouse.warehouse_type) : storagePlaceTypeLabel(placeType)}
                 </div>
               </div>
-              <StatusBadge status={isArchived(warehouse) ? "empty" : empty ? "empty" : placeType === "WAREHOUSE" ? "closed" : "active"}>
-                {isArchived(warehouse) ? "Архив" : empty ? "Свободен" : placeType === "WAREHOUSE" ? "Активный" : "В работе"}
-              </StatusBadge>
+              {isArchived(warehouse) ? <StatusBadge status="empty">Архив</StatusBadge> : null}
             </div>
           </div>
         </div>
         {!summaryLoaded ? (
-          <div className="mt-4 h-14 animate-pulse rounded-md bg-slate-900" />
-        ) : empty ? (
-          <EmptyState detail={`Последнее движение: ${formatDate(lastMovementAt)}`} />
+          <div className="mt-3 h-16 animate-pulse rounded-md bg-slate-900" aria-label="Загрузка остатка" />
         ) : (
-          <div className="mt-4 space-y-3">
-            <MetricStrip items={[
-              ...(totalWeightKg > 0 ? [{ label: "Всего", value: formatMass(totalWeightKg), emphasis: "success" as const }] : []),
-              ...(harvestWeightKg > 0 ? [{ label: "Урожай", value: formatMass(harvestWeightKg), emphasis: "success" as const }] : []),
-              ...(seedWeightKg > 0 ? [{ label: "Семена", value: formatMass(seedWeightKg) }] : []),
-              ...(otherMaterialWeightKg > 0 ? [{ label: "Другие материалы", value: formatMass(otherMaterialWeightKg) }] : []),
-              { label: "Групп остатков", value: positionCount },
-              { label: "Движение", value: formatDate(lastMovementAt) },
-            ]} />
-            {fillPercent != null ? (
+          <div className="mt-3 space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+              <strong className={`text-xl font-semibold tabular-nums ${invalidStock ? "text-rose-300" : empty ? "text-slate-400" : "text-emerald-300"}`}>
+                {invalidStock ? "Проверить остаток" : empty ? "Свободно" : totalWeightKg === 0 ? "Есть материалы" : formatMass(totalWeightKg)}
+              </strong>
+              {!empty ? <span className="text-xs text-slate-400">{warehousePositionCountLabel(positionCount)}</span> : null}
+            </div>
+            {invalidStock ? <div role="alert" className="text-xs text-rose-300">Отрицательный или некорректный остаток: {String(totalWeightKg)} кг</div> : null}
+            <div className="truncate text-xs text-slate-500" title={formatDate(lastMovementAt)}>{lastMovementAt ? `Движение: ${formatDate(lastMovementAt)}` : "Движений пока нет"}</div>
+            {fillPercent != null && !invalidStock && !empty ? (
               <div>
                 <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500">
-                  <span>{formatMass(totalWeightKg)} из {formatMass(capacity || 0)}</span><span className={capacityExceeded ? "font-semibold text-rose-300" : undefined}>{fillPercent}%</span>
+                  <span>Вместимость {formatMass(capacity || 0)}</span><span className={capacityExceeded ? "font-semibold text-rose-300" : undefined}>{fillPercent}%</span>
                 </div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-slate-800"><div className={`h-full rounded-full ${capacityExceeded ? "bg-rose-400/80" : "bg-yellow-400/75"}`} style={{ width: `${fillBarPercent}%` }} /></div>
                 {capacityExceeded ? <div className="mt-1 text-[11px] font-medium text-rose-300">Остаток превышает указанную вместимость. Проверьте вместимость объекта.</div> : null}
               </div>
-            ) : placeType === "WAREHOUSE" && totalWeightKg > 0 ? <div className="text-[11px] text-slate-500">Вместимость не указана</div> : null}
+            ) : null}
           </div>
         )}
       </article>
@@ -591,6 +633,24 @@ export default function WarehousesPage() {
       </PageHeader>
 
       {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
+      {isAgronomist ? (
+        <div role="tablist" aria-label="Представление складов" className="flex gap-1 border-b border-slate-800">
+          {([{ value: "availability", label: "В наличии" }, { value: "warehouses", label: "По складам" }] as const).map((tab) => (
+            <button key={tab.value} id={`warehouse-tab-${tab.value}`} type="button" role="tab" tabIndex={selectedView === tab.value ? 0 : -1} aria-selected={selectedView === tab.value} aria-controls="warehouse-view" onClick={() => selectView(tab.value)} onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              event.preventDefault();
+              const next: WarehouseView = event.key === "Home" ? "availability" : event.key === "End" ? "warehouses" : selectedView === "availability" ? "warehouses" : "availability";
+              selectView(next);
+              document.getElementById(`warehouse-tab-${next}`)?.focus();
+            }} className={`min-h-[44px] border-b-2 px-4 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 ${selectedView === tab.value ? "border-yellow-400 text-yellow-300" : "border-transparent text-slate-400 hover:text-slate-100"}`}>{tab.label}</button>
+          ))}
+        </div>
+      ) : null}
+      {isAgronomist && selectedView === "availability" && profile?.company_id && user?.id ? (
+        <div id="warehouse-view" role="tabpanel" aria-labelledby="warehouse-tab-availability">
+          {loading ? <div role="status" className="py-8 text-sm text-slate-400">Загрузка объектов...</div> : <StockAvailability companyId={profile.company_id} userId={user.id} language={language} warehouses={warehouses} revision={detailRevision} onOpenBatch={(batch) => void openHarvestBatch(batch)} onOpenMaterial={setDetailBalance} />}
+        </div>
+      ) : <div id="warehouse-view" role={isAgronomist ? "tabpanel" : undefined} aria-labelledby={isAgronomist ? "warehouse-tab-warehouses" : undefined} className="space-y-3">
       <div className="relative max-w-md">
         <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-500" />
         <Input
@@ -610,7 +670,7 @@ export default function WarehousesPage() {
       ) : activeSummaries.length === 0 ? (
         <div className="border-y border-slate-800 py-12 text-center text-sm text-slate-400">Активные склады не найдены.</div>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {activeSummaries.map(renderWarehouseCard)}
         </div>
       )}
@@ -618,11 +678,12 @@ export default function WarehousesPage() {
       {canManageWarehouses && archivedSummaries.length > 0 ? (
         <section className="space-y-3 border-t border-slate-800 pt-5">
           <h2 className="text-base font-semibold text-slate-300">Архивные склады</h2>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {archivedSummaries.map(renderWarehouseCard)}
           </div>
         </section>
       ) : null}
+      </div>}
 
       <Dialog open={Boolean(selectedSummary)} onOpenChange={(open) => !open && closeWarehouse()}>
         <DialogContent className="flex h-[100dvh] max-h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[92vh] sm:max-h-[92vh] sm:w-[min(1100px,calc(100vw-32px))] sm:max-w-[1100px] sm:rounded-lg">

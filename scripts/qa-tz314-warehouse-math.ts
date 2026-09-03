@@ -57,16 +57,16 @@ const warehouseService = readFileSync(path.join(root, "lib/services/warehouses.t
 
 assert.match(summariesRoute, /total_weight_kg:\s*mass\?\.totalWeightKg/);
 assert.match(summariesRoute, /seed_weight_kg:\s*mass\?\.seedWeightKg/);
-assert.match(page, /label:\s*"Всего"/);
-assert.match(page, /label:\s*"Урожай"/);
-assert.match(page, /label:\s*"Семена"/);
-assert.match(page, /label:\s*"Групп остатков"/);
+assert.match(page, /formatMass\(totalWeightKg\)/);
+assert.doesNotMatch(page, /label:\s*"Всего"/);
+assert.doesNotMatch(page, /label:\s*"Урожай"/);
+assert.match(page, /warehousePositionCountLabel\(positionCount\)/);
 assert.match(page, /warehousePositionCountLabel\(selectedSummary\.positionCount\)/);
 assert.match(balancesRoute, /batch_class,/);
 assert.match(balancesRoute, /\$\{uom\}\|\$\{batchClass\}/);
 assert.match(page, /row\.batch_class \|\| "commodity"/);
 assert.match(page, /row\.material_quantity/);
-assert.match(page, /totalWeightKg <= 0\.000001/);
+assert.match(page, /Math\.abs\(totalWeightKg\) <= 0\.000001 && positionCount === 0/);
 assert.match(balancesRoute, /loadHarvestLedgerOriginRefs/);
 assert.match(balancesRoute, /harvest_represented_quantity/);
 assert.match(balancesRoute, /material_quantity/);
@@ -90,7 +90,7 @@ assert.match(lotRoute, /fieldSummaries: warehouseFieldSummaries/);
 assert.match(lotRoute, /tripBatches: warehouseOriginTrips/);
 assert.match(lotRoute, /originState: warehouseOriginTrips\.length > 0/);
 assert.match(lotDialog, /Талонное происхождение на этом складе отсутствует/);
-assert.match(lotDialog, /visible: batch\.receivedKg > 0\.001/);
+assert.match(lotDialog, /label: "Поступило", value: flow\.incomingKg/);
 assert.doesNotMatch(lotDialog, /label: "Принято по всей партии"/);
 
 console.log("TZ314 warehouse math regression PASS: 48/48");

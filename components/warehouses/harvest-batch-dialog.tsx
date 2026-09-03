@@ -199,68 +199,6 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
         netWeightKg: batch?.companyReceivedKg ?? batch?.receivedKg ?? 0,
         tripCount: activeTrips.length,
       }];
-  const accountingRows = batch ? [
-    {
-      label: "Принято на этот склад",
-      value: batch.receivedKg,
-      tone: "text-emerald-300",
-      visible: batch.receivedKg > 0.001,
-    },
-    {
-      label: "Аннулировано (только история)",
-      value: batch.voidedKg || 0,
-      tone: "text-slate-300",
-      visible: (batch.voidedKg || 0) > 0,
-    },
-    {
-      label: "Примеси",
-      value: -(batch.removedKg || 0),
-      tone: "text-rose-300",
-      visible: (batch.removedKg || 0) > 0,
-    },
-    {
-      label: processingEligible ? "Передано в переработку" : "Историческое выбытие партии",
-      value: -(batch.processingInputKg || 0),
-      tone: "text-rose-300",
-      visible: (batch.processingInputKg || 0) > 0,
-    },
-    {
-      label: processingEligible ? "Возвращено из переработки" : "Историческое поступление партии",
-      value: batch.processingOutputKg || 0,
-      tone: "text-emerald-300",
-      visible: (batch.processingOutputKg || 0) > 0,
-    },
-    {
-      label: "Перемещено на склад",
-      value: batch.transferInKg || 0,
-      tone: "text-emerald-300",
-      visible: (batch.transferInKg || 0) > 0,
-    },
-    {
-      label: "Перемещено со склада",
-      value: -(batch.transferOutKg || 0),
-      tone: "text-rose-300",
-      visible: (batch.transferOutKg || 0) > 0,
-    },
-    {
-      label: "Списано",
-      value: -(batch.writeoffKg || 0),
-      tone: "text-rose-300",
-      visible: (batch.writeoffKg || 0) > 0,
-    },
-    {
-      label: "Выдано или отгружено",
-      value: -(batch.issueKg || 0),
-      tone: "text-rose-300",
-      visible: (batch.issueKg || 0) > 0,
-    },
-    {
-      label: "Прочая корректировка",
-      value: batch.otherAdjustmentKg || 0,
-      tone: (batch.otherAdjustmentKg || 0) < 0 ? "text-rose-300" : "text-emerald-300",
-      visible: Math.abs(batch.otherAdjustmentKg || 0) > 0.001,
-    },
-  ].filter((row) => row.visible) : [];
 
   return (
     <>
@@ -269,7 +207,7 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
         {batch ? (
           <>
             <DialogHeader className="shrink-0 border-b border-slate-800 px-5 py-4 text-left">
-              <div className="flex items-start justify-between gap-4 pr-8">
+              <div className="flex flex-wrap items-start justify-between gap-3 pr-8">
                 <div className="min-w-0">
                   <DialogTitle className="flex items-center gap-2 text-xl">
                     <PackageOpen className="h-5 w-5 shrink-0 text-emerald-400" />
@@ -320,69 +258,26 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
                 </section>
               ) : null}
 
-              {moistureRelevant && weightedMoisture != null ? (
-                <div className="border-y border-slate-800 py-3 text-sm">
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="text-slate-400">Средневзвешенная влажность исходных рейсов</span>
-                    <span className="font-semibold text-slate-100">{formatMoisturePercent(weightedMoisture)}</span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">По замерам при приёмке, с учётом массы рейсов. Это не замер текущего остатка после обработки.</p>
-                </div>
-              ) : null}
-
               <section aria-label="Движение массы">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <h3 className="text-base font-semibold">Движение массы на этом складе</h3>
-                  {batch.companyCurrentKg != null && Math.abs(batch.companyCurrentKg - batch.cleanMassKg) > 0.001 ? (
-                    <span className="text-sm text-slate-400">
-                      По компании: <strong className="text-slate-100">{kg(batch.companyCurrentKg)}</strong>
-                    </span>
-                  ) : null}
-                </div>
                 {flow ? (
-                  <div className="mb-4 space-y-2">
-                    <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="grid grid-cols-2 gap-4 border-b border-slate-800 pb-3">
                       {[
-                        { label: "Всего поступило", value: flow.incomingKg, tone: "text-emerald-300" },
-                        { label: "Всего выбыло", value: flow.outgoingKg, tone: "text-rose-300" },
-                        { label: "Осталось сейчас", value: batch.cleanMassKg, tone: "text-slate-100" },
+                        { label: "Поступило", value: flow.incomingKg, tone: "text-emerald-300", sign: "+" },
+                        { label: "Выбыло", value: flow.outgoingKg, tone: "text-rose-300", sign: "−" },
                       ].map((item) => (
-                        <div key={item.label} className="rounded-md border border-slate-800 bg-slate-950/35 px-3 py-2">
+                        <div key={item.label}>
                           <div className="text-xs text-slate-400">{item.label}</div>
-                          <div className={`mt-1 text-lg font-semibold tabular-nums ${item.tone}`}>{kg(item.value)}</div>
+                          <div className={`mt-1 text-base font-semibold tabular-nums ${item.tone}`}>{item.sign}{kg(item.value)}</div>
                         </div>
                       ))}
-                    </div>
-                    <p className="text-sm text-slate-400">По движениям: {kg(flow.incomingKg)} − {kg(flow.outgoingKg)} = {kg(flow.expectedKg)}.</p>
-                    <p className="text-xs text-slate-500">Только склад «{batch.warehouseName}». Исходные рейсы с полей ниже — история происхождения, они не прибавляются к этому остатку.</p>
                   </div>
                 ) : null}
-                <div className="divide-y divide-slate-800 border-y border-slate-800">
-                  {accountingRows.map((row) => (
-                    <div key={row.label} className="flex items-center justify-between gap-4 py-2.5 text-sm">
-                      <span className="text-slate-400">{row.label}</span>
-                      <span className={`font-semibold tabular-nums ${row.tone}`}>
-                        {row.value > 0 && !row.label.startsWith("Принято") && !row.label.startsWith("Аннулировано") ? "+" : ""}{kg(row.value)}
-                      </span>
-                    </div>
-                  ))}
-                  <div className="flex items-center justify-between gap-4 py-3 text-sm">
-                    <span className="font-medium text-slate-200">Физический остаток</span>
-                    <span className="font-semibold tabular-nums text-emerald-300">{kg(batch.cleanMassKg)}</span>
-                  </div>
                   {(batch.reservedKg || 0) > 0 ? (
-                    <>
-                      <div className="flex items-center justify-between gap-4 py-2.5 text-sm">
-                        <span className="text-slate-400">В резерве</span>
-                        <span className="font-semibold tabular-nums text-amber-300">{kg(batch.reservedKg || 0)}</span>
-                      </div>
-                      <div className="flex items-center justify-between gap-4 py-3 text-sm">
-                        <span className="font-medium text-slate-200">Доступно</span>
-                        <span className="font-semibold tabular-nums text-emerald-300">{kg(batch.availableKg ?? batch.cleanMassKg)}</span>
-                      </div>
-                    </>
+                    <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
+                      <span>В резерве: <strong className="text-amber-300">{kg(batch.reservedKg || 0)}</strong></span>
+                      <span>Доступно: <strong className="text-slate-100">{kg(batch.availableKg ?? batch.cleanMassKg)}</strong></span>
+                    </div>
                   ) : null}
-                </div>
                 {batch.reconciliationState === "incomplete_lineage" ? (
                   <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
                     Не для всех рейсов восстановлена связь с талонами. Красное несхождение не показывается до полной сверки происхождения.
@@ -398,8 +293,7 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
               {outgoingDocuments.length > 0 ? (
                 <section aria-label="Операции по партии">
                   <h3 className="mb-2 text-base font-semibold">Операции по партии на этом складе</h3>
-                  <p className="mb-3 text-sm text-slate-500">Поступления (+) и выбытия (−). Нажмите на документ, чтобы увидеть талон или акт обработки. Аннулированные движения не входят.</p>
-                  <div className="divide-y divide-slate-800 overflow-hidden rounded-md border border-slate-800 bg-slate-950/35">
+                  <div className="divide-y divide-slate-800">
                     {outgoingDocuments.map((document) => {
                       const content = (
                         <>
@@ -448,17 +342,20 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
                 </section>
               ) : null}
 
-              <section>
-                <h3 className="mb-3 text-base font-semibold">Происхождение и рейсы — исходное сырьё</h3>
+              <details className="group/origin border-t border-slate-800 pt-3">
+                <summary className="flex min-h-[44px] cursor-pointer list-none items-center gap-2 text-sm font-semibold marker:hidden"><ChevronDown className="h-4 w-4 transition-transform group-open/origin:rotate-180" />Происхождение и рейсы — исходное сырьё</summary>
                 {batch.originState === "ticket_lineage_absent" ? (
                   <div className="mb-3 rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
                     Талонное происхождение на этом складе отсутствует. Остаток показан по физическим партиям и складскому ledger.
                   </div>
                 ) : (
-                  <p className="mb-3 text-sm text-slate-500">
-                    «Исходно принято» — полный вес исходных талонов с поля. «Вошло в обработку» — использованная часть этих рейсов, а не поступление на этот склад. После обработки продукция может распределяться между складами. Здесь указана история сырья; поступления и остаток выбранного склада показаны выше. Аннулированные рейсы в сумму не входят.
+                  <p className="mb-3 text-xs text-slate-500">
+                    Это история сырья, не дополнительный остаток. Аннулированные рейсы в сумму не входят.
                   </p>
                 )}
+                {moistureRelevant && weightedMoisture != null ? (
+                  <p className="mb-3 text-xs text-slate-400">Влажность исходных рейсов: <strong className="text-slate-100">{formatMoisturePercent(weightedMoisture)}</strong> — не замер текущего остатка.</p>
+                ) : null}
                 <div className="space-y-3">
                   {fieldSummaries.map((field) => {
                     const fieldTrips = trips.filter((trip) => {
@@ -531,7 +428,7 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
                     </div>
                   ) : null}
                 </div>
-              </section>
+              </details>
               </>
               )}
             </div>

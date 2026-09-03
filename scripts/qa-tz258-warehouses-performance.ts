@@ -41,7 +41,7 @@ const checks: Array<[string, () => void]> = [
     assert.match(page, /positionCount: detailsLoaded[\s\S]*?countVisibleWarehousePositions\(batches, stock\)[\s\S]*?serverSummary\?\.position_count \|\| 0/);
     assert.match(page, /lastMovementAt: serverSummary\?\.last_movement_at \|\| null/);
     assert.match(page, /!summaryLoaded \? \([\s\S]*?animate-pulse/);
-    assert.match(page, /label: "Групп остатков", value: positionCount/);
+    assert.match(page, /warehousePositionCountLabel\(positionCount\)/);
   }],
   ["content search loads only balances and harvest batches on demand", () => {
     const body = page.match(/const loadSearchData = async[\s\S]*?\n  };/)?.[0] || "";
