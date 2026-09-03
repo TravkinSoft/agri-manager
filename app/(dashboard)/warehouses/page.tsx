@@ -48,6 +48,7 @@ import type {
   Warehouse,
   WarehouseSummary,
 } from "@/lib/types/warehouse";
+import { findWarehouseScopedHarvestBatch } from "@/lib/warehouse/harvest-batch-selection";
 import { warehouseCapacityPercent } from "@/lib/warehouse/warehouse-summary-math";
 import {
   isAgrochemicalWarehouseType,
@@ -401,7 +402,7 @@ export default function WarehousesPage() {
 
   useEffect(() => {
     if (!selectedBatch) return;
-    const current = harvestBatches.find((batch) => batch.id === selectedBatch.id);
+    const current = findWarehouseScopedHarvestBatch(harvestBatches, selectedBatch);
     if (current && current !== selectedBatch && selectedBatch.detailLevel !== "full") setSelectedBatch(current);
   }, [harvestBatches, selectedBatch]);
 
