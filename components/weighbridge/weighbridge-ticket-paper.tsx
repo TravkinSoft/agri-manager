@@ -3,6 +3,7 @@
 import { cn } from "@/lib/utils";
 import type { WeighbridgeTicket } from "@/lib/types/weighbridge";
 import { formatWeightKg, formatWeightNumber } from "@/lib/weighbridge/weight-format";
+import { aggregateTicketCargoLines } from "@/lib/weighbridge/ticket-cargo-composition";
 import { ticketOperatorFacts } from "@/lib/weighbridge/ticket-operator";
 import { transportPickerLabel } from "@/lib/weighbridge/transport";
 
@@ -141,6 +142,7 @@ export function WeighbridgeTicketPaper({
   weightEditor?: WeighbridgeTicketWeightEditor;
 }) {
   const lines = ticket.lines || [];
+  const cargoLines = aggregateTicketCargoLines(lines);
   const mainLine = lines[0] || null;
   const isHarvest = ticket.op_type === "harvest_incoming";
   const isSupplier = ticket.op_type === "supplier_receipt";
@@ -181,9 +183,9 @@ export function WeighbridgeTicketPaper({
   const showMoisture = !isHarvest || showHarvestMoisture;
   const showMoistureEditor = Boolean(weightEditor) && showMoisture;
   const showProductLines = !isHarvest && (isSupplier ? lines.length > 1 : lines.length > 0);
-  const displayedLineQuantity = (line: (typeof lines)[number]) => {
-    if (lines.length === 1 && weightEditor?.physicalNetKg != null) return weightEditor.physicalNetKg;
-    if (lines.length === 1 && ticket.net_weight_kg != null) return ticket.net_weight_kg;
+  const displayedLineQuantity = (line: (typeof cargoLines)[number]) => {
+    if (cargoLines.length === 1 && weightEditor?.physicalNetKg != null) return weightEditor.physicalNetKg;
+    if (cargoLines.length === 1 && ticket.net_weight_kg != null) return ticket.net_weight_kg;
     return line.quantity;
   };
 
@@ -307,9 +309,9 @@ export function WeighbridgeTicketPaper({
       ) : null}
 
       {showProductLines ? (
-        <PaperSection title="ТОВАРЫ В ДОКУМЕНТЕ">
+        <PaperSection title="СОСТАВ ГРУЗА">
           <div className="space-y-1 text-xs">
-            {lines.map((line, index) => (
+            {cargoLines.map((line, index) => (
               <div key={line.id || index} className="grid grid-cols-[22px_1fr_auto] gap-2 border-b border-[#c7b797] pb-1 last:border-0 last:pb-0">
                 <div className="font-bold">{index + 1}.</div>
                 <div className="font-semibold">{first(line.product_name, line.product_name_snapshot, "Товар")}</div>
