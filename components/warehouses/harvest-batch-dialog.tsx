@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { CalendarDays, ExternalLink, Factory, FileText, Loader2, PackageOpen, Scale, Truck, UserRound } from "lucide-react";
+import { CalendarDays, ChevronDown, ExternalLink, Factory, FileText, Loader2, PackageOpen, Scale, Truck, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import type { HarvestBatchSummary } from "@/lib/types/weighbridge";
 import { TicketPreviewDialog } from "@/components/weighbridge/ticket-preview-dialog";
+import { formatMoisturePercent, warehouseFlowSummary } from "@/lib/warehouse/batch-card-presentation";
 
 type Props = {
   open: boolean;
@@ -174,6 +175,7 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
     (document) => processingEligible || document.sourceType !== "processing_document"
   );
   const activeTrips = trips.filter((trip) => trip.status !== "voided");
+  const flow = batch ? warehouseFlowSummary(batch) : null;
   const moistureRelevant = Boolean(
     batch &&
     !/картоф/i.test(batch.cropName) &&
@@ -319,23 +321,42 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
               ) : null}
 
               {moistureRelevant && weightedMoisture != null ? (
-                <div className="flex items-center justify-between gap-4 border-y border-slate-800 py-3 text-sm">
-                  <span className="text-slate-400">Средневзвешенная влажность</span>
-                  <span className="font-semibold text-slate-100">
-                    {weightedMoisture.toLocaleString("ru-RU", { maximumFractionDigits: 3 })}%
-                  </span>
+                <div className="border-y border-slate-800 py-3 text-sm">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-slate-400">Средневзвешенная влажность исходных рейсов</span>
+                    <span className="font-semibold text-slate-100">{formatMoisturePercent(weightedMoisture)}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">По замерам при приёмке, с учётом массы рейсов. Это не замер текущего остатка после обработки.</p>
                 </div>
               ) : null}
 
               <section aria-label="Движение массы">
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <h3 className="text-base font-semibold">Движение массы</h3>
+                  <h3 className="text-base font-semibold">Движение массы на этом складе</h3>
                   {batch.companyCurrentKg != null && Math.abs(batch.companyCurrentKg - batch.cleanMassKg) > 0.001 ? (
                     <span className="text-sm text-slate-400">
                       По компании: <strong className="text-slate-100">{kg(batch.companyCurrentKg)}</strong>
                     </span>
                   ) : null}
                 </div>
+                {flow ? (
+                  <div className="mb-4 space-y-2">
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {[
+                        { label: "Всего поступило", value: flow.incomingKg, tone: "text-emerald-300" },
+                        { label: "Всего выбыло", value: flow.outgoingKg, tone: "text-rose-300" },
+                        { label: "Осталось сейчас", value: batch.cleanMassKg, tone: "text-slate-100" },
+                      ].map((item) => (
+                        <div key={item.label} className="rounded-md border border-slate-800 bg-slate-950/35 px-3 py-2">
+                          <div className="text-xs text-slate-400">{item.label}</div>
+                          <div className={`mt-1 text-lg font-semibold tabular-nums ${item.tone}`}>{kg(item.value)}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-sm text-slate-400">По движениям: {kg(flow.incomingKg)} − {kg(flow.outgoingKg)} = {kg(flow.expectedKg)}.</p>
+                    <p className="text-xs text-slate-500">Только склад «{batch.warehouseName}». Исходные рейсы с полей ниже — история происхождения, они не прибавляются к этому остатку.</p>
+                  </div>
+                ) : null}
                 <div className="divide-y divide-slate-800 border-y border-slate-800">
                   {accountingRows.map((row) => (
                     <div key={row.label} className="flex items-center justify-between gap-4 py-2.5 text-sm">
@@ -374,15 +395,68 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
                 ) : null}
               </section>
 
+              {outgoingDocuments.length > 0 ? (
+                <section aria-label="Операции по партии">
+                  <h3 className="mb-2 text-base font-semibold">Операции по партии на этом складе</h3>
+                  <p className="mb-3 text-sm text-slate-500">Поступления (+) и выбытия (−). Нажмите на документ, чтобы увидеть талон или акт обработки. Аннулированные движения не входят.</p>
+                  <div className="divide-y divide-slate-800 overflow-hidden rounded-md border border-slate-800 bg-slate-950/35">
+                    {outgoingDocuments.map((document) => {
+                      const content = (
+                        <>
+                          <span className="min-w-0">
+                            <span className="flex items-center gap-2 font-medium text-slate-100">
+                              <FileText className="h-4 w-4 shrink-0 text-amber-400" />
+                              <span>{document.label}</span>
+                              <span className="shrink-0 text-xs font-normal text-slate-400">{document.direction === "in" || document.direction === "processing" ? "Поступление" : "Выбытие"}</span>
+                            </span>
+                            <span className="mt-1 block text-xs text-slate-500">
+                              {formatDate(document.occurredAt)}
+                              {document.documentNo ? ` · ${document.documentNo}` : ""}
+                              {document.actorName ? ` · ${document.actorName}` : ""}
+                            </span>
+                            {document.detailLabel ? <span className="mt-1 block text-xs text-slate-300">{document.detailLabel}</span> : null}
+                            {document.vehicleName || document.driverName ? (
+                              <span className="mt-1 block truncate text-xs text-slate-400">
+                                {[document.vehicleName, document.driverName].filter(Boolean).join(" · ")}
+                              </span>
+                            ) : null}
+                          </span>
+                          <span className="flex shrink-0 items-center gap-3">
+                            <strong className={`tabular-nums ${document.direction === "in" || document.direction === "processing" ? "text-emerald-300" : "text-rose-300"}`}>
+                              {document.direction === "in" || document.direction === "processing" ? "+" : "-"}{kg(document.quantityKg)}
+                            </strong>
+                            {document.sourceType !== "missing" ? <ExternalLink className="h-4 w-4 text-slate-500" /> : null}
+                          </span>
+
+                        </>
+                      );
+                      const className = "flex w-full flex-wrap items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-slate-900/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400";
+                      if (document.sourceType === "weighbridge_ticket" && document.ticketId) {
+                        return <button key={document.id} type="button" onClick={() => openTicketPreview(document.ticketId as string)} className={className}>{content}</button>;
+                      }
+                      if (document.sourceType === "processing_document" && document.processingDocument) {
+                        return <button key={document.id} type="button" className={className} onClick={() => setProcessingDocument(document)}>{content}</button>;
+                      }
+                      return (
+                        <div key={document.id} className="flex flex-wrap items-center justify-between gap-4 bg-rose-500/10 px-4 py-3 text-left">
+                          {content}
+                          <span className="text-xs font-medium text-rose-300">Документ-основание не найден</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
+
               <section>
-                <h3 className="mb-3 text-base font-semibold">Происхождение и рейсы</h3>
+                <h3 className="mb-3 text-base font-semibold">Происхождение и рейсы — исходное сырьё</h3>
                 {batch.originState === "ticket_lineage_absent" ? (
                   <div className="mb-3 rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
                     Талонное происхождение на этом складе отсутствует. Остаток показан по физическим партиям и складскому ledger.
                   </div>
                 ) : (
                   <p className="mb-3 text-sm text-slate-500">
-                    «Исходно принято» — масса закрытого талона. «Вошло в обработку» — часть этого рейса, использованная для текущей физической партии. Аннулированные рейсы в сумму не входят.
+                    «Исходно принято» — полный вес исходных талонов с поля. «Вошло в обработку» — использованная часть этих рейсов, а не поступление на этот склад. После обработки продукция может распределяться между складами. Здесь указана история сырья; поступления и остаток выбранного склада показаны выше. Аннулированные рейсы в сумму не входят.
                   </p>
                 )}
                 <div className="space-y-3">
@@ -393,9 +467,9 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
                     });
                     return (
                       <details key={field.fieldId || field.fieldName} className="group overflow-hidden rounded-md border border-slate-800 bg-slate-950/35">
-                        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 marker:hidden">
+                        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-4 py-3 marker:hidden">
                           <div className="min-w-0">
-                            <div className="truncate font-semibold text-slate-100">{field.fieldName}</div>
+                            <div className="flex items-center gap-2 font-semibold text-slate-100"><ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />{field.fieldName}</div>
                             <div className="mt-0.5 text-xs text-slate-500">{field.tripCount} рейс. · нажмите, чтобы раскрыть</div>
                           </div>
                           <div className="flex shrink-0 gap-5 text-right">
@@ -430,6 +504,7 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
                               <span className={`flex flex-col items-end justify-center gap-0.5 font-medium ${trip.status === "voided" ? "line-through" : "text-emerald-300"}`}>
                                 <span className="flex items-center gap-2"><Scale className="h-4 w-4 shrink-0" />{kg(trip.netWeightKg)}</span>
                                 {trip.enteredProcessingKg != null ? <span className="text-xs font-normal text-amber-300">в обработку {kg(trip.enteredProcessingKg)}</span> : null}
+                                {moistureRelevant && trip.moisturePercent != null ? <span className="text-xs font-normal text-slate-400">влажность {formatMoisturePercent(trip.moisturePercent)}</span> : null}
                               </span>
                               {trip.status === "voided" ? (
                                 <Badge variant="outline" className="w-fit sm:col-span-4">Аннулирован</Badge>
@@ -457,56 +532,6 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
                   ) : null}
                 </div>
               </section>
-
-              {outgoingDocuments.length > 0 ? (
-                <section aria-label="Операции по партии">
-                  <h3 className="mb-3 text-base font-semibold">Операции по партии</h3>
-                  <div className="divide-y divide-slate-800 overflow-hidden rounded-md border border-slate-800 bg-slate-950/35">
-                    {outgoingDocuments.map((document) => {
-                      const content = (
-                        <>
-                          <span className="min-w-0">
-                            <span className="flex items-center gap-2 font-medium text-slate-100">
-                              <FileText className="h-4 w-4 shrink-0 text-amber-400" />
-                              <span className="truncate">{document.label}</span>
-                            </span>
-                            <span className="mt-1 block text-xs text-slate-500">
-                              {formatDate(document.occurredAt)}
-                              {document.documentNo ? ` · ${document.documentNo}` : ""}
-                              {document.actorName ? ` · ${document.actorName}` : ""}
-                            </span>
-                            {document.detailLabel ? <span className="mt-1 block text-xs text-slate-300">{document.detailLabel}</span> : null}
-                            {document.vehicleName || document.driverName ? (
-                              <span className="mt-1 block truncate text-xs text-slate-400">
-                                {[document.vehicleName, document.driverName].filter(Boolean).join(" · ")}
-                              </span>
-                            ) : null}
-                          </span>
-                          <span className="flex shrink-0 items-center gap-3">
-                            <strong className={`tabular-nums ${document.direction === "processing" ? "text-emerald-300" : "text-rose-300"}`}>
-                              {document.direction === "processing" ? "+" : "-"}{kg(document.quantityKg)}
-                            </strong>
-                            {document.sourceType !== "missing" ? <ExternalLink className="h-4 w-4 text-slate-500" /> : null}
-                          </span>
-                        </>
-                      );
-                      const className = "flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-slate-900/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400";
-                      if (document.sourceType === "weighbridge_ticket" && document.ticketId) {
-                        return <button key={document.id} type="button" onClick={() => openTicketPreview(document.ticketId as string)} className={className}>{content}</button>;
-                      }
-                      if (document.sourceType === "processing_document" && document.processingDocument) {
-                        return <button key={document.id} type="button" className={className} onClick={() => setProcessingDocument(document)}>{content}</button>;
-                      }
-                      return (
-                        <div key={document.id} className="flex items-center justify-between gap-4 bg-rose-500/10 px-4 py-3 text-left">
-                          {content}
-                          <span className="text-xs font-medium text-rose-300">Документ-основание не найден</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
-              ) : null}
               </>
               )}
             </div>

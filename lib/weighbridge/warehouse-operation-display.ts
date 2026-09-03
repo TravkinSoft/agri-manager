@@ -8,6 +8,7 @@ type WarehouseOperationLabelInput = {
   ticketStatus?: unknown;
   correctionOfTicketId?: unknown;
   replacementTicketId?: unknown;
+  direction?: "in" | "out";
 };
 
 const normalize = (value: unknown) => String(value || "").trim().toLowerCase();
@@ -42,6 +43,10 @@ export function warehouseOperationLabel(input: WarehouseOperationLabelInput): st
   if (reason.includes("harvest_incoming") || ticketType === "harvest" || operationType === "harvest_incoming") {
     return "Приход урожая";
   }
+  if (reason.includes("opening_balance")) return "Начальный остаток";
+  if (reason.includes("supplier") || ticketType === "supplier_incoming" || operationType === "supplier_incoming") {
+    return "Приход от поставщика";
+  }
 
   if (reason.includes("impurit") || ticketType === "impurity_removal" || operationType.includes("impurit")) {
     return "Вывоз примеси";
@@ -71,7 +76,25 @@ export function warehouseOperationLabel(input: WarehouseOperationLabelInput): st
     if (destination === "CLEANER") return "Очистка";
     return "Перемещение";
   }
-  return "Выбытие";
+  return input.direction === "in" ? "Поступление" : "Выбытие";
+}
+
+type WarehouseOperationEntry = {
+  id?: unknown;
+  delta_qty_signed?: unknown;
+  is_storno?: unknown;
+  storno_of_entry_id?: unknown;
+  reason_type?: unknown;
+};
+
+export function selectActiveWarehouseOperationEntries<T extends WarehouseOperationEntry>(entries: T[]): T[] {
+  const reversedIds = new Set(entries.map((entry) => String(entry.storno_of_entry_id || "")).filter(Boolean));
+  return entries.filter((entry) => {
+    const delta = Number(entry.delta_qty_signed || 0);
+    return Number.isFinite(delta) && Math.abs(delta) > 0.000001
+      && !entry.is_storno && !normalize(entry.reason_type).startsWith("storno_")
+      && !reversedIds.has(String(entry.id || ""));
+  });
 }
 
 type CollapsibleOperationDocument = {
@@ -82,7 +105,7 @@ type CollapsibleOperationDocument = {
   sourceType: "weighbridge_ticket" | "processing_document" | "missing";
   sourceId: string | null;
   ticketId: string | null;
-  direction?: "out" | "processing";
+  direction?: "in" | "out" | "processing";
 };
 
 export function collapseOperationDocuments<T extends CollapsibleOperationDocument>(documents: T[]): T[] {

@@ -19,6 +19,7 @@ import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import {
   collapseOperationDocuments,
+  selectActiveWarehouseOperationEntries,
   warehouseOperationLabel,
 } from "@/lib/weighbridge/warehouse-operation-display";
 
@@ -457,12 +458,9 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
     ...(ledgerByTextResult.data || []),
     ...(ledgerByTicketResult.data || []),
   ]);
-  const outgoingLedgerEntries = ledgerEntries.filter((entry: any) => {
-    const reason = String(entry.reason_type || "").toLowerCase();
-    return Number(entry.delta_qty_signed || 0) < -0.000001 && !entry.is_storno && !reason.includes("harvest_incoming");
-  });
-  const movementTicketIds = ids(outgoingLedgerEntries.map((entry: any) => entry.ticket_id));
-  const ledgerProcessingIds = ids(outgoingLedgerEntries
+  const documentLedgerEntries = selectActiveWarehouseOperationEntries(ledgerEntries);
+  const movementTicketIds = ids(documentLedgerEntries.map((entry: any) => entry.ticket_id));
+  const ledgerProcessingIds = ids(documentLedgerEntries
     .filter((entry: any) => String(entry.reason_type || "").toLowerCase().includes("processing_input"))
     .map((entry: any) => entry.processing_id || entry.reason_ref_id));
   const [movementTicketsResult, transformationsResult] = await Promise.all([
@@ -497,7 +495,7 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
     row.finalized_by_person_id,
   ]));
   const traceProfileIds = ids([
-    ...outgoingLedgerEntries.map((row: any) => row.created_by),
+    ...documentLedgerEntries.map((row: any) => row.created_by),
     ...movementTicketRows.map((row) => row.created_by),
     ...transformationRows.flatMap((row) => [row.created_by, row.completed_by]),
   ]);
@@ -795,20 +793,10 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
         reservedKg,
         ledgerEntries: warehouseLedgerEntries,
       });
-      const stornoTargetEntryIds = new Set(
-        warehouseLedgerEntries
-          .map((entry: any) => String(entry.storno_of_entry_id || ""))
-          .filter(Boolean)
-      );
-      const outgoingDocuments = collapseOperationDocuments(warehouseLedgerEntries
-        .filter((entry: any) => {
-          const reason = String(entry.reason_type || "").toLowerCase();
-          return Number(entry.delta_qty_signed || 0) < -0.000001
-            && !entry.is_storno
-            && !stornoTargetEntryIds.has(String(entry.id || ""))
-            && !reason.includes("harvest_incoming");
-        })
+      // Keep the response field for compatibility, but include both sides of warehouse movements.
+      const outgoingDocuments = collapseOperationDocuments(selectActiveWarehouseOperationEntries(warehouseLedgerEntries)
         .map((entry: any) => {
+          const direction = Number(entry.delta_qty_signed || 0) > 0 ? "in" as const : "out" as const;
           const reason = String(entry.reason_type || "").toLowerCase();
           const processingId = reason.includes("processing_")
             ? String(entry.processing_id || entry.reason_ref_id || "")
@@ -854,6 +842,7 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
               ticketStatus: ticket?.status,
               correctionOfTicketId: ticket?.correction_of_ticket_id,
               replacementTicketId: ticket?.replacement_ticket_id,
+              direction,
             }),
             detailLabel: reason.includes("impurit")
               ? impurityCategoryLabel(ticket?.audit_json?.impurity_type || ticket?.disposal_category)
@@ -879,7 +868,7 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
             vehicleName: resolveTransportIdentity(vehicle || {}).label || null,
             driverName: String(driver?.full_name || driver?.name_ru || driver?.name_en || driver?.name_kz || driver?.email || "") || null,
             notes: String(entry.notes || transformation?.note || ticket?.notes || "") || null,
-            direction: "out" as const,
+            direction,
             processingDocument: transformation ? {
               id: String(transformation.id),
               transformationType: String(transformation.transformation_type || "processing"),
@@ -911,6 +900,7 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
       const processingDocuments = processingEligible
         ? transformationRows
             .filter((transformation) => String(transformation.harvest_lot_id || "") === String(lot.id))
+            .filter((transformation) => String(transformation.status || "").toLowerCase() === "completed")
             .flatMap((transformation) => {
               const transformationId = String(transformation.id || "");
               const outputs = (transformationOutputsById.get(transformationId) || [])
@@ -974,7 +964,13 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
               }];
             })
         : [];
-      const historyDocuments = [...processingDocuments, ...outgoingDocuments]
+      const historyDocuments = [
+        ...processingDocuments.filter((document) => !outgoingDocuments.some((movement) =>
+          movement.sourceType === "processing_document"
+          && movement.sourceId === document.sourceId && movement.direction === "in"
+        )),
+        ...outgoingDocuments,
+      ]
         .sort((a, b) => new Date(b.occurredAt || 0).getTime() - new Date(a.occurredAt || 0).getTime());
       return {
         id: String(lot.id),

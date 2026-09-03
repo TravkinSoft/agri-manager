@@ -329,7 +329,7 @@ export interface HarvestBatchSummary {
     vehicleName: string | null;
     driverName: string | null;
     notes: string | null;
-    direction?: "out" | "processing";
+    direction?: "in" | "out" | "processing";
     processingDocument?: {
       id: string;
       transformationType: string;
