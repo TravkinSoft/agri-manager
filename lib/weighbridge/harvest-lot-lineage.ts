@@ -10,11 +10,18 @@ export type HarvestLotInventoryBatchLineage = {
   source_ticket_id?: unknown;
 };
 
-export type HarvestLotTicketSource = "link" | "inventory_batch" | "parent_link" | "parent_batch";
+export type HarvestLotTicketSource = "link" | "inventory_batch" | "parent_link" | "parent_batch" | "transformation_input";
+
+export type HarvestLotTransformationInputLink = {
+  output_batch_id?: unknown;
+  input_batch_id?: unknown;
+  input_weight_kg?: unknown;
+};
 
 export type HarvestLotTicketCandidate = {
   ticketId: string;
   source: HarvestLotTicketSource;
+  enteredProcessingKg?: number | null;
 };
 
 export type HarvestLotTicketLineage = {
@@ -46,7 +53,8 @@ const valueId = (value: unknown): string | null => {
 export function resolveHarvestLotTicketLineage(
   memberLinks: HarvestLotBatchLineageLink[],
   allLinks: HarvestLotBatchLineageLink[],
-  batches: HarvestLotInventoryBatchLineage[]
+  batches: HarvestLotInventoryBatchLineage[],
+  transformationInputs: HarvestLotTransformationInputLink[] = []
 ): HarvestLotTicketLineage[] {
   const linksByBatchId = new Map(
     allLinks.flatMap((link) => {
@@ -60,36 +68,70 @@ export function resolveHarvestLotTicketLineage(
       return batchId ? [[batchId, batch] as const] : [];
     })
   );
+  const transformationInputsByOutputBatchId = new Map<string, Array<{ batchId: string; weightKg: number | null }>>();
+  for (const edge of transformationInputs) {
+    const outputBatchId = valueId(edge.output_batch_id);
+    const inputBatchId = valueId(edge.input_batch_id);
+    if (!outputBatchId || !inputBatchId) continue;
+    const rawWeight = Number(edge.input_weight_kg);
+    const weightKg = Number.isFinite(rawWeight) && rawWeight >= 0 ? rawWeight : null;
+    transformationInputsByOutputBatchId.set(outputBatchId, [
+      ...(transformationInputsByOutputBatchId.get(outputBatchId) || []),
+      { batchId: inputBatchId, weightKg },
+    ]);
+  }
 
   return memberLinks.flatMap((link) => {
     const harvestLotId = valueId(link.harvest_lot_id);
     const inventoryBatchId = valueId(link.inventory_batch_id);
     if (!harvestLotId || !inventoryBatchId) return [];
 
-    const batch = batchesById.get(inventoryBatchId);
-    const rawCandidates: Array<[HarvestLotTicketSource, unknown]> = [
-      ["link", link.source_ticket_id],
-      ["inventory_batch", batch?.source_ticket_id],
+    const rawCandidates: Array<[HarvestLotTicketSource, unknown, number | null]> = [];
+    const queue: Array<{ batchId: string; enteredProcessingKg: number | null; hop: "root" | "parent" | "transformation" }> = [
+      { batchId: inventoryBatchId, enteredProcessingKg: null, hop: "root" },
     ];
-    const visitedBatchIds = new Set([inventoryBatchId]);
-    let ancestorBatchId = valueId(batch?.parent_batch_id);
-    while (ancestorBatchId && !visitedBatchIds.has(ancestorBatchId)) {
-      visitedBatchIds.add(ancestorBatchId);
-      const ancestorLink = linksByBatchId.get(ancestorBatchId);
-      const ancestorBatch = batchesById.get(ancestorBatchId);
+    const visitedBatchWeights = new Set<string>();
+    while (queue.length) {
+      const current = queue.shift() as { batchId: string; enteredProcessingKg: number | null; hop: "root" | "parent" | "transformation" };
+      const visitKey = `${current.batchId}|${current.enteredProcessingKg ?? "direct"}`;
+      if (visitedBatchWeights.has(visitKey)) continue;
+      visitedBatchWeights.add(visitKey);
+      const currentLink = linksByBatchId.get(current.batchId);
+      const currentBatch = batchesById.get(current.batchId);
+      const linkSource: HarvestLotTicketSource = current.hop === "root"
+        ? "link"
+        : current.hop === "parent" ? "parent_link" : "transformation_input";
+      const batchSource: HarvestLotTicketSource = current.hop === "root"
+        ? "inventory_batch"
+        : current.hop === "parent" ? "parent_batch" : "transformation_input";
       rawCandidates.push(
-        ["parent_link", ancestorLink?.source_ticket_id],
-        ["parent_batch", ancestorBatch?.source_ticket_id]
+        [linkSource, currentLink?.source_ticket_id, current.enteredProcessingKg],
+        [batchSource, currentBatch?.source_ticket_id, current.enteredProcessingKg]
       );
-      ancestorBatchId = valueId(ancestorBatch?.parent_batch_id);
+      const parentBatchId = valueId(currentBatch?.parent_batch_id);
+      if (parentBatchId) {
+        queue.push({ batchId: parentBatchId, enteredProcessingKg: current.enteredProcessingKg, hop: "parent" });
+      }
+      for (const input of transformationInputsByOutputBatchId.get(current.batchId) || []) {
+        queue.push({
+          batchId: input.batchId,
+          enteredProcessingKg: input.weightKg,
+          hop: "transformation",
+        });
+      }
     }
-    const seenTicketIds = new Set<string>();
-    const candidates = rawCandidates.flatMap(([source, value]) => {
+    const candidatesByTicketId = new Map<string, HarvestLotTicketCandidate>();
+    rawCandidates.forEach(([source, value, enteredProcessingKg]) => {
       const ticketId = valueId(value);
-      if (!ticketId || seenTicketIds.has(ticketId)) return [];
-      seenTicketIds.add(ticketId);
-      return [{ ticketId, source }];
+      if (!ticketId) return;
+      const existing = candidatesByTicketId.get(ticketId);
+      const existingWeight = Number(existing?.enteredProcessingKg);
+      const incomingWeight = Number(enteredProcessingKg);
+      if (!existing || (Number.isFinite(incomingWeight) && (!Number.isFinite(existingWeight) || incomingWeight > existingWeight))) {
+        candidatesByTicketId.set(ticketId, { ticketId, source, enteredProcessingKg });
+      }
     });
+    const candidates = Array.from(candidatesByTicketId.values());
     const resolved = candidates[0] || null;
 
     return [{
@@ -144,6 +186,41 @@ export function resolveHarvestTicketIdsByBatch(
   }
 
   return { displayByBatchId, effectiveByBatchId };
+}
+
+export function resolveEffectiveHarvestTicketCandidatesByBatch(
+  lineage: HarvestLotTicketLineage[],
+  tickets: HarvestLotTicketRecord[]
+): Map<string, HarvestLotTicketCandidate[]> {
+  const ticketsById = new Map(tickets.flatMap((ticket) => {
+    const ticketId = valueId(ticket.id);
+    return ticketId ? [[ticketId, ticket] as const] : [];
+  }));
+  return new Map(lineage.map((row) => [
+    row.inventoryBatchId,
+    row.candidates.filter((candidate) => (
+      isEffectiveFinalizedHarvestTicket(ticketsById.get(candidate.ticketId))
+    )),
+  ]));
+}
+
+export function resolveHarvestTicketContributionsForBatches(
+  effectiveCandidatesByBatch: Map<string, HarvestLotTicketCandidate[]>,
+  batchIds: Iterable<string>
+): Map<string, number | null> {
+  const contributions = new Map<string, number | null>();
+  for (const batchId of Array.from(batchIds)) {
+    for (const candidate of effectiveCandidatesByBatch.get(batchId) || []) {
+      const weight = candidate.enteredProcessingKg;
+      const current = contributions.get(candidate.ticketId);
+      if (weight == null) {
+        if (!contributions.has(candidate.ticketId)) contributions.set(candidate.ticketId, null);
+        continue;
+      }
+      if (current == null || weight > current) contributions.set(candidate.ticketId, weight);
+    }
+  }
+  return contributions;
 }
 
 export function hasCompleteHarvestTicketLineage(

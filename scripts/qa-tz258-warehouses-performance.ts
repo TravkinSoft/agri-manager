@@ -38,7 +38,7 @@ const checks: Array<[string, () => void]> = [
     assert.match(page, /productsLoading \? "Загрузка каталога\.\.\."/);
   }],
   ["warehouse cards render before secondary summaries", () => {
-    assert.match(page, /positionCount: serverSummary\?\.position_count \|\| 0/);
+    assert.match(page, /positionCount: detailsLoaded[\s\S]*?countVisibleWarehousePositions\(batches, stock\)[\s\S]*?serverSummary\?\.position_count \|\| 0/);
     assert.match(page, /lastMovementAt: serverSummary\?\.last_movement_at \|\| null/);
     assert.match(page, /!summaryLoaded \? \([\s\S]*?animate-pulse/);
     assert.match(page, /label: "Групп остатков", value: positionCount/);

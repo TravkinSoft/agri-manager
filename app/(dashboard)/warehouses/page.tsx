@@ -48,7 +48,10 @@ import type {
   Warehouse,
   WarehouseSummary,
 } from "@/lib/types/warehouse";
-import { findWarehouseScopedHarvestBatch } from "@/lib/warehouse/harvest-batch-selection";
+import {
+  countVisibleWarehousePositions,
+  findWarehouseScopedHarvestBatch,
+} from "@/lib/warehouse/harvest-batch-selection";
 import { warehouseCapacityPercent } from "@/lib/warehouse/warehouse-summary-math";
 import {
   isAgrochemicalWarehouseType,
@@ -415,7 +418,9 @@ export default function WarehousesPage() {
       warehouse,
       stock,
       batches,
-      positionCount: serverSummary?.position_count || 0,
+      positionCount: detailsLoaded
+        ? countVisibleWarehousePositions(batches, stock)
+        : serverSummary?.position_count || 0,
       harvestLotCount: serverSummary?.harvest_lot_count || 0,
       harvestWeightKg: serverSummary?.harvest_weight_kg || 0,
       totalWeightKg: serverSummary?.total_weight_kg || 0,

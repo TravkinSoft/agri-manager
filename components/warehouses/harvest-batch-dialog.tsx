@@ -51,6 +51,14 @@ const transformationLabel = (value: string) => ({
   potato_sorting: "Сортировка клубней",
 } as Record<string, string>)[value] || "Переработка";
 
+const processingStatusLabel = (value: string) => ({
+  draft: "В процессе",
+  active: "В процессе",
+  completed: "Завершена",
+  reversed: "Отменена",
+  cancelled: "Отменена",
+} as Record<string, string>)[String(value || "").toLowerCase()] || "В процессе";
+
 const outputLabel = (value: string) => ({
   commodity: "Готовый продукт",
   process_loss: "Отходы / потери",
@@ -74,6 +82,8 @@ function ProcessingDocumentDialog({ document, onOpenChange, onOpenTicket }: {
   onOpenTicket: (ticketId: string) => void;
 }) {
   const processing = document?.processingDocument || null;
+  const processingOutputKg = processing?.outputs.reduce((sum, output) => sum + output.weightKg, 0) || 0;
+  const processingBalanceKg = Math.max((processing?.inputWeightKg || 0) - processingOutputKg, 0);
   return (
     <Dialog open={Boolean(document && processing)} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
@@ -92,7 +102,7 @@ function ProcessingDocumentDialog({ document, onOpenChange, onOpenTicket }: {
             <div className="space-y-4 text-sm">
               <div className="grid gap-3 rounded-md border border-slate-800 bg-slate-950/45 p-4 sm:grid-cols-2">
                 <div><span className="text-slate-500">Операция</span><div className="font-semibold text-slate-100">{transformationLabel(processing.transformationType)}</div></div>
-                <div><span className="text-slate-500">Статус</span><div className="font-semibold text-slate-100">{processing.status === "completed" ? "Завершена" : processing.status}</div></div>
+                <div><span className="text-slate-500">Статус</span><div className="font-semibold text-slate-100">{processingStatusLabel(processing.status)}</div></div>
                 {processing.processingNodeName ? <div><span className="text-slate-500">Линия</span><div className="font-semibold text-slate-100">{processing.processingNodeName}</div></div> : null}
                 {processing.sourceWarehouseName ? <div><span className="text-slate-500">Склад сырья</span><div className="font-semibold text-slate-100">{processing.sourceWarehouseName}</div></div> : null}
                 <div><span className="text-slate-500">Начато</span><div className="font-semibold text-slate-100">{formatDate(processing.startedAt)}</div></div>
@@ -115,6 +125,12 @@ function ProcessingDocumentDialog({ document, onOpenChange, onOpenTicket }: {
                     <strong className="text-emerald-300">{kg(output.weightKg)}</strong>
                   </div>
                 ))}
+                <div className="flex items-center justify-between gap-4 border-t border-slate-800 px-4 py-3">
+                  <span className="text-slate-400">Материальный баланс</span>
+                  <strong className={processingBalanceKg > 0.001 ? "text-amber-300" : "text-emerald-300"}>
+                    {processingBalanceKg > 0.001 ? `Не распределено ${kg(processingBalanceKg)}` : "Сведён"}
+                  </strong>
+                </div>
               </div>
 
               {processing.note ? <div className="rounded-md border border-slate-800 px-4 py-3"><span className="text-slate-500">Примечание:</span> <span className="text-slate-200">{processing.note}</span></div> : null}
@@ -366,7 +382,7 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
                   </div>
                 ) : (
                   <p className="mb-3 text-sm text-slate-500">
-                    По каждому полю показана фактически принятая масса действующих рейсов. Аннулированные рейсы остаются в истории и в сумму не входят.
+                    «Исходно принято» — масса закрытого талона. «Вошло в обработку» — часть этого рейса, использованная для текущей физической партии. Аннулированные рейсы в сумму не входят.
                   </p>
                 )}
                 <div className="space-y-3">
@@ -376,18 +392,26 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
                       return field.fieldName === trip.fieldName;
                     });
                     return (
-                      <div key={field.fieldId || field.fieldName} className="overflow-hidden rounded-md border border-slate-800 bg-slate-950/35">
-                        <div className="flex items-center justify-between gap-4 border-b border-slate-800 px-4 py-3">
+                      <details key={field.fieldId || field.fieldName} className="group overflow-hidden rounded-md border border-slate-800 bg-slate-950/35">
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 marker:hidden">
                           <div className="min-w-0">
                             <div className="truncate font-semibold text-slate-100">{field.fieldName}</div>
-                            <div className="mt-0.5 text-xs text-slate-500">{field.tripCount} рейс.</div>
+                            <div className="mt-0.5 text-xs text-slate-500">{field.tripCount} рейс. · нажмите, чтобы раскрыть</div>
                           </div>
-                          <div className="shrink-0 text-right">
-                            <div className="text-xs text-slate-500">Принято</div>
-                            <div className="font-semibold text-emerald-300">{kg(field.netWeightKg)}</div>
+                          <div className="flex shrink-0 gap-5 text-right">
+                            <div>
+                              <div className="text-xs text-slate-500">Исходно принято</div>
+                              <div className="font-semibold text-emerald-300">{kg(field.netWeightKg)}</div>
+                            </div>
+                            {field.enteredProcessingKg != null ? (
+                              <div>
+                                <div className="text-xs text-slate-500">Вошло в обработку</div>
+                                <div className="font-semibold text-amber-300">{kg(field.enteredProcessingKg)}</div>
+                              </div>
+                            ) : null}
                           </div>
-                        </div>
-                        <div className="divide-y divide-slate-800">
+                        </summary>
+                        <div className="divide-y divide-slate-800 border-t border-slate-800">
                           {fieldTrips.map((trip) => {
                             const className = `grid gap-2 px-4 py-3 text-sm transition-colors sm:grid-cols-[minmax(150px,1fr)_minmax(140px,1fr)_150px_120px] ${trip.status === "voided" ? "text-slate-500" : "text-slate-200"} ${trip.ticketId ? "cursor-pointer hover:bg-slate-900/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400" : ""}`;
                             const content = <>
@@ -403,8 +427,9 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
                                 <UserRound className="h-4 w-4 shrink-0 text-slate-500" />
                                 <span className="truncate">{trip.driverName || "Водитель не указан"}</span>
                               </span>
-                              <span className={`flex items-center justify-end gap-2 font-medium ${trip.status === "voided" ? "line-through" : "text-emerald-300"}`}>
-                                <Scale className="h-4 w-4 shrink-0" />{kg(trip.netWeightKg)}
+                              <span className={`flex flex-col items-end justify-center gap-0.5 font-medium ${trip.status === "voided" ? "line-through" : "text-emerald-300"}`}>
+                                <span className="flex items-center gap-2"><Scale className="h-4 w-4 shrink-0" />{kg(trip.netWeightKg)}</span>
+                                {trip.enteredProcessingKg != null ? <span className="text-xs font-normal text-amber-300">в обработку {kg(trip.enteredProcessingKg)}</span> : null}
                               </span>
                               {trip.status === "voided" ? (
                                 <Badge variant="outline" className="w-fit sm:col-span-4">Аннулирован</Badge>
@@ -422,7 +447,7 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
                             <div className="px-4 py-3 text-sm text-slate-500">Рейсы по этому полю не найдены</div>
                           ) : null}
                         </div>
-                      </div>
+                      </details>
                     );
                   })}
                   {fieldSummaries.length === 0 ? (
@@ -434,8 +459,8 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
               </section>
 
               {outgoingDocuments.length > 0 ? (
-                <section aria-label="История партии">
-                  <h3 className="mb-3 text-base font-semibold">История партии</h3>
+                <section aria-label="Операции по партии">
+                  <h3 className="mb-3 text-base font-semibold">Операции по партии</h3>
                   <div className="divide-y divide-slate-800 overflow-hidden rounded-md border border-slate-800 bg-slate-950/35">
                     {outgoingDocuments.map((document) => {
                       const content = (
@@ -450,6 +475,7 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
                               {document.documentNo ? ` · ${document.documentNo}` : ""}
                               {document.actorName ? ` · ${document.actorName}` : ""}
                             </span>
+                            {document.detailLabel ? <span className="mt-1 block text-xs text-slate-300">{document.detailLabel}</span> : null}
                             {document.vehicleName || document.driverName ? (
                               <span className="mt-1 block truncate text-xs text-slate-400">
                                 {[document.vehicleName, document.driverName].filter(Boolean).join(" · ")}

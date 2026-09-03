@@ -295,6 +295,7 @@ export interface HarvestBatchSummary {
     fieldId: string | null;
     fieldName: string;
     netWeightKg: number;
+    enteredProcessingKg?: number | null;
     tripCount: number;
   }>;
   tripBatches?: Array<{
@@ -305,6 +306,7 @@ export interface HarvestBatchSummary {
     fieldId: string | null;
     fieldName: string;
     netWeightKg: number;
+    enteredProcessingKg?: number | null;
     moisturePercent: number | null;
     vehicleName?: string | null;
     driverName?: string | null;
@@ -314,6 +316,7 @@ export interface HarvestBatchSummary {
   outgoingDocuments?: Array<{
     id: string;
     label: string;
+    detailLabel?: string | null;
     quantityKg: number;
     occurredAt: string | null;
     warehouseName: string;

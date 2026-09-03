@@ -3,7 +3,15 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { findWarehouseScopedHarvestBatch } from "../lib/warehouse/harvest-batch-selection";
+import {
+  countVisibleWarehousePositions,
+  findWarehouseScopedHarvestBatch,
+} from "../lib/warehouse/harvest-batch-selection";
+import {
+  resolveEffectiveHarvestTicketCandidatesByBatch,
+  resolveHarvestLotTicketLineage,
+  resolveHarvestTicketContributionsForBatches,
+} from "../lib/weighbridge/harvest-lot-lineage";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const page = readFileSync(path.join(root, "app/(dashboard)/warehouses/page.tsx"), "utf8");
@@ -35,4 +43,59 @@ assert.doesNotMatch(page, /harvestBatches\.find\(\(batch\) => batch\.id === sele
 assert.match(page, /row\.id === batch\.id && row\.warehouseId === batch\.warehouseId/);
 assert.match(page, /current\?\.id === batch\.id && current\.warehouseId === batch\.warehouseId/);
 
-console.log("PASS TZ315 P0 cross-warehouse aggregate lot selection (8/8)");
+const lineage = resolveHarvestLotTicketLineage(
+  [{ harvest_lot_id: "lot", inventory_batch_id: "clean-output" }],
+  [
+    { harvest_lot_id: "lot", inventory_batch_id: "clean-output" },
+    { harvest_lot_id: "lot", inventory_batch_id: "trip-12", source_ticket_id: "ticket-12" },
+    { harvest_lot_id: "lot", inventory_batch_id: "trip-13", source_ticket_id: "ticket-13" },
+    { harvest_lot_id: "lot", inventory_batch_id: "trip-11", source_ticket_id: "ticket-11" },
+  ],
+  [
+    { id: "clean-output" },
+    { id: "trip-12" },
+    { id: "trip-13" },
+    { id: "trip-11" },
+  ],
+  [
+    { output_batch_id: "clean-output", input_batch_id: "trip-12", input_weight_kg: 12_000 },
+    { output_batch_id: "clean-output", input_batch_id: "trip-13", input_weight_kg: 13_000 },
+    { output_batch_id: "clean-output", input_batch_id: "trip-11", input_weight_kg: 5_000 },
+  ]
+);
+const effectiveCandidates = resolveEffectiveHarvestTicketCandidatesByBatch(lineage, [
+  { id: "ticket-12", op_type: "harvest_incoming", status: "finalized", is_finalized: true },
+  { id: "ticket-13", op_type: "harvest_incoming", status: "finalized", is_finalized: true },
+  { id: "ticket-11", op_type: "harvest_incoming", status: "finalized", is_finalized: true },
+]);
+assert.deepEqual(
+  resolveHarvestTicketContributionsForBatches(effectiveCandidates, ["clean-output"]),
+  new Map([
+    ["ticket-12", 12_000],
+    ["ticket-13", 13_000],
+    ["ticket-11", 5_000],
+  ])
+);
+
+assert.equal(countVisibleWarehousePositions([
+  { productId: "rapeseed" },
+  { productId: "potato" },
+  { productId: "wheat-likamero" },
+  { productId: "wheat-lamis" },
+], [
+  { product_id: "rapeseed", material_quantity: 0 },
+  { product_id: "potato", material_quantity: 0 },
+  { product_id: "wheat-likamero", material_quantity: 0 },
+  { product_id: "wheat-lamis", material_quantity: 0 },
+]), 4);
+
+assert.match(page, /countVisibleWarehousePositions\(batches, stock\)/);
+
+const dialog = readFileSync(path.join(root, "components/warehouses/harvest-batch-dialog.tsx"), "utf8");
+assert.match(dialog, /<details key=/);
+assert.match(dialog, /Исходно принято/);
+assert.match(dialog, /Вошло в обработку/);
+assert.match(dialog, /Операции по партии/);
+assert.doesNotMatch(dialog, />История партии</);
+
+console.log("PASS TZ315 P0 warehouse detail and lineage regressions (18/18)");
