@@ -108,8 +108,13 @@ export function resolveHarvestLotTicketLineage(
         [linkSource, currentLink?.source_ticket_id, current.enteredProcessingKg, current.contributionKey],
         [batchSource, currentBatch?.source_ticket_id, current.enteredProcessingKg, current.contributionKey]
       );
+      const transformationInputsForBatch = transformationInputsByOutputBatchId.get(current.batchId) || [];
       const parentBatchId = valueId(currentBatch?.parent_batch_id);
-      if (parentBatchId) {
+      // Processing outputs keep a single parent_batch_id for compatibility, but
+      // batch_transformation_inputs is the complete, weighted provenance. Walking
+      // both paths counts that parent once as the whole output and again as its
+      // actual input contribution.
+      if (!transformationInputsForBatch.length && parentBatchId) {
         queue.push({
           batchId: parentBatchId,
           enteredProcessingKg: current.enteredProcessingKg,
@@ -118,7 +123,7 @@ export function resolveHarvestLotTicketLineage(
         });
       }
       for (const [inputIndex, input] of Array.from(
-        (transformationInputsByOutputBatchId.get(current.batchId) || []).entries()
+        transformationInputsForBatch.entries()
       )) {
         queue.push({
           batchId: input.batchId,

@@ -56,6 +56,35 @@ assert.deepEqual(
   new Map([["ticket-split", 10_000]]),
   "two distinct transformation input batches from one ticket must add their contributions",
 );
+
+const multiStageLineage = resolveHarvestLotTicketLineage(
+  [{ harvest_lot_id: "lot-multi-stage", inventory_batch_id: "final-output" }],
+  [
+    { harvest_lot_id: "lot-multi-stage", inventory_batch_id: "final-output" },
+    { harvest_lot_id: "lot-multi-stage", inventory_batch_id: "clean-output" },
+    { harvest_lot_id: "lot-multi-stage", inventory_batch_id: "source-a", source_ticket_id: "ticket-multi-stage" },
+    { harvest_lot_id: "lot-multi-stage", inventory_batch_id: "source-b", source_ticket_id: "ticket-multi-stage" },
+  ],
+  [
+    { id: "final-output", parent_batch_id: "clean-output" },
+    { id: "clean-output", parent_batch_id: "source-a" },
+    { id: "source-a", source_ticket_id: "ticket-multi-stage" },
+    { id: "source-b", source_ticket_id: "ticket-multi-stage" },
+  ],
+  [
+    { output_batch_id: "final-output", input_batch_id: "clean-output", input_weight_kg: 10_000 },
+    { output_batch_id: "clean-output", input_batch_id: "source-a", input_weight_kg: 4_000 },
+    { output_batch_id: "clean-output", input_batch_id: "source-b", input_weight_kg: 6_000 },
+  ],
+);
+const multiStageCandidates = resolveEffectiveHarvestTicketCandidatesByBatch(multiStageLineage, [
+  { id: "ticket-multi-stage", op_type: "harvest_incoming", status: "finalized", is_finalized: true },
+]);
+assert.deepEqual(
+  resolveHarvestTicketContributionsForBatches(multiStageCandidates, ["final-output"]),
+  new Map([["ticket-multi-stage", 10_000]]),
+  "an output parent fallback must not duplicate the exact weighted transformation inputs",
+);
 assert.notEqual(findWarehouseScopedHarvestBatch(realtimeReordered, selected)?.warehouseId, "dryer-1");
 assert.equal(
   findWarehouseScopedHarvestBatch(realtimeReordered, { id: lotId, warehouseId: "missing" }),
