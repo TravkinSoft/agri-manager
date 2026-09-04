@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
+import { getServiceClient } from "@/lib/supabase/service";
 import { SessionAuthError } from "@/lib/auth/server-session";
 import { WAREHOUSE_READ_ROLES, resolveWarehouseForActor } from "@/app/api/warehouses/_helpers";
 import { buildCatalogIdentityKey, buildProductDisplayLabel } from "@/lib/catalog/catalog-identity";
@@ -61,7 +62,8 @@ export async function GET(
 
     const { actor, companyId, supabase, existing } = await resolveWarehouseForActor(request, warehouseId);
     await assertActorAccess({
-      supabase,
+      // Resolve the trusted actor profile server-side; stock reads keep the caller JWT/RLS.
+      supabase: actor.isImpersonating ? getServiceClient() : supabase,
       actorUserId: actor.id,
       companyId,
       allowedRoles: [...WAREHOUSE_READ_ROLES],

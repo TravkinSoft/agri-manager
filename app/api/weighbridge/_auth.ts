@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
+import { getServiceClient } from "@/lib/supabase/service";
 import {
   SessionAuthError,
   getServerActorFromSession,
@@ -59,8 +60,13 @@ export async function resolveWeighbridgeSession(
       | "brigadier"
     )[];
     requestedCompanyId?: string | null;
+    /** Server-only opt-in for read routes whose impersonated profile is hidden by profiles RLS. */
+    serverProfileRead?: boolean;
   }
 ) {
+  if (options?.serverProfileRead && !["GET", "HEAD"].includes(request.method)) {
+    throw new SessionAuthError("Server profile read is only allowed for GET/HEAD", 403);
+  }
   const actor = await getServerActorFromSession(request);
   const queryCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
   const requestedCompanyId = options?.requestedCompanyId ?? queryCompanyId;
@@ -68,7 +74,8 @@ export async function resolveWeighbridgeSession(
   const supabase = await getUserScopedClientFromRequest(request);
 
   await assertActorAccess({
-    supabase,
+    // Never return the privileged profile client to business-data callers.
+    supabase: options?.serverProfileRead && actor.isImpersonating ? getServiceClient() : supabase,
     actorUserId: actor.id,
     companyId,
     allowedRoles: [...(options?.allowedRoles || WEIGHBRIDGE_READ_ROLES)],

@@ -22,6 +22,7 @@ export async function GET(
     const authStartedAt = Date.now();
     const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
+      serverProfileRead: true,
     });
     timing.authMs = Date.now() - authStartedAt;
     const dbStartedAt = Date.now();

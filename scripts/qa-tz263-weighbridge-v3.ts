@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { calculateHarvestLotAccounting } from "../lib/weighbridge/harvest-lot-accounting";
+import { warehouseFlowSummary } from "../lib/warehouse/batch-card-presentation";
+import { selectActiveWarehouseOperationEntries } from "../lib/weighbridge/warehouse-operation-display";
 import { validateHarvestWeights } from "../lib/weighbridge/harvest-contract";
 import { parseStrictWeightKg, requiresTareConfirmation, tareDifferencePercent } from "../lib/weighbridge/weight-input";
 
@@ -131,11 +133,16 @@ check("field totals use accepted active trips without proportional allocation", 
 });
 check("lot dialog keeps physical accounting warehouse-local without calling processing an impurity", () => {
   assert.match(lotDialog, /Остаток на этом складе/);
-  assert.match(lotDialog, /Принято на этот склад/);
+  assert.match(lotDialog, /label: "Поступило", value: flow.incomingKg/);
+  assert.match(lotDialog, /label: "Выбыло", value: flow.outgoingKg/);
   assert.doesNotMatch(lotDialog, /Принято по всей партии/);
   assert.match(lotDialog, /Примеси/);
-  assert.match(lotDialog, /Передано в переработку/);
-  assert.match(lotDialog, /Физический остаток/);
+  assert.equal((lotDialog.match(/kg\(batch.cleanMassKg\)/g) || []).length, 1);
+  assert.deepEqual(warehouseFlowSummary({
+    receivedKg: 100, processingInputKg: 40, removedKg: 5, cleanMassKg: 55,
+  } as Parameters<typeof warehouseFlowSummary>[0]), {
+    incomingKg: 100, outgoingKg: 45, expectedKg: 55,
+  });
 });
 check("accounting A: three accepted trips total 36,500 kg", () => {
   const result = calculateHarvestLotAccounting({
@@ -232,8 +239,12 @@ check("every outgoing lot movement exposes a canonical source document", () => {
   assert.match(batchRoute, /batch_transformations/);
 });
 check("stornoed outgoing movements are excluded from active source documents", () => {
-  assert.match(batchRoute, /stornoTargetEntryIds/);
-  assert.match(batchRoute, /!stornoTargetEntryIds\.has\(String\(entry\.id \|\| ""\)\)/);
+  assert.match(batchRoute, /selectActiveWarehouseOperationEntries\(warehouseLedgerEntries\)/);
+  assert.deepEqual(selectActiveWarehouseOperationEntries([
+    { id: "out", delta_qty_signed: -100 },
+    { id: "reversal", delta_qty_signed: 100, is_storno: true, storno_of_entry_id: "out" },
+    { id: "live", delta_qty_signed: -20 },
+  ]).map((entry) => entry.id), ["live"]);
 });
 check("impurity movement opens its existing weighbridge ticket", () => {
   assert.match(batchRoute, /warehouseOperationLabel/);

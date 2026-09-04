@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
+import { getServiceClient } from "@/lib/supabase/service";
 import {
   SessionAuthError,
   getServerActorFromSession,
@@ -54,7 +55,8 @@ export async function GET(request: NextRequest) {
     const supabase = await getUserScopedClientFromRequest(request);
 
     await assertActorAccess({
-      supabase,
+      // Resolve the trusted actor profile server-side; stock reads keep the caller JWT/RLS.
+      supabase: actor.isImpersonating ? getServiceClient() : supabase,
       actorUserId: actor.id,
       companyId,
       allowedRoles: [...WAREHOUSE_READ_ROLES],

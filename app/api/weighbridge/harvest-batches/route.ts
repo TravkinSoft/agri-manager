@@ -1054,6 +1054,7 @@ export async function GET(request: NextRequest) {
   try {
     const { companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
+      serverProfileRead: true,
     });
     const warehouseId = String(request.nextUrl.searchParams.get("warehouseId") || "").trim() || null;
     const lotId = String(request.nextUrl.searchParams.get("lotId") || "").trim() || null;
