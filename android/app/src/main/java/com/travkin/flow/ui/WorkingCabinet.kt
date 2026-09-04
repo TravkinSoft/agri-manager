@@ -148,6 +148,7 @@ fun WorkingCabinet(state: AppUiState.SignedIn, viewModel: AppViewModel) {
                 } }
                 if (cropEdit == null && trafficEdit == null && weatherEdit == null) state.commandError?.let { error -> item { Notice(error, true) } }
                 state.page?.let { page ->
+                    item { DocumentExportControl(state, viewModel) }
                     page.driverAssignment?.let { assignment -> item {
                         DriverAssignmentControls(assignment, state.saving || state.refreshing || state.actorStale) { viewModel.saveDriverAssignment(assignment, it) }
                     } }

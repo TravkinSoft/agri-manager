@@ -17,6 +17,9 @@ import com.travkin.flow.domain.harvestFilterParameters
 import com.travkin.flow.domain.WeatherProfile
 import com.travkin.flow.domain.NotificationPreferences
 import com.travkin.flow.domain.DriverAssignment
+import com.travkin.flow.domain.DocumentExport
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -47,6 +50,7 @@ class TravkinRepository(context: Context) {
     private val authApi = retrofit(BuildConfig.SUPABASE_URL).create(SupabaseAuthApi::class.java)
     private val appApi = retrofit(BuildConfig.BASE_URL).create(TravkinFlowApi::class.java)
     private val cabinetApi = retrofit(BuildConfig.BASE_URL).create(CabinetApi::class.java)
+    private val documentExportApi = retrofit(BuildConfig.BASE_URL).create(DocumentExportApi::class.java)
     private val supabaseReadApi = retrofit(BuildConfig.SUPABASE_URL).create(SupabaseReadApi::class.java)
     private val commandApi = Retrofit.Builder().baseUrl(BuildConfig.BASE_URL.trimEnd('/') + "/")
         .client(httpClient.newBuilder().retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false).build())
@@ -54,6 +58,42 @@ class TravkinRepository(context: Context) {
     private val acknowledgementApi = Retrofit.Builder().baseUrl(BuildConfig.SUPABASE_URL.takeIf(::isSecureApiBaseUrl) ?: "https://invalid.local/")
         .client(httpClient.newBuilder().retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false).build())
         .addConverterFactory(GsonConverterFactory.create(gson)).build().create(NotificationAcknowledgementApi::class.java)
+
+    suspend fun prepareDocumentExport(actor: Actor, query: CabinetQuery): DocumentExport {
+        val generation = sessionGeneration
+        val verified = refreshActor()
+        if (verified.id != actor.id || verified.authUserId != actor.authUserId || verified.companyId != actor.companyId || generation != sessionGeneration) throw SessionExpiredException()
+        val company = verified.companyId ?: throw UserFacingException("Компания не назначена.")
+        val id = requireObjectId(query.objectId ?: throw UserFacingException("Откройте конкретный документ."))
+        val isField = query.section == CabinetSection.CROPS
+        val season = if (isField) {
+            val bootstrap = readCabinet { cabinetApi.crops(it, company) }
+            if (bootstrap.rows("fields").none { it.text("id") == id }) throw UserFacingException("Поле недоступно.")
+            val selected = query.seasonId ?: bootstrap.text("activeSeasonId")
+            if (selected == null || bootstrap.rows("seasons").none { it.text("id") == selected }) throw UserFacingException("Выберите доступный сезон.")
+            requireObjectId(selected)
+        } else {
+            if (query.section != CabinetSection.TICKETS) throw UserFacingException("Экспорт этого раздела не предусмотрен.")
+            val ticket = readCabinet { cabinetApi.ticket(it, id, company) }.obj("ticket")
+            if (ticket.text("id") != id || ticket.text("company_id") != company || ticket.text("op_type") != "harvest_incoming")
+                throw UserFacingException("Этот документ не относится к кабинету Агронома.")
+            null
+        }
+        val session = resolveSession(localState.loadSession() ?: throw SessionExpiredException())
+        if (generation != sessionGeneration) throw CancellationException("Session changed")
+        val result = if (isField) documentExportApi.field(session.bearer(), id, season!!) else documentExportApi.ticket(session.bearer(), id)
+        if (generation != sessionGeneration) { result.body()?.close(); result.errorBody()?.close(); throw CancellationException("Session changed") }
+        if (!result.isSuccessful) {
+            try { throw result.toApiFailure("Документ не получен. Обновите раздел и повторите экспорт.") }
+            finally { result.errorBody()?.close() }
+        }
+        val body = result.body() ?: throw UserFacingException("Сервер вернул пустой документ.")
+        val document = try { withContext(Dispatchers.IO) {
+            exportDocument(boundedDocumentBytes(body.byteStream()), body.contentType()?.toString(), isField, id)
+        } } finally { body.close() }
+        if (generation != sessionGeneration) throw CancellationException("Session changed")
+        return document
+    }
 
     suspend fun saveDriverAssignment(actor: Actor, context: DriverAssignment, personId: String?) {
         val generation = sessionGeneration

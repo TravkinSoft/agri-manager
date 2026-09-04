@@ -22,7 +22,9 @@ Primary navigation follows the actual Agronomist menu: harvest summary, crop str
 
 Implemented source surfaces include period/identity filters and party drilldowns; crop/fallow/mix field dossiers and historical seasons; crop editor; warehouse stock/lot details; harvest ticket status filters; fleet selection and employee access information; forecast/operating windows and personal weather-profile CRUD; notifications/read acknowledgements and notification preferences.
 
-Persistent vehicle-driver assignment was also ported from the new web baseline, including its compare-and-set token and scope-checked receipt. Still required: operation planning and all detailed operation actions/attachments, printing/export fidelity, complete payload/surface parity audit, role-realistic QA and physical Android acceptance. Do not describe six navigation buttons or a passing build as full parity.
+Persistent vehicle-driver assignment was also ported from the new web baseline, including its compare-and-set token and scope-checked receipt. PDF export uses the existing ticket PDF unchanged, and renders the existing field-card HTML response as native paginated PDF text (no script execution/browser engine). Only an explicit Android document-picker action writes to the user's chosen destination. MIME/template/size checks reject login pages and unexpected content. This is not a claim of exact browser print layout or device acceptance.
+
+Still required: operation planning and all detailed operation actions/attachments, printing/export visual fidelity, complete payload/surface parity audit, role-realistic QA and physical Android acceptance. Latest local gates: 67 unit tests, lintDebug and assembleDebug pass. Do not describe six navigation buttons or a passing build as full parity.
 
 ## Synchronization
 

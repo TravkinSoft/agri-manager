@@ -57,21 +57,21 @@ class AppViewModel(private val repository: TravkinRepository) : ViewModel() {
     fun openSection(section: CabinetSection) {
         val current = _state.value as? AppUiState.SignedIn ?: return
         if (current.saving) return
-        _state.value = current.copy(query = CabinetQuery(section), page = null, message = null, backStack = emptyList(), refreshing = false)
+        _state.value = current.copy(query = CabinetQuery(section), page = null, message = null, commandError = null, backStack = emptyList(), refreshing = false)
         refresh()
     }
 
     fun open(query: CabinetQuery) {
         val current = _state.value as? AppUiState.SignedIn ?: return
         if (current.saving) return
-        _state.value = current.copy(query = query, page = null, message = null, backStack = current.backStack + current.query, refreshing = false)
+        _state.value = current.copy(query = query, page = null, message = null, commandError = null, backStack = current.backStack + current.query, refreshing = false)
         refresh()
     }
 
     fun changeQuery(query: CabinetQuery) {
         val current = _state.value as? AppUiState.SignedIn ?: return
         if (current.saving) return
-        _state.value = current.copy(query = query, page = null, message = null, refreshing = false)
+        _state.value = current.copy(query = query, page = null, message = null, commandError = null, refreshing = false)
         refresh()
     }
 
@@ -79,7 +79,7 @@ class AppViewModel(private val repository: TravkinRepository) : ViewModel() {
         val current = _state.value as? AppUiState.SignedIn ?: return
         if (current.saving) return
         val previous = current.backStack.lastOrNull() ?: return
-        _state.value = current.copy(query = previous, backStack = current.backStack.dropLast(1), page = null, message = null, refreshing = false)
+        _state.value = current.copy(query = previous, backStack = current.backStack.dropLast(1), page = null, message = null, commandError = null, refreshing = false)
         refresh()
     }
 
@@ -113,6 +113,15 @@ class AppViewModel(private val repository: TravkinRepository) : ViewModel() {
 
     fun saveCrop(context: CropEditorData, rows: List<CropAllocationDraft>, onSuccess: () -> Unit) {
         runCommand(onSuccess) { actor -> repository.saveCrop(actor, context, rows) }
+    }
+
+    fun exportDocument(onReady: (String, ByteArray) -> Unit) {
+        val query = (_state.value as? AppUiState.SignedIn)?.query ?: return
+        var prepared: Pair<String, ByteArray>? = null
+        runCommand({ prepared?.let { (name, bytes) -> onReady(name, bytes) } }) { actor ->
+            val document = repository.prepareDocumentExport(actor, query)
+            prepared = document.name to renderExport(document)
+        }
     }
 
     fun saveTraffic(context: TrafficEditorData, selected: Set<String>, emptyConfirmed: Boolean, onSuccess: () -> Unit) {
