@@ -260,7 +260,7 @@ export function TrafficBoard({
           if (!open && !busy) setSelected(null);
         }}
       >
-        <AlertDialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-sm overflow-y-auto rounded-2xl p-4 sm:p-6">
+        <AlertDialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-sm overflow-y-auto rounded-2xl p-4 data-[state=closed]:hidden sm:p-6">
           <AlertDialogHeader>
             <AlertDialogTitle>
               {selected ? ACTION_LABEL[selected.target] : "Подтверждение"}
