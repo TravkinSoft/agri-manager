@@ -1,0 +1,39 @@
+{
+  "id": "/traffic-operator?app=ptc-v1",
+  "name": "TravkinFlow — Оборот машин",
+  "short_name": "Оборот машин",
+  "description": "Рабочие кабинеты комбайнёра и приёмки картофеля",
+  "lang": "ru",
+  "start_url": "/traffic-operator?source=pwa",
+  "scope": "/traffic-operator",
+  "display": "standalone",
+  "background_color": "#0c1118",
+  "theme_color": "#0c1118",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/brand/v1/icons/icon-192-compact-v2.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/v1/icons/icon-512-compact-v2.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/v1/icons/maskable-192-compact-v2.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/brand/v1/icons/maskable-512-compact-v2.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

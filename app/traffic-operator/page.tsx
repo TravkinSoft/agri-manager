@@ -4,6 +4,7 @@ import { Truck, LogOut, Loader2 } from "lucide-react";
 import { ROLE_LABEL } from "@/lib/traffic/model";
 import { TrafficBoard } from "@/components/traffic/traffic-board";
 import { trafficRequest, useTraffic } from "@/components/traffic/use-traffic";
+import { InstallTrafficApp } from "@/components/traffic/install-traffic-app";
 export default function TrafficOperatorPage() {
   const live = useTraffic(false);
   const [busy, setBusy] = useState(false);
@@ -67,6 +68,7 @@ export default function TrafficOperatorPage() {
             <Truck className="text-amber-300" size={28} />
           )}
         </header>
+        <InstallTrafficApp />
         {live.loading ? (
           <div role="status" className="flex justify-center py-20">
             <Loader2 className="animate-spin" />

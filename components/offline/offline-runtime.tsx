@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { CloudOff, RefreshCw, Wifi } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import {
@@ -23,12 +24,15 @@ async function getCurrentAuthHeaders() {
 }
 
 export function OfflineRuntime() {
+  const pathname = usePathname();
+  const independentTraffic = pathname === "/traffic" || pathname === "/traffic-operator" || pathname?.startsWith("/traffic-operator/");
   const [isOnline, setIsOnline] = useState(true);
   const [queueCount, setQueueCount] = useState(0);
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [lastSyncText, setLastSyncText] = useState("");
 
   useEffect(() => {
+    if (independentTraffic) return;
     if (typeof window === "undefined") return;
     setIsOnline(navigator.onLine);
     setQueueCount(getOfflineQueueCount());
@@ -82,9 +86,10 @@ export function OfflineRuntime() {
       window.removeEventListener(offlineQueueEvents.changed, refreshQueueState);
       window.removeEventListener("storage", refreshQueueState);
     };
-  }, []);
+  }, [independentTraffic]);
 
   useEffect(() => {
+    if (independentTraffic) return;
     if (typeof window === "undefined") return;
 
     let syncing = false;
@@ -121,10 +126,10 @@ export function OfflineRuntime() {
       window.removeEventListener("travkin:offline-sync-request", handleSyncRequest);
       window.clearInterval(interval);
     };
-  }, []);
+  }, [independentTraffic]);
 
   const shouldShow = !isOnline || queueCount > 0 || syncState === "syncing" || syncState === "failed" || syncState === "synced";
-  if (!shouldShow) return null;
+  if (independentTraffic || !shouldShow) return null;
 
   const icon = !isOnline ? (
     <CloudOff className="h-4 w-4" />

@@ -49,3 +49,13 @@ Local builds may use clearly fake build-only keys and the verified QA URL; they 
 ## Release and rollback
 
 Merge fresh master before release to preserve the independent warehouse stream. Hosted migration, deployment and live acceptance belong to the release owner; this implementation task does not perform them. Keep migrations additive and retain all event/test history. Emergency rollback is tenant flow disable (states/history preserved), followed if necessary by rolling back the UI release. Do not drop tables, delete events, reset cycles, unassign busy vehicles or mutate other operational records.
+
+## Installable operator PWA
+
+`/traffic-operator` overrides the ERP manifest through its own Next route layout. `/traffic-operator.webmanifest` has a distinct stable `id`, operator `start_url`, scope `/traffic-operator`, standalone display and the existing real TravkinFlow 192/512 PNG and maskable icons. It does not install `/dashboard`. Agronomist monitoring remains in the main application's `/traffic` page.
+
+`InstallTrafficApp` registers `/ptc-sw.js` with the narrow `/traffic-operator` scope and listens for real `beforeinstallprompt`/`appinstalled` events. When the browser has not offered a prompt, it gives honest Chrome Android menu instructions instead of pretending installation succeeded. The existing ERP worker and its caches are not removed or modified. ERP `OfflineRuntime` is disabled while on PTC routes so that it cannot register its broad worker or start its unrelated offline queue there.
+
+The PTC worker has zero CacheStorage use. Only cabinet document navigation is intercepted, using network `no-store`; a connection failure yields a small self-contained offline screen. API/session requests, mutations, RSC and other app routes are neither stored nor replayed. The screen explicitly says fresh statuses are unavailable and actions are not queued. The retry link and online reload return to the same cabinet. A loaded cabinet already blocks actions when its snapshot is stale/offline.
+
+`node scripts/qa-ptc-pwa.cjs` checks 32 actual manifest/PNG/worker behaviors in an isolated harness. Before claiming installation-ready on Product, inspect the hosted manifest link, icon MIME and dimensions, correct worker scope, Chrome installability and standalone launch target. No Google Play, native wrapper or physical-device verification is implied. References: [web.dev manifest guide](https://web.dev/learn/pwa/web-app-manifest), [MDN installability](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable).
