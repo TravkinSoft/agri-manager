@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { getInviteSetPasswordRedirectTo } from "@/lib/utils/app-url";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
+import { sendTrafficInvitation, TrafficInvitationError } from "@/lib/auth/ptc-invitations";
 
 const GLOBAL_ADMIN_ALLOWED_TARGETS = [
   "company_admin",
@@ -129,13 +130,24 @@ export async function POST(request: NextRequest) {
           .eq("status", "active").is("deleted_at", null).maybeSingle();
         if (personError) throw personError;
         if (!person) return NextResponse.json({ success: false, message: "Сотрудник не найден в этой компании" }, { status: 403 });
-        if (person.user_id) return NextResponse.json({ success: false, message: "У сотрудника уже есть аккаунт. Используйте управление существующим пользователем." }, { status: 409 });
+        // A retry may refer to the same already-bound account. The PTC helper and atomic
+        // binding verify exact user ownership; reject foreign links there, not all retries.
       } else if (create_person !== true) {
         return NextResponse.json({ success: false, message: "Выберите сотрудника или явно укажите, что он новый" }, { status: 400 });
       }
     }
 
     const redirectTo = getInviteSetPasswordRedirectTo();
+    if (trafficInvite) {
+      const method = await sendTrafficInvitation({
+        db: supabaseAdmin, actorId: actor.id, companyId: targetCompanyId,
+        role: normalizedRole as "mechanic_operator" | "vegetable_brigadier",
+        email: normalizedEmail, fullName: normalizedFullName,
+        personId: personId || null, createPerson: create_person === true, redirectTo,
+      });
+      return NextResponse.json({ success: true, message: method === "invite" ? "Invitation link sent successfully" : "Recovery invite link sent successfully" },
+        { headers: { "Cache-Control": "no-store, private" } });
+    }
     let shouldSendRecoveryEmail = false;
 
     let userId: string | null = null;
@@ -159,15 +171,6 @@ export async function POST(request: NextRequest) {
     }
 
     const existingUser = allUsers.find((u) => u.email?.toLowerCase() === normalizedEmail);
-    const freshAuth = !existingUser;
-    if (trafficInvite && existingUser) {
-      const { data: target, error: targetError } = await supabaseAdmin.from("profiles")
-        .select("company_id,role,status").eq("id", existingUser.id).maybeSingle();
-      if (targetError) throw targetError;
-      if (target && (target.company_id !== targetCompanyId || target.role !== normalizedRole || target.status !== "pending")) {
-        return NextResponse.json({ success: false, message: "Этот email уже связан с аккаунтом. Не меняем его компанию или роль через новое приглашение; управляйте существующим пользователем." }, { status: 409 });
-      }
-    }
 
     if (!existingUser) {
       const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
@@ -211,7 +214,7 @@ export async function POST(request: NextRequest) {
     if (!userId) {
       const { data: createdUserData, error: createError } = await supabaseAdmin.auth.admin.createUser({
         email: normalizedEmail,
-        email_confirm: !trafficInvite,
+        email_confirm: true,
         user_metadata: {
           role: normalizedRole,
           invited_by_company: targetCompanyId,
@@ -242,23 +245,7 @@ export async function POST(request: NextRequest) {
       .eq("id", userId)
       .maybeSingle();
 
-    if (trafficInvite) {
-      const { error: bindingError } = await supabaseAdmin.rpc("ptc_bind_invited_profile_v1", {
-        p_actor: actor.id, p_user: userId, p_company: targetCompanyId, p_role: normalizedRole,
-        p_name: normalizedFullName, p_email: normalizedEmail, p_person: personId || null,
-        p_create_person: create_person === true, p_fresh_auth: freshAuth,
-      });
-      if (bindingError) {
-        const messages: Record<string, string> = {
-          PTC_SELECT_EXISTING_PERSON: "Такой сотрудник уже есть. Выберите его из списка — дубль не создаём.",
-          PTC_PERSON_ALREADY_LINKED_OR_UNAVAILABLE: "Сотрудник уже связан с аккаунтом или недоступен. Обновите список.",
-          PTC_USER_ALREADY_LINKED: "Этот аккаунт уже связан с другим сотрудником.",
-          PTC_EXISTING_ACCOUNT_CONFLICT: "Не изменяем компанию или роль существующего аккаунта через приглашение.",
-        };
-        const message = Object.entries(messages).find(([key]) => bindingError.message.includes(key))?.[1];
-        return NextResponse.json({ success: false, message: message || "Не удалось связать приглашение с сотрудником. Доступ PTC не выдан; проверьте пользователя перед повтором." }, { status: 409 });
-      }
-    } else if (profileAfterTrigger) {
+    if (profileAfterTrigger) {
       await supabaseAdmin
         .from("profiles")
         .update({ status: "pending", company_id: targetCompanyId, role: normalizedRole, full_name: normalizedFullName })
@@ -297,6 +284,9 @@ export async function POST(request: NextRequest) {
         : "Invitation link sent successfully",
     });
   } catch (err: any) {
+    if (err instanceof TrafficInvitationError) {
+      return NextResponse.json({ success: false, message: err.message }, { status: err.status, headers: { "Cache-Control": "no-store, private" } });
+    }
     if (err instanceof SessionAuthError) {
       return NextResponse.json({ success: false, message: err.message }, { status: err.status });
     }

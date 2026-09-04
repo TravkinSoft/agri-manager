@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getServiceClient } from "@/lib/supabase/service";
+import { assertTrafficActivationReady, TrafficInvitationError } from "@/lib/auth/ptc-invitations";
 
 export const runtime = "nodejs";
 
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest) {
     const supabase = getServiceClient();
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("id,status")
+      .select("id,status,role,company_id")
       .eq("id", user.id)
       .maybeSingle();
     if (profileError) {
@@ -65,16 +66,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Account cannot be activated from status: ${currentStatus}` }, { status: 403 });
     }
 
-    const { error: updateError } = await supabase
+    await assertTrafficActivationReady(supabase, user, profile);
+
+    // Do not undo an administrator's revoke/deactivate or role/company change between
+    // the verification above and this write. Pending remains pending if the CAS loses.
+    let activation = supabase
       .from("profiles")
       .update({ status: "active", updated_at: new Date().toISOString() })
       .eq("id", user.id);
+    activation = profile.status === null ? activation.is("status", null) : activation.eq("status", profile.status);
+    activation = profile.role === null ? activation.is("role", null) : activation.eq("role", profile.role);
+    activation = profile.company_id === null ? activation.is("company_id", null) : activation.eq("company_id", profile.company_id);
+    const { data: activated, error: updateError } = await activation.select("id").maybeSingle();
     if (updateError) {
       return NextResponse.json({ error: updateError.message || "Failed to activate profile" }, { status: 500 });
     }
+    if (!activated?.id) return NextResponse.json({ error: "Account changed while completing signup. Please retry or contact your administrator." }, { status: 409 });
 
     return NextResponse.json({ ok: true, status: "active" });
   } catch (error) {
+    if (error instanceof TrafficInvitationError) {
+      return NextResponse.json({ error: error.message }, { status: error.status, headers: { "Cache-Control": "no-store" } });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to complete signup" },
       { status: 500 }
