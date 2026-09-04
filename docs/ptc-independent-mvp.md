@@ -42,6 +42,8 @@ The central service role needs its existing SELECT/UPDATE privileges to acquire 
 
 All PTC interfaces are mobile-first, including manager setup, account guidance and history. Explicit 48px touch minimums, 16px inputs, compact narrow layouts, wrapped plates, full-card actions and bounded scrolling dialogs. Manager history retains vehicle labels even when a machine is no longer assigned. Existing navigation order remains; permitted mobile users enter through «Ещё».
 
+The manager board groups vehicles into «Пустые», «Загруженные», «На выгрузке» with white, green and yellow cards respectively. The three columns start at 1024 CSS px and stack as three clearly labelled groups on phones. Counts appear once in group headings. Cards prioritize the plate, then vehicle name and optional assigned driver; operator controls retain 48px touch targets and the same confirmed transitions.
+
 Visible clients poll canonical snapshots every eight seconds after the previous request finishes. Manager catalogs are paginated and omitted from repeated compact snapshots. Operator responses omit manager event history. Focus, online, pageshow and visible-tab return force refresh; hidden tabs do not poll. Old/offline data is marked stale and actions are disabled. There is no optimistic write or offline write replay.
 
 The operator route overrides the ERP manifest with `/traffic-operator.webmanifest`: distinct identity, standalone start at `/traffic-operator?source=pwa`, scope `/traffic-operator`, existing real 192/512 PNG and maskable icons. The manager remains on normal `/traffic`.
@@ -55,6 +57,8 @@ The operator route overrides the ERP manifest with `/traffic-operator.webmanifes
 - `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-model.ts`: 61 model, role and client/auth-contract assertions.
 - `node scripts/qa-ptc-pwa.cjs`: 32 manifest/icon/worker behavior assertions.
 - `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-mobile-css.ts`: eight actual generated Tailwind-rule assertions.
+- `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-simple-settings.ts`: 33 component/API assertions for field-free vehicle selection and preserved history context.
+- `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-compact-board.ts`: 99 component/SSR/CSS assertions for grouped compact cards, role actions, disabled/stale guards and dashboard-theme contrast regressions.
 - Full TypeScript and scoped Next lint.
 
 PGlite's queued concurrent calls are not a proof of a multi-connection database race; hosted QA separately validates the final schema. Hosted acceptance must verify real invitations/password setup, two normal operator logins, role/company boundaries, complete cross-cabinet cycle, stale/offline and account-switch behavior, actual manifest MIME/worker scope/installability and mobile DOM at 320/360/390/412 CSS px. Desktop emulation is not physical Android testing. PWA first; no native wrapper, Google Play build or publication in this work.
