@@ -247,19 +247,20 @@ async function main() {
   const accountA = await ready(account);
   const oldAccountRead = accountA.refresh(); await flush();
   account.auth("SIGNED_IN", "account-b");
-  let accountB = account.render(); check(accountB.data, null); check(accountB.stale, true);
+  let accountB = account.render(); check(accountB.data, null); check(accountB.stale, true); check(accountB.loading, true);
   check(accountA.applyCommitted(receipt(), "car-a", 1), false);
   await account.runTimer(0); check(account.requests.length, 2); // Fresh request waits for the old read to settle.
   await account.respond(1, snapshot()); await oldAccountRead; await flush();
-  check(account.render().data, null); check(account.requests.length, 3);
+  check(account.render().data, null); check(account.render().loading, true); check(account.requests.length, 3);
   await account.respond(2, snapshot("car-b", 10));
-  accountB = account.render(); check(accountB.data.vehicles[0].vehicle_id, "car-b");
+  accountB = account.render(); check(accountB.data.vehicles[0].vehicle_id, "car-b"); check(accountB.loading, false);
   check(accountA.applyCommitted(receipt("car-b", 11), "car-b", 10), false);
   check(accountB.applyCommitted(receipt("car-b", 11), "car-b", 10), true);
   check(account.render().data.vehicles[0].version, 11);
   account.auth("SIGNED_OUT", null);
   check(accountB.applyCommitted(receipt("car-b", 12), "car-b", 11), false);
   const loggedOut = account.render(); check(loggedOut.data, null); check(loggedOut.needsLogin, true); check(loggedOut.stale, true);
+  check(loggedOut.loading, false);
   await account.runTimer(1000); check(account.requests.length, 3);
   account.unmount();
 

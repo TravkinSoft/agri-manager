@@ -190,7 +190,11 @@ export function useTraffic(isManager: boolean) {
           setStale(true);
         } finally {
           window.clearTimeout(timeout);
-          if (mounted.current) setLoading(false);
+          // An account/session change can invalidate this read and queue a new
+          // authorized one. Keep the cold-start shell loading until THAT read
+          // settles, otherwise the UI briefly renders the empty error branch.
+          if (mounted.current && generation === authGeneration.current &&
+            epoch === readEpoch.current) setLoading(false);
         }
       };
       pending.current = run();
@@ -292,6 +296,8 @@ export function useTraffic(isManager: boolean) {
         hasManagerData.current = false;
         setStale(true);
         loggedOut.current = event === "SIGNED_OUT";
+        if (event === "SIGNED_OUT") setLoading(false);
+        else setLoading(true);
         if (!isManager) setNeedsLogin(event === "SIGNED_OUT");
       }
       if (recoveringSession) loggedOut.current = false;
