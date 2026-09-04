@@ -23,6 +23,7 @@ export default function TrafficPage() {
   const [panel, setPanel] = useState<"fleet" | "access" | "history" | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const lock = useRef(false);
   const [error, setError] = useState("");
   const managed = live.managerData;
@@ -32,7 +33,10 @@ export default function TrafficPage() {
     if (next === "fleet")
       setSelection(managed.snapshot.vehicles.map((v) => v.vehicle_id));
     setPanel(next);
-    if (next === "history") void live.refresh(true);
+    if (next === "history") {
+      setHistoryLoading(true);
+      void live.refresh(true).finally(() => setHistoryLoading(false));
+    }
   }
   async function send(body: unknown) {
     if (lock.current) return;
@@ -369,6 +373,8 @@ export default function TrafficPage() {
                   </div>
                 ))}
               </div>
+            ) : historyLoading ? (
+              <p className="py-6 text-sm text-slate-500">Обновляем историю…</p>
             ) : (
               <p className="py-6 text-sm text-slate-500">Изменений пока нет.</p>
             )

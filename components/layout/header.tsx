@@ -413,7 +413,7 @@ export function Header() {
               <DropdownMenuItem
                 key={item.code}
                 onClick={() => setLanguage(item.code)}
-                className="min-h-[44px] cursor-pointer justify-between md:hidden"
+                className="min-h-[48px] cursor-pointer justify-between md:hidden"
               >
                 <span>{item.label}</span>
                 {language === item.code ? <Check aria-hidden className="h-4 w-4" /> : null}
