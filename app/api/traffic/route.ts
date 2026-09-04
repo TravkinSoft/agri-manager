@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
       return noStore({
         snapshot: await readSnapshot(companyId, "manager", ""),
       });
-    const [snapshot, fleet, people, fields, accounts] = await Promise.all([
+    const [snapshot, fleet, people, accounts] = await Promise.all([
       readSnapshot(companyId, "manager", ""),
       allRows((from, to) =>
         db
@@ -66,16 +66,6 @@ export async function GET(request: NextRequest) {
       ),
       allRows((from, to) =>
         db
-          .from("fields")
-          .select("id,name")
-          .eq("company_id", companyId)
-          .eq("archived", false)
-          .order("name")
-          .order("id")
-          .range(from, to),
-      ),
-      allRows((from, to) =>
-        db
           .from("profiles")
           .select("id,full_name,role,status")
           .eq("company_id", companyId)
@@ -89,7 +79,8 @@ export async function GET(request: NextRequest) {
       snapshot,
       fleet,
       people,
-      fields,
+      // Keep old open clients compatible without fetching the field catalog.
+      fields: [],
       accounts,
       canManageUsers:
         actor.role === "global_admin" || actor.role === "company_admin",

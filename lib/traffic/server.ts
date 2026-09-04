@@ -236,23 +236,6 @@ export async function readSnapshot(
       (p) => [p.id, p.full_name],
     ),
   );
-  const fieldIds = Array.from(
-    new Set(
-      [flow?.field_id, ...history.map((e) => e.field_id)].filter(
-        (id): id is string => !!id,
-      ),
-    ),
-  );
-  const fieldNames = new Map<string, string>();
-  if (fieldIds.length) {
-    const { data, error } = await db
-      .from("fields")
-      .select("id,name")
-      .in("id", fieldIds)
-      .eq("company_id", companyId);
-    if (error) throw error;
-    (data ?? []).forEach((f) => fieldNames.set(f.id, f.name));
-  }
   const vehicles: TrafficVehicle[] = states.map((s) => {
     const vehicle = fleet.get(s.vehicle_id);
     return {
@@ -271,12 +254,13 @@ export async function readSnapshot(
     personName,
     enabled: flow?.enabled ?? false,
     fieldId: flow?.field_id ?? null,
-    fieldName: fieldNames.get(flow?.field_id ?? "") ?? null,
+    // Legacy IDs stay intact; PTC no longer reads or displays field information.
+    fieldName: null,
     serverTime: new Date().toISOString(),
     vehicles: visibleVehicles(vehicles, role),
     events: history.map((event) => ({
       ...event,
-      field_name: fieldNames.get(event.field_id ?? "") ?? null,
+      field_name: null,
       vehicle_name: fleet.get(event.vehicle_id)?.name || "Машина",
       vehicle_plate:
         fleet.get(event.vehicle_id)?.license_plate ||

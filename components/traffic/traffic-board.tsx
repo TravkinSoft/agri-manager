@@ -90,12 +90,7 @@ export function TrafficBoard({
   snapshot.vehicles.forEach((v) => counts[v.state]++);
   return (
     <>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 text-sm">
-        <p className="text-slate-400">
-          {snapshot.fieldName
-            ? `Поле: ${snapshot.fieldName}`
-            : "Поле не назначено"}
-        </p>
+      <div className="mb-6 flex justify-end text-sm">
         <button
           type="button"
           onClick={() => void refresh(true)}
@@ -120,7 +115,9 @@ export function TrafficBoard({
       ) : null}
       {!snapshot.enabled ? (
         <p className="mb-5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-amber-100">
-          Поток приостановлен. Статусы и история сохранены.
+          {snapshot.role === "manager"
+            ? "Выберите и сохраните машины, чтобы начать работу."
+            : "Агроном ещё не подтвердил список машин для работы."}
         </p>
       ) : null}
       {snapshot.role === "manager" ? (
@@ -224,7 +221,7 @@ export function TrafficBoard({
           <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500">
             {snapshot.role === "receiver"
               ? "Машина появится здесь, когда комбайнёр подтвердит загрузку."
-              : "Агроном выбирает рабочий набор машин в настройках потока."}
+              : "Агроном добавляет машины через «Выбрать машины»."}
           </p>
         </div>
       ) : null}
@@ -248,7 +245,6 @@ export function TrafficBoard({
                 <p className="mt-1 text-xs text-slate-500">
                   {event.actor_name} ·{" "}
                   {new Date(event.created_at).toLocaleString("ru-RU")}
-                  {event.field_name ? ` · ${event.field_name}` : ""}
                 </p>
               </div>
             ))}

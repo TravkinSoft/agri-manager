@@ -17,11 +17,11 @@ An administrator invites the employee through the normal «Пользовате�
 
 Authoritative identity is `profiles.id = auth.users.id`; `company_people.user_id` references that profile. The operator API calls `getServerActorFromSession(ignoreImpersonation:true,skipCache:true)`, rejects legacy profile/Auth aliases, then rechecks exact active profile role, company and exactly one active/nondeleted same-company employee link. Admin/observer roles cannot operate by bypassing the cabinet. The client sends the shared Authorization header for every PTC read/write. Missing session becomes login state, not a retry loop. Account changes abort old reads and discard old account snapshots; logout uses normal Supabase local-session sign-out.
 
-## Flow configuration
+## Vehicle selection
 
-One company has one optional field and up to 100 assigned existing fleet vehicles. No fleet, staff or field records are duplicated or updated by PTC. Driver attribution is shown only from the same company's active, nonarchived `reference_specialists` driver referenced by `primary_responsible_personnel_id`.
+One company has up to 100 assigned existing fleet vehicles. There is no field selector or separate enable checkbox: «Выбрать машины» opens the list and «Сохранить машины» enables work. No fleet, staff or field records are duplicated or updated by PTC. Driver attribution is shown only from the same company's active, nonarchived `reference_specialists` driver referenced by `primary_responsible_personnel_id`.
 
-The manager selects machines and optional field and acknowledges newly assigned machines are empty. Busy machines cannot be unassigned and the field cannot change until they are empty. Disabling, re-enabling or removing/re-adding an empty machine preserves its version, cycle and timestamps.
+The manager selects machines and acknowledges only newly assigned machines are empty. Busy machines cannot be unassigned. Saving or removing/re-adding an empty machine preserves its version, cycle and timestamps. PTC no longer reads field catalogs or displays field labels. Historical nullable field IDs and the legacy RPC contract stay unchanged to preserve existing history and open-client compatibility; new setups use null. The hidden legacy field ID is preserved on save, not reset during a busy cycle.
 
 ## Database and retired legacy auth
 
@@ -40,7 +40,7 @@ The central service role needs its existing SELECT/UPDATE privileges to acquire 
 
 ## Mobile, synchronization and PWA
 
-All PTC interfaces are mobile-first, including manager setup, account guidance and history. Explicit 48px touch minimums, 16px inputs, compact narrow layouts, wrapped plates, full-card actions and bounded scrolling dialogs. Manager history retains vehicle/field labels even when a machine is no longer assigned. Existing navigation order remains; permitted mobile users enter through «Ещё».
+All PTC interfaces are mobile-first, including manager setup, account guidance and history. Explicit 48px touch minimums, 16px inputs, compact narrow layouts, wrapped plates, full-card actions and bounded scrolling dialogs. Manager history retains vehicle labels even when a machine is no longer assigned. Existing navigation order remains; permitted mobile users enter through «Ещё».
 
 Visible clients poll canonical snapshots every eight seconds after the previous request finishes. Manager catalogs are paginated and omitted from repeated compact snapshots. Operator responses omit manager event history. Focus, online, pageshow and visible-tab return force refresh; hidden tabs do not poll. Old/offline data is marked stale and actions are disabled. There is no optimistic write or offline write replay.
 

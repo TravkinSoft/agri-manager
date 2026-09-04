@@ -12,14 +12,10 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-const inputClass =
-  "min-h-[48px] w-full rounded-xl border border-white/15 bg-[#141c28] px-3 text-base text-slate-100 focus:border-amber-300 focus:outline-none";
 export default function TrafficPage() {
   const live = useTraffic(true);
   const [panel, setPanel] = useState<"fleet" | "access" | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
-  const [field, setField] = useState("");
-  const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
   const [error, setError] = useState("");
@@ -28,8 +24,6 @@ export default function TrafficPage() {
     if (!managed) return;
     setError("");
     setSelection(managed.snapshot.vehicles.map((v) => v.vehicle_id));
-    setField(managed.snapshot.fieldId ?? "");
-    setEnabled(managed.snapshot.enabled);
     setPanel(next);
   }
   async function send(body: unknown) {
@@ -58,8 +52,9 @@ export default function TrafficPage() {
     event.preventDefault();
     await send({
       action: "configure",
-      enabled,
-      fieldId: field || null,
+      enabled: true,
+      // Preserve legacy context, without offering or changing field assignments.
+      fieldId: managed?.snapshot.fieldId ?? null,
       vehicleIds: selection,
     });
   }
@@ -90,7 +85,7 @@ export default function TrafficPage() {
               Оборот машин
             </h1>
             <p className="mt-1 text-sm text-slate-500">
-              Картофель · поле и приёмка
+              Картофель · загрузка и приёмка
             </p>
           </div>
         </div>
@@ -101,7 +96,7 @@ export default function TrafficPage() {
             onClick={() => open("fleet")}
             className="flex min-h-[48px] items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 text-sm text-slate-200 disabled:opacity-40"
           >
-            <Settings2 size={17} /> Поток и машины
+            <Settings2 size={17} /> Выбрать машины
           </button>
           <button
             type="button"
@@ -156,11 +151,11 @@ export default function TrafficPage() {
         >
           <DialogHeader>
             <DialogTitle>
-              {panel === "fleet" ? "Поток и машины" : "Доступ сотрудников"}
+              {panel === "fleet" ? "Машины в работе" : "Доступ сотрудников"}
             </DialogTitle>
             <DialogDescription>
               {panel === "fleet"
-                ? "Выберите машины для этого поля. Начальный статус новых машин — «Пустая»."
+                ? "Выберите машины. После сохранения они доступны комбайнёру. Новые машины начинают со статуса «Пустая»."
                 : "Персональные кабинеты. Доступ не открывает остальные разделы TravkinFlow."}
             </DialogDescription>
           </DialogHeader>
@@ -169,41 +164,10 @@ export default function TrafficPage() {
               onSubmit={(event) => void configure(event)}
               className="space-y-4"
             >
-              <label className="flex min-h-[48px] cursor-pointer items-center gap-3 rounded-xl bg-white/5 p-3">
-                <input
-                  type="checkbox"
-                  checked={enabled}
-                  onChange={(event) => setEnabled(event.target.checked)}
-                  className="h-5 w-5 accent-amber-300"
-                />
-                <span>Оборот машин включён</span>
-              </label>
-              <label className="block text-sm text-slate-300">
-                Поле
-                <select
-                  aria-label="Поле потока"
-                  className={`${inputClass} mt-2`}
-                  value={field}
-                  onChange={(event) => setField(event.target.value)}
-                  disabled={hasBusy}
-                >
-                  <option value="">Без привязки к полю</option>
-                  {managed.fields.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
-                  ))}
-                  {field && !managed.fields.some((f) => f.id === field) ? (
-                    <option value={field}>
-                      {managed.snapshot.fieldName || "Текущее поле"}
-                    </option>
-                  ) : null}
-                </select>
-              </label>
               {hasBusy ? (
                 <p className="text-xs leading-relaxed text-amber-200/80">
-                  Занятые машины нельзя убрать, а поле нельзя поменять до
-                  завершения их оборота. Выключение потока сохраняет статусы.
+                  Загруженную машину или машину на выгрузке можно убрать из
+                  списка только после разгрузки.
                 </p>
               ) : null}
               <fieldset>
@@ -264,7 +228,7 @@ export default function TrafficPage() {
                     className="mt-1 h-5 w-5 shrink-0 accent-amber-300"
                   />
                   <span>
-                    Подтверждаю, что новые назначаемые машины сейчас пустые.
+                    Добавляемые машины сейчас пустые.
                   </span>
                 </label>
               ) : null}
@@ -273,7 +237,7 @@ export default function TrafficPage() {
                 disabled={busy || live.stale}
                 className="min-h-[48px] w-full"
               >
-                {busy ? "Сохраняем…" : "Сохранить поток"}
+                {busy ? "Сохраняем…" : "Сохранить машины"}
               </Button>
             </form>
           ) : panel === "access" && managed ? (
