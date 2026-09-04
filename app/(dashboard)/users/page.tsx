@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Ban,
@@ -93,6 +93,7 @@ export default function UsersPage() {
   const { language } = useLanguage();
 
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
+  const profilesGeneration = useRef(0);
   const [loading, setLoading] = useState(true);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteFullName, setInviteFullName] = useState("");
@@ -214,6 +215,8 @@ export default function UsersPage() {
   };
 
   const loadProfiles = async () => {
+    const generation = ++profilesGeneration.current;
+    setProfiles([]);
     if (!activeCompanyId) {
       setProfiles([]);
       setLoading(false);
@@ -221,14 +224,14 @@ export default function UsersPage() {
     }
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id,full_name,email,role,status,created_at,updated_at")
-        .eq("company_id", activeCompanyId)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      setProfiles((data || []) as ProfileRow[]);
+      const headers = await buildClientAuthHeaders();
+      const response = await fetch(`/api/users?company_id=${encodeURIComponent(activeCompanyId)}`, { headers, cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Не удалось загрузить пользователей");
+      if (generation !== profilesGeneration.current) return;
+      setProfiles((payload.profiles || []) as ProfileRow[]);
     } catch (error) {
+      if (generation !== profilesGeneration.current) return;
       console.error("Failed to load users:", error);
       setProfiles([]);
       toast({
@@ -237,7 +240,7 @@ export default function UsersPage() {
         variant: "destructive",
       });
     } finally {
-      setLoading(false);
+      if (generation === profilesGeneration.current) setLoading(false);
     }
   };
 
