@@ -48,7 +48,7 @@ const dialog = readFileSync(new URL("../components/warehouses/harvest-batch-dial
 test("tabs limited to agronomist", () => assert.match(page, /isAgronomist = profile\?\.role === "agronomist"/));
 test("capacity warning does not stretch neighboring cards", () => assert.equal((page.match(/grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4/g) || []).length, 2));
 test("availability without required search", () => assert.match(page, /selectedView === "availability"/));
-test("abort and stale scope isolation", () => { assert.match(component, /return \(\) => controller.abort\(\)/); assert.match(component, /payload\?\.scope === scope/); assert.match(component, /controller.signal.aborted/); });
+test("abort and stale scope isolation", () => { assert.match(component, /resource.cancel/); assert.match(component, /payload\?\.scope === scope/); assert.match(component, /new ScopedReadResource/); });
 test("identity change clears open details and stale requests", () => { const effect = page.slice(page.indexOf("const cached = warehousePageCache.get(cacheKey);"), page.indexOf("  useLiveRefresh({")); assert.match(effect, /selectedBatchRequestGeneration.current \+= 1/); assert.match(effect, /setSelectedBatch\(null\)/); assert.match(effect, /setDetailBalance\(null\)/); assert.match(effect, /profile\?\.id, profile\?\.company_id, profile\?\.role, user\?\.id/); });
 test("summary only no detail preload", () => { assert.match(component, /summaryOnly: true/); assert.doesNotMatch(component, /\.tripBatches|\.outgoingDocuments|\.tickets|\.receivedKg|companyCurrentKg/); });
 test("errors visible instead of empty stock", () => assert.match(component, /Наличие не подтверждено/));

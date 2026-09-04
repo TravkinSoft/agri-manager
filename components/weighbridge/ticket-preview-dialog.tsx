@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { FileDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { WeighbridgeTicketPaper } from "@/components/weighbridge/weighbridge-ticket-paper";
 import { downloadTicketPdf, getTicketDetails } from "@/lib/services/weighbridge";
 import type { WeighbridgeTicket } from "@/lib/types/weighbridge";
+import { useAuth } from "@/lib/contexts/auth-context";
+import { readErrorMessage, ScopedReadResource } from "@/lib/utils/scoped-read-resource";
 
 type TicketPayload = { ticket: WeighbridgeTicket };
-const ticketPreviewCache = new Map<string, TicketPayload>();
 
 export function TicketPreviewDialog({
   ticketId,
@@ -20,35 +21,17 @@ export function TicketPreviewDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [payload, setPayload] = useState<TicketPayload | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const { user, profile } = useAuth();
+  const scope = `${user?.id}:${profile?.id}:${profile?.company_id}:${profile?.role}:${ticketId}`;
+  const { resource } = useMemo(() => ({ scope, resource: new ScopedReadResource<TicketPayload>() }), [scope]);
+  const { data: payload, loading, error } = useSyncExternalStore(resource.subscribe, resource.getSnapshot, resource.getSnapshot);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
-    if (!open || !ticketId) return;
-    const cached = ticketPreviewCache.get(ticketId) || null;
-    const controller = new AbortController();
-    let active = true;
-    setLoading(!cached);
-    setError("");
-    setPayload(cached);
-    if (cached) return () => controller.abort();
-    const timeout = window.setTimeout(() => controller.abort(), 10_000);
-    void getTicketDetails(ticketId, undefined, { signal: controller.signal })
-      .then((result) => {
-        const next = result as TicketPayload;
-        ticketPreviewCache.set(ticketId, next);
-        if (active) setPayload(next);
-      })
-      .catch((reason) => {
-        if (active) setError(reason instanceof Error ? reason.message : "Не удалось открыть талон");
-      })
-      .finally(() => {
-        window.clearTimeout(timeout);
-        if (active) setLoading(false);
-      });
-    return () => { active = false; controller.abort(); window.clearTimeout(timeout); };
-  }, [open, ticketId]);
+    if (!open || !ticketId || !profile?.company_id || !user?.id) return;
+    void resource.request((signal) => getTicketDetails(ticketId, undefined, { signal }), retry > 0);
+    return () => resource.cancel();
+  }, [open, ticketId, resource, retry, profile?.company_id, user?.id]);
 
   const ticket = payload?.ticket || null;
 
@@ -61,10 +44,10 @@ export function TicketPreviewDialog({
         </DialogHeader>
 
         <div className="min-h-0 flex-1 lg:overflow-hidden">
-          {loading ? (
+          {loading && !payload ? (
             <div className="flex min-h-48 items-center justify-center gap-2 text-slate-400"><Loader2 className="h-5 w-5 animate-spin" />Загрузка талона...</div>
           ) : error ? (
-            <div className="rounded-md border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">{error}</div>
+            <div role="alert" className="rounded-md border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">{readErrorMessage(error, "Талон")}<Button variant="outline" size="sm" className="ml-3" onClick={() => setRetry((value) => value + 1)}>Повторить</Button></div>
           ) : ticket ? (
             <>
               <WeighbridgeTicketPaper

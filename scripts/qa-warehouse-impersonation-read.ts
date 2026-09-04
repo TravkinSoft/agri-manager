@@ -54,6 +54,11 @@ function harness(options: { row?: Row; profile?: Row | null; hidden?: boolean; i
           if (table === "products") {
             if (options.catalogErrorAt === (call.page?.[0] || 0)) return { data: null, error: { message: "catalog page unavailable" } };
             data = data.filter((item) => item.company_id === company || item.company_id === null);
+            const referenceScope = call.scopes.find((scope) => scope.includes("id.in.("));
+            if (referenceScope) {
+              const ids = (referenceScope.match(/,id\.in\.\(([^)]*)\)/)?.[1] || "").split(",");
+              data = data.filter((item) => item.company_id === company || ids.includes(item.id) || ids.includes(item.master_product_id));
+            }
             if (call.order === "id") data = [...data].sort((a, b) => String(a.id).localeCompare(String(b.id)));
             data = call.page ? data.slice(call.page[0], call.page[1] + 1) : data.slice(0, 1000);
           }
@@ -137,7 +142,7 @@ await test("balances retain material referenced beyond the first 1000 catalog ro
   assert.equal(response.status, 200, JSON.stringify(response.body));
   assert.equal(response.body.balances.find((r: Row) => r.product_id === product)?.material_quantity, 8000);
   const calls = h.calls.filter((c) => c.table === "products");
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 1, "unrelated globals are not enumerated");
   assert.ok(calls.every((c) => c.client === "jwt" && c.order === "id" && c.scopes.includes(`company_id.eq.${company},company_id.is.null`)));
 });
 await test("material detail hydrates the same product beyond page one", async () => {
@@ -145,11 +150,43 @@ await test("material detail hydrates the same product beyond page one", async ()
   const response = await invoke(h, route, h.request("GET", route.query + "&batchClass=material&stockOrigin=material"));
   assert.equal(response.status, 200, JSON.stringify(response.body));
   assert.equal(response.body.details.quantity, 8000);
+  assert.equal(h.calls.filter((c) => c.table === "products").length, 3, "unchanged detail route still paginates its complete catalog");
+});
+await test("referenced stock keeps company master override, never a foreign override", async () => {
+  const localId = "77777777-7777-4777-8777-777777777777";
+  const h = harness({ ledger: npkLedger, catalog: [
+    ...catalog,
+    { ...catalog.at(-1), id: localId, company_id: company, master_product_id: product },
+    { ...catalog.at(-1), id: "88888888-8888-4888-8888-888888888888", company_id: foreign, master_product_id: product },
+  ] });
+  const response = await invoke(h, routes[1]);
+  assert.equal(response.status, 200);
+  assert.equal(response.body.balances.length, 1);
+  assert.equal(response.body.balances[0].product_id, localId);
+  assert.equal(response.body.balances[0].material_quantity, 8000);
+});
+await test("referenced stock retains identity-based company override beyond page one", async () => {
+  const localId = "77777777-7777-4777-8777-777777777777";
+  const h = harness({ ledger: npkLedger, catalog: [
+    ...catalog.map((item) => ({ ...item, company_id: item.id === product ? null : company })),
+    { ...catalog.at(-1), id: localId, company_id: company },
+  ] });
+  const response = await invoke(h, routes[1]);
+  assert.equal(response.status, 200);
+  assert.equal(response.body.balances[0].product_id, localId);
+  assert.equal(response.body.balances[0].material_quantity, 8000);
   assert.equal(h.calls.filter((c) => c.table === "products").length, 3);
+});
+await test("empty stock does not enumerate any product catalog", async () => {
+  const h = harness({ catalog });
+  const response = await invoke(h, routes[1]);
+  assert.equal(response.status, 200);
+  assert.equal(response.body.balances.length, 0);
+  assert.equal(h.calls.filter((c) => c.table === "products").length, 0);
 });
 for (const route of [routes[1], routes[2]]) {
   await test(route.file + ": later catalog failure never succeeds with partial stock", async () => {
-    const h = harness({ catalog, ledger: npkLedger, catalogErrorAt: 500 });
+    const h = harness({ catalog: catalog.map((item) => ({ ...item, company_id: company })), ledger: npkLedger, catalogErrorAt: 500 });
     const response = await invoke(h, route);
     assert.ok(response.status >= 400);
     assert.match(response.body.error, /catalog page unavailable/);

@@ -65,8 +65,9 @@ const checks: Array<[string, () => void]> = [
     assert.match(balancesRoute, /calculateStockMath\(row\.quantity, row\.reserved_quantity\)/);
   }],
   ["filtered balances avoid the full global product catalog", () => {
-    assert.match(balancesRoute, /if \(!warehouseId \|\| referencedProductIds\.size > 0\)/);
-    assert.match(balancesRoute, /warehouseId \? Array\.from\(referencedProductIds\) : undefined/);
+    assert.match(balancesRoute, /referencedProductIds\.size > 0 \? loadWarehouseStockCatalog/);
+    assert.match(balancesRoute, /Array\.from\(referencedProductIds\)/);
+    assert.doesNotMatch(balancesRoute, /warehouseId \? Array\.from\(referencedProductIds\) : undefined/);
     assert.match(stockCatalog, /id\.in\.\(\$\{ids\}\),master_product_id\.in\.\(\$\{ids\}\)/);
     assert.match(stockCatalog, /company_id\.eq\.\$\{companyId\},company_id\.is\.null/);
   }],

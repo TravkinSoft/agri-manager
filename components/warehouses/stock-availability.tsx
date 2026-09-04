@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -10,10 +10,15 @@ import { listHarvestBatchSummaries } from "@/lib/services/weighbridge";
 import type { HarvestBatchSummary } from "@/lib/types/weighbridge";
 import type { InventoryBalance, Warehouse } from "@/lib/types/warehouse";
 import { buildStockAvailability } from "@/lib/warehouse/stock-availability";
+import { readErrorMessage, ScopedReadResource } from "@/lib/utils/scoped-read-resource";
 
 type Props = {
   companyId: string;
   userId: string;
+  actorScope: string;
+  active: boolean;
+  placesLoading: boolean;
+  refreshTick: number;
   language: "ru" | "en" | "kz";
   warehouses: Warehouse[];
   revision: number;
@@ -22,34 +27,38 @@ type Props = {
 };
 type Payload = { scope: string; batches: HarvestBatchSummary[]; balances: InventoryBalance[] };
 
-export function StockAvailability({ companyId, userId, language, warehouses, revision, onOpenBatch, onOpenMaterial }: Props) {
-  const scope = `${userId}:${companyId}:${language}`;
-  const [payload, setPayload] = useState<Payload | null>(null);
-  const [error, setError] = useState<{ scope: string; message: string } | null>(null);
-  const [loading, setLoading] = useState(true);
+export function StockAvailability({ companyId, userId, actorScope, active, placesLoading, refreshTick, language, warehouses, revision, onOpenBatch, onOpenMaterial }: Props) {
+  const scope = `${userId}:${actorScope}:${companyId}:${language}`;
+  // This component stays mounted while changing views. A changed actor/tenant
+  // gets a different resource immediately, before any effect can render old data.
+  const { resource } = useMemo(() => ({ scope, resource: new ScopedReadResource<Payload>() }), [scope]);
+  const { data: payload, error, loading } = useSyncExternalStore(resource.subscribe, resource.getSnapshot, resource.getSnapshot);
   const [retry, setRetry] = useState(0);
+  const lastLoad = useRef({ resource, revision, retry });
+  useEffect(() => () => resource.cancel(), [resource]);
   useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
+    if (!active) return;
+    const previous = lastLoad.current;
+    const force = previous.resource === resource && (previous.revision !== revision || previous.retry !== retry);
+    lastLoad.current = { resource, revision, retry };
     // Existing read contracts only: no trips, ledger details or catalog enumeration in the UI.
-    Promise.all([
-      listHarvestBatchSummaries(companyId, { aggregateLots: true, summaryOnly: true, signal: controller.signal }),
-      getInventoryBalances(companyId, language, { signal: controller.signal }),
-    ]).then(([batches, balances]) => {
-      if (controller.signal.aborted) return;
-      setPayload({ scope, batches, balances });
-      setError(null);
-    }).catch((cause) => {
-      if (!controller.signal.aborted) setError({ scope, message: cause instanceof Error ? cause.message : "Не удалось загрузить наличие" });
-    }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [companyId, language, scope, revision, retry]);
+    void resource.request(async (signal) => {
+      const [batches, balances] = await Promise.all([
+        listHarvestBatchSummaries(companyId, { aggregateLots: true, summaryOnly: true, signal }),
+        getInventoryBalances(companyId, language, { signal }),
+      ]);
+      return { scope, batches, balances };
+    }, force);
+    // View/focus/poll changes join in-flight work; only actor change/unmount cancels it.
+  }, [active, companyId, language, resource, scope, revision, retry, refreshTick]);
   const current = payload?.scope === scope ? payload : null;
   const result = useMemo(() => buildStockAvailability(companyId, warehouses, current?.batches || [], current?.balances || []), [companyId, warehouses, current]);
-  if (error?.scope === scope) return <Alert variant="destructive"><AlertDescription>Наличие не подтверждено: {error.message}<Button variant="outline" size="sm" className="ml-3" onClick={() => setRetry((v) => v + 1)}>Повторить</Button></AlertDescription></Alert>;
-  if (!current) return <div role="status" className="flex items-center gap-2 py-8 text-sm text-slate-400"><Loader2 className="h-4 w-4 animate-spin" />Загрузка текущего наличия...</div>;
+  const errorNotice = error ? <Alert variant="destructive"><AlertDescription>Наличие не подтверждено: {readErrorMessage(error, "Остатки")}{current ? " Ниже — последние загруженные данные." : ""}<Button variant="outline" size="sm" className="ml-3" onClick={() => setRetry((v) => v + 1)}>Повторить</Button></AlertDescription></Alert> : null;
+  if (placesLoading) return <div role="status" className="py-8 text-sm text-slate-400">Загрузка объектов...</div>;
+  if (!current) return errorNotice || <div role="status" className="flex items-center gap-2 py-8 text-sm text-slate-400"><Loader2 className="h-4 w-4 animate-spin" />Загрузка текущего наличия...</div>;
   return (
     <section aria-label="Текущее наличие компании" className="space-y-4">
+      {errorNotice}
       {loading ? <div role="status" className="text-xs text-slate-400">Обновляем наличие...</div> : null}
       {result.anomalies.length ? <Alert variant="destructive"><AlertDescription><div className="font-medium">Есть расхождения — положительные остатки ниже не являются полным итогом.</div><ul className="mt-2 space-y-1">{result.anomalies.map((item, index) => <li key={`${item.key}:${index}`}>{item.message}</li>)}</ul></AlertDescription></Alert> : null}
       {!result.crops.length && !result.anomalies.length ? <p className="py-8 text-sm text-slate-400">Продукции в наличии нет.</p> : null}
