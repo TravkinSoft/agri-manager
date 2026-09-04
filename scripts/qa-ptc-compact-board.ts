@@ -183,7 +183,11 @@ async function main() {
   check(cardNodes(mobileGroups(filteredTree)).map(card => card.props["data-testid"]), ["traffic-vehicle-car-0"]);
   check(filterCounts(filteredTree), [2, 1, 1]);
   check(manager.calls.length, 0);
-  manager.props.snapshot = { ...manager.props.snapshot, vehicles: manager.props.snapshot.vehicles.map(vehicle => vehicle.vehicle_id === "car-1" ? { ...vehicle, state: "loaded" } : vehicle) };
+  manager.props.snapshot = {
+    ...manager.props.snapshot,
+    vehicles: manager.props.snapshot.vehicles.map(vehicle => vehicle.vehicle_id === "car-1" ? { ...vehicle, state: "loaded" } : vehicle),
+    events: [{ id: "event-1", vehicle_id: "car-1", from_state: "empty", to_state: "loaded", created_at: "2026-09-04T10:00:00Z", actor_name: "Operator", field_id: null, field_name: null, vehicle_name: "Truck", vehicle_plate: "QA-1" }],
+  };
   filteredTree = manager.render();
   check(filterCounts(filteredTree), [1, 2, 1]);
   check(filterNodes(filteredTree).map(filter => filter.props["aria-pressed"]), [false, true, false]);
@@ -442,6 +446,8 @@ async function main() {
     const toolbar = nodes(filteredTree).find(node => node.props?.["data-testid"] === "traffic-mobile-toolbar");
     const toolbarStyle = stylesAt(toolbar, width);
     check(toolbarStyle.display, desktop ? "none" : "flex");
+    check(toolbarStyle.position, "sticky");
+    check(toolbarStyle.top, "0px");
     check(toolbarStyle["flex-shrink"], "0");
     check(toolbarStyle["min-width"], "0px");
     const board = nodes(filteredTree).find(node => node.props?.["data-testid"] === "traffic-manager-board");
@@ -465,6 +471,10 @@ async function main() {
     });
     const filterGrid = nodes(toolbar).find(node => node.props?.role === "group");
     check(stylesAt(filterGrid, width)["grid-template-columns"], "repeat(3, minmax(0, 1fr))");
+    const explainer = nodes(filteredTree).find(node => node.props?.["data-testid"] === "traffic-empty-explainer");
+    check(stylesAt(explainer, width).display, desktop ? "block" : "none");
+    const inlineHistory = nodes(filteredTree).find(node => node.props?.["data-testid"] === "traffic-manager-history-inline");
+    check(stylesAt(inlineHistory, width).display, desktop ? "block" : "none");
   }
   const explicitWhite = postcss.parse(css).nodes.find(node => node.type === "rule" && node.selector === ".bg-\\[\\#ffffff\\]");
   check(!!explicitWhite, true);

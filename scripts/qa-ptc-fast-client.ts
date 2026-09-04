@@ -305,16 +305,28 @@ async function main() {
   // Manager wake reads only the snapshot; multiple explicit metadata requests
   // during that GET share one full successor, without losing manager controls.
   const manager = harness(true);
-  const managerSnapshot = snapshot("car-a", 1, "empty", "manager");
+  const managerSnapshot = {
+    ...snapshot("car-a", 1, "empty", "manager"),
+    events: [{
+      id: "event-a", vehicle_id: "car-a", from_state: "empty" as const, to_state: "loaded" as const,
+      created_at: "2026-09-04T09:59:00Z", actor_name: "Operator", field_id: null, field_name: null,
+      vehicle_name: "Existing truck", vehicle_plate: "QA-101",
+    }],
+  };
   const metadata = { snapshot: managerSnapshot, fleet: [{ id: "car-a" }], people: [], fields: [], accounts: [], canManageUsers: true };
   manager.render(); await flush(); await manager.respond(0, metadata);
   const managerReady = manager.render(); check(managerReady.managerData.canManageUsers, true);
+  const managerDataReference = managerReady.data;
+  const managerMetadataReference = managerReady.managerData;
   manager.fire("focus"); await flush(); check(manager.requests[1].path, "/api/traffic?snapshot=1");
   const freshRequests = [managerReady.refresh(true), managerReady.refresh(true), managerReady.refresh(true)];
   manager.fire("pageshow"); check(manager.render().stale, false);
-  await manager.respond(1, { snapshot: { ...managerSnapshot, vehicles: [] } });
+  await manager.respond(1, { snapshot: { ...managerSnapshot, vehicles: [], events: [] } });
   check(manager.requests.length, 3); check(manager.requests[2].path, "/api/traffic");
   check(manager.render().managerData.fleet, metadata.fleet);
+  check(manager.render().managerData.snapshot.events, managerSnapshot.events);
+  check(manager.render().data === managerDataReference, false); // The vehicle list changed.
+  check(manager.render().managerData === managerMetadataReference, false);
   await manager.respond(2, metadata); await Promise.all(freshRequests);
   check(manager.requests.length, 3); check(manager.render().loading, false);
   manager.auth("SIGNED_IN", "account-a"); manager.auth("SIGNED_OUT", null);
@@ -382,6 +394,16 @@ async function main() {
   hidden.navigator.onLine = true; hidden.fire("online"); await flush();
   check(hidden.requests.length, 2); await hidden.respond(1, snapshot("car-a", 2, "loaded")); check(hidden.render().stale, false);
   hidden.unmount();
+
+  // Polling still checks other devices every second, but an identical snapshot
+  // with only a newer server clock retains the React object identity.
+  const stable = harness(); const stableReady = await ready(stable);
+  const stableReference = stableReady.data;
+  const stableRead = stableReady.refresh(); await flush();
+  await stable.respond(1, { ...snapshot(), serverTime: "2026-09-04T10:00:01Z" });
+  await stableRead;
+  check(stable.render().data === stableReference, true);
+  stable.unmount();
 
   // Exercise real trafficRequest error parsing using a deferred HTTP response.
   const transport = harness();

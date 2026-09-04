@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     const db = getServiceClient();
     if (request.nextUrl.searchParams.get("snapshot") === "1")
       return noStore({
-        snapshot: await readSnapshot(companyId, "manager", ""),
+        snapshot: await readSnapshot(companyId, "manager", "", false),
       });
     const [snapshot, fleet, people, accounts] = await Promise.all([
       readSnapshot(companyId, "manager", ""),

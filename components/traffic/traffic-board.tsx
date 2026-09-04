@@ -175,7 +175,7 @@ export function TrafficBoard({
         className={isManager ? "flex max-h-[max(12rem,calc(100dvh-14rem))] min-w-0 flex-col lg:max-h-none lg:block" : ""}
       >
         {isManager ? (
-          <div data-testid="traffic-mobile-toolbar" className="z-20 mb-3 flex min-w-0 shrink-0 items-stretch gap-1 rounded-xl bg-[#0f172a] py-1 lg:hidden">
+          <div data-testid="traffic-mobile-toolbar" className="sticky top-0 z-20 mb-3 flex min-w-0 shrink-0 items-stretch gap-1 rounded-xl bg-[#0f172a] py-1 lg:hidden">
             <div role="group" aria-label="Показать машины по статусу" className="grid min-w-0 flex-1 grid-cols-3 gap-1">
               {groups.map(({ state, vehicles }) => state ? (
                 <button
@@ -310,12 +310,15 @@ export function TrafficBoard({
           </p>
         </div>
       ) : null}
-      <p className="mt-5 text-xs leading-relaxed text-slate-500">
+      <p
+        data-testid="traffic-empty-explainer"
+        className={`mt-5 text-xs leading-relaxed text-slate-500 ${isManager ? "hidden lg:block" : ""}`}
+      >
         «Пустая» — машина без груза; она может быть в пути. Это не отметка о
         прибытии на поле.
       </p>
       {snapshot.role === "manager" && snapshot.events.length ? (
-        <details className="mt-8 border-t border-white/10 pt-4">
+        <details data-testid="traffic-manager-history-inline" className="mt-8 hidden border-t border-white/10 pt-4 lg:block">
           <summary className="min-h-[48px] cursor-pointer py-3 text-sm text-slate-400">
             Последние 50 изменений
           </summary>

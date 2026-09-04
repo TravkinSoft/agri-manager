@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { LogOut, Menu, Settings as SettingsIcon, Shield, User } from "lucide-react";
+import { Check, EllipsisVertical, LogOut, Menu, Settings as SettingsIcon, Shield, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +23,13 @@ import { isGlobalAdmin } from "@/lib/auth/roles";
 import { supabase } from "@/lib/supabase/client";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { cachedClientValue, invalidateClientCache } from "@/lib/client/single-flight-cache";
+import type { Language } from "@/lib/i18n/translations";
+
+const MOBILE_LANGUAGES: Array<{ code: Language; label: string }> = [
+  { code: "ru", label: "RU — Русский" },
+  { code: "en", label: "EN — English" },
+  { code: "kz", label: "KZ — Қазақша" },
+];
 
 type CompanyContextItem = {
   id: string;
@@ -39,7 +46,7 @@ type CompanyUserContextItem = {
 export function Header() {
   const { toggleSidebar } = useSidebar();
   const { user, profile, signOut, setGlobalAdminCompanyContext, refreshProfile } = useAuth();
-  const { t } = useLanguage();
+  const { language, setLanguage, t } = useLanguage();
   const router = useRouter();
   const [companies, setCompanies] = useState<CompanyContextItem[]>([]);
   const [companyUsers, setCompanyUsers] = useState<CompanyUserContextItem[]>([]);
@@ -287,7 +294,7 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-[#262D3D] bg-[#11151E]/95 px-3 backdrop-blur md:h-16 md:px-6">
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-[#262D3D] bg-[#11151E]/95 px-3 backdrop-blur md:h-16 md:px-6">
       <Button
         variant="ghost"
         size="icon"
@@ -380,7 +387,9 @@ export function Header() {
           </Badge>
         ) : null}
 
-        <LanguageSwitcher />
+        <div className="hidden md:block">
+          <LanguageSwitcher />
+        </div>
         {user ? (
           <NotificationCenter userId={user.id} companyId={activeUserCompanyId} role={profile?.role} />
         ) : null}
@@ -394,10 +403,23 @@ export function Header() {
               aria-label={t("profile_menu")}
               title={t("profile_menu")}
             >
-              <User className="h-5 w-5" />
+              <EllipsisVertical className="h-5 w-5 md:hidden" />
+              <User className="hidden h-5 w-5 md:block" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 border-[#2C3446] bg-[#1A1F2B] text-[#F3F4F6]">
+            <DropdownMenuLabel className="md:hidden">Язык</DropdownMenuLabel>
+            {MOBILE_LANGUAGES.map((item) => (
+              <DropdownMenuItem
+                key={item.code}
+                onClick={() => setLanguage(item.code)}
+                className="min-h-[44px] cursor-pointer justify-between md:hidden"
+              >
+                <span>{item.label}</span>
+                {language === item.code ? <Check aria-hidden className="h-4 w-4" /> : null}
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator className="bg-[#2C3446] md:hidden" />
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col space-y-1">
                 <p className="text-sm font-medium leading-none">{user?.email}</p>

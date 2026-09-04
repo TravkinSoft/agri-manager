@@ -45,6 +45,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [stoppingImpersonation, setStoppingImpersonation] = useState(false);
   const isWeatherLab = pathname === "/weather-lab" || pathname?.startsWith("/weather-lab/");
   const isWeighbridge = pathname === "/weighbridge" || pathname?.startsWith("/weighbridge/");
+  const isTraffic = pathname === "/traffic" || pathname?.startsWith("/traffic/");
   const assistantEnabled = canUseAssistantShell(profile?.role) && !isWeatherLab && !isWeighbridge;
 
   useEffect(() => {
@@ -110,11 +111,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <AssistantShellProvider>
-        <div className="travkin-shell flex min-h-screen bg-transparent">
+        <div className={`travkin-shell flex bg-transparent ${isTraffic ? "h-[100dvh] min-h-0 overflow-hidden md:h-screen" : "min-h-screen"}`}>
           <div className="hidden md:flex md:h-screen md:shrink-0">
             <Sidebar />
           </div>
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <Header />
             {profile?.is_impersonating ? (
               <div className="flex items-center justify-between gap-2 border-b border-amber-700/50 bg-amber-900/40 px-4 py-2 text-xs text-amber-100 md:px-6">
@@ -134,7 +135,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 </Button>
               </div>
             ) : null}
-            <main className="travkin-scrollbar flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] bg-transparent p-3 pb-[calc(env(safe-area-inset-bottom)+6.25rem)] sm:p-4 sm:pb-[calc(env(safe-area-inset-bottom)+6.25rem)] md:p-6 md:pb-6">
+            <main className="travkin-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] bg-transparent p-3 pb-[calc(env(safe-area-inset-bottom)+6.25rem)] sm:p-4 sm:pb-[calc(env(safe-area-inset-bottom)+6.25rem)] md:p-6 md:pb-6">
               {children}
               <footer className="mt-8 hidden border-t border-[#262D3D] pt-3 text-center text-xs text-[#7F8A9B] md:block">
                 Copyright © Сунгатов Айымбек

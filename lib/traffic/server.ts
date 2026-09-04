@@ -152,6 +152,7 @@ export async function readSnapshot(
   companyId: string,
   role: TrafficRole,
   personName: string,
+  includeEvents = role === "manager",
 ): Promise<TrafficSnapshot> {
   const db = getServiceClient();
   const results = await Promise.all([
@@ -165,7 +166,7 @@ export async function readSnapshot(
       .select("vehicle_id,state,version,since,cycle,assigned")
       .eq("company_id", companyId)
       .eq("assigned", true),
-    role === "manager"
+    role === "manager" && includeEvents
       ? db
           .from("ptc_events")
           .select(

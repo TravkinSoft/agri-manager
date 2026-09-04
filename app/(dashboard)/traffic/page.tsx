@@ -1,9 +1,9 @@
 "use client";
 import { useRef, useState, type FormEvent } from "react";
-import { Truck, Settings2, KeyRound, Loader2 } from "lucide-react";
+import { History, Truck, Settings2, KeyRound, Loader2 } from "lucide-react";
 import { TrafficBoard } from "@/components/traffic/traffic-board";
 import { trafficRequest, useTraffic } from "@/components/traffic/use-traffic";
-import { ROLE_LABEL, operatorRole } from "@/lib/traffic/model";
+import { ROLE_LABEL, STATE_LABEL, operatorRole } from "@/lib/traffic/model";
 import {
   Dialog,
   DialogContent,
@@ -20,17 +20,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 export default function TrafficPage() {
   const live = useTraffic(true);
-  const [panel, setPanel] = useState<"fleet" | "access" | null>(null);
+  const [panel, setPanel] = useState<"fleet" | "access" | "history" | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
   const [error, setError] = useState("");
   const managed = live.managerData;
-  function open(next: "fleet" | "access") {
+  function open(next: "fleet" | "access" | "history") {
     if (!managed) return;
     setError("");
-    setSelection(managed.snapshot.vehicles.map((v) => v.vehicle_id));
+    if (next === "fleet")
+      setSelection(managed.snapshot.vehicles.map((v) => v.vehicle_id));
     setPanel(next);
+    if (next === "history") void live.refresh(true);
   }
   async function send(body: unknown) {
     if (lock.current) return;
@@ -82,7 +84,7 @@ export default function TrafficPage() {
   const hasBusy =
     managed?.snapshot.vehicles.some((v) => v.state !== "empty") ?? false;
   return (
-    <div className="mx-auto w-full min-w-0 max-w-6xl pb-28 pt-1 lg:px-6 lg:pt-5">
+    <div className="mx-auto w-full min-w-0 max-w-6xl touch-pan-y pt-1 lg:px-6 lg:pb-28 lg:pt-5">
       <h1 className="sr-only lg:hidden">Оборот машин</h1>
       <header className="mb-6 hidden lg:block">
         <div className="flex items-center gap-3">
@@ -148,6 +150,9 @@ export default function TrafficPage() {
                 <DropdownMenuItem onSelect={() => open("access")} className="min-h-[48px] gap-2">
                   <KeyRound aria-hidden size={17} /> Доступ сотрудников
                 </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => open("history")} className="min-h-[48px] gap-2">
+                  <History aria-hidden size={17} /> Последние 50 изменений
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -181,12 +186,18 @@ export default function TrafficPage() {
         >
           <DialogHeader>
             <DialogTitle>
-              {panel === "fleet" ? "Машины в работе" : "Доступ сотрудников"}
+              {panel === "fleet"
+                ? "Машины в работе"
+                : panel === "access"
+                  ? "Доступ сотрудников"
+                  : "Последние 50 изменений"}
             </DialogTitle>
             <DialogDescription>
               {panel === "fleet"
                 ? "Выберите машины. После сохранения они доступны комбайнёру. Новые машины начинают со статуса «Пустая»."
-                : "Персональные кабинеты. Доступ не открывает остальные разделы TravkinFlow."}
+                : panel === "access"
+                  ? "Персональные кабинеты. Доступ не открывает остальные разделы TravkinFlow."
+                  : "Последние переходы машин между статусами."}
             </DialogDescription>
           </DialogHeader>
           {panel === "fleet" && managed ? (
@@ -343,6 +354,24 @@ export default function TrafficPage() {
                 )}
               </section>
             </div>
+          ) : panel === "history" && managed ? (
+            managed.snapshot.events.length ? (
+              <div className="divide-y divide-white/5">
+                {managed.snapshot.events.map((event) => (
+                  <div key={event.id} className="break-words py-3 text-sm">
+                    <p className="text-slate-200">
+                      {event.vehicle_plate || event.vehicle_name} ·{" "}
+                      {STATE_LABEL[event.from_state]} → {STATE_LABEL[event.to_state]}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {event.actor_name} · {new Date(event.created_at).toLocaleString("ru-RU")}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="py-6 text-sm text-slate-500">Изменений пока нет.</p>
+            )
           ) : null}
           {error ? (
             <p role="alert" className="text-sm text-rose-300">

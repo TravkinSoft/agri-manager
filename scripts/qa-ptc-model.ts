@@ -104,7 +104,7 @@ async function main() {
     hook = readFileSync("components/traffic/use-traffic.ts", "utf8");
   check(server.includes("assertActorAccess"), true);
   check(
-    /role\s*===\s*"manager"\s*\?\s*db\s*\.from\("ptc_events"\)/.test(server),
+    /role\s*===\s*"manager"\s*&&\s*includeEvents\s*\?\s*db\s*\.from\("ptc_events"\)/.test(server),
     true,
   );
   check(

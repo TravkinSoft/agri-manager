@@ -40,7 +40,11 @@ async function main() {
   const ids = [1, 2, 3, 4].map(n => `20000000-0000-4000-8000-00000000000${n}`);
   const snapshot = {
     role: "manager", personName: "", enabled: false, fieldId: legacyField, fieldName: "Legacy field",
-    events: [], serverTime: "2026-09-04T00:00:00Z",
+    events: [{
+      id: "event-1", vehicle_id: ids[0], from_state: "empty", to_state: "loaded",
+      created_at: "2026-09-04T00:00:00Z", actor_name: "Комбайнёр", field_id: null,
+      field_name: null, vehicle_name: "Truck 1", vehicle_plate: "TEST-1",
+    }], serverTime: "2026-09-04T00:00:00Z",
     vehicles: ["empty", "loaded", "unloading"].map((state, i) => ({
       vehicle_id: ids[i], state, assigned: true, name: `Truck ${i + 1}`, plate: `TEST-${i + 1}`, version: i + 10, cycle: i + 1,
     })),
@@ -63,10 +67,10 @@ async function main() {
       },
       useRef: (initial: any) => { const i = refIndex++; return refs[i] ?? (refs[i] = { current: initial }); },
     },
-    "lucide-react": { Truck: () => null, Settings2: () => null, KeyRound: () => null, Loader2: () => null },
+    "lucide-react": { History: () => null, Truck: () => null, Settings2: () => null, KeyRound: () => null, Loader2: () => null },
     "@/components/traffic/traffic-board": { TrafficBoard },
     "@/components/traffic/use-traffic": { useTraffic: () => live, trafficRequest: async (...args: any[]) => { submitted.push(args); return { ok: true }; } },
-    "@/lib/traffic/model": { ROLE_LABEL: {}, operatorRole: () => null },
+    "@/lib/traffic/model": { ROLE_LABEL: {}, STATE_LABEL: { empty: "Пустая", loaded: "Загружена", unloading: "На выгрузке" }, operatorRole: () => null },
     "@/components/ui/dialog": { Dialog: wrapper, DialogContent: wrapper, DialogHeader: wrapper, DialogTitle: wrapper, DialogDescription: wrapper },
     "@/components/ui/button": { Button },
     "@/components/ui/dropdown-menu": { DropdownMenu: wrapper, DropdownMenuTrigger: wrapper, DropdownMenuContent, DropdownMenuItem },
@@ -92,14 +96,28 @@ async function main() {
   // The production Radix content uses a portal, outside the mobile list's scroller.
   check(readFileSync("components/ui/dropdown-menu.tsx", "utf8").includes("<DropdownMenuPrimitive.Portal>"), true);
   const menuItems = flatten(mobileActions).filter(node => node.type === DropdownMenuItem && node.props.onSelect);
-  check(menuItems.length, 2);
+  check(menuItems.length, 3);
   check(menuItems.every(node => node.props.className.includes("min-h-[48px]")), true);
   menuItems[0].props.onSelect();
   check(flatten(render()).some(node => node.type === "form"), true);
   check(textOf(render()).includes("Машины в работе"), true);
   menuItems[1].props.onSelect();
   check(textOf(render()).includes("Аккаунты операторов"), true);
+  menuItems[2].props.onSelect();
+  check(textOf(render()).includes("Последние 50 изменений"), true);
+  check(textOf(render()).includes("TEST-1 · Пустая → Загружена"), true);
   check(submitted.length, 0); // Opening either menu item is read-only.
+  const trafficLayout = readFileSync("app/(dashboard)/traffic/layout.tsx", "utf8");
+  const dashboardLayout = readFileSync("components/layout/dashboard-layout.tsx", "utf8");
+  const headerSource = readFileSync("components/layout/header.tsx", "utf8");
+  check(trafficLayout.includes("userScalable: false"), true);
+  check(trafficLayout.includes("maximumScale: 1"), true);
+  check(pageSource.includes("touch-pan-y"), true);
+  check(dashboardLayout.includes('isTraffic ? "h-[100dvh] min-h-0 overflow-hidden md:h-screen" : "min-h-screen"'), true);
+  check(dashboardLayout.includes("travkin-scrollbar min-h-0 flex-1"), true);
+  check(headerSource.includes('<div className="hidden md:block">'), true);
+  check(headerSource.includes("EllipsisVertical"), true);
+  check(headerSource.includes("RU — Русский"), true);
   let tree = openSettings();
   let html = renderToStaticMarkup(tree);
   check(html.includes("<select"), false);
@@ -160,6 +178,7 @@ async function main() {
   tables.length = 0;
   const compact = await api.GET({ nextUrl: new URL("https://example.test/api/traffic?snapshot=1") });
   check(tables, []); check(compact.snapshot, snapshot);
+  check(apiSource.includes('readSnapshot(companyId, "manager", "", false)'), true);
   check(boardSource.includes("Поле не назначено") || boardSource.includes("snapshot.fieldName") || boardSource.includes("event.field_name"), false);
   check(boardSource.includes("stale || !snapshot.enabled"), true);
 
@@ -189,6 +208,10 @@ async function main() {
   check(current.fieldId, legacyField); check(current.fieldName, null);
   check(current.events[0].field_id, legacyField); check(current.events[0].field_name, null);
   check(current.vehicles.length, 3);
+  readTables.length = 0;
+  const currentCompact = await server.readSnapshot("company", "manager", "", false);
+  check(currentCompact.events.length, 0);
+  check(readTables.includes("ptc_events"), false);
   console.log(`PTC simple settings PASS: ${checks} checks (real component handlers + SSR, injected GET; no browser or hosted writes)`);
 }
 void main().catch(error => { console.error(error); process.exitCode = 1; });

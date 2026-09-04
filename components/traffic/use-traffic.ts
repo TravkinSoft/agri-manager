@@ -4,6 +4,19 @@ import { applyTrafficCommit, type TrafficCommit, type TrafficSnapshot } from "@/
 import { supabase } from "@/lib/supabase/client";
 import { subscribeVehicleDriverAssignments } from "@/lib/vehicles/driver-assignment-client";
 import { publishTrafficChanged, subscribeTrafficChanges } from "@/lib/traffic/changes";
+
+function sameSnapshotContent(left: TrafficSnapshot, right: TrafficSnapshot) {
+  if (
+    left.companyId !== right.companyId ||
+    left.role !== right.role ||
+    left.personName !== right.personName ||
+    left.enabled !== right.enabled ||
+    left.fieldId !== right.fieldId ||
+    left.fieldName !== right.fieldName
+  ) return false;
+  return JSON.stringify(left.vehicles) === JSON.stringify(right.vehicles) &&
+    JSON.stringify(left.events) === JSON.stringify(right.events);
+}
 export interface ManagerData {
   snapshot: TrafficSnapshot;
   fleet: Array<{
@@ -151,12 +164,22 @@ export function useTraffic(isManager: boolean) {
             requestController.signal,
           );
           if (!mounted.current || generation !== authGeneration.current || epoch !== readEpoch.current) return;
-          setData(isManager ? payload.snapshot : payload);
+          const received = (isManager ? payload.snapshot : payload) as TrafficSnapshot;
+          setData((old) => {
+            const next = compact && old
+              ? { ...received, events: old.events }
+              : received;
+            return old && sameSnapshotContent(old, next) ? old : next;
+          });
           if (isManager) {
             if (compact)
-              setManagerData((old) =>
-                old ? { ...old, snapshot: payload.snapshot } : old,
-              );
+              setManagerData((old) => {
+                if (!old) return old;
+                const next = { ...received, events: old.snapshot.events };
+                return sameSnapshotContent(old.snapshot, next)
+                  ? old
+                  : { ...old, snapshot: next };
+              });
             else {
               setManagerData(payload);
               hasManagerData.current = true;
