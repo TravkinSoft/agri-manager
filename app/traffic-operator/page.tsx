@@ -77,7 +77,7 @@ export default function TrafficOperatorPage() {
             <Truck className="text-amber-300" size={28} />
           )}
         </header>
-        {live.loading ? (
+        {live.loading || (!live.data && !live.needsLogin && !live.error) ? (
           <div role="status" className="flex justify-center py-20">
             <Loader2 className="animate-spin" />
             <span className="sr-only">Загрузка кабинета</span>
@@ -144,7 +144,7 @@ export default function TrafficOperatorPage() {
           />
         ) : (
           <div role="alert" className="py-10 text-amber-200">
-            {live.error || "Не удалось открыть кабинет"}
+            {live.error}
             <button
               type="button"
               onClick={() => void logout()}

@@ -115,7 +115,7 @@ export default function TrafficPage() {
           </button>
         </div>
       </header>
-      {live.loading ? (
+      {live.loading || (!live.data && !live.error) ? (
         <div
           role="status"
           className="flex items-center justify-center gap-2 py-16 text-slate-400"

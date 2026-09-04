@@ -148,6 +148,18 @@ async function ready(h: ReturnType<typeof harness>, initial = snapshot()) {
   return live;
 }
 async function main() {
+  // Cold start + a same-session renewal can make the first old-token read fail.
+  // It must stay in loading until the queued authorized successor resolves.
+  const coldRenewal = harness();
+  coldRenewal.render(); await flush(); check(coldRenewal.requests.length, 1);
+  coldRenewal.auth("TOKEN_REFRESHED", "account-a"); await coldRenewal.runTimer(0);
+  await coldRenewal.respond(0, { error: "Old token expired during bootstrap" }, 401);
+  check(coldRenewal.requests.length, 2); check(coldRenewal.render().data, null);
+  check(coldRenewal.render().loading, true); check(coldRenewal.render().needsLogin, false);
+  await coldRenewal.respond(1, snapshot());
+  check(coldRenewal.render().loading, false); check(coldRenewal.render().data.vehicles[0].vehicle_id, "car-a");
+  coldRenewal.unmount();
+
   const h = harness();
   let live = await ready(h);
   check(h.requests[0].path, "/api/traffic/operator");

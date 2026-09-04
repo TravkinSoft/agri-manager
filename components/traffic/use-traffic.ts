@@ -194,7 +194,7 @@ export function useTraffic(isManager: boolean) {
           // authorized one. Keep the cold-start shell loading until THAT read
           // settles, otherwise the UI briefly renders the empty error branch.
           if (mounted.current && generation === authGeneration.current &&
-            epoch === readEpoch.current) setLoading(false);
+            epoch === readEpoch.current && !queued.current) setLoading(false);
         }
       };
       pending.current = run();
