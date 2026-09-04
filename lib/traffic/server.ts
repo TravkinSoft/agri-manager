@@ -7,6 +7,7 @@ import {
   SessionAuthError,
 } from "@/lib/auth/server-session";
 import { assertActorAccess } from "@/lib/auth/server-acl";
+import { activeAssignedDriverName } from "@/lib/vehicles/driver-name";
 import {
   visibleVehicles,
   operatorRole,
@@ -229,7 +230,7 @@ export async function readSnapshot(
   const driverResult = driverIds.length
     ? await db
         .from("reference_specialists")
-        .select("id,full_name")
+        .select("id,personnel_type,status,archived,person:person_id(full_name,company_id,role_type,status,deleted_at)")
         .eq("company_id", companyId)
         .eq("personnel_type", "driver")
         .eq("status", "active")
@@ -238,8 +239,8 @@ export async function readSnapshot(
     : { data: [], error: null };
   if (driverResult.error) throw driverResult.error;
   const drivers = new Map(
-    ((driverResult.data ?? []) as Array<{ id: string; full_name: string }>).map(
-      (p) => [p.id, p.full_name],
+    (driverResult.data ?? []).map(
+      (p: any) => [String(p.id), activeAssignedDriverName(p, companyId)] as const,
     ),
   );
   const vehicles: TrafficVehicle[] = states.map((s) => {
@@ -256,6 +257,7 @@ export async function readSnapshot(
     };
   });
   return {
+    companyId,
     role,
     personName,
     enabled: flow?.enabled ?? false,

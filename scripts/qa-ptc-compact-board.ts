@@ -28,6 +28,12 @@ const cardNodes = (tree: any) => nodes(tree).filter(node => node.props?.["data-t
 const wrapper = ({ children }: any) => React.createElement("div", null, children);
 const Dialog = ({ open, children }: any) => open ? React.createElement("div", { role: "alertdialog" }, children) : null;
 const Button = ({ children, ...props }: any) => React.createElement("button", props, children);
+// The picker has its own real-handler suite; isolate its auth-dependent module
+// here while preserving the manager's actual integration props and DOM slot.
+const VehicleDriverAssignment = ({ vehicleId, iconOnly, driverName, vehicleLabel, disabled, className }: any) => React.createElement("button", {
+  type: "button", "data-driver-assignment": vehicleId, disabled, className,
+  "aria-label": `${driverName ? "Сменить водителя" : "Назначить водителя"}: ${vehicleLabel}`,
+}, iconOnly ? null : driverName || "Назначить водителя");
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -46,7 +52,7 @@ function receiptFor(vehicle: model.TrafficVehicle, state: model.TrafficState, ve
 }
 function harness(role: model.TrafficRole, input = vehicles, options: { acceptReceipt?: boolean; deferRefresh?: boolean } = {}) {
   const snapshot: model.TrafficSnapshot = {
-    role, personName: "", enabled: true, fieldId: null, fieldName: null, serverTime: "2026-09-04T10:08:00Z",
+    role, companyId: "company-a", personName: "", enabled: true, fieldId: null, fieldName: null, serverTime: "2026-09-04T10:08:00Z",
     vehicles: model.visibleVehicles(input, role), events: [],
   };
   const state: any[] = [], refs: any[] = [], calls: any[] = [], commits: any[] = [];
@@ -79,6 +85,7 @@ function harness(role: model.TrafficRole, input = vehicles, options: { acceptRec
     "@/components/ui/alert-dialog": { AlertDialog: Dialog, AlertDialogContent: wrapper, AlertDialogHeader: wrapper, AlertDialogTitle: wrapper,
       AlertDialogDescription: wrapper, AlertDialogFooter: wrapper, AlertDialogCancel: Button },
     "@/components/ui/button": { Button },
+    "@/components/vehicles/vehicle-driver-assignment": { VehicleDriverAssignment },
   };
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
     { module: loaded, exports: loaded.exports, crypto: { randomUUID: () => "50000000-0000-4000-8000-000000000001" }, require: (name: string) => dependencies[name] ?? localRequire(name) });
@@ -101,6 +108,14 @@ async function main() {
   check(cardNodes(tree).length, vehicles.length);
   check(new Set(cardNodes(tree).map(card => card.props["data-testid"])).size, vehicles.length);
   check(cardNodes(tree).every(card => card.type === "article"), true);
+  const assignments = nodes(tree).filter(node => node.type === VehicleDriverAssignment);
+  check(assignments.length, vehicles.length);
+  assignments.forEach(control => {
+    check(control.props.iconOnly, true); check(control.props.companyId, "company-a");
+    check(control.props.className.includes("absolute right-1 top-1"), true);
+    check(control.props.disabled, false);
+  });
+  check(cardNodes(tree).every(card => card.props.className.includes("pr-14")), true);
   const colors = ["bg-[#ffffff]", "bg-emerald-100", "bg-amber-100"];
   groups.forEach((group, index) => check(cardNodes(group).every(card => card.props.className.split(" ").includes(colors[index])), true));
   const globalCss = readFileSync("app/globals.css", "utf8");
@@ -117,6 +132,8 @@ async function main() {
   check(globalCss.includes(".travkin-shell .bg-\\[\\#ffffff\\]"), false);
   check(cardNodes(tree).every(card => card.props.className.includes("p-2.5")), true);
   const managerHtml = renderToStaticMarkup(tree);
+  check((managerHtml.match(/data-driver-assignment=/g) ?? []).length, vehicles.length);
+  check(managerHtml.includes("<button><button"), false);
   const managerText = managerHtml.replace(/<[^>]*>/g, "");
   check((managerText.match(/Пустые/g) ?? []).length, 1);
   check((managerText.match(/Загруженные/g) ?? []).length, 1);
@@ -131,6 +148,7 @@ async function main() {
     const h = harness(role);
     let operatorTree = h.render();
     const cards = cardNodes(operatorTree);
+    check(nodes(operatorTree).filter(node => node.type === VehicleDriverAssignment).length, 0);
     check(nodes(operatorTree).some(node => node.props?.["data-testid"]?.startsWith("traffic-group-")), false);
     check(cards.map(card => card.props["data-testid"]), model.visibleVehicles(vehicles, role).map(car => `traffic-vehicle-${car.vehicle_id}`));
     for (const card of cards) {

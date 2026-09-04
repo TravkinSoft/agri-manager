@@ -43,6 +43,7 @@ export interface TrafficVehicle {
   assigned: boolean;
 }
 export interface TrafficSnapshot {
+  companyId?: string;
   role: TrafficRole;
   personName: string;
   enabled: boolean;

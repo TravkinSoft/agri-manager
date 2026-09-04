@@ -20,6 +20,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
+import { VehicleDriverAssignment } from "@/components/vehicles/vehicle-driver-assignment";
+import { subscribeVehicleDriverAssignments, type VehicleDriverAssignmentResult } from "@/lib/vehicles/driver-assignment-client";
+import { activeAssignedDriverName } from "@/lib/vehicles/driver-name";
 import {
   archiveCompanyPerson,
   archiveVehicleReference,
@@ -263,6 +266,21 @@ function reproductionDisplay(value?: string | null) {
   return text;
 }
 
+function withDriverAssignment(row: any, result?: VehicleDriverAssignmentResult) {
+  if (!result || result.vehicle.id !== row.id) return row;
+  return { ...row, primary_responsible_personnel_id: result.vehicle.assignmentId,
+    primary_responsible: result.vehicle.driverName ? {
+      id: result.vehicle.assignmentId, full_name: result.vehicle.driverName,
+      personnel_type: "driver", status: "active", archived: false,
+      person: { full_name: result.vehicle.driverName, company_id: result.companyId,
+        role_type: "driver", status: "active", deleted_at: null },
+    } : null };
+}
+
+function currentDriverName(row: any): string | null {
+  return activeAssignedDriverName(row.primary_responsible, row.company_id);
+}
+
 function materialKind(row: any) {
   const haystack = [row.product_type, row.type, row.category, row.subcategory].join(" ").toLowerCase();
   if (haystack.includes("fertilizer")) return "Удобрение";
@@ -280,6 +298,16 @@ export default function ReferencesPage() {
   const { toast } = useToast();
   const searchParams = useSearchParams();
   const directCardHandled = useRef(false);
+  const assignmentCompany = useRef(profile?.company_id);
+  const assignmentRevision = useRef(0);
+  const assignmentUpdates = useRef(new Map<string, VehicleDriverAssignmentResult>());
+  const loadRevision = useRef(0);
+  if (assignmentCompany.current !== profile?.company_id) {
+    assignmentCompany.current = profile?.company_id;
+    assignmentUpdates.current.clear();
+    assignmentRevision.current++;
+    loadRevision.current++;
+  }
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -321,6 +349,7 @@ export default function ReferencesPage() {
 
   const [form, setForm] = useState<Record<string, string>>({});
   const canManageCompanyReferences = profile?.role === "company_admin" || profile?.role === "global_admin";
+  const canAssignVehicleDriver = ["global_admin", "company_admin", "agronomist", "weighman"].includes(profile?.role || "");
 
   const companyMaterials = useMemo(() => [...pesticides, ...fertilizers, ...additives], [pesticides, fertilizers, additives]);
   const filteredAssetModels = useMemo(() => {
@@ -372,6 +401,9 @@ export default function ReferencesPage() {
       return;
     }
     setLoading(true);
+    const companyId = profile.company_id;
+    const revision = ++loadRevision.current;
+    const driverRevision = assignmentRevision.current;
     try {
       const [usageRows, pesticideRows, fertilizerRows, additiveRows, assetRows, vehicleRows, workerRows, machineModelRows, equipmentModelRows, transportModelRows] =
         await Promise.all([
@@ -386,24 +418,60 @@ export default function ReferencesPage() {
           getGlobalEquipmentModels(),
           getGlobalTransportModels(),
         ]);
+      if (companyId !== assignmentCompany.current || revision !== loadRevision.current) return;
+      if (driverRevision === assignmentRevision.current) assignmentUpdates.current.clear();
       setSeasonUsage(usageRows);
       setPesticides(pesticideRows);
       setFertilizers(fertilizerRows);
       setAdditives(additiveRows);
       setMachines(assetRows.machines);
       setEquipment(assetRows.equipment);
-      setVehicles(vehicleRows);
+      setVehicles(vehicleRows.map((row) => withDriverAssignment(row, assignmentUpdates.current.get(row.id))));
       setWorkers(workerRows);
       setMachineModels(machineModelRows);
       setEquipmentModels(equipmentModelRows);
       setTransportModels(transportModelRows);
     } finally {
-      setLoading(false);
+      if (companyId === assignmentCompany.current && revision === loadRevision.current) setLoading(false);
     }
   };
 
   useEffect(() => {
     void loadAll();
+  }, [profile?.company_id]);
+
+  useEffect(() => {
+    const companyId = profile?.company_id;
+    if (!companyId) return;
+    let alive = true;
+    let inFlight = false;
+    const refreshDrivers = async () => {
+      if (inFlight || document.visibilityState === "hidden") return;
+      inFlight = true;
+      const revision = assignmentRevision.current;
+      try {
+        const rows = await getVehicleReferences(companyId, false);
+        if (!alive || assignmentCompany.current !== companyId) return;
+        if (revision === assignmentRevision.current) assignmentUpdates.current.clear();
+        setVehicles(rows.map((row) => withDriverAssignment(row, assignmentUpdates.current.get(row.id))));
+      } catch {
+        // Keep the last confirmed assignments; dialog GET validates again before editing.
+      } finally { inFlight = false; }
+    };
+    const unsubscribe = subscribeVehicleDriverAssignments((result) => {
+      if (!alive || result.companyId !== companyId || assignmentCompany.current !== companyId) return;
+      assignmentRevision.current++;
+      assignmentUpdates.current.set(result.vehicle.id, result);
+      setVehicles((rows) => rows.map((row) => withDriverAssignment(row, result)));
+    });
+    window.addEventListener("focus", refreshDrivers);
+    document.addEventListener("visibilitychange", refreshDrivers);
+    return () => {
+      alive = false;
+      unsubscribe();
+      window.removeEventListener("focus", refreshDrivers);
+      document.removeEventListener("visibilitychange", refreshDrivers);
+    };
   }, [profile?.company_id]);
 
   const filteredWorkers = useMemo(() => {
@@ -885,6 +953,7 @@ export default function ReferencesPage() {
                       "Модель",
                       "Госномер",
                       "VIN",
+                      "Водитель",
                       "Статус",
                       ...(canManageCompanyReferences ? ["Действия"] : []),
                     ]}
@@ -895,6 +964,14 @@ export default function ReferencesPage() {
                       assetModel(x),
                       displayVehiclePlate(editableVehiclePlate(x)),
                       x.vin || emptyCell,
+                      canAssignVehicleDriver ? <VehicleDriverAssignment
+                        key={`driver-${profile?.company_id}-${x.id}`}
+                        companyId={profile?.company_id}
+                        vehicleId={x.id}
+                        vehicleLabel={`${x.display_name || x.name} · ${displayVehiclePlate(editableVehiclePlate(x))}`}
+                        driverName={currentDriverName(x)}
+                        disabled={loading || saving || x.archived || x.is_active === false}
+                      /> : currentDriverName(x) || emptyCell,
                       activeStatus(x),
                       ...(canManageCompanyReferences
                         ? [

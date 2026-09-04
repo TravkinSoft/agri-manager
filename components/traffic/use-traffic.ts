@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyTrafficCommit, type TrafficCommit, type TrafficSnapshot } from "@/lib/traffic/model";
 import { supabase } from "@/lib/supabase/client";
+import { subscribeVehicleDriverAssignments } from "@/lib/vehicles/driver-assignment-client";
 export interface ManagerData {
   snapshot: TrafficSnapshot;
   fleet: Array<{
@@ -187,6 +188,20 @@ export function useTraffic(isManager: boolean) {
     setManagerData((old) => old ? { ...old, snapshot: applyTrafficCommit(old.snapshot, receipt) } : old);
     return true;
   }, [generation]);
+  useEffect(() => subscribeVehicleDriverAssignments((result) => {
+    if (!mounted.current || generation !== authGeneration.current ||
+      !data?.companyId || result.companyId !== data.companyId) return;
+    // Assignment changes affect only the current label, never a trip or its status.
+    readEpoch.current++;
+    controller.current?.abort();
+    const update = (old: TrafficSnapshot | null) => old && old.companyId === result.companyId
+      ? { ...old, vehicles: old.vehicles.map((v) => v.vehicle_id === result.vehicle.id
+        ? { ...v, driver: result.vehicle.driverName } : v) }
+      : old;
+    setData(update);
+    setManagerData((old) => old ? { ...old, snapshot: update(old.snapshot)! } : old);
+    void refresh();
+  }), [data?.companyId, generation, refresh]);
   useEffect(() => {
     mounted.current = true;
     let timer: number;

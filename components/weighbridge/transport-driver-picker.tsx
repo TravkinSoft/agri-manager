@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Label } from "@/components/ui/label";
 import { SearchableCombobox, type SearchableComboboxOption } from "@/components/weighbridge/searchable-combobox";
 import type {
   OpenTransportAssignment,
   RecentTransportPair,
 } from "@/lib/weighbridge/transport-pairing";
+import { preferredDriverForVehicle, preferredVehicleForDriver } from "@/lib/weighbridge/transport-pairing";
 import { formatVehiclePlate, transportPickerOptionLabel } from "@/lib/weighbridge/transport";
 
 type Vehicle = {
@@ -16,6 +17,7 @@ type Vehicle = {
   plate: string;
   type: string;
   searchTerms?: string[];
+  primaryPersonnelId?: string | null;
 };
 
 type Driver = {
@@ -23,6 +25,7 @@ type Driver = {
   name: string;
   position?: string;
   department?: string;
+  assignedVehicleIds?: string[];
 };
 
 type Props = {
@@ -39,6 +42,7 @@ type Props = {
   onChange: (vehicleId: string, driverId: string) => void;
   onBlockedAssignment: (assignment: OpenTransportAssignment) => void;
   onComplete?: () => void;
+  vehicleAssignment?: ReactNode;
 };
 
 const vehicleTitle = (vehicle: Vehicle) => transportPickerOptionLabel(vehicle);
@@ -57,6 +61,7 @@ export function TransportDriverSelects({
   onChange,
   onBlockedAssignment,
   onComplete,
+  vehicleAssignment,
 }: Props) {
   const vehicleById = useMemo(() => new Map(vehicles.map((item) => [item.id, item])), [vehicles]);
   const driverById = useMemo(() => new Map(drivers.map((item) => [item.id, item])), [drivers]);
@@ -135,10 +140,16 @@ export function TransportDriverSelects({
       return;
     }
     let nextDriverId = driverId;
-    if (!nextDriverId) {
-      const suggestedDriverId = latestDriverByVehicle[nextVehicleId] || "";
+    if (!nextDriverId || nextVehicleId !== vehicleId) {
+      const vehicle = vehicleById.get(nextVehicleId);
+      const suggestedDriverId = vehicle ? preferredDriverForVehicle({
+        vehicle, drivers, latestDriverByVehicle, openAssignments,
+      }) : "";
       if (suggestedDriverId && driverById.has(suggestedDriverId) && !assignmentByDriver.has(suggestedDriverId)) {
         nextDriverId = suggestedDriverId;
+      } else if (vehicle?.primaryPersonnelId || drivers.some((driver) => driver.assignedVehicleIds?.includes(nextVehicleId))) {
+        // A new vehicle with an unavailable permanent driver must not keep the previous auto-pair.
+        nextDriverId = "";
       }
     }
     onChange(nextVehicleId, nextDriverId);
@@ -153,7 +164,10 @@ export function TransportDriverSelects({
     }
     let nextVehicleId = vehicleId;
     if (!nextVehicleId) {
-      const suggestedVehicleId = latestVehicleByDriver[nextDriverId] || "";
+      const driver = driverById.get(nextDriverId);
+      const suggestedVehicleId = driver ? preferredVehicleForDriver({
+        driver, vehicles, drivers, latestVehicleByDriver, openAssignments,
+      }) : "";
       if (suggestedVehicleId && vehicleById.has(suggestedVehicleId) && !assignmentByVehicle.has(suggestedVehicleId)) {
         nextVehicleId = suggestedVehicleId;
       }
@@ -176,6 +190,7 @@ export function TransportDriverSelects({
           ariaLabel="Транспорт"
           disabled={disabled}
         />
+        {vehicleAssignment}
       </div>
       <div className="min-w-0 space-y-1.5">
         <Label>Водитель{optional ? "" : " *"}</Label>

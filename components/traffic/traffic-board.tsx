@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { trafficRequest } from "./use-traffic";
+import { VehicleDriverAssignment } from "@/components/vehicles/vehicle-driver-assignment";
 const tones: Record<TrafficState, string> = {
   empty: "border-slate-300 bg-[#ffffff] text-slate-950",
   loaded: "border-emerald-300 bg-emerald-100 text-emerald-950",
@@ -200,9 +201,20 @@ export function TrafficBoard({
             <article
               key={vehicle.vehicle_id}
               data-testid={`traffic-vehicle-${vehicle.vehicle_id}`}
-              className={cardClass}
+              className={`${cardClass} relative ${isManager ? "pr-14" : ""}`}
             >
               {content}
+              {isManager ? (
+                <VehicleDriverAssignment
+                  vehicleId={vehicle.vehicle_id}
+                  companyId={snapshot.companyId}
+                  driverName={vehicle.driver}
+                  vehicleLabel={`${vehicle.name} · ${vehicle.plate || "без номера"}`}
+                  iconOnly
+                  className="absolute right-1 top-1 text-inherit hover:bg-black/5"
+                  disabled={stale}
+                />
+              ) : null}
             </article>
           );
         })}

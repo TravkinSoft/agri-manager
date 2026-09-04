@@ -1,0 +1,65 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import vm from "node:vm";
+import ts from "typescript";
+import { activeAssignedDriverName } from "../lib/vehicles/driver-name";
+import * as model from "../lib/traffic/model";
+
+let checks = 0;
+const check = (actual: unknown, expected: unknown) => { assert.deepEqual(actual, expected); checks++; };
+const companyId = "10000000-0000-4000-8000-000000000001";
+const person = { full_name: "Текущий водитель", role_type: "driver", company_id: companyId, status: "active", deleted_at: null };
+const specialist = { id: "reference-driver", full_name: "Старое имя", personnel_type: "driver", status: "active", archived: false, person };
+check(activeAssignedDriverName(specialist, companyId), person.full_name);
+check(activeAssignedDriverName([{ ...specialist, person: [person] }], companyId), person.full_name);
+for (const change of [{ archived: true }, { status: "inactive" }, { personnel_type: "machine_operator" }, { person: null }])
+  check(activeAssignedDriverName({ ...specialist, ...change }, companyId), null);
+for (const change of [{ status: "inactive" }, { role_type: "worker" }, { company_id: "foreign" }, { deleted_at: "2026-09-04" }, { full_name: "" }])
+  check(activeAssignedDriverName({ ...specialist, person: { ...person, ...change } }, companyId), null);
+check(activeAssignedDriverName(null, companyId), null);
+const queries: Array<{ table: string; columns: string }> = [];
+const fixture: Record<string, unknown> = {
+  ptc_flows: { enabled: true, field_id: null },
+  ptc_vehicle_states: [{ vehicle_id: "vehicle", state: "loaded", version: 9, cycle: 3, assigned: true, since: "2026-09-04T10:00:00Z" }],
+  ptc_events: [],
+  reference_vehicles: [{ id: "vehicle", name: "КАМАЗ", license_plate: "QA-207", primary_responsible_personnel_id: specialist.id }],
+  reference_specialists: [specialist],
+};
+const db = { from(table: string) {
+  const q: any = { select(columns: string) { queries.push({ table, columns }); return q; },
+    eq() { return q; }, in() { return q; }, order() { return q; }, limit() { return q; }, maybeSingle() { return q; },
+    then(resolve: (value: unknown) => unknown) { return Promise.resolve({ data: fixture[table], error: null }).then(resolve); } };
+  return q;
+} };
+const localRequire = createRequire(import.meta.url);
+const moduleScope = { exports: {} as any };
+const code = ts.transpileModule(readFileSync("lib/traffic/server.ts", "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const dependencies: Record<string, unknown> = {
+  "@/lib/supabase/service": { getServiceClient: () => db },
+  "@/lib/auth/server-session": {}, "@/lib/auth/server-acl": {},
+  "@/lib/vehicles/driver-name": { activeAssignedDriverName }, "./model": model,
+};
+vm.runInNewContext(code, { module: moduleScope, exports: moduleScope.exports, Date,
+  require: (name: string) => dependencies[name] ?? localRequire(name) });
+async function main() {
+  const snapshot = await moduleScope.exports.readSnapshot(companyId, "manager", "Агроном");
+  check(snapshot.companyId, companyId);
+  check(snapshot.vehicles[0].driver, person.full_name);
+  check(snapshot.vehicles[0].state, "loaded");
+  check(snapshot.vehicles[0].version, 9);
+  check(snapshot.vehicles[0].cycle, 3);
+  check(queries.some(q => q.table === "reference_specialists" && q.columns.includes("person:person_id")), true);
+  fixture.reference_specialists = [{ ...specialist, person: { ...person, status: "inactive" } }];
+  check((await moduleScope.exports.readSnapshot(companyId, "receiver", "Бригадир")).vehicles[0].driver, null);
+  const references = readFileSync("app/(dashboard)/references/page.tsx", "utf8");
+  check(references.includes('"Водитель",'), true);
+  check(references.includes("activeAssignedDriverName(row.primary_responsible, row.company_id)"), true);
+  check(references.includes("result.companyId !== companyId"), true);
+  check(references.includes("assignmentUpdates.current.get(row.id)"), true);
+  check(readFileSync("lib/services/references.ts", "utf8").includes("person:person_id(full_name,company_id,role_type,status,deleted_at)"), true);
+  console.log(`Vehicle driver surfaces PASS: ${checks} (canonical hydration, actual PTC snapshot, reference wiring; no database writes)`);
+}
+void main().catch(error => { console.error(error); process.exitCode = 1; });

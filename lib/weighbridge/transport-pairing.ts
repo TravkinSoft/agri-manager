@@ -30,6 +30,47 @@ export type OpenTransportAssignment = {
   driverId: string | null;
 };
 
+type AssignedTransportDriver = { id: string; assignedVehicleIds?: string[] };
+type AssignedTransportVehicle = { id: string; primaryPersonnelId?: string | null };
+
+/** Suggestions are read-only: a permanent assignment always outranks ticket history. */
+export function preferredDriverForVehicle(params: {
+  vehicle: AssignedTransportVehicle;
+  drivers: AssignedTransportDriver[];
+  latestDriverByVehicle: Record<string, string>;
+  openAssignments: OpenTransportAssignment[];
+}): string {
+  const assigned = params.drivers.filter((driver) => driver.assignedVehicleIds?.includes(params.vehicle.id));
+  // Missing/inactive or ambiguous permanent drivers must not resurrect an old ticket pairing.
+  const hasAssignment = Boolean(params.vehicle.primaryPersonnelId) || assigned.length > 0;
+  const suggestedId = hasAssignment
+    ? (assigned.length === 1 ? assigned[0].id : "")
+    : params.latestDriverByVehicle[params.vehicle.id] || "";
+  return suggestedId && params.drivers.some((driver) => driver.id === suggestedId)
+    && !params.openAssignments.some((assignment) => assignment.driverId === suggestedId)
+    ? suggestedId : "";
+}
+
+export function preferredVehicleForDriver(params: {
+  driver: AssignedTransportDriver;
+  vehicles: AssignedTransportVehicle[];
+  drivers: AssignedTransportDriver[];
+  latestVehicleByDriver: Record<string, string>;
+  openAssignments: OpenTransportAssignment[];
+}): string {
+  const assignedIds = params.driver.assignedVehicleIds || [];
+  // With several assigned vehicles the operator chooses explicitly.
+  const suggestedId = assignedIds.length > 0
+    ? (assignedIds.length === 1 ? assignedIds[0] : "")
+    : params.latestVehicleByDriver[params.driver.id] || "";
+  const vehicle = params.vehicles.find((item) => item.id === suggestedId);
+  if (!vehicle || params.openAssignments.some((assignment) => assignment.vehicleId === suggestedId)) return "";
+  const assignedDrivers = params.drivers.filter((driver) => driver.assignedVehicleIds?.includes(suggestedId));
+  if ((vehicle.primaryPersonnelId || assignedDrivers.length > 0)
+    && (assignedDrivers.length !== 1 || assignedDrivers[0].id !== params.driver.id)) return "";
+  return suggestedId;
+}
+
 export type WeighbridgeTransportPickerData = {
   seasonId: string | null;
   operationalDayStartHour: number;

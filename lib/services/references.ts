@@ -658,7 +658,7 @@ export async function getVehicleReferences(
       global_vehicle_brands:global_brand_id(id,name),
       global_vehicle_models:global_model_id(id,name,model_type,default_capacity_kg),
       transport_model:transport_model_id(id,full_name,category,brand,series,model),
-      primary_responsible:primary_responsible_personnel_id(id,full_name,personnel_type,status)
+      primary_responsible:primary_responsible_personnel_id(id,full_name,personnel_type,status,archived,person:person_id(full_name,company_id,role_type,status,deleted_at))
     `)
     .eq("company_id", companyId)
     .order("name", { ascending: true });

@@ -37,6 +37,7 @@ type SearchableComboboxProps = {
   emptyLabel: string;
   ariaLabel: string;
   disabled?: boolean;
+  mobile?: boolean;
 };
 
 export function SearchableCombobox({
@@ -48,6 +49,7 @@ export function SearchableCombobox({
   emptyLabel,
   ariaLabel,
   disabled = false,
+  mobile = false,
 }: SearchableComboboxProps) {
   const [open, setOpen] = useState(false);
   const selected = options.find((option) => option.value === value) || null;
@@ -70,7 +72,7 @@ export function SearchableCombobox({
           aria-label={ariaLabel}
           aria-expanded={open}
           disabled={disabled}
-          className="h-10 w-full justify-between border-slate-700 bg-slate-950 px-3 text-left font-normal text-slate-100 hover:bg-slate-900"
+          className={cn("h-10 w-full justify-between border-slate-700 bg-slate-950 px-3 text-left font-normal text-slate-100 hover:bg-slate-900", mobile && "min-h-[48px] text-base touch-manipulation")}
         >
           <span className="min-w-0 truncate">{selected?.label || placeholder}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-slate-500" />
@@ -78,10 +80,10 @@ export function SearchableCombobox({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="w-[var(--radix-popover-trigger-width)] min-w-[320px] border-slate-700 bg-slate-950 p-0 text-slate-100"
+        className={cn("w-[var(--radix-popover-trigger-width)] border-slate-700 bg-slate-950 p-0 text-slate-100", mobile ? "min-w-0 max-w-[calc(100vw-2rem)]" : "min-w-[320px]")}
       >
         <Command className="bg-slate-950 text-slate-100">
-          <CommandInput placeholder={searchPlaceholder} className="text-slate-100" />
+          <CommandInput placeholder={searchPlaceholder} className={cn("text-slate-100", mobile && "min-h-[48px] text-base")} />
           <CommandList className="max-h-60 travkin-scrollbar">
             <CommandEmpty className="py-5 text-center text-sm text-slate-500">{emptyLabel}</CommandEmpty>
             {groups.map(([group, groupOptions]) => (
@@ -95,7 +97,7 @@ export function SearchableCombobox({
                       onValueChange(option.value);
                       setOpen(false);
                     }}
-                    className="gap-2 py-2 text-slate-100 data-[selected=true]:bg-slate-800 data-[selected=true]:text-white"
+                    className={cn("gap-2 py-2 text-slate-100 data-[selected=true]:bg-slate-800 data-[selected=true]:text-white", mobile && "min-h-[48px] touch-manipulation")}
                   >
                     <Check className={cn("h-4 w-4 shrink-0 text-yellow-400", value === option.value ? "opacity-100" : "opacity-0")} />
                     <span className="min-w-0 flex-1">

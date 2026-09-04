@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import vm from "node:vm";
 import ts from "typescript";
 import * as model from "../lib/traffic/model";
+import type { VehicleDriverAssignmentResult } from "../lib/vehicles/driver-assignment-client";
 
 const localRequire = createRequire(import.meta.url);
 const source = readFileSync("components/traffic/use-traffic.ts", "utf8");
@@ -17,7 +18,7 @@ function deferred<T>() {
 }
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 const snapshot = (vehicleId = "car-a", version = 1, state: model.TrafficState = "empty", role: model.TrafficRole = "harvester"): model.TrafficSnapshot => ({
-  role, personName: "Operator", enabled: true, fieldId: null, fieldName: null,
+  role, companyId: "company-a", personName: "Operator", enabled: true, fieldId: null, fieldName: null,
   serverTime: "2026-09-04T10:00:00Z", events: [],
   vehicles: [{ vehicle_id: vehicleId, name: "Existing truck", plate: "QA-101", driver: "Existing driver", state, version,
     since: "2026-09-04T09:58:00Z", cycle: 1, assigned: true }],
@@ -46,6 +47,7 @@ function harness(isManager = false, initiallyHidden = false) {
   const navigatorMock = { onLine: true };
   let stateIndex = 0, refIndex = 0, callbackIndex = 0, effectIndex = 0, timerId = 0, unsubscribed = 0;
   let authChange: (event: string, session: { user: { id: string } } | null) => void = () => undefined;
+  let assignmentListener: ((result: VehicleDriverAssignmentResult) => void) | null = null;
   const sameDeps = (left: unknown[], right: unknown[]) => left.length === right.length && left.every((value, index) => Object.is(value, right[index]));
   const loaded = { exports: {} as any };
   const dependencies: Record<string, unknown> = {
@@ -75,6 +77,10 @@ function harness(isManager = false, initiallyHidden = false) {
       return { data: { subscription: { unsubscribe: () => { unsubscribed++; } } } };
     } } } },
     "@/lib/supabase/client-auth": { buildClientAuthHeaders: async () => ({ Authorization: "Bearer test-only-token" }) },
+    "@/lib/vehicles/driver-assignment-client": { subscribeVehicleDriverAssignments: (listener: (result: VehicleDriverAssignmentResult) => void) => {
+      assignmentListener = listener;
+      return () => { if (assignmentListener === listener) assignmentListener = null; };
+    } },
   };
   vm.runInNewContext(ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -106,6 +112,8 @@ function harness(isManager = false, initiallyHidden = false) {
       requests[index].result.resolve(new Response(JSON.stringify(payload), { status })); await flush();
     },
     auth: (event: string, id: string | null) => authChange(event, id ? { user: { id } } : null),
+    assignment: (value: VehicleDriverAssignmentResult) => assignmentListener?.(value),
+    hasAssignmentListener: () => assignmentListener !== null,
     fire: (event: string) => (windowListeners.get(event) ?? documentListeners.get(event))?.(),
     runTimer: async (ms: number) => {
       const entry = Array.from(timers).find(([, timer]) => timer.ms === ms);
@@ -179,6 +187,30 @@ async function main() {
   }
   h.unmount(); check(live.applyCommitted(valid, "car-a", 7), false);
   check(h.cleanupState(), { unsubscribed: 1, windowListeners: 0, documentListeners: 0, timers: 0 });
+  check(h.hasAssignmentListener(), false);
+
+  // The shared assignment event changes only the current name in this company.
+  // An in-flight snapshot from before the assignment cannot roll that name back.
+  const names = harness(); let namesLive = await ready(names);
+  const oldNamesRead = namesLive.refresh(); await flush();
+  const assignedDriver: VehicleDriverAssignmentResult = {
+    companyId: "company-a", canEdit: true,
+    vehicle: { id: "car-a", name: "Existing truck", plate: "QA-101", assignmentId: "assignment-b", driverPersonId: "person-b", driverName: "New Driver" },
+  };
+  names.assignment({ ...assignedDriver, companyId: "other-company" });
+  check(names.requests[1].options.signal?.aborted, false); check(names.render().data.vehicles[0].driver, "Existing driver");
+  names.assignment(assignedDriver); namesLive = names.render();
+  check(namesLive.data.vehicles[0].driver, "New Driver"); check(namesLive.data.vehicles[0].state, "empty");
+  check(namesLive.data.vehicles[0].version, 1); check(namesLive.data.vehicles[0].since, "2026-09-04T09:58:00Z");
+  check(names.requests[1].options.signal?.aborted, true);
+  await names.respond(1, snapshot()); await oldNamesRead; await flush();
+  check(names.render().data.vehicles[0].driver, "New Driver");
+  names.assignment({ ...assignedDriver, vehicle: { ...assignedDriver.vehicle, assignmentId: null, driverPersonId: null, driverName: null } });
+  await flush(); check(names.render().data.vehicles[0].driver, null);
+  check(names.render().data.vehicles[0].state, "empty");
+  await names.respond(2, { ...snapshot(), vehicles: snapshot().vehicles.map(vehicle => ({ ...vehicle, driver: null })) });
+  check(names.render().data.vehicles[0].driver, null);
+  names.unmount(); check(names.hasAssignmentListener(), false);
 
   // The callback captured by an old account cannot apply its late POST after switching accounts.
   const account = harness();

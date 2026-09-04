@@ -52,6 +52,8 @@ import {
 import { HarvestAllocationPicker } from "@/components/weighbridge/active-harvest-tabs";
 import { UniversalWorkspaceTabs, type UniversalWorkspaceTab } from "@/components/weighbridge/universal-workspace-tabs";
 import { TransportDriverSelects } from "@/components/weighbridge/transport-driver-picker";
+import { VehicleDriverAssignment } from "@/components/vehicles/vehicle-driver-assignment";
+import { subscribeVehicleDriverAssignments, type VehicleDriverAssignmentResult } from "@/lib/vehicles/driver-assignment-client";
 import { ProcessingWorkspace } from "@/components/weighbridge/processing-workspace";
 import { isOpenProcessingWorkItem, processingMassSnapshot } from "@/lib/weighbridge/processing-work-state";
 import { DailyReconciliation } from "@/components/weighbridge/daily-reconciliation";
@@ -950,6 +952,9 @@ export default function WeighbridgeOperationsPage() {
   const [combineOperators, setCombineOperators] = useState<CombineOperatorOption[]>([]);
   const [coreResourceErrors, setCoreResourceErrors] = useState<Array<{ code: string; message: string }>>([]);
   const [transportPickerData, setTransportPickerData] = useState<WeighbridgeTransportPickerData>(emptyTransportPickerData);
+  const vehicleAssignmentRevisionRef = useRef(0);
+  const resourceCompanyRef = useRef(profile?.company_id);
+  resourceCompanyRef.current = profile?.company_id;
   const [harvestStructureByField, setHarvestStructureByField] = useState<Record<string, HarvestStructureOption[]>>({});
   const [harvestIncompleteFields, setHarvestIncompleteFields] = useState<Record<string, boolean>>({});
   const [activeHarvests, setActiveHarvests] = useState<ActiveHarvestRoute[]>([]);
@@ -1393,6 +1398,7 @@ export default function WeighbridgeOperationsPage() {
     if (coreLoadRequestRef.current) return coreLoadRequestRef.current;
 
     const companyId = profile.company_id;
+    const assignmentRevision = vehicleAssignmentRevisionRef.current;
     const requestSignal = signal || new AbortController().signal;
     const request = (async () => {
       if (!background && !coreDataReady) setLoading(true);
@@ -1402,7 +1408,7 @@ export default function WeighbridgeOperationsPage() {
           loadHarvestAllocations(companyId, requestSignal),
           loadTransportPickerDataCached(companyId, false, requestSignal),
         ]);
-        if (requestSignal.aborted) return;
+        if (requestSignal.aborted || resourceCompanyRef.current !== companyId) return;
         const issues: Array<{ code: string; message: string }> = [];
         const addIssue = (code: string, message: string) => {
           if (!issues.some((issue) => issue.code === code)) issues.push({ code, message });
@@ -1446,7 +1452,7 @@ export default function WeighbridgeOperationsPage() {
             primaryPersonnelId: row.primaryPersonnelId ? String(row.primaryPersonnelId) : null,
             searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
           }));
-          if (!failedResources.has("reference_vehicles")) {
+          if (!failedResources.has("reference_vehicles") && assignmentRevision === vehicleAssignmentRevisionRef.current) {
             setVehicles(mappedVehicles);
           }
           if (!failedResources.has("reference_vehicles")) {
@@ -1457,7 +1463,7 @@ export default function WeighbridgeOperationsPage() {
               searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
             })));
           }
-          if (!failedResources.has("company_people")) {
+          if (!failedResources.has("company_people") && assignmentRevision === vehicleAssignmentRevisionRef.current) {
             setDrivers(((resourceRows?.drivers || []) as any[]).map((row: any) => ({
               id: String(row.id), name: String(row.name || "Сотрудник"), machineId: row.machineId ? String(row.machineId) : null,
               roleType: row.roleType === "mechanic_operator" ? "mechanic_operator" : "driver",
@@ -1812,6 +1818,55 @@ export default function WeighbridgeOperationsPage() {
     intervalMs: 0,
     minRefreshIntervalMs: 5_000,
   });
+
+  useEffect(() => {
+    if (authLoading || !profile?.company_id || !canView || operatorGateBlocked) return;
+    const companyId = profile.company_id;
+    let requestController: AbortController | null = null;
+    const unsubscribe = subscribeVehicleDriverAssignments((result) => {
+      if (result.companyId !== companyId || resourceCompanyRef.current !== companyId) return;
+      vehicleAssignmentRevisionRef.current += 1;
+      requestController?.abort();
+      const controller = new AbortController();
+      requestController = controller;
+      // Invalidate only resource options. Never rewrite a draft, saved ticket or correction snapshot.
+      setVehicles((current) => current.map((vehicle) => vehicle.id === result.vehicle.id
+        ? { ...vehicle, primaryPersonnelId: result.vehicle.assignmentId } : vehicle));
+      setDrivers((current) => current.map((driver) => ({
+        ...driver,
+        assignedVehicleIds: [
+          ...driver.assignedVehicleIds.filter((id) => id !== result.vehicle.id),
+          ...(driver.id === result.vehicle.driverPersonId ? [result.vehicle.id] : []),
+        ],
+      })));
+      void getWeighbridgeResources(companyId, { signal: controller.signal }).then((resources) => {
+        if (controller.signal.aborted || resourceCompanyRef.current !== companyId) return;
+        const failed = new Set((resources.resourceErrors || []).map((error: any) => String(error.resource || "")));
+        if (failed.has("company_people") || failed.has("reference_vehicles") || failed.has("reference_specialists")) {
+          throw new Error("Assignment resources unavailable");
+        }
+        setDrivers(((resources.drivers || []) as any[]).map((row: any) => ({
+          id: String(row.id), name: String(row.name || "Сотрудник"), machineId: row.machineId ? String(row.machineId) : null,
+          roleType: row.roleType === "mechanic_operator" ? "mechanic_operator" : "driver",
+          position: String(row.position || ""), department: String(row.department || ""),
+          assignedVehicleIds: Array.isArray(row.assignedVehicleIds) ? row.assignedVehicleIds.map(String) : [],
+        })));
+        const refreshedVehicles = new Map<string, any>((resources.vehicles || []).map((vehicle: any) => [String(vehicle.id), vehicle]));
+        setVehicles((current) => current.map((vehicle) => {
+          const refreshed = refreshedVehicles.get(vehicle.id);
+          return refreshed ? { ...vehicle, primaryPersonnelId: refreshed.primaryPersonnelId ? String(refreshed.primaryPersonnelId) : null } : vehicle;
+        }));
+        setDriverNames((current) => ({ ...current, ...(resources.driverNames || {}) }));
+      }).catch((error) => {
+        if (controller.signal.aborted || error?.name === "AbortError" || resourceCompanyRef.current !== companyId) return;
+        toast({ title: "Привязка сохранена", description: "Не удалось обновить список водителей. Обновите справочники перед следующим рейсом.", variant: "destructive" });
+      });
+    });
+    return () => {
+      unsubscribe();
+      requestController?.abort();
+    };
+  }, [authLoading, profile?.company_id, canView, operatorGateBlocked, toast]);
 
   const siteConfirm = async (opts: { title: string; description: string; actionLabel: string }) => {
     setConfirmTitle(opts.title);
@@ -3557,6 +3612,31 @@ export default function WeighbridgeOperationsPage() {
     () => vehicles.find((vehicle) => vehicle.id === form.vehicleId) || null,
     [vehicles, form.vehicleId]
   );
+  const assignmentFormContextRef = useRef({
+    companyId: profile?.company_id, workspaceId: selectedWorkspaceId,
+    savedTicketId: activeTicket?.id || pendingOpenTicket?.id, editingTicket: openTicketEditOpen || ticketCorrectionOpen || submitting,
+    openAssignments: transportPickerData.openAssignments,
+  });
+  assignmentFormContextRef.current = {
+    companyId: profile?.company_id, workspaceId: selectedWorkspaceId,
+    savedTicketId: activeTicket?.id || pendingOpenTicket?.id, editingTicket: openTicketEditOpen || ticketCorrectionOpen || submitting,
+    openAssignments: transportPickerData.openAssignments,
+  };
+  const applyAssignmentToNewDraft = (result: VehicleDriverAssignmentResult) => {
+    const current = assignmentFormContextRef.current;
+    if (current.companyId !== result.companyId || current.workspaceId !== selectedWorkspaceId) return;
+    if (current.savedTicketId || current.editingTicket) {
+      toast({ title: "Привязка сохранена", description: "Водитель уже созданного талона не изменён." });
+      return;
+    }
+    if (result.vehicle.driverPersonId && current.openAssignments.some((assignment) => assignment.driverId === result.vehicle.driverPersonId)) {
+      toast({ title: "Привязка сохранена", description: "Водитель занят открытым талоном. В новом рейсе водитель не изменён." });
+      return;
+    }
+    // Only this explicit save may update the still-selected, unsaved create form.
+    setForm((previous) => previous.vehicleId === result.vehicle.id
+      ? { ...previous, driverId: result.vehicle.driverPersonId || "" } : previous);
+  };
   const updateTransportPickerData = (
     updater: (current: WeighbridgeTransportPickerData) => WeighbridgeTransportPickerData
   ) => {
@@ -5548,6 +5628,17 @@ export default function WeighbridgeOperationsPage() {
                 onChange={(vehicleId, driverId) => setForm((previous) => ({ ...previous, vehicleId, driverId }))}
                 onBlockedAssignment={(assignment) => void handleBlockedTransportAssignment(assignment)}
                 onComplete={() => grossInputRef.current?.focus()}
+                vehicleAssignment={selectedVehicle ? (
+                  <VehicleDriverAssignment
+                    key={`${profile?.company_id}:${selectedWorkspaceId}:${selectedVehicle.id}`}
+                    vehicleId={selectedVehicle.id}
+                    companyId={profile?.company_id}
+                    driverName={drivers.find((driver) => driver.assignedVehicleIds.includes(selectedVehicle.id))?.name}
+                    vehicleLabel={selectedVehicle.name}
+                    disabled={loading || submitting}
+                    onAssigned={applyAssignmentToNewDraft}
+                  />
+                ) : null}
               />
               {drivers.length === 0 ? (
                 <div className="mt-1 text-xs text-amber-300">

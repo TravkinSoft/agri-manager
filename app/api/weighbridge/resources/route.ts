@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
         .order("full_name", { ascending: true }),
       supabase
         .from("reference_specialists")
-        .select("id,person_id,full_name,name_ru,name_kz,name_en")
+        .select("id,person_id,full_name,name_ru,name_kz,name_en,status,archived,personnel_type")
         .eq("company_id", companyId),
       supabase
         .from("profiles")
@@ -157,7 +157,10 @@ export async function GET(request: NextRequest) {
     const driverNames: Record<string, string> = {};
     legacyDriverRows.forEach((row: any) => {
       const legacyId = String(row.id);
-      if (row.person_id) legacyPersonById.set(legacyId, String(row.person_id));
+      // Current assignments require an active driver bridge; historical names stay unfiltered.
+      if (row.person_id && row.status === "active" && row.archived === false && row.personnel_type === "driver") {
+        legacyPersonById.set(legacyId, String(row.person_id));
+      }
       driverNames[legacyId] = String(
         row.name_ru || row.full_name || row.name_en || row.name_kz || "Водитель"
       );
