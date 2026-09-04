@@ -10,6 +10,7 @@ const warehouseService = read("lib/services/warehouses.ts");
 const requestService = read("lib/services/warehouse-requests.ts");
 const weighbridgeService = read("lib/services/weighbridge.ts");
 const balancesRoute = read("app/api/warehouses/balances/route.ts");
+const stockCatalog = read("lib/warehouse/load-stock-catalog.ts");
 const transactionsRoute = read("app/api/warehouses/transactions/route.ts");
 const receiptsRoute = read("app/api/warehouses/receipts/route.ts");
 const requestsRoute = read("app/api/material-requests/route.ts");
@@ -65,8 +66,9 @@ const checks: Array<[string, () => void]> = [
   }],
   ["filtered balances avoid the full global product catalog", () => {
     assert.match(balancesRoute, /if \(!warehouseId \|\| referencedProductIds\.size > 0\)/);
-    assert.match(balancesRoute, /id\.in\.\(\$\{ids\}\),master_product_id\.in\.\(\$\{ids\}\)/);
-    assert.match(balancesRoute, /company_id\.eq\.\$\{companyId\},company_id\.is\.null/);
+    assert.match(balancesRoute, /warehouseId \? Array\.from\(referencedProductIds\) : undefined/);
+    assert.match(stockCatalog, /id\.in\.\(\$\{ids\}\),master_product_id\.in\.\(\$\{ids\}\)/);
+    assert.match(stockCatalog, /company_id\.eq\.\$\{companyId\},company_id\.is\.null/);
   }],
   ["movements are server-filtered and capped", () => {
     assert.match(transactionsRoute, /warehouseId/);
