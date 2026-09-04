@@ -34,6 +34,7 @@ fun WorkingCabinet(state: AppUiState.SignedIn, viewModel: AppViewModel) {
     val scope = rememberCoroutineScope()
     var profileOpen by remember { mutableStateOf(false) }
     var cropEdit by remember { mutableStateOf<CropEditorData?>(null) }
+    var operationEdit by remember { mutableStateOf<OperationPlannerData?>(null) }
     var trafficEdit by remember { mutableStateOf<TrafficEditorData?>(null) }
     var trafficAccessOnly by remember { mutableStateOf(false) }
     var harvestFilterOpen by remember { mutableStateOf(false) }
@@ -46,8 +47,8 @@ fun WorkingCabinet(state: AppUiState.SignedIn, viewModel: AppViewModel) {
     LaunchedEffect(state.query) {
         listState.scrollToItem(0)
     }
-    LaunchedEffect(state.query, lifecycle, cropEdit != null, trafficEdit != null, weatherEdit != null) {
-        if (cropEdit != null || trafficEdit != null || weatherEdit != null) return@LaunchedEffect
+    LaunchedEffect(state.query, lifecycle, cropEdit != null, operationEdit != null, trafficEdit != null, weatherEdit != null) {
+        if (cropEdit != null || operationEdit != null || trafficEdit != null || weatherEdit != null) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             viewModel.refresh()
             while (true) {
@@ -56,10 +57,11 @@ fun WorkingCabinet(state: AppUiState.SignedIn, viewModel: AppViewModel) {
             }
         }
     }
-    BackHandler(enabled = drawer.isOpen || profileOpen || state.backStack.isNotEmpty()) {
+    BackHandler(enabled = drawer.isOpen || profileOpen || operationEdit != null || state.backStack.isNotEmpty()) {
         when {
             drawer.isOpen -> scope.launch { drawer.close() }
             profileOpen -> profileOpen = false
+            operationEdit != null -> operationEdit = null
             else -> viewModel.back()
         }
     }
@@ -146,7 +148,7 @@ fun WorkingCabinet(state: AppUiState.SignedIn, viewModel: AppViewModel) {
                     Notice(message + if (state.page != null) "\nНа экране остались ранее загруженные данные." else "", true)
                     TextButton(onClick = viewModel::refresh, enabled = !state.refreshing) { Text("Повторить") }
                 } }
-                if (cropEdit == null && trafficEdit == null && weatherEdit == null) state.commandError?.let { error -> item { Notice(error, true) } }
+                if (cropEdit == null && operationEdit == null && trafficEdit == null && weatherEdit == null) state.commandError?.let { error -> item { Notice(error, true) } }
                 state.page?.let { page ->
                     item { DocumentExportControl(state, viewModel) }
                     page.driverAssignment?.let { assignment -> item {
@@ -177,6 +179,10 @@ fun WorkingCabinet(state: AppUiState.SignedIn, viewModel: AppViewModel) {
                     page.cropEditor?.let { editor -> item {
                         Button(onClick = { viewModel.clearCommandError(); cropEdit = editor }, enabled = !state.actorStale && !state.refreshing,
                             modifier = Modifier.fillMaxWidth()) { Text("Редактор структуры") }
+                    } }
+                    page.operationPlanner?.let { planner -> item {
+                        Button(onClick = { viewModel.clearCommandError(); operationEdit = planner }, enabled = !state.actorStale && !state.refreshing,
+                            modifier = Modifier.fillMaxWidth()) { Text("Создать план работы") }
                     } }
                     page.notice?.let { notice -> item { Notice(notice) } }
                     item { Text("Получено: ${serverDate(Instant.ofEpochMilli(page.fetchedAt).toString())}", style = MaterialTheme.typography.labelSmall) }
@@ -211,6 +217,8 @@ fun WorkingCabinet(state: AppUiState.SignedIn, viewModel: AppViewModel) {
         dismissButton = { TextButton(onClick = { profileOpen = false; viewModel.signOut() }) { Text("Выйти") } })
     cropEdit?.let { editor -> CropEditorDialog(editor, state.saving, state.commandError, onClose = { cropEdit = null },
         onSave = { rows -> viewModel.saveCrop(editor, rows) { cropEdit = null } }) }
+    operationEdit?.let { planner -> OperationPlannerDialog(planner, state.saving, state.commandError, onClose = { operationEdit = null },
+        onSave = { draft, key -> viewModel.createOperation(planner, draft, key) { operationEdit = null } }) }
     trafficEdit?.let { editor -> TrafficEditorDialog(editor, trafficAccessOnly, state.saving, state.commandError,
         onClose = { trafficEdit = null }, onSave = { selected, emptyConfirmed -> viewModel.saveTraffic(editor, selected, emptyConfirmed) { trafficEdit = null } }) }
     if (harvestFilterOpen) HarvestFilterDialog(state.query, state.page?.harvestOptions.orEmpty(), onClose = { harvestFilterOpen = false },

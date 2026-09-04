@@ -8,8 +8,7 @@ internal fun summaryTicketCard(row: JsonObject, index: Int) = CabinetCard(row.te
         CabinetRow("Машина", row.text("vehicleLabel") ?: "Не указана"), CabinetRow("Дата", serverDate(row.text("occurredAt") ?: row.text("openedAt"))),
         CabinetRow("Брутто", quantity(row.number("grossWeightKg"), " кг")), CabinetRow("Нетто", quantity(row.number("netWeightKg"), " кг")),
         CabinetRow("Ожидание тары", quantity(row.number("waitingTareMinutes"), " мин")),
-        CabinetRow("Влажность", quantity(row.number("moisturePercent"), "%"))),
-    destination = row.text("ticketId")?.let { CabinetQuery(CabinetSection.TICKETS, objectId = it, title = "Талон № ${row.text("ticketNo") ?: "—"}") })
+        CabinetRow("Влажность", quantity(row.number("moisturePercent"), "%"))))
 
 internal fun harvestPartyPage(data: JsonObject, query: CabinetQuery): CabinetPage {
     val party = data.requireRows("parties").firstOrNull { it.text("key") == query.partyKey }

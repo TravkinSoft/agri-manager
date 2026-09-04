@@ -15,6 +15,10 @@ interface CabinetCommandApi {
     @PUT("api/crop-structure/fields/{id}")
     suspend fun saveCrop(@Header("Authorization") auth: String, @Path("id") fieldId: String, @Body body: JsonObject): Response<JsonObject>
 
+    @POST("api/operations")
+    suspend fun createOperation(@Header("Authorization") auth: String, @Header("Idempotency-Key") idempotencyKey: String,
+        @Body body: JsonObject): Response<JsonObject>
+
     @POST("api/traffic")
     suspend fun configureTraffic(@Header("Authorization") auth: String, @Header("Origin") origin: String, @Body body: JsonObject): Response<JsonObject>
 

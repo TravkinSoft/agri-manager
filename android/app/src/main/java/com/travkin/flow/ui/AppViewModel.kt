@@ -115,6 +115,10 @@ class AppViewModel(private val repository: TravkinRepository) : ViewModel() {
         runCommand(onSuccess) { actor -> repository.saveCrop(actor, context, rows) }
     }
 
+    fun createOperation(context: OperationPlannerData, draft: OperationPlanDraft, idempotencyKey: String, onSuccess: () -> Unit) {
+        runCommand(onSuccess) { actor -> repository.createOperation(actor, context, draft, idempotencyKey) }
+    }
+
     fun exportDocument(onReady: (String, ByteArray) -> Unit) {
         val query = (_state.value as? AppUiState.SignedIn)?.query ?: return
         var prepared: Pair<String, ByteArray>? = null

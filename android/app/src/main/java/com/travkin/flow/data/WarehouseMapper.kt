@@ -58,7 +58,6 @@ internal fun harvestLotPage(data: JsonObject, query: CabinetQuery): CabinetPage 
         CabinetGroup("Состав остатка", row.rows("stockComponents").mapIndexed { i, component -> CabinetCard("component-$i",
             component.text("physicalState") ?: "Состояние не указано", component.text("batchClass"), listOf(component.measure("Количество", "quantityKg", " кг"))) }),
         CabinetGroup("Рейсы", row.rows("tripBatches").mapIndexed { i, trip -> CabinetCard("trip-$i", "Талон № ${trip.text("ticketNo") ?: "—"}", trip.text("fieldName"), listOf(
-            trip.measure("Нетто", "netWeightKg", " кг"), trip.measure("Влажность", "moisturePercent", "%"), trip.label("Машина", "vehicleName"), trip.label("Дата", "occurredAt")),
-            trip.text("ticketId")?.let { CabinetQuery(CabinetSection.TICKETS, objectId = it, title = "Талон № ${trip.text("ticketNo") ?: "—"}") }) }),
+            trip.measure("Нетто", "netWeightKg", " кг"), trip.measure("Влажность", "moisturePercent", "%"), trip.label("Машина", "vehicleName"), trip.label("Дата", "occurredAt"))) }),
     ) })
 }

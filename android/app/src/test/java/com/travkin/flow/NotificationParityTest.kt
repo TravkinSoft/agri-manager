@@ -9,7 +9,8 @@ import org.junit.Test
 class NotificationParityTest {
     @Test fun `only allowed relative role routes open`() {
         listOf("https://evil.test/tickets", "//evil.test/tickets", "/\\evil.test/tickets", "/users", "/traffic-operator", "/weighbridge", "javascript:alert(1)", "/%2f%2fevil.test").forEach { assertNull(notificationDestination(it)) }
-        assertEquals(CabinetSection.TICKETS, notificationDestination("/tickets?ignored=true")!!.section)
+        assertNull(notificationDestination("/tickets?ignored=true"))
+        assertEquals(CabinetSection.CROPS, notificationDestination("/crop-structure")!!.section)
         assertEquals(CabinetSection.SETTINGS, notificationDestination("/settings")!!.section)
     }
     @Test fun `incomplete preference response is not guessed from defaults`() {

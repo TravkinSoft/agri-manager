@@ -26,6 +26,9 @@ interface CabinetApi {
     @GET("api/crop-structure/bootstrap")
     suspend fun crops(@Header("Authorization") auth: String, @Query("companyId") company: String): Response<JsonObject>
 
+    @GET("api/references/company-assets")
+    suspend fun companyAssets(@Header("Authorization") auth: String, @Query("companyId") company: String): Response<JsonObject>
+
     @GET("api/warehouses/summaries")
     suspend fun warehouses(@Header("Authorization") auth: String, @Query("companyId") company: String): Response<JsonObject>
 

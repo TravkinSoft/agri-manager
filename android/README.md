@@ -1,6 +1,6 @@
-# TravkinFlow Native Android — full Agronomist cabinet (in progress)
+# TravkinFlow Native Android — Agronomist cabinet (in progress)
 
-Jetpack Compose client for the existing Play identity `com.travkin.flow`. Owner expanded the scope on 2026-09-04 from the previous identity-only foundation to the entire working Agronomist cabinet.
+Jetpack Compose client for the existing Play identity `com.travkin.flow`. This is a native implementation of the real Agronomist cabinet, not a TWA/WebView shell. On 2026-09-05 the owner clarified that operation planning belongs inside «Структура посевов» and must not become a separately invented page. The standalone «Талоны» page is deferred from the current visible scope.
 
 **NOT READY FOR INTERNAL TEST.** Do not upload the previous minimal signed V3 bundle. Acceptance is tracked in `../docs/google-play/agronomist-parity-2026-09-04.md` and the machine-readable readiness manifest.
 
@@ -18,13 +18,15 @@ Jetpack Compose client for the existing Play identity `com.travkin.flow`. Owner 
 
 ## Current implementation (not device-accepted)
 
-Primary navigation follows the actual Agronomist menu: harvest summary, crop structure, warehouses, harvest tickets, vehicle traffic and weather. Shared notification/settings screens are separate.
+Current visible primary navigation is: harvest summary, crop structure, warehouses and weather. Shared notification/settings screens are separate. The dormant ticket code is not reachable from the drawer, dashboard cards, warehouse cards or notification links. Vehicle traffic was removed from primary navigation because it is not in the current website Agronomist menu.
 
-Implemented source surfaces include period/identity filters and party drilldowns; crop/fallow/mix field dossiers and historical seasons; crop editor; warehouse stock/lot details; harvest ticket status filters; fleet selection and employee access information; forecast/operating windows and personal weather-profile CRUD; notifications/read acknowledgements and notification preferences.
+Implemented source surfaces include period/identity filters and party drilldowns; crop/fallow/mix field dossiers and historical seasons; crop editor; warehouse stock/lot details; forecast/operating windows and personal weather-profile CRUD; notifications/read acknowledgements and notification preferences.
+
+The native «Создать план работы» action is embedded only in the current-season field detail under «Структура посевов». It reloads the actor, company, field structure and active company assets before a write, uses a stable UUID idempotency key for an uncertain retry, and relies on the existing server endpoint for final role/company/season/machinery validation. The currently exposed create workflows are complete non-material workflows: soil operations, scouting, sampling, harvesting and irrigation. Material-heavy planting/fertilizer/spraying/fertigation forms remain hidden until native product, batch, rate-basis and multi-target handling is complete; they are not shown as non-working controls.
 
 Persistent vehicle-driver assignment was also ported from the new web baseline, including its compare-and-set token and scope-checked receipt. PDF export uses the existing ticket PDF unchanged, and renders the existing field-card HTML response as native paginated PDF text (no script execution/browser engine). Only an explicit Android document-picker action writes to the user's chosen destination. MIME/template/size checks reject login pages and unexpected content. This is not a claim of exact browser print layout or device acceptance.
 
-Still required: operation planning and all detailed operation actions/attachments, printing/export visual fidelity, complete payload/surface parity audit, role-realistic QA and physical Android acceptance. Latest local gates: 67 unit tests, lintDebug and assembleDebug pass. Do not describe six navigation buttons or a passing build as full parity.
+Still required: the material-heavy operation forms and detailed operation actions/attachments, printing/export visual fidelity, complete payload/surface parity audit, role-realistic QA and physical Android acceptance. Latest local gates: 77 unit tests, `lintDebug` and `assembleDebug` pass. Do not describe a passing local build as release or full parity.
 
 ## Synchronization
 

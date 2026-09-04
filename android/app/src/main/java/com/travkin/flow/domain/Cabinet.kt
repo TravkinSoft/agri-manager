@@ -5,14 +5,16 @@ enum class CabinetSection(val label: String, val webPath: String, val primary: B
     HARVEST("Сводка урожая", "/dashboard"),
     CROPS("Структура посевов", "/crop-structure"),
     WAREHOUSES("Склады", "/warehouses"),
-    TICKETS("Талоны", "/tickets"),
-    TRAFFIC("Оборот машин", "/traffic"),
+    TICKETS("Талоны", "/tickets", false),
+    TRAFFIC("Оборот машин", "/traffic", false),
     WEATHER("Погода", "/weather-lab"),
     NOTIFICATIONS("Уведомления", "/notifications", false),
     SETTINGS("Настройки уведомлений", "/settings", false);
 
     companion object {
-        fun fromPath(path: String?) = entries.firstOrNull { it.webPath == path }
+        fun fromPath(path: String?) = entries.firstOrNull {
+            it.webPath == path && (it.primary || it == NOTIFICATIONS || it == SETTINGS)
+        }
     }
 }
 
@@ -63,6 +65,7 @@ data class CabinetPage(
     val notifications: List<CabinetNotification>? = null,
     val notificationPreferences: NotificationPreferences? = null,
     val driverAssignment: DriverAssignment? = null,
+    val operationPlanner: OperationPlannerData? = null,
 )
 
 /** A monotonic generation makes late network results harmless after navigation/logout. */

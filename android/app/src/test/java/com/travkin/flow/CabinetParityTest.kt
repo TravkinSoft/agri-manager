@@ -13,11 +13,11 @@ class CabinetParityTest {
     private fun json(value: String) = JsonParser.parseString(value).asJsonObject
     private fun ticket(extra: String = "") = json("""{"id":"id","op_type":"harvest_incoming","status":"finalized","is_finalized":true $extra} """)
 
-    @Test fun `six sections match current agronomist menu`() {
-        assertEquals(listOf("/dashboard", "/crop-structure", "/warehouses", "/tickets", "/traffic", "/weather-lab"), CabinetSection.entries.filter { it.primary }.map { it.webPath })
+    @Test fun `visible sections use current site names and owner scope`() {
+        assertEquals(listOf("/dashboard", "/crop-structure", "/warehouses", "/weather-lab"), CabinetSection.entries.filter { it.primary }.map { it.webPath })
     }
     @Test fun `admin and station links never become native routes`() {
-        listOf("/platform", "/weighbridge", "/users", "/fields-map", "/assistant", "/traffic-operator", null).forEach { assertNull(CabinetSection.fromPath(it)) }
+        listOf("/platform", "/weighbridge", "/users", "/fields-map", "/assistant", "/traffic-operator", "/tickets", "/traffic", null).forEach { assertNull(CabinetSection.fromPath(it)) }
     }
     @Test fun `older request loses permission to commit`() {
         val gate = RequestGeneration()
@@ -74,6 +74,9 @@ class CabinetParityTest {
         assertFalse(ticketMatches(json("""{"op_type":"shipment_outgoing"}"""), "history"))
     }
     @Test fun `unknown ticket filter fails closed`() { assertFalse(ticketMatches(ticket(), "all-admin")) }
+    @Test fun `deferred ticket page has no dashboard drilldown`() {
+        assertNull(summaryTicketCard(json("""{"ticketId":"ticket","ticketNo":"7"}"""), 0).destination)
+    }
     @Test fun `field identity supports crop mix and fallow`() {
         val catalog = json("""{"crops":[{"id":"c1","name_ru":"Пшеница"},{"id":"c2","name_ru":"Горох"}],"varieties":[{"id":"v1","name":"Сорт 1"}]}""")
         assertEquals("Пар", cropIdentity(json("""{"land_use_type":"fallow"}"""), catalog))

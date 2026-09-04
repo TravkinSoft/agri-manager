@@ -18,6 +18,8 @@ import com.travkin.flow.domain.WeatherProfile
 import com.travkin.flow.domain.NotificationPreferences
 import com.travkin.flow.domain.DriverAssignment
 import com.travkin.flow.domain.DocumentExport
+import com.travkin.flow.domain.OperationPlanDraft
+import com.travkin.flow.domain.OperationPlannerData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
@@ -31,12 +33,14 @@ import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
+import java.util.UUID
 
 class TravkinRepository(context: Context) {
     private val gson = Gson()
     private val localState = LocalStateStore(SecureStorage(context), gson)
     private val refreshMutex = Mutex()
     private var sessionGeneration = 0L
+    private val operationTypeCatalog = operationTypes(context.assets)
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -202,6 +206,43 @@ class TravkinRepository(context: Context) {
         if (!result.isSuccessful) throw result.toApiFailure("Структура не сохранена.")
     }
 
+    suspend fun createOperation(actor: Actor, context: OperationPlannerData, draft: OperationPlanDraft, idempotencyKey: String) {
+        val generation = sessionGeneration
+        val verified = refreshActor()
+        if (verified.id != actor.id || verified.authUserId != actor.authUserId || verified.companyId != actor.companyId || generation != sessionGeneration) {
+            throw SessionExpiredException()
+        }
+        val company = verified.companyId ?: throw UserFacingException("Компания не назначена.")
+        val canonicalKey = runCatching { UUID.fromString(idempotencyKey).toString() }.getOrNull()
+        if (canonicalKey == null || canonicalKey != idempotencyKey.lowercase()) throw UserFacingException("Некорректный ключ безопасного повтора.")
+
+        val freshBootstrap = readCabinet { cabinetApi.crops(it, company) }
+        val freshAssets = readCabinet { cabinetApi.companyAssets(it, company) }
+        if (freshAssets.text("companyId") != company) throw UserFacingException("Сервер вернул технику другой компании.")
+        freshBootstrap.add("machines", freshAssets.get("machines"))
+        freshBootstrap.add("equipment", freshAssets.get("equipment"))
+        freshBootstrap.add("vehicles", freshAssets.get("vehicles"))
+        val freshEditor = cropEditor(freshBootstrap, context.fieldId)
+            ?: throw UserFacingException("Текущий сезон или поле больше недоступны для планирования.")
+        val fresh = operationPlanner(freshBootstrap, freshEditor, operationTypeCatalog)
+        if (fresh.fieldId != context.fieldId || fresh.seasonId != context.seasonId || fresh.allocations != context.allocations) {
+            throw UserFacingException("Структура поля уже изменилась. Закройте форму, обновите поле и создайте план по актуальным данным.")
+        }
+        val body = operationPlanBody(fresh, draft, company, canonicalKey)
+        val session = resolveSession(localState.loadSession() ?: throw SessionExpiredException())
+        if (generation != sessionGeneration) throw CancellationException("Session changed")
+        val result = try { commandApi.createOperation(session.bearer(), canonicalKey, body) }
+        catch (error: java.io.IOException) {
+            throw UserFacingException("Ответ сервера не получен. Не создавайте новый план вслепую: обновите историю работ и повторите с той же формой.", error)
+        }
+        if (generation != sessionGeneration) throw CancellationException("Session changed")
+        if (!result.isSuccessful) throw result.toApiFailure("План работы не создан.")
+        val operationId = result.body()?.obj("operation")?.text("id")
+        if (operationId == null || runCatching { UUID.fromString(operationId) }.isFailure) {
+            throw UserFacingException("Сервер не подтвердил созданную операцию. Обновите историю работ перед повтором.")
+        }
+    }
+
     suspend fun loadCabinet(actor: Actor, query: CabinetQuery): CabinetPage {
         val generation = sessionGeneration
         val verified = refreshActor()
@@ -244,6 +285,13 @@ class TravkinRepository(context: Context) {
                     rowIds.chunked(50).forEach { chunk -> operations.addAll(readSupabasePages { token, offset -> supabaseReadApi.operations(BuildConfig.SUPABASE_ANON_KEY, token,
                         company = "eq.$company", rows = "in.(${chunk.joinToString(",") { requireObjectId(it) }})", offset = offset) }) }
                     bootstrap.add("operations", gson.toJsonTree(operations.map { it.asJsonObject }.sortedByDescending { it.text("date") }))
+                    if ((query.seasonId ?: bootstrap.text("activeSeasonId")) == bootstrap.text("activeSeasonId") && cropEditor(bootstrap, query.objectId) != null) {
+                        val assets = readCabinet { cabinetApi.companyAssets(it, company) }
+                        if (assets.text("companyId") != company) throw UserFacingException("Сервер вернул технику другой компании.")
+                        bootstrap.add("machines", assets.get("machines"))
+                        bootstrap.add("equipment", assets.get("equipment"))
+                        bootstrap.add("vehicles", assets.get("vehicles"))
+                    }
                 }
                 bootstrap
             }
@@ -275,7 +323,7 @@ class TravkinRepository(context: Context) {
             }
         }
         if (generation != sessionGeneration) throw CancellationException("Session changed")
-        return mapCabinet(query, payload)
+        return mapCabinet(query, payload, operationTypeCatalog)
     }
 
     private suspend fun readCabinet(request: suspend (String) -> Response<JsonObject>): JsonObject {

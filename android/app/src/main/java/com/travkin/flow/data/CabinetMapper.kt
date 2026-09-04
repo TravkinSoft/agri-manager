@@ -29,11 +29,11 @@ internal fun serverDate(value: String?): String = value?.let {
 private fun value(label: String, content: String?) = CabinetRow(label, content ?: "Не указано")
 private fun metric(label: String, row: JsonObject, key: String, unit: String = "") = value(label, quantity(row.number(key), unit))
 
-internal fun mapCabinet(query: CabinetQuery, payload: JsonObject): CabinetPage = when (query.section) {
+internal fun mapCabinet(query: CabinetQuery, payload: JsonObject, operationTypes: List<OperationTypeOption> = emptyList()): CabinetPage = when (query.section) {
     CabinetSection.NOTIFICATIONS -> notificationPage(payload)
     CabinetSection.SETTINGS -> CabinetPage("Настройки уведомлений", emptyList(), notificationPreferences = notificationPreferences(payload.obj("preferences")))
     CabinetSection.HARVEST -> if (query.partyKey != null) harvestPartyPage(payload, query) else harvestPage(payload, query)
-    CabinetSection.CROPS -> cropsPage(payload, query)
+    CabinetSection.CROPS -> cropsPage(payload, query, operationTypes)
     CabinetSection.WAREHOUSES -> when {
         query.lotId != null -> harvestLotPage(payload, query)
         query.productId != null -> stockPage(payload, query)
@@ -77,7 +77,7 @@ internal fun cropIdentity(row: JsonObject, data: JsonObject): String {
     return listOfNotNull(name("crops", row.text("crop_id")) ?: "Культура не указана", name("varieties", row.text("variety_id")), name("reproductions", row.text("reproduction_id"))).joinToString(" · ")
 }
 
-private fun cropsPage(data: JsonObject, query: CabinetQuery): CabinetPage {
+private fun cropsPage(data: JsonObject, query: CabinetQuery, operationTypes: List<OperationTypeOption>): CabinetPage {
     val fields = data.requireRows("fields")
     val structure = data.requireRows("cropStructure")
     val selectedSeasonId = query.seasonId ?: data.text("activeSeasonId")
@@ -101,12 +101,15 @@ private fun cropsPage(data: JsonObject, query: CabinetQuery): CabinetPage {
     }
     val fieldGroups = groups.map { it.first }
     val operationCards = groups.flatMap { it.second }
+    val editor = if (selectedSeasonId == data.text("activeSeasonId")) cropEditor(data, query.objectId) else null
     return CabinetPage(query.title ?: "Структура посевов", fieldGroups + if (query.objectId != null) listOf(CabinetGroup("История работ", operationCards)) else emptyList(),
         if (season == null) "Нет активного сезона. Показан список полей без выдуманных посевов." else "Сезон ${season.text("year")}",
-        cropEditor = if (selectedSeasonId == data.text("activeSeasonId")) cropEditor(data, query.objectId) else null,
+        cropEditor = editor,
         seasons = data.rows("seasons").mapNotNull { row -> row.text("id")?.let { id ->
             SeasonOption(id, (row.text("year") ?: "Сезон") + when { row.flag("archived") -> " · закрыт"; id == data.text("activeSeasonId") -> " · активный"; else -> " · только чтение" }, id == selectedSeasonId)
-        } })
+        } },
+        operationPlanner = if (editor != null && operationTypes.isNotEmpty() && data.has("machines")) operationPlanner(data, editor, operationTypes) else null,
+    )
 }
 
 private fun irrigationLabel(value: String?) = when(value) {
