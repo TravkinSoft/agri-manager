@@ -123,6 +123,8 @@ async function loadLedgerRows(
 }
 
 export async function GET(request: NextRequest) {
+  const startedAt = Date.now();
+  const timing: Record<string, number> = {};
   try {
     const actor = await getServerActorFromSession(request);
     const requestedCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
@@ -138,6 +140,8 @@ export async function GET(request: NextRequest) {
       companyId,
       allowedRoles: [...WAREHOUSE_READ_ROLES],
     });
+    timing.auth = Date.now() - startedAt;
+    const dataStartedAt = Date.now();
 
     let requestQuery = supabase
       .from("warehouse_issue_requests")
@@ -159,11 +163,7 @@ export async function GET(request: NextRequest) {
 
     const ledgerRows = ledgerResult.data || [];
     const requestRows = requestResult.data || [];
-    const harvestOriginRefs = await loadHarvestLedgerOriginRefs(
-      supabase,
-      companyId,
-      ledgerRows as any[]
-    );
+    timing.ledger_requests = Date.now() - dataStartedAt;
     const referencedProductIds = new Set<string>();
     for (const row of ledgerRows as any[]) {
       if (row.product_id) referencedProductIds.add(String(row.product_id));
@@ -175,17 +175,25 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    let catalogRows: any[] = [];
-    if (!warehouseId || referencedProductIds.size > 0) {
-      const catalogResult = await loadWarehouseStockCatalog(
+    const originStartedAt = Date.now();
+    const catalogStartedAt = Date.now();
+    const [harvestOriginRefs, catalogResult] = await Promise.all([
+      loadHarvestLedgerOriginRefs(supabase, companyId, ledgerRows as any[])
+        .then((result) => { timing.origins = Date.now() - originStartedAt; return result; }),
+      // Company-wide stock needs the same referenced catalog as warehouse detail,
+      // not every global product. The helper retains ALL company overrides and
+      // all referenced globals, with pagination and unchanged JWT/RLS filters.
+      (referencedProductIds.size > 0 ? loadWarehouseStockCatalog(
         supabase, PRODUCT_SELECT, companyId,
-        warehouseId ? Array.from(referencedProductIds) : undefined
-      );
-      if (catalogResult.error) {
-        return NextResponse.json({ error: catalogResult.error.message }, { status: 400 });
-      }
-      catalogRows = catalogResult.data || [];
+        Array.from(referencedProductIds)
+      ) : Promise.resolve({ data: [], error: null }))
+        .then((result) => { timing.catalog = Date.now() - catalogStartedAt; return result; }),
+    ]);
+    if (catalogResult.error) {
+      return NextResponse.json({ error: catalogResult.error.message }, { status: 400 });
     }
+    const catalogRows = catalogResult.data || [];
+    const mathStartedAt = Date.now();
 
     const catalog = catalogRows.filter((row: any) => row.is_active !== false);
     const productById = new Map(catalog.map((row: any) => [String(row.id), row] as const));
@@ -326,7 +334,11 @@ export async function GET(request: NextRequest) {
           String(a.identity_name || a.product_name).localeCompare(String(b.identity_name || b.product_name))
       );
 
-    return NextResponse.json({ companyId, balances: rows });
+    timing.math = Date.now() - mathStartedAt;
+    timing.total = Date.now() - startedAt;
+    return NextResponse.json({ companyId, balances: rows }, {
+      headers: { "Server-Timing": Object.entries(timing).map(([name, duration]) => `${name};dur=${duration}`).join(", ") },
+    });
   } catch (error) {
     if (error instanceof SessionAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });

@@ -163,6 +163,7 @@ export default function WarehousesPage() {
   const [selectedBatchLoading, setSelectedBatchLoading] = useState(false);
   const selectedBatchRequestGeneration = useRef(0);
   const [detailRevision, setDetailRevision] = useState(0);
+  const [availabilityRefreshTick, setAvailabilityRefreshTick] = useState(0);
   const preferenceKey = user?.id && profile?.company_id ? warehouseViewKey(user.id, profile.company_id) : null;
   const [viewPreference, setViewPreference] = useState<{ key: string; view: WarehouseView } | null>(null);
   const selectedView = viewPreference?.key === preferenceKey ? viewPreference.view : "availability";
@@ -437,7 +438,10 @@ export default function WarehousesPage() {
       if (openWarehouseId) {
         await loadWarehouseDetails(openWarehouseId, { foreground: false, force });
       }
-      setDetailRevision((current) => current + 1);
+      // A generic focus/poll is not a stock mutation. Allow TTL revalidation
+      // without canceling pending reads; actual invalidation gets one follow-up.
+      if (event?.source === "realtime" || event?.source === "online") setDetailRevision((current) => current + 1);
+      setAvailabilityRefreshTick((current) => current + 1);
     },
     companyId: profile?.company_id,
     tables: LIVE_REFRESH_TABLES.warehouses,
@@ -636,7 +640,7 @@ export default function WarehousesPage() {
       {isAgronomist ? (
         <div role="tablist" aria-label="Представление складов" className="flex gap-1 border-b border-slate-800">
           {([{ value: "availability", label: "В наличии" }, { value: "warehouses", label: "По складам" }] as const).map((tab) => (
-            <button key={tab.value} id={`warehouse-tab-${tab.value}`} type="button" role="tab" tabIndex={selectedView === tab.value ? 0 : -1} aria-selected={selectedView === tab.value} aria-controls="warehouse-view" onClick={() => selectView(tab.value)} onKeyDown={(event) => {
+            <button key={tab.value} id={`warehouse-tab-${tab.value}`} type="button" role="tab" tabIndex={selectedView === tab.value ? 0 : -1} aria-selected={selectedView === tab.value} aria-controls={tab.value === "availability" ? "warehouse-availability-view" : "warehouse-view"} onClick={() => selectView(tab.value)} onKeyDown={(event) => {
               if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
               event.preventDefault();
               const next: WarehouseView = event.key === "Home" ? "availability" : event.key === "End" ? "warehouses" : selectedView === "availability" ? "warehouses" : "availability";
@@ -646,11 +650,12 @@ export default function WarehousesPage() {
           ))}
         </div>
       ) : null}
-      {isAgronomist && selectedView === "availability" && profile?.company_id && user?.id ? (
-        <div id="warehouse-view" role="tabpanel" aria-labelledby="warehouse-tab-availability">
-          {loading ? <div role="status" className="py-8 text-sm text-slate-400">Загрузка объектов...</div> : <StockAvailability companyId={profile.company_id} userId={user.id} language={language} warehouses={warehouses} revision={detailRevision} onOpenBatch={(batch) => void openHarvestBatch(batch)} onOpenMaterial={setDetailBalance} />}
+      {isAgronomist && profile?.company_id && user?.id ? (
+        <div id="warehouse-availability-view" role="tabpanel" hidden={selectedView !== "availability"} aria-labelledby="warehouse-tab-availability">
+          <StockAvailability companyId={profile.company_id} userId={user.id} actorScope={`${profile.id}:${profile.role}`} active={selectedView === "availability"} placesLoading={loading} refreshTick={availabilityRefreshTick} language={language} warehouses={warehouses} revision={detailRevision} onOpenBatch={(batch) => void openHarvestBatch(batch)} onOpenMaterial={setDetailBalance} />
         </div>
-      ) : <div id="warehouse-view" role={isAgronomist ? "tabpanel" : undefined} aria-labelledby={isAgronomist ? "warehouse-tab-warehouses" : undefined} className="space-y-3">
+      ) : null}
+      <div id="warehouse-view" hidden={isAgronomist && selectedView !== "warehouses"} role={isAgronomist ? "tabpanel" : undefined} aria-labelledby={isAgronomist ? "warehouse-tab-warehouses" : undefined} className="space-y-3">
       <div className="relative max-w-md">
         <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-500" />
         <Input
@@ -683,7 +688,7 @@ export default function WarehousesPage() {
           </div>
         </section>
       ) : null}
-      </div>}
+      </div>
 
       <Dialog open={Boolean(selectedSummary)} onOpenChange={(open) => !open && closeWarehouse()}>
         <DialogContent className="flex h-[100dvh] max-h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[92vh] sm:max-h-[92vh] sm:w-[min(1100px,calc(100vw-32px))] sm:max-w-[1100px] sm:rounded-lg">
