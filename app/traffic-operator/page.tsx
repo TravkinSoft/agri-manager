@@ -4,7 +4,7 @@ import { Truck, LogOut, Loader2 } from "lucide-react";
 import { ROLE_LABEL } from "@/lib/traffic/model";
 import { TrafficBoard } from "@/components/traffic/traffic-board";
 import { useTraffic } from "@/components/traffic/use-traffic";
-import { InstallTrafficApp } from "@/components/traffic/install-traffic-app";
+import { TrafficPwa } from "@/components/traffic/install-traffic-app";
 import { supabase } from "@/lib/supabase/client";
 export default function TrafficOperatorPage() {
   const live = useTraffic(false);
@@ -47,7 +47,8 @@ export default function TrafficOperatorPage() {
     }
   }
   return (
-    <main className="min-h-[100dvh] bg-[#0c1118] px-4 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] text-slate-100 sm:px-6">
+    <main className="min-h-[100dvh] touch-pan-y bg-[#0c1118] px-4 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] text-slate-100 sm:px-6">
+      <TrafficPwa />
       <div className="mx-auto max-w-5xl">
         <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -76,7 +77,6 @@ export default function TrafficOperatorPage() {
             <Truck className="text-amber-300" size={28} />
           )}
         </header>
-        <InstallTrafficApp />
         {live.loading ? (
           <div role="status" className="flex justify-center py-20">
             <Loader2 className="animate-spin" />
@@ -139,6 +139,7 @@ export default function TrafficOperatorPage() {
             stale={live.stale}
             error={live.error}
             refresh={live.refresh}
+            onCommitted={live.applyCommitted}
           />
         ) : (
           <div role="alert" className="py-10 text-amber-200">

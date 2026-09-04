@@ -63,6 +63,29 @@ export interface TrafficSnapshot {
     vehicle_plate: string | null;
   }>;
 }
+export interface TrafficCommit {
+  eventId: string;
+  replayed: boolean;
+  serverTime: string;
+  refreshRequired: boolean;
+  vehicle: Pick<TrafficVehicle, "vehicle_id" | "state" | "version" | "since" | "cycle" | "assigned"> | null;
+}
+
+// Apply only a server-confirmed current row, never the user's requested target.
+export function applyTrafficCommit(
+  snapshot: TrafficSnapshot,
+  receipt: TrafficCommit,
+): TrafficSnapshot {
+  const row = receipt.vehicle;
+  if (!row) return snapshot;
+  const existing = snapshot.vehicles.find((vehicle) => vehicle.vehicle_id === row.vehicle_id);
+  if (!existing || existing.version > row.version) return snapshot;
+  return {
+    ...snapshot,
+    vehicles: visibleVehicles(snapshot.vehicles.map((vehicle) =>
+      vehicle.vehicle_id === row.vehicle_id ? { ...vehicle, ...row } : vehicle), snapshot.role),
+  };
+}
 export function visibleVehicles(
   vehicles: TrafficVehicle[],
   role: TrafficRole,

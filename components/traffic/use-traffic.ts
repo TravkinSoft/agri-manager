@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { TrafficSnapshot } from "@/lib/traffic/model";
+import { applyTrafficCommit, type TrafficCommit, type TrafficSnapshot } from "@/lib/traffic/model";
 import { supabase } from "@/lib/supabase/client";
 export interface ManagerData {
   snapshot: TrafficSnapshot;
@@ -91,6 +91,7 @@ export function useTraffic(isManager: boolean) {
   const loggedOut = useRef(false);
   const authGeneration = useRef(0);
   const authIdentity = useRef<string | null | undefined>(undefined);
+  const readEpoch = useRef(0);
   const refresh = useCallback(
     async (fresh = false): Promise<void> => {
       if (!isManager && loggedOut.current && !fresh) return;
@@ -102,6 +103,7 @@ export function useTraffic(isManager: boolean) {
       }
       const run = async () => {
         const generation = authGeneration.current;
+        const epoch = readEpoch.current;
         if (!navigator.onLine) {
           setStale(true);
           setError("Нет связи. Показаны последние полученные данные");
@@ -124,7 +126,7 @@ export function useTraffic(isManager: boolean) {
             isManager,
             controller.current.signal,
           );
-          if (!mounted.current || generation !== authGeneration.current) return;
+          if (!mounted.current || generation !== authGeneration.current || epoch !== readEpoch.current) return;
           setData(isManager ? payload.snapshot : payload);
           if (isManager) {
             if (compact)
@@ -141,7 +143,7 @@ export function useTraffic(isManager: boolean) {
           setStale(false);
           setError("");
         } catch (caught) {
-          if (!mounted.current || generation !== authGeneration.current) return;
+          if (!mounted.current || generation !== authGeneration.current || epoch !== readEpoch.current) return;
           const failure = caught as Error & { status?: number };
           if (failure.status === 401 && !isManager) {
             loggedOut.current = true;
@@ -169,13 +171,29 @@ export function useTraffic(isManager: boolean) {
     },
     [isManager],
   );
+  const generation = authGeneration.current;
+  const applyCommitted = useCallback((receipt: TrafficCommit, vehicleId: string, expectedVersion: number) => {
+    const row = receipt?.vehicle;
+    if (!mounted.current || generation !== authGeneration.current || !row ||
+      typeof receipt.eventId !== "string" || !Number.isFinite(Date.parse(receipt.serverTime)) ||
+      row.vehicle_id !== vehicleId || !["empty", "loaded", "unloading"].includes(row.state) ||
+      !Number.isInteger(row.version) || row.version <= expectedVersion ||
+      !Number.isInteger(row.cycle) || row.cycle < 0 || typeof row.assigned !== "boolean" ||
+      !Number.isFinite(Date.parse(row.since))) return false;
+    // A GET begun before the committed POST must never roll the card back.
+    readEpoch.current++;
+    controller.current?.abort();
+    setData((old) => old ? applyTrafficCommit(old, receipt) : old);
+    setManagerData((old) => old ? { ...old, snapshot: applyTrafficCommit(old.snapshot, receipt) } : old);
+    return true;
+  }, [generation]);
   useEffect(() => {
     mounted.current = true;
     let timer: number;
     let cancelled = false;
     const poll = async () => {
       if (document.visibilityState !== "hidden") await refresh();
-      if (!cancelled) timer = window.setTimeout(poll, 8000);
+      if (!cancelled) timer = window.setTimeout(poll, 2000);
     };
     const awaken = () => {
       if (document.visibilityState !== "hidden") {
@@ -203,6 +221,7 @@ export function useTraffic(isManager: boolean) {
       if (identity !== authIdentity.current || event === "SIGNED_OUT") {
         authIdentity.current = identity;
         authGeneration.current++;
+        readEpoch.current++;
         controller.current?.abort();
         setData(null);
         setManagerData(null);
@@ -234,5 +253,5 @@ export function useTraffic(isManager: boolean) {
       document.removeEventListener("visibilitychange", visible);
     };
   }, [refresh, isManager]);
-  return { data, managerData, error, stale, needsLogin, loading, refresh };
+  return { data, managerData, error, stale, needsLogin, loading, refresh, applyCommitted };
 }

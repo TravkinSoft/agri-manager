@@ -106,12 +106,25 @@ export async function operator(request: NextRequest) {
     );
   const companyId = resolveCompanyForActor(actor);
   const db = getServiceClient();
-  const { data: profile, error } = await db
-    .from("profiles")
-    .select("id,role,status,company_id")
-    .eq("id", actor.id)
-    .eq("company_id", companyId)
-    .maybeSingle();
+  // Both fresh checks depend only on the verified identity, not on one another.
+  // Keep their predicates and validation even though the transition RPC rechecks them.
+  const [profileResult, personResult] = await Promise.all([
+    db
+      .from("profiles")
+      .select("id,role,status,company_id")
+      .eq("id", actor.id)
+      .eq("company_id", companyId)
+      .maybeSingle(),
+    db
+      .from("company_people")
+      .select("id,full_name")
+      .eq("user_id", actor.id)
+      .eq("company_id", companyId)
+      .eq("status", "active")
+      .is("deleted_at", null)
+      .limit(2),
+  ]);
+  const { data: profile, error } = profileResult;
   if (error) throw error;
   const role =
     profile?.status === "active" ? operatorRole(String(profile.role)) : null;
@@ -120,14 +133,7 @@ export async function operator(request: NextRequest) {
       "Кабинет доступен только механизатору и бригадиру овощной бригады с активным аккаунтом",
       403,
     );
-  const { data: people, error: personError } = await db
-    .from("company_people")
-    .select("id,full_name")
-    .eq("user_id", actor.id)
-    .eq("company_id", companyId)
-    .eq("status", "active")
-    .is("deleted_at", null)
-    .limit(2);
+  const { data: people, error: personError } = personResult;
   if (personError) throw personError;
   if (people?.length !== 1)
     throw new TrafficError(

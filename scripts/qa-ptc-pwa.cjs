@@ -23,7 +23,7 @@ async function main() {
   check(layout.includes('manifest: "/traffic-operator.webmanifest"'),"operator metadata overrides root manifest");
   const installer=fs.readFileSync(path.join(root,"components/traffic/install-traffic-app.tsx"),"utf8");
   check(installer.includes('scope: "/traffic-operator"'),"narrow worker registration");
-  check(installer.includes('"beforeinstallprompt"')&&installer.includes('"appinstalled"'),"real browser install events");
+  check(installer.includes('return null') && !installer.includes('beforeinstallprompt'),"headless PWA registration leaves native browser install available without a panel");
   const runtime=fs.readFileSync(path.join(root,"components/offline/offline-runtime.tsx"),"utf8");
   check((runtime.match(/if \(independentTraffic\) return;/g)||[]).length===2,"both ERP registration and queue-sync effects disabled in PTC");
   const handlers={};let online=true;let networkCalls=0;

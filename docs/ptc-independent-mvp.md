@@ -44,11 +44,15 @@ All PTC interfaces are mobile-first, including manager setup, account guidance a
 
 The manager board groups vehicles into «Пустые», «Загруженные», «На выгрузке» with white, green and yellow cards respectively. The three columns start at 1024 CSS px and stack as three clearly labelled groups on phones. Counts appear once in group headings. Cards prioritize the plate, then vehicle name and optional assigned driver; operator controls retain 48px touch targets and the same confirmed transitions.
 
-Visible clients poll canonical snapshots every eight seconds after the previous request finishes. Manager catalogs are paginated and omitted from repeated compact snapshots. Operator responses omit manager event history. Focus, online, pageshow and visible-tab return force refresh; hidden tabs do not poll. Old/offline data is marked stale and actions are disabled. There is no optimistic write or offline write replay.
+Visible clients poll canonical snapshots every two seconds after the previous request finishes, with one read in flight. Manager catalogs are paginated and omitted from repeated compact snapshots. Operator responses omit manager event history. Focus, online, pageshow and visible-tab return force refresh; hidden tabs do not poll. Old/offline data is marked stale and actions are disabled. A compact warning appears only while verification is needed; no permanent healthy-status bar.
+
+Confirming a card immediately closes the dialog and shows «Сохраняем…» on the unchanged vehicle. The POST returns a verified event receipt plus one current same-company vehicle state; only that server-confirmed row updates the card, without waiting for another full GET. Old in-flight GETs and late receipts from a prior account cannot roll back or contaminate the current view. A replay returns current state, never the old requested target. If the optional state read fails after commit, the receipt requires a canonical refresh. Unknown outcomes retry with the same idempotency key. No optimistic success or offline write replay. Profile/person checks run in parallel without removing fresh authorization predicates. Server-Timing exposes only auth/rpc/read/total durations.
 
 The operator route overrides the ERP manifest with `/traffic-operator.webmanifest`: distinct identity, standalone start at `/traffic-operator?source=pwa`, scope `/traffic-operator`, existing real 192/512 PNG and maskable icons. The manager remains on normal `/traffic`.
 
-`/ptc-sw.js` is registered only for `/traffic-operator`. It has zero CacheStorage use and only intercepts cabinet document navigation, network no-store with a small honest offline fallback. API/session, mutations, RSC and other app routes are not stored or replayed. ERP OfflineRuntime is disabled on PTC routes; its existing worker and caches are untouched. The install CTA listens to real browser install events and gives honest Chrome Android instructions when a prompt is unavailable.
+`/ptc-sw.js` is registered only for `/traffic-operator`. It has zero CacheStorage use and only intercepts cabinet document navigation, network no-store with a small honest offline fallback. API/session, mutations, RSC and other app routes are not stored or replayed. ERP OfflineRuntime is disabled on PTC routes; its existing worker and caches are untouched. Headless registration keeps browser-native installation available without any install panel. The operator route requests initial/minimum/maximum scale1, userScalable=false and vertical touch panning; system/browser accessibility settings may override zoom restrictions. ERP viewport is unchanged.
+
+Operator cards are whole-card48px-minimum buttons with no inner action bar. Compact current-state/elapsed-time text remains; loaded receiver cards are green, occupied harvester cards are grayscale and noninteractive. Confirmation still names the exact vehicle and action.
 
 ## Local gates and hosted acceptance
 
@@ -58,7 +62,10 @@ The operator route overrides the ERP manifest with `/traffic-operator.webmanifes
 - `node scripts/qa-ptc-pwa.cjs`: 32 manifest/icon/worker behavior assertions.
 - `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-mobile-css.ts`: eight actual generated Tailwind-rule assertions.
 - `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-simple-settings.ts`: 33 component/API assertions for field-free vehicle selection and preserved history context.
-- `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-compact-board.ts`: 99 component/SSR/CSS assertions for grouped compact cards, role actions, disabled/stale guards and dashboard-theme contrast regressions.
+- `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-compact-board.ts`: 148 component/SSR/CSS and deferred-confirmation assertions.
+- `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-fast-client.ts`: 93 actual hook/request assertions for receipts, old-read/account guards and bounded polling.
+- `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-transition-receipt.ts`: 171 API/fresh-authorization/receipt assertions with injected database/auth responses.
+- `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-operator-shell.ts`: 90 headless PWA/viewport/rendered-role/CSS assertions.
 - Full TypeScript and scoped Next lint.
 
 PGlite's queued concurrent calls are not a proof of a multi-connection database race; hosted QA separately validates the final schema. Hosted acceptance must verify real invitations/password setup, two normal operator logins, role/company boundaries, complete cross-cabinet cycle, stale/offline and account-switch behavior, actual manifest MIME/worker scope/installability and mobile DOM at 320/360/390/412 CSS px. Desktop emulation is not physical Android testing. PWA first; no native wrapper, Google Play build or publication in this work.

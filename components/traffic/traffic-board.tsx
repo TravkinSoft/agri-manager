@@ -3,8 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Truck,
   Clock3,
-  ArrowRight,
-  Check,
+  Loader2,
   RefreshCw,
   WifiOff,
 } from "lucide-react";
@@ -16,6 +15,7 @@ import {
   type TrafficSnapshot,
   type TrafficVehicle,
   type TrafficState,
+  type TrafficCommit,
 } from "@/lib/traffic/model";
 import {
   AlertDialog,
@@ -48,11 +48,13 @@ export function TrafficBoard({
   stale,
   error,
   refresh,
+  onCommitted,
 }: {
   snapshot: TrafficSnapshot;
   stale: boolean;
   error: string;
   refresh: (fresh?: boolean) => Promise<void>;
+  onCommitted?: (receipt: TrafficCommit, vehicleId: string, expectedVersion: number) => boolean;
 }) {
   const [now, setNow] = useState(Date.now());
   const [selected, setSelected] = useState<{
@@ -62,6 +64,7 @@ export function TrafficBoard({
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [pendingVehicle, setPendingVehicle] = useState<string | null>(null);
   const submitting = useRef(false);
   useEffect(() => {
     const tick = window.setInterval(() => setNow(Date.now()), 15000);
@@ -74,23 +77,32 @@ export function TrafficBoard({
   async function confirm() {
     if (!selected || submitting.current || stale || !snapshot.enabled) return;
     submitting.current = true;
+    const command = selected;
     setBusy(true);
+    setPendingVehicle(command.vehicle.vehicle_id);
+    setSelected(null);
     setActionError("");
     try {
-      await trafficRequest("/api/traffic/operator", "POST", {
-        vehicleId: selected.vehicle.vehicle_id,
-        version: selected.vehicle.version,
-        target: selected.target,
-        key: selected.key,
+      const receipt = await trafficRequest("/api/traffic/operator", "POST", {
+        vehicleId: command.vehicle.vehicle_id,
+        version: command.vehicle.version,
+        target: command.target,
+        key: command.key,
       });
-      setSelected(null);
-      await refresh(true);
+      if (onCommitted?.(receipt, command.vehicle.vehicle_id, command.vehicle.version)) {
+        // The confirmed row is visible now; full reconciliation is not a UI gate.
+        void refresh();
+      } else {
+        await refresh(true);
+      }
     } catch (caught) {
+      setSelected(command);
       setActionError((caught as Error).message);
-      await refresh(true);
+      void refresh(true);
     } finally {
       submitting.current = false;
       setBusy(false);
+      setPendingVehicle(null);
     }
   }
   const isManager = snapshot.role === "manager";
@@ -102,29 +114,17 @@ export function TrafficBoard({
     : [{ state: null, vehicles: snapshot.vehicles }];
   return (
     <>
-      <div className="mb-6 flex justify-end text-sm">
+      {stale || error ? <div className="mb-3 flex items-center justify-between gap-2 text-xs text-amber-200" role="status">
+        <span>{error || "Проверяем актуальность статусов…"}</span>
         <button
           type="button"
           onClick={() => void refresh(true)}
-          className={`flex min-h-[48px] items-center gap-2 rounded-xl px-3 ${stale ? "bg-amber-500/10 text-amber-200" : "text-slate-400 hover:bg-white/5"}`}
+          className="flex min-h-[48px] shrink-0 items-center gap-2 px-2"
           aria-label="Обновить статусы"
         >
-          {stale ? <WifiOff size={16} /> : <RefreshCw size={15} />}{" "}
-          {stale ? "Нет свежих данных" : "Обновляется автоматически"}
+          {error ? <WifiOff size={16} /> : <RefreshCw size={15} />}{" "} Обновить
         </button>
-      </div>
-      {error ? (
-        <p
-          role="alert"
-          className="mb-4 rounded-xl bg-amber-500/10 p-3 text-sm text-amber-200"
-        >
-          {error}. Последнее обновление:{" "}
-          {new Date(snapshot.serverTime).toLocaleTimeString("ru-RU", {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </p>
-      ) : null}
+      </div> : null}
       {!snapshot.enabled ? (
         <p className="mb-5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-amber-100">
           {snapshot.role === "manager"
@@ -174,7 +174,7 @@ export function TrafficBoard({
                 </span>
               ) : null}
               <span className="mt-1 flex flex-wrap items-center gap-1 text-[11px] leading-4 opacity-70">
-                {!isManager ? <span>{STATE_LABEL[vehicle.state]} ·</span> : null}
+                {pendingVehicle === vehicle.vehicle_id ? <span className="inline-flex items-center gap-1" role="status"><Loader2 size={12} className="animate-spin" /> Сохраняем… ·</span> : !isManager ? <span>{STATE_LABEL[vehicle.state]} ·</span> : null}
                 <Clock3 aria-hidden size={11} />
                 {stateAge(vehicle.since, now + offset)}
               </span>
@@ -187,21 +187,14 @@ export function TrafficBoard({
               data-testid={`traffic-vehicle-${vehicle.vehicle_id}`}
               aria-label={`${ACTION_LABEL[target]}: ${vehicle.name}, ${vehicle.plate || "без номера"}`}
               disabled={busy || stale || !snapshot.enabled}
+              aria-busy={pendingVehicle === vehicle.vehicle_id}
               onClick={() => {
                 setActionError("");
                 setSelected({ vehicle, target, key: crypto.randomUUID() });
               }}
-              className={`${cardClass} w-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 disabled:cursor-not-allowed disabled:opacity-50`}
+              className={`${cardClass} min-h-[48px] w-full cursor-pointer active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 disabled:cursor-not-allowed ${stale || !snapshot.enabled ? "opacity-50" : ""}`}
             >
               {content}
-              <span className="mt-2 flex min-h-[48px] w-full items-center justify-between rounded-lg bg-black/5 px-3 text-sm font-semibold">
-                {ACTION_LABEL[target]}
-                {target === "empty" ? (
-                  <Check size={18} />
-                ) : (
-                  <ArrowRight size={18} />
-                )}
-              </span>
             </button>
           ) : (
             <article
@@ -210,11 +203,6 @@ export function TrafficBoard({
               className={cardClass}
             >
               {content}
-              {snapshot.role === "harvester" ? (
-                <p className="mt-2 flex min-h-[48px] items-center text-sm opacity-70">
-                  Ожидаем разгрузку
-                </p>
-              ) : null}
             </article>
           );
         })}
