@@ -63,7 +63,7 @@ import {
   normalizeWeighbridgeTransportPickerData,
   type WeighbridgeTransportPickerData,
 } from "@/lib/weighbridge/transport-pairing";
-import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
+import { resolveTransportIdentity, transportPickerOptionLabel } from "@/lib/weighbridge/transport";
 import {
   UNIVERSAL_WORKSPACE_MAX_TABS,
   UNIVERSAL_WORKSPACE_SCHEMA_VERSION,
@@ -5634,7 +5634,7 @@ export default function WeighbridgeOperationsPage() {
                     vehicleId={selectedVehicle.id}
                     companyId={profile?.company_id}
                     driverName={drivers.find((driver) => driver.assignedVehicleIds.includes(selectedVehicle.id))?.name}
-                    vehicleLabel={selectedVehicle.name}
+                    vehicleLabel={transportPickerOptionLabel(selectedVehicle)}
                     disabled={loading || submitting}
                     onAssigned={applyAssignmentToNewDraft}
                   />

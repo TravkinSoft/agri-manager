@@ -73,6 +73,10 @@ check("reverse suggestion retains open-ticket busy guards", () => {
 const read = (file: string) => readFileSync(resolve(process.cwd(), file), "utf8");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
 const picker = read("components/weighbridge/transport-driver-picker.tsx");
+check("assignment editor label includes the same vehicle and plate as the transport picker", () => {
+  assert.equal(transport.transportPickerOptionLabel({ name: "KAMAZ", plate: "QA-207" }), "KAMAZ · QA-207");
+  assert.match(page, /vehicleLabel=\{transportPickerOptionLabel\(selectedVehicle\)\}/);
+});
 check("UI still blocks selected busy vehicles and drivers", () => {
   assert.match(picker, /const assignment = assignmentByVehicle\.get\(nextVehicleId\);\s*if \(assignment\) \{\s*onBlockedAssignment\(assignment\);\s*return;/);
   assert.match(picker, /const assignment = assignmentByDriver\.get\(nextDriverId\);\s*if \(assignment\) \{\s*onBlockedAssignment\(assignment\);\s*return;/);
