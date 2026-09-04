@@ -37,7 +37,7 @@ async function main(){let checks=0;
     ['global_admin','home','selected',200],['company_admin','selected','selected',200],
     ['company_admin','home','selected',403],['mechanic_operator','selected','selected',403],
     ['vegetable_brigadier','selected','selected',403],['agronomist','selected','selected',403],
-  ]){const h=harness(role,'active',home,target);const r=await h.run();assert.equal(r.status,expected);if(expected===403)assert.equal(h.counts().lists,0);else assert.equal(r.body.profiles.length,2);checks++;}
+  ] as const){const h=harness(role,'active',home,target);const r=await h.run();assert.equal(r.status,expected);if(expected===403)assert.equal(h.counts().lists,0);else assert.equal(r.body.profiles.length,2);checks++;}
   for(const status of ['inactive','revoked']){const h=harness('global_admin',status);assert.equal((await h.run()).status,403);assert.equal(h.counts().lists,0);checks++;}
   assert.equal((await harness('global_admin','active','home','selected',true).run()).status,401);checks++;
   const h=harness('global_admin','active','home','selected',false,1001);const r=await h.run();assert.equal(r.body.profiles.length,1001);assert.equal(h.counts().pages,3);assert.match(r.headers['Cache-Control'],/no-store/);checks++;
