@@ -108,3 +108,18 @@ dependencies {
 
     testImplementation "junit:junit:4.13.2"
 }
+
+// User expanded the product from a minimal identity screen to the full cabinet.
+// Fail before packaging/signing, including direct Gradle invocations.
+tasks.configureEach { task ->
+    if (task.name == "preReleaseBuild") {
+        task.doFirst {
+            def readinessFile = rootProject.file("../docs/google-play/agronomist-release-readiness.json")
+            if (!readinessFile.exists()) throw new GradleException("Full Agronomist acceptance manifest missing")
+            def readiness = new groovy.json.JsonSlurper().parse(readinessFile)
+            if (readiness.readyForInternalTest != true || readiness.deviceAcceptance != true || readiness.roleRealisticQa != true) {
+                throw new GradleException("Full Agronomist cabinet is not accepted. Release is blocked; use debug verification only.")
+            }
+        }
+    }
+}

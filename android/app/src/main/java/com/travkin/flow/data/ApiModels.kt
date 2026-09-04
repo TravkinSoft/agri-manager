@@ -31,9 +31,11 @@ data class ActorEnvelopeDto(
 data class ActorDto(
     val id: String?,
     val role: String?,
-    @SerializedName("company_id") val companyId: String?,
+    @SerializedName(value = "companyId", alternate = ["company_id"]) val companyId: String?,
     val email: String?,
     val status: String?,
+    val authUserId: String? = null,
+    val isImpersonating: Boolean? = null,
 )
 
 data class StoredSession(
@@ -48,4 +50,5 @@ data class StoredActor(
     val companyId: String?,
     val email: String?,
     val savedAtEpochMillis: Long,
+    val authUserId: String? = null,
 )

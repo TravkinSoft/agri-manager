@@ -6,6 +6,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+$readinessPath = Join-Path (Split-Path -Parent $projectDirectory) 'docs\google-play\agronomist-release-readiness.json'
+if (-not (Test-Path -LiteralPath $readinessPath -PathType Leaf)) { throw 'Full Agronomist acceptance manifest is missing. Play signing is blocked.' }
+$readiness = Get-Content -LiteralPath $readinessPath -Raw | ConvertFrom-Json
+if ($readiness.readyForInternalTest -ne $true -or $readiness.deviceAcceptance -ne $true -or $readiness.roleRealisticQa -ne $true) {
+    throw 'Full Agronomist cabinet has not passed acceptance. Do not sign or upload the previous minimal AAB. Signing keys have not been opened.'
+}
 $bundlePath = Join-Path $projectDirectory 'app\build\outputs\bundle\release\app-release.aab'
 $generatedBuildConfig = Join-Path $projectDirectory 'app\build\generated\source\buildConfig\release\com\travkin\flow\BuildConfig.java'
 $expectedRepositoryRoot = 'C:\Users\TRAVKIN\Downloads\CodecSaaS\project-google-market-native-v1'
@@ -119,20 +125,11 @@ function Assert-NativeReleaseSource {
         'androidbrowserhelper',
         '\bbubblewrap\b',
         '\bCustomTabs?\b',
-        '\bweighbridge\b',
         '\bweighman\b',
-        'Весов',
         '\bcopilot\b',
-        '\bassistant\b',
-        '\bglobal_admin\b',
-        '\bcompany_admin\b',
-        '\bspecialist\b',
-        '\bwarehouse\b',
-        '\bnotifications?\b',
-        '\bweather\b',
-        '\bharvest\b',
-        '\btickets?\b',
-        '\bmap\b'
+        'api/assistant',
+        'api/traffic/operator',
+        'api/traffic/session'
     )
     if (@($runtimeFiles | Select-String -Pattern $forbiddenRuntimePatterns).Count -gt 0) {
         throw 'Forbidden mobile runtime or out-of-scope feature detected in app/src/main.'

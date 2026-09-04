@@ -22,7 +22,7 @@ class LocalStateStore(
         val stored = decode(ACTOR_KEY, StoredActor::class.java) ?: return null
         if (System.currentTimeMillis() - stored.savedAtEpochMillis !in 0..maxAgeMillis) return null
         val role = SupportedRole.fromWire(stored.role) ?: return null
-        return Actor(stored.id, role, stored.companyId, stored.email)
+        return Actor(stored.id, role, stored.companyId, stored.email, stored.authUserId ?: stored.id)
     }
 
     fun saveActor(actor: Actor) {
@@ -35,6 +35,7 @@ class LocalStateStore(
                     companyId = actor.companyId,
                     email = actor.email,
                     savedAtEpochMillis = System.currentTimeMillis(),
+                    authUserId = actor.authUserId,
                 ),
             ),
         )

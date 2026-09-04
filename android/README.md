@@ -1,85 +1,57 @@
-# TravkinFlow Native Android
+# TravkinFlow Native Android — full Agronomist cabinet (in progress)
 
-Jetpack Compose client for the existing Play identity `com.travkin.flow`.
+Jetpack Compose client for the existing Play identity `com.travkin.flow`. Owner expanded the scope on 2026-09-04 from the previous identity-only foundation to the entire working Agronomist cabinet.
 
-## Product scope
+**NOT READY FOR INTERNAL TEST.** Do not upload the previous minimal signed V3 bundle. Acceptance is tracked in `../docs/google-play/agronomist-parity-2026-09-04.md` and the machine-readable readiness manifest.
 
-The current Google Play release is an Agronomist-only native foundation:
+## Architecture and isolation
 
-- Supabase email/password authentication over HTTPS;
-- server-authoritative actor lookup through `GET /api/auth/actor`;
-- fail-closed admission for the single wire role `agronomist`;
-- encrypted access/refresh token and actor cache through Android Keystore AES-GCM;
-- one native Agronomist cabinet with server-verified role/company context, refresh and logout.
-
-No other role is accepted by the Android client. Global Admin, Company Admin, Weighman, Specialist, warehouse and any unknown role fail closed and their local session is cleared.
-
-The release intentionally has no field map or secondary working pages. Those features are added later, one independently accepted stage at a time.
-
-The Android runtime contains no weighbridge screen, weighing workflow, ticket flow, operator session, write queue or weighbridge API route. The weighbridge remains a desktop web tool.
-
-Travkin Copilot is not rendered or linked anywhere in the Agronomist Android UI. There is no Copilot button, tab, panel, deep link or API entry point in this mobile artifact. The existing web Copilot engine/API is not deleted or changed and remains outside this Android worktree.
-
-## Runtime boundary
-
-- The business UI is native Compose.
-- The runtime has no WebView, TWA, Bubblewrap, Android Browser Helper, Custom Tabs or embedded-site fallback.
+- Isolated worktree `project-google-market-native-v1`, branch `codex/google-market-native-v1`.
+- Native Compose UI, user-scoped HTTPS API calls, server-authoritative role/company.
+- Agronomist only; no role impersonation, operator station or administrative cabinet.
+- No WebView, TWA, Custom Tabs or embedded-site fallback.
 - `debug`: package `com.travkin.flow.qa`, API `https://qa.travkinflow.com`.
 - `release`: package `com.travkin.flow`, API `https://travkinflow.com`.
-- Only a Supabase publishable/anon key may be embedded. Service-role, signing passwords and database secrets never belong in the app or Git.
-- No database schema, RLS policy, web application or web Production deployment is changed by this Android scope.
+- Historical seasons/operation reads use the same Supabase Data API as the web, with user JWT and publishable/anon key; never a service key.
+- No web application changes, database migrations/RLS changes, master merge or Production deployment.
+- Development/verification Production business writes: **0**. Implemented commands are invoked only by explicit app-user actions.
 
-## Build configuration
+## Current implementation (not device-accepted)
 
-Set these process-only variables before a build that needs login:
+Primary navigation follows the actual Agronomist menu: harvest summary, crop structure, warehouses, harvest tickets, vehicle traffic and weather. Shared notification/settings screens are separate.
 
-- `TRAVKINFLOW_SUPABASE_URL`
-- `TRAVKINFLOW_SUPABASE_ANON_KEY`
+Implemented source surfaces include period/identity filters and party drilldowns; crop/fallow/mix field dossiers and historical seasons; crop editor; warehouse stock/lot details; harvest ticket status filters; fleet selection and employee access information; forecast/operating windows and personal weather-profile CRUD; notifications/read acknowledgements and notification preferences.
 
-Release signing uses only the external variables managed by `build-play-bundle.ps1`:
+Persistent vehicle-driver assignment was also ported from the new web baseline, including its compare-and-set token and scope-checked receipt. Still required: operation planning and all detailed operation actions/attachments, printing/export fidelity, complete payload/surface parity audit, role-realistic QA and physical Android acceptance. Do not describe six navigation buttons or a passing build as full parity.
 
-- `TRAVKINFLOW_UPLOAD_KEYSTORE`
-- `TRAVKINFLOW_UPLOAD_STORE_PASSWORD`
-- `TRAVKINFLOW_UPLOAD_KEY_ALIAS`
-- `TRAVKINFLOW_UPLOAD_KEY_PASSWORD`
+## Synchronization
 
-No signing material is stored in this repository.
+Native screens read the same server data as the site on navigation, foreground, manual refresh and bounded foreground intervals (traffic 5 s, notifications 15 s, most pages 30 s, weather 5 min). Editing dialogs pause their page polling. Business records are not stored as a second independent Android database. Authentication tokens are encrypted using Android Keystore.
 
-## Verification
+Late results are guarded across navigation/logout/account changes. Commands use a separate no-retry/no-redirect client and a single in-flight UI action; an uncertain network outcome requires reading the canonical server state before trying again.
 
-```powershell
-./gradlew.bat testDebugUnitTest testReleaseUnitTest lintDebug lintRelease assembleDebug assembleRelease bundleRelease
-```
+Data and supported actions are shared with the website. Changes to native layouts/features require a new Android build; website UI code does not automatically become a native screen.
 
-Static product-scope gate:
+## Debug verification
+
+Set process-only `TRAVKINFLOW_SUPABASE_URL` and `TRAVKINFLOW_SUPABASE_ANON_KEY` for the **QA Supabase project** before building a usable QA login APK. Do not use Production authentication configuration with the QA website.
 
 ```powershell
-rg -n -i "WebView|androidx\.webkit|loadUrl|TrustedWebActivity|bubblewrap|androidbrowserhelper|CustomTabs|weighbridge|weighman|Весов|copilot|assistant" app/src/main
+./gradlew.bat testDebugUnitTest lintDebug assembleDebug
 ```
 
-The static command must return no matches. The release dependency tree must also contain zero WebView/TWA dependencies.
+A build without public Auth configuration is suitable for compilation checks only, not a successful login demonstration. Never put account passwords in source, Gradle properties or reports.
 
-## Play signing gate
+Current integration blocker (2026-09-04): unauthenticated native HTTP calls to QA `/api/healthz`, `/api/auth/actor` and `/auth/login` each return **302 to vercel.com**. A browser's Vercel SSO session does not establish native app access. No deployment-protection bypass secret was embedded and no QA/Production protection setting was changed. Arrange an explicitly authorized Android QA access path before account/device testing. No device was connected at this checkpoint.
 
-For the final signed Play bundle, set only the Supabase URL/publishable key in the current terminal and run `build-play-bundle.ps1`. The script prompts for both upload-key passwords without echoing them, clears signing variables on exit, creates the AAB, validates it and never uploads or publishes it.
+## Release guard
 
-The signing command accepts only:
+`preReleaseBuild` and `build-play-bundle.ps1` reject signing/packaging while `readyForInternalTest`, `deviceAcceptance` and `roleRealisticQa` are false. Passing tests alone must not change these fields. The PowerShell guard runs before opening signing files.
 
-- worktree `C:\Users\TRAVKIN\Downloads\CodecSaaS\project-google-market-native-v1`;
-- branch `codex/google-market-native-v1`;
-- a clean HEAD descending from native baseline `909bd1eed3c367f0fcca68c2d765ef567d09e300`;
-- package/version/target `com.travkin.flow` / `3` / `3.0.0` / API 36;
-- alias `travkinflow-upload` with the exact Google Play Upload certificate;
-- zero forbidden runtime/source/dependency matches.
+After acceptance, existing signing invariants still apply: exact native worktree/branch and approved native ancestry, clean HEAD, package/version/target, external upload key/alias/fingerprint, bundletool validation and signer verification. The legacy TWA checkout is rejected. The script builds but never uploads or publishes.
 
-The legacy `C:\Users\TRAVKIN\Downloads\CodecSaaS\project-google-market\android` TWA project is explicitly rejected and must never be used for Play V3 signing.
+No signing material is kept in Git. Preserve the existing external keystore, backup and prior signed AAB. Production and database require no rollback because this workstream has not changed them.
 
-After the build, the script requires `bundletool validate`, a valid `jarsigner` AAB signature and an exact signer-certificate match. `apksigner` is used only for APK artifacts, not AAB files.
+## Device acceptance
 
-## V3-over-V2 device smoke
-
-- Install V2 from the Play Internal track, then update to V3 without uninstalling.
-- Confirm package `com.travkin.flow`, version `3.0.0` / code `3` and native Compose rendering with no browser surface.
-- Confirm that an Agronomist can sign in and reopen the app with the encrypted native session.
-- Confirm that a non-Agronomist account is rejected and leaves no usable local session.
-- Confirm that only the main Agronomist cabinet exists and that no field map, weighbridge or Copilot entry point is visible or reachable through `/dashboard`.
+Check real Agronomist login (not Global Admin with a role switch), company isolation and rejection of other roles; all screen/actions against the pinned web version; Android back/keyboard/rotation/process restart; network loss, token refresh/logout and mutation uncertainty; upgrade from the existing Play build without uninstall. Do not mark Internal Testing live until Play accepts the new AAB.

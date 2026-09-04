@@ -75,11 +75,7 @@ fun TravkinFlowApp(viewModel: AppViewModel) {
                 state = current,
                 onSignIn = viewModel::signIn,
             )
-            is AppUiState.SignedIn -> AgronomistCabinet(
-                state = current,
-                onRefresh = viewModel::refresh,
-                onSignOut = viewModel::signOut,
-            )
+            is AppUiState.SignedIn -> WorkingCabinet(current, viewModel)
         }
     }
 }
@@ -172,100 +168,6 @@ private fun LoginScreen(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun AgronomistCabinet(
-    state: AppUiState.SignedIn,
-    onRefresh: () -> Unit,
-    onSignOut: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Column {
-                Text("TravkinFlow", color = BrandGold, fontWeight = FontWeight.Bold)
-                Text("Кабинет Агронома", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            }
-            Icon(Icons.Outlined.Agriculture, contentDescription = null, tint = BrandGold)
-        }
-
-        Card(
-            colors = CardDefaults.cardColors(containerColor = SurfaceAccent),
-            shape = RoundedCornerShape(24.dp),
-        ) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(Icons.Outlined.VerifiedUser, contentDescription = null, tint = Success)
-                    Text("Доступ подтверждён", fontWeight = FontWeight.SemiBold, color = Success)
-                }
-                Text(
-                    if (state.actorStale) "Показан последний защищённый профиль. Обновите при появлении сети."
-                    else "Роль и контекст получены от TravkinFlow.",
-                    color = Muted,
-                )
-                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-                ActorDetails(state.actor)
-            }
-        }
-
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Surface),
-            shape = RoundedCornerShape(24.dp),
-        ) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Первый мобильный этап", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "Сейчас доступен основной защищённый кабинет Агронома. Рабочие разделы будут добавляться по одному после отдельной приёмки каждого этапа.",
-                    color = Muted,
-                )
-            }
-        }
-
-        state.message?.let { MessageCard(it) }
-
-        OutlinedButton(
-            onClick = onRefresh,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !state.refreshing,
-        ) {
-            if (state.refreshing) {
-                CircularProgressIndicator(modifier = Modifier.height(20.dp), strokeWidth = 2.dp)
-            } else {
-                Icon(Icons.Outlined.Refresh, contentDescription = null)
-                Text("  Обновить профиль")
-            }
-        }
-        OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) {
-            Text("Выйти")
-        }
-    }
-}
-
-@Composable
-private fun ActorDetails(actor: Actor) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        DetailRow("Роль", actor.role.displayName)
-        DetailRow("Email", actor.email ?: "Не указан")
-        DetailRow("Компания", actor.companyId ?: "Контекст не назначен")
-    }
-}
-
-@Composable
-private fun DetailRow(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, color = Muted)
-        Text(value, fontWeight = FontWeight.Medium)
     }
 }
 

@@ -1,0 +1,8 @@
+{
+  "scope": "full-agronomist-cabinet",
+  "webBaseline": "41b65083e156b5c3beaef5431c8437c8f92c0fce",
+  "readyForInternalTest": false,
+  "deviceAcceptance": false,
+  "roleRealisticQa": false,
+  "acceptanceDocument": "docs/google-play/agronomist-parity-2026-09-04.md"
+}

@@ -17,4 +17,5 @@ data class Actor(
     val role: SupportedRole,
     val companyId: String?,
     val email: String?,
+    val authUserId: String = id,
 )
