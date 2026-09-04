@@ -48,6 +48,8 @@ function harness(isManager = false, initiallyHidden = false) {
   let stateIndex = 0, refIndex = 0, callbackIndex = 0, effectIndex = 0, timerId = 0, unsubscribed = 0;
   let authChange: (event: string, session: { user: { id: string } } | null) => void = () => undefined;
   let assignmentListener: ((result: VehicleDriverAssignmentResult) => void) | null = null;
+  let trafficListener: ((companyId: string) => void) | null = null;
+  const published: string[] = [];
   const sameDeps = (left: unknown[], right: unknown[]) => left.length === right.length && left.every((value, index) => Object.is(value, right[index]));
   const loaded = { exports: {} as any };
   const dependencies: Record<string, unknown> = {
@@ -72,6 +74,12 @@ function harness(isManager = false, initiallyHidden = false) {
       },
     },
     "@/lib/traffic/model": model,
+    "@/lib/traffic/changes": {
+      publishTrafficChanged: (companyId: string) => published.push(companyId),
+      subscribeTrafficChanges: (listener: (companyId: string) => void) => {
+        trafficListener = listener; return () => { if (trafficListener === listener) trafficListener = null; };
+      },
+    },
     "@/lib/supabase/client": { supabase: { auth: { onAuthStateChange: (callback: typeof authChange) => {
       authChange = callback; callback("INITIAL_SESSION", { user: { id: "account-a" } });
       return { data: { subscription: { unsubscribe: () => { unsubscribed++; } } } };
@@ -114,6 +122,9 @@ function harness(isManager = false, initiallyHidden = false) {
     auth: (event: string, id: string | null) => authChange(event, id ? { user: { id } } : null),
     assignment: (value: VehicleDriverAssignmentResult) => assignmentListener?.(value),
     hasAssignmentListener: () => assignmentListener !== null,
+    changed: (companyId: string) => trafficListener?.(companyId),
+    hasTrafficListener: () => trafficListener !== null,
+    published,
     fire: (event: string) => (windowListeners.get(event) ?? documentListeners.get(event))?.(),
     runTimer: async (ms: number) => {
       const entry = Array.from(timers).find(([, timer]) => timer.ms === ms);
@@ -140,12 +151,13 @@ async function main() {
   check(h.requests[0].options.cache, "no-store");
   check(h.requests[0].options.credentials, "same-origin");
   check((h.requests[0].options.headers as Record<string, string>).Authorization, "Bearer test-only-token");
-  check(Array.from(h.timers.values()).filter(timer => timer.ms === 2000).length, 1);
+  check(Array.from(h.timers.values()).filter(timer => timer.ms === 1000).length, 1);
 
   const oldRead = live.refresh(); await flush();
   check(h.requests.length, 2);
   check(h.requests[1].options.signal?.aborted, false);
   check(live.applyCommitted(receipt(), "car-a", 1), true);
+  check(h.published, ["company-a"]);
   live = h.render();
   check(live.data.vehicles[0].state, "loaded"); check(live.data.vehicles[0].version, 2);
   check(live.data.vehicles[0].name, "Existing truck"); check(live.data.vehicles[0].driver, "Existing driver");
@@ -155,12 +167,12 @@ async function main() {
   live = h.render();
   check(live.data.vehicles[0].version, 2); check(live.data.vehicles[0].state, "loaded");
 
-  // The next ordinary 2s poll may reconcile to a newer canonical row.
-  await h.runTimer(2000);
+  // The next ordinary 1s poll may reconcile to a newer canonical row.
+  await h.runTimer(1000);
   check(h.requests.length, 3);
   await h.respond(2, snapshot("car-a", 3, "unloading"));
   live = h.render(); check(live.data.vehicles[0].version, 3); check(live.data.vehicles[0].state, "unloading");
-  check(Array.from(h.timers.values()).filter(timer => timer.ms === 2000).length, 1);
+  check(Array.from(h.timers.values()).filter(timer => timer.ms === 1000).length, 1);
 
   // Even an old GET's late 401 must not replace a successfully committed account view.
   const staleFailure = live.refresh(); await flush();
@@ -188,6 +200,21 @@ async function main() {
   h.unmount(); check(live.applyCommitted(valid, "car-a", 7), false);
   check(h.cleanupState(), { unsubscribed: 1, windowListeners: 0, documentListeners: 0, timers: 0 });
   check(h.hasAssignmentListener(), false);
+  check(h.hasTrafficListener(), false);
+
+  // A cross-tab hint never supplies data and does not flash the stale/loading UI.
+  const crossTab = harness(); let crossLive = await ready(crossTab);
+  crossTab.changed("other-company"); await flush(); check(crossTab.requests.length, 1);
+  const previousRead = crossLive.refresh(); await flush();
+  crossTab.changed("company-a"); await flush();
+  check(crossTab.requests[1].options.signal?.aborted, true);
+  check(crossTab.render().stale, false); check(crossTab.render().loading, false);
+  await crossTab.respond(1, snapshot()); await previousRead; await flush();
+  check(crossTab.requests.length, 3);
+  await crossTab.respond(2, snapshot("car-a", 2, "loaded"));
+  crossLive = crossTab.render(); check(crossLive.data.vehicles[0].state, "loaded");
+  check(crossTab.published.length, 0); // Incoming hints are never echoed.
+  crossTab.unmount(); check(crossTab.hasTrafficListener(), false);
 
   // The shared assignment event changes only the current name in this company.
   // An in-flight snapshot from before the assignment cannot roll that name back.
@@ -230,13 +257,13 @@ async function main() {
   account.auth("SIGNED_OUT", null);
   check(accountB.applyCommitted(receipt("car-b", 12), "car-b", 11), false);
   const loggedOut = account.render(); check(loggedOut.data, null); check(loggedOut.needsLogin, true); check(loggedOut.stale, true);
-  await account.runTimer(2000); check(account.requests.length, 3);
+  await account.runTimer(1000); check(account.requests.length, 3);
   account.unmount();
 
   // Hidden pages do not poll; visibility/online wakeups retain the canonical freshness gate.
   const hidden = harness(false, true);
   hidden.render(); await flush(); check(hidden.requests.length, 0);
-  await hidden.runTimer(2000); check(hidden.requests.length, 0);
+  await hidden.runTimer(1000); check(hidden.requests.length, 0);
   hidden.document.visibilityState = "visible"; hidden.fire("visibilitychange"); await flush();
   check(hidden.requests.length, 1); await hidden.respond(0, snapshot()); check(hidden.render().stale, false);
   hidden.navigator.onLine = false; hidden.fire("offline"); check(hidden.render().stale, true);
@@ -258,6 +285,6 @@ async function main() {
   const receiver = snapshot("car-a", 1, "unloading", "receiver");
   check(model.applyTrafficCommit(receiver, receipt("car-a", 2, "empty")).vehicles.length, 0);
   check(model.applyTrafficCommit(snapshot(), { ...receipt(), vehicle: null }).vehicles[0].version, 1);
-  console.log(`PTC fast client PASS: ${checks} checks (actual useTraffic/trafficRequest + controlled deferred fetch, hook lifecycle, 2s poll, commit/read epoch and account guards; no remote writes).`);
+  console.log(`PTC fast client PASS: ${checks} checks (actual useTraffic/trafficRequest + controlled deferred fetch, hook lifecycle, 1s poll, cross-tab hints, commit/read epoch and account guards; no remote writes).`);
 }
 void main().catch(error => { console.error(error); process.exitCode = 1; });

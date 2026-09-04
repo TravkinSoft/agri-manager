@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { applyTrafficCommit, type TrafficCommit, type TrafficSnapshot } from "@/lib/traffic/model";
 import { supabase } from "@/lib/supabase/client";
 import { subscribeVehicleDriverAssignments } from "@/lib/vehicles/driver-assignment-client";
+import { publishTrafficChanged, subscribeTrafficChanges } from "@/lib/traffic/changes";
 export interface ManagerData {
   snapshot: TrafficSnapshot;
   fleet: Array<{
@@ -186,8 +187,19 @@ export function useTraffic(isManager: boolean) {
     controller.current?.abort();
     setData((old) => old ? applyTrafficCommit(old, receipt) : old);
     setManagerData((old) => old ? { ...old, snapshot: applyTrafficCommit(old.snapshot, receipt) } : old);
+    publishTrafficChanged(data?.companyId);
     return true;
-  }, [generation]);
+  }, [generation, data?.companyId]);
+  useEffect(() => subscribeTrafficChanges((companyId) => {
+    if (!mounted.current || generation !== authGeneration.current || companyId !== data?.companyId) return;
+    readEpoch.current++;
+    controller.current?.abort();
+    // Quiet refresh, including when an older GET was already in flight.
+    void (async () => {
+      await pending.current;
+      if (mounted.current && generation === authGeneration.current) void refresh();
+    })();
+  }), [data?.companyId, generation, refresh]);
   useEffect(() => subscribeVehicleDriverAssignments((result) => {
     if (!mounted.current || generation !== authGeneration.current ||
       !data?.companyId || result.companyId !== data.companyId) return;
@@ -208,7 +220,7 @@ export function useTraffic(isManager: boolean) {
     let cancelled = false;
     const poll = async () => {
       if (document.visibilityState !== "hidden") await refresh();
-      if (!cancelled) timer = window.setTimeout(poll, 2000);
+      if (!cancelled) timer = window.setTimeout(poll, 1000);
     };
     const awaken = () => {
       if (document.visibilityState !== "hidden") {
@@ -268,5 +280,6 @@ export function useTraffic(isManager: boolean) {
       document.removeEventListener("visibilitychange", visible);
     };
   }, [refresh, isManager]);
-  return { data, managerData, error, stale, needsLogin, loading, refresh, applyCommitted };
+  const scopeKey = `${generation}:${data?.companyId ?? ""}:${data?.role ?? ""}:${data?.personName ?? ""}`;
+  return { data, managerData, error, stale, needsLogin, loading, refresh, applyCommitted, scopeKey };
 }

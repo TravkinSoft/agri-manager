@@ -9,6 +9,7 @@ import postcss from "postcss";
 import tailwindcss from "tailwindcss";
 import config from "../tailwind.config";
 import * as model from "../lib/traffic/model";
+import * as optimistic from "../lib/traffic/optimistic";
 
 const localRequire = createRequire(import.meta.url);
 const source = readFileSync("components/traffic/traffic-board.tsx", "utf8");
@@ -67,10 +68,18 @@ function harness(role: model.TrafficRole, input = vehicles, options: { acceptRec
     props.snapshot = model.applyTrafficCommit(props.snapshot, receipt);
     return true;
   } };
-  let cursor = 0, refCursor = 0;
+  let cursor = 0, refCursor = 0, effectCursor = 0, keyCounter = 0;
+  const effectSlots: Array<{ deps: unknown[]; cleanup?: () => void }> = [];
+  const effects: Array<() => void> = [];
   const loaded = { exports: {} as any };
   const dependencies: Record<string, unknown> = {
-    react: { ...React, useEffect: () => undefined, useMemo: (factory: () => unknown) => factory(),
+    react: { ...React, useEffect: (effect: () => (() => void) | void, deps: unknown[]) => {
+      const i = effectCursor++;
+      if (!effectSlots[i] || deps.some((value, index) => !Object.is(value, effectSlots[i].deps[index]))) effects.push(() => {
+        effectSlots[i]?.cleanup?.();
+        effectSlots[i] = { deps, cleanup: effect() || undefined };
+      });
+    }, useMemo: (factory: () => unknown) => factory(),
       useState: (initial: unknown) => {
         const i = cursor++; if (!(i in state)) state[i] = initial;
         return [state[i], (value: any) => { state[i] = typeof value === "function" ? value(state[i]) : value; }];
@@ -79,6 +88,7 @@ function harness(role: model.TrafficRole, input = vehicles, options: { acceptRec
     },
     "lucide-react": Object.fromEntries(["Truck", "Clock3", "Loader2", "RefreshCw", "WifiOff"].map(key => [key, () => null])),
     "@/lib/traffic/model": model,
+    "@/lib/traffic/optimistic": optimistic,
     "./use-traffic": { trafficRequest: (...args: any[]) => {
       calls.push(args); const request = deferred<model.TrafficCommit>(); requests.push(request); return request.promise;
     } },
@@ -88,9 +98,16 @@ function harness(role: model.TrafficRole, input = vehicles, options: { acceptRec
     "@/components/vehicles/vehicle-driver-assignment": { VehicleDriverAssignment },
   };
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
-    { module: loaded, exports: loaded.exports, crypto: { randomUUID: () => "50000000-0000-4000-8000-000000000001" }, require: (name: string) => dependencies[name] ?? localRequire(name) });
-  const render = () => { cursor = 0; refCursor = 0; return loaded.exports.TrafficBoard(props); };
-  return { render, props, calls, requests, commits, refreshCalls, refreshGate, refreshCount: () => refreshCalls.length };
+    { module: loaded, exports: loaded.exports, window: { setInterval: () => 1, clearInterval: () => undefined },
+      crypto: { randomUUID: () => `50000000-0000-4000-8000-${String(++keyCounter).padStart(12, "0")}` }, require: (name: string) => dependencies[name] ?? localRequire(name) });
+  const render = () => {
+    cursor = 0; refCursor = 0; effectCursor = 0;
+    const tree = loaded.exports.TrafficBoard(props);
+    effects.splice(0).forEach(effect => effect());
+    return tree;
+  };
+  return { render, props, calls, requests, commits, refreshCalls, refreshGate, refreshCount: () => refreshCalls.length,
+    unmount: () => effectSlots.forEach(effect => effect.cleanup?.()) };
 }
 
 async function main() {
@@ -181,9 +198,13 @@ async function main() {
     check(h.commits.length, 0);
     check(h.refreshCount(), 0);
     const pendingCard = cardNodes(pendingTree).find(card => card.props["data-testid"] === `traffic-vehicle-${clicked.vehicle_id}`)!;
-    check(pendingCard.props["aria-busy"], true);
-    check(words(pendingCard).includes("Сохраняем…"), true);
-    check(cardNodes(pendingTree).filter(card => card.type === "button").every(card => card.props.disabled), true);
+    check(pendingCard.props["aria-busy"], undefined);
+    check(words(pendingTree).includes("Сохраняем…"), false);
+    check(words(pendingCard).includes(model.STATE_LABEL[model.nextState(role, clicked.state)!]), true);
+    check(pendingCard.type, role === "harvester" ? "article" : "button");
+    if (role === "harvester") check(cardNodes(pendingTree).findIndex(card => card.props["data-testid"] === `traffic-vehicle-${clicked.vehicle_id}`) > 0, true);
+    else check(pendingCard.props.disabled, true);
+    check(cardNodes(pendingTree).filter(card => card.type === "button" && card !== pendingCard).every(card => !card.props.disabled), true);
     check(h.calls.length, 1);
     check(JSON.parse(JSON.stringify(h.calls[0][2])), { vehicleId: clicked.vehicle_id, version: clicked.version, target: model.nextState(role, clicked.state), key: "50000000-0000-4000-8000-000000000001" });
     const receipt = receiptFor(clicked, model.nextState(role, clicked.state)!);
@@ -212,6 +233,8 @@ async function main() {
   const unloadConfirm = nodes(unloading.render()).find(node => node.type === Button && words(node) === "Подтвердить");
   unloadConfirm.props.onClick();
   check(unloading.calls.length, 1); check(unloading.calls[0][2].target, "empty"); check(unloading.calls[0][2].vehicleId, "car-2");
+  check(cardNodes(unloading.render()).length, 0); // Disappears before any network response.
+  check(unloading.props.snapshot.vehicles.length, 1); // Canonical source is untouched.
   unloading.requests[0].resolve(receiptFor(vehicles[2], "empty")); await flush();
   check(unloading.props.snapshot.vehicles.length, 0);
   check(renderToStaticMarkup(harness("receiver", []).render()).includes("Пока нет загруженных машин"), true);
@@ -226,39 +249,115 @@ async function main() {
   check(replay.props.snapshot.vehicles[0].state, "empty");
   check(replay.props.snapshot.vehicles[0].version, vehicles[1].version + 3);
   check(cardNodes(replayTree)[0].props.disabled, false); // GET below is deliberately still unresolved.
-  check(cardNodes(replayTree)[0].props["aria-busy"], false);
+  check(cardNodes(replayTree)[0].props["aria-busy"], undefined);
   check(renderToStaticMarkup(replayTree).includes('role="alertdialog"'), false);
   check(replay.refreshCount(), 1);
   replay.refreshGate.resolve(); await flush();
 
-  // HTTP failure reopens the same command for retry and never fabricates a new state/key.
+  // An uncertain response rolls back the local display and keeps the SAME retry key.
   const failure = harness("harvester", [vehicles[1]]);
   cardNodes(failure.render())[0].props.onClick();
   nodes(failure.render()).find(node => node.type === Button && words(node) === "Подтвердить").props.onClick();
   failure.requests[0].reject(Object.assign(new Error("HTTP 503: try again"), { status: 503 })); await flush();
   const failedTree = failure.render();
-  check(renderToStaticMarkup(failedTree).includes('role="alertdialog"'), true);
+  check(renderToStaticMarkup(failedTree).includes('role="alertdialog"'), false);
   check(words(failedTree).includes("HTTP 503"), true);
   check(failure.props.snapshot.vehicles[0].state, vehicles[1].state);
   check(failure.commits.length, 0);
   check(failure.refreshCalls, [true]);
-  const retry = nodes(failedTree).find(node => node.type === Button && words(node) === "Подтвердить");
+  check(cardNodes(failedTree)[0].props.disabled, true);
+  check(words(cardNodes(failedTree)[0]).includes("Пустая"), true);
+  const retry = nodes(failedTree).find(node => node.type === "button" && words(node) === "Повторить отправку");
   retry.props.onClick(); retry.props.onClick();
   check(failure.calls.length, 2);
   check(JSON.stringify(failure.calls[1][2]), JSON.stringify(failure.calls[0][2]));
   failure.requests[1].resolve(receiptFor(vehicles[1], "loaded")); await flush();
   check(failure.props.snapshot.vehicles[0].state, "loaded");
 
-  // Invalid/legacy receipts keep the honest pending gate until canonical refetch completes.
+  // A committed receipt without a row needs canonical reconciliation, no spinner.
   const fallback = harness("harvester", [vehicles[1]], { acceptReceipt: false, deferRefresh: true });
   cardNodes(fallback.render())[0].props.onClick();
   nodes(fallback.render()).find(node => node.type === Button && words(node) === "Подтвердить").props.onClick();
   fallback.requests[0].resolve({ ...receiptFor(vehicles[1], "loaded"), vehicle: null, refreshRequired: true }); await flush();
   check(fallback.props.snapshot.vehicles[0].state, "empty");
-  check(cardNodes(fallback.render())[0].props["aria-busy"], true);
+  check(cardNodes(fallback.render())[0].type, "article");
+  check(words(fallback.render()).includes("Сохраняем…"), false);
   check(fallback.refreshCalls, [true]);
   fallback.refreshGate.resolve(); await flush();
-  check(cardNodes(fallback.render())[0].props["aria-busy"], false);
+  // A failed refetch must not unlock a duplicate transition.
+  check(cardNodes(fallback.render())[0].type, "article");
+  fallback.props.snapshot = model.applyTrafficCommit(fallback.props.snapshot, receiptFor(vehicles[1], "loaded"));
+  fallback.render();
+  check(words(fallback.render()).includes("Загружена"), true);
+
+  // Another vehicle remains actionable; out-of-order responses do not lose either intent.
+  const parallel = harness("harvester", [vehicles[1], vehicles[3]]);
+  const sendCar = (h: ReturnType<typeof harness>, id: string) => {
+    cardNodes(h.render()).find(card => card.props["data-testid"] === `traffic-vehicle-${id}`)!.props.onClick();
+    nodes(h.render()).find(node => node.type === Button && words(node) === "Подтвердить").props.onClick();
+  };
+  sendCar(parallel, "car-1");
+  check(cardNodes(parallel.render()).find(card => card.props["data-testid"] === "traffic-vehicle-car-3")!.props.disabled, false);
+  sendCar(parallel, "car-3"); check(parallel.calls.length, 2);
+  check(parallel.calls[0][2].key !== parallel.calls[1][2].key, true);
+  check(cardNodes(parallel.render()).every(card => card.type === "article"), true);
+  parallel.requests[1].resolve(receiptFor(vehicles[3], "loaded")); await flush();
+  check(cardNodes(parallel.render()).every(card => card.type === "article"), true);
+  parallel.requests[0].resolve(receiptFor(vehicles[1], "loaded")); await flush();
+  check(parallel.props.snapshot.vehicles.every(vehicle => vehicle.state === "loaded"), true);
+
+  // An old GET cannot visually undo an in-flight intent; a newer canonical row wins.
+  const racing = harness("receiver", [vehicles[0]]);
+  sendCar(racing, "car-0");
+  racing.props.snapshot = { ...racing.props.snapshot, vehicles: [{ ...vehicles[0] }] };
+  check(words(cardNodes(racing.render())[0]).includes("На выгрузке"), true);
+  racing.props.snapshot = model.applyTrafficCommit(racing.props.snapshot, receiptFor(vehicles[0], "empty", vehicles[0].version + 2));
+  check(cardNodes(racing.render()).length, 0);
+  racing.requests[0].resolve(receiptFor(vehicles[0], "unloading")); await flush();
+  check(cardNodes(racing.render()).length, 0);
+
+  // Known rejection restores the card without reopening/interfering with another dialog.
+  const rejected = harness("receiver", [vehicles[2]]);
+  sendCar(rejected, "car-2"); check(cardNodes(rejected.render()).length, 0);
+  rejected.requests[0].reject(Object.assign(new Error("Статус изменён другим сотрудником"), { status: 409 })); await flush();
+  check(cardNodes(rejected.render()).length, 1);
+  check(cardNodes(rejected.render())[0].props.disabled, false);
+  check(words(rejected.render()).includes("QA-2: Статус изменён"), true);
+  check(renderToStaticMarkup(rejected.render()).includes('role="alertdialog"'), false);
+
+  // The sender can lose its response after the server commits. A new snapshot settles it.
+  const lost = harness("harvester", [vehicles[1]]);
+  sendCar(lost, "car-1"); lost.requests[0].reject(new Error("Нет подтверждения сервера")); await flush();
+  check(words(lost.render()).includes("Повторить отправку"), true);
+  lost.props.snapshot = model.applyTrafficCommit(lost.props.snapshot, receiptFor(vehicles[1], "empty", vehicles[1].version + 3));
+  lost.render(); const settled = lost.render();
+  check(words(settled).includes("Повторить отправку"), false);
+  check(cardNodes(settled)[0].props.disabled, false);
+
+  // Logout/unmount cannot apply a late response into another cabinet.
+  const gone = harness("harvester", [vehicles[1]]);
+  sendCar(gone, "car-1"); gone.unmount();
+  gone.requests[0].resolve(receiptFor(vehicles[1], "loaded")); await flush();
+  check(gone.commits.length, 0); check(gone.refreshCount(), 0);
+  check(source.includes("animate-spin"), false);
+
+  const malformed = harness("harvester", [vehicles[1]]);
+  sendCar(malformed, "car-1");
+  malformed.requests[0].resolve({ ...receiptFor(vehicles[1], "loaded"), eventId: "invalid" }); await flush();
+  check(malformed.commits.length, 0);
+  check(words(cardNodes(malformed.render())[0]).includes("Пустая"), true);
+  check(words(malformed.render()).includes("Нет корректного подтверждения"), true);
+  check(cardNodes(malformed.render())[0].props.disabled, true);
+
+  const changedWhileConfirming = harness("harvester", [vehicles[1]]);
+  cardNodes(changedWhileConfirming.render())[0].props.onClick();
+  changedWhileConfirming.props.snapshot = model.applyTrafficCommit(changedWhileConfirming.props.snapshot, receiptFor(vehicles[1], "loaded"));
+  nodes(changedWhileConfirming.render()).find(node => node.type === Button && words(node) === "Подтвердить").props.onClick(); await flush();
+  check(changedWhileConfirming.calls.length, 0);
+  check(words(changedWhileConfirming.render()).includes("Статус машины уже изменился"), true);
+  for (const page of ["app/traffic-operator/page.tsx", "app/(dashboard)/traffic/page.tsx"]) {
+    check(readFileSync(page, "utf8").includes("key={live.scopeKey}"), true);
+  }
   const css = (await postcss([tailwindcss({ ...config, content: [{ raw: source, extension: "tsx" }] })]).process("@tailwind utilities;", { from: undefined })).css;
   for (const expression of [/min-height:\s*48px/, /padding:\s*0\.625rem/, /@media \(min-width: 1024px\)/, /grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/,
     /\.bg-emerald-100\s*\{/, /\.bg-amber-100\s*\{/, /--tw-grayscale:\s*grayscale\(100%\)/]) { assert.match(css, expression); checks++; }

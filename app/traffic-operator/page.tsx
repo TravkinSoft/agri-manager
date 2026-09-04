@@ -135,6 +135,7 @@ export default function TrafficOperatorPage() {
           </form>
         ) : live.data ? (
           <TrafficBoard
+            key={live.scopeKey}
             snapshot={live.data}
             stale={live.stale}
             error={live.error}

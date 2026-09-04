@@ -117,6 +117,7 @@ export default function TrafficPage() {
         </div>
       ) : live.data ? (
         <TrafficBoard
+          key={live.scopeKey}
           snapshot={live.data}
           stale={live.stale}
           error={live.error}
