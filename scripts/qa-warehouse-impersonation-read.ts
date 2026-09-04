@@ -21,7 +21,7 @@ let checks = 0;
 async function test(name: string, run: () => void | Promise<void>) {
   await run(); checks++; console.log("PASS " + name);
 }
-function harness(options: { row?: Row; profile?: Row | null; hidden?: boolean; invalid?: boolean } = {}) {
+function harness(options: { row?: Row; profile?: Row | null; hidden?: boolean; invalid?: boolean; ledger?: Row[] } = {}) {
   const calls: Call[] = [];
   const row: Row = {
     auth_user_id: admin, profile_id: admin, role: "global_admin", status: "active",
@@ -49,6 +49,7 @@ function harness(options: { row?: Row; profile?: Row | null; hidden?: boolean; i
           if (table === "profiles" && !(kind === "jwt" && options.hidden !== false) && profile) data = [profile];
           if (table === "warehouses") data = [{ id: warehouse, company_id: company, name: "Existing warehouse", place_type: "WAREHOUSE", archived: false, is_archived: false }];
           if (table === "products") data = [{ id: product, company_id: company, name: "Existing material", archived: false, is_active: true, unit: "kg", base_uom: "kg" }];
+          if (table === "stock_ledger_entries") data = options.ledger || [];
           data = data.filter((item) => call.filters.every(([key, value]) => item[key] === value));
           return { data: single ? data[0] || null : data, error: null };
         };
@@ -118,6 +119,32 @@ async function invoke(h: ReturnType<typeof harness>, route: typeof routes[number
   return h.load(route.file).GET(request, { params: Promise.resolve({ id: warehouse }) });
 }
 async function main() {
+await test("material drill-down accepts canonical class and preserves exact class/tenant stock", async () => {
+  const base = { company_id: company, warehouse_id: warehouse, product_id: product, uom: "kg", direction: "in", occurred_at: "2026-09-04T00:00:00Z" };
+  const h = harness({ ledger: [
+    { ...base, id: "material", batch_class: "material", quantity: 3, delta_qty_signed: 3 },
+    { ...base, id: "commodity", batch_class: "commodity", quantity: 99, delta_qty_signed: 99 },
+    { ...base, id: "foreign", company_id: foreign, batch_class: "material", quantity: 999, delta_qty_signed: 999 },
+  ] });
+  const route = routes[2];
+  const response = await invoke(h, route, h.request("GET", route.query + "&batchClass=material&stockOrigin=material"));
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  assert.equal(response.body.details.batch_class, "material");
+  assert.equal(response.body.details.stock_origin, "material");
+  assert.equal(response.body.details.quantity, 3);
+  assert.equal(response.body.details.available_quantity, 3);
+  assert.equal(response.body.details.movements.length, 1);
+});
+await test("unknown stock class is still rejected before reads", async () => {
+  const h = harness(); const route = routes[2];
+  assert.equal((await invoke(h, route, h.request("GET", route.query + "&batchClass=invented"))).status, 400);
+  assert.equal(h.calls.length, 0);
+});
+await test("stock-detail classes match the existing seven-class DB contract", () => {
+  const route = readFileSync(resolve(root, routes[2].file), "utf8");
+  const block = route.match(/const STOCK_BATCH_CLASSES = new Set\(\[([\s\S]*?)\]\)/)?.[1] || "";
+  assert.deepEqual(Array.from(block.matchAll(/"([a-z]+)"/g), (match) => match[1]).sort(), ["commodity", "seed", "material", "feed", "waste", "processing", "rejected"].sort());
+});
 await test("BEFORE: hidden target profile fails old JWT ACL; ordinary control passes", async () => {
   const h = harness();
   const acl = h.load("lib/auth/server-acl.ts");
