@@ -20,6 +20,7 @@ import {
   Users,
   History,
   ScrollText,
+  Truck,
 } from "lucide-react";
 import { useSidebar } from "@/lib/contexts/sidebar-context";
 import { useAuth } from "@/lib/contexts/auth-context";
@@ -43,6 +44,7 @@ const GLOBAL_ADMIN_NAV: NavItem[] = [
   { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout },
   { labelKey: "warehouses", href: "/warehouses", icon: Package },
   { labelKey: "weighbridge", href: "/weighbridge", icon: Scale },
+  { labelKey: "traffic", href: "/traffic", icon: Truck },
   { labelKey: "fuel", href: "/fuel", icon: Droplets },
   { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
   { labelKey: "references", href: "/references", icon: BookOpen },
@@ -56,6 +58,7 @@ const COMPANY_ADMIN_NAV: NavItem[] = [
   { labelKey: "operations", href: "/operations", icon: Tractor },
   { labelKey: "warehouses", href: "/warehouses", icon: Package },
   { labelKey: "weighbridge", href: "/weighbridge", icon: Scale },
+  { labelKey: "traffic", href: "/traffic", icon: Truck },
   { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
   { labelKey: "references", href: "/references", icon: BookOpen },
   { labelKey: "users", href: "/users", icon: Users },
@@ -67,6 +70,7 @@ const AGRONOMIST_NAV: NavItem[] = [
   { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout },
   { labelKey: "warehouses", href: "/warehouses", icon: Package },
   { labelKey: "tickets_nav", href: "/tickets", icon: Scale },
+  { labelKey: "traffic", href: "/traffic", icon: Truck },
   { labelKey: "weather", href: "/weather-lab", icon: CloudSun },
 ];
 

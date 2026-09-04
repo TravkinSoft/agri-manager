@@ -2,6 +2,7 @@ export type Language = "ru" | "kz" | "en";
 
 export const translations = {
   ru: {
+    traffic: "Оборот машин",
     harvest_summary: "Сводка",
     tickets_nav: "Талоны",
     dashboard: "Панель",
@@ -226,6 +227,7 @@ export const translations = {
     tons: "т",
   },
   kz: {
+    traffic: "Көлік айналымы",
     harvest_summary: "Жиынтық",
     tickets_nav: "Талондар",
     dashboard: "Басқару панелі",
@@ -450,6 +452,7 @@ export const translations = {
     tons: "т",
   },
   en: {
+    traffic: "Vehicle turnover",
     harvest_summary: "Summary",
     tickets_nav: "Tickets",
     dashboard: "Dashboard",

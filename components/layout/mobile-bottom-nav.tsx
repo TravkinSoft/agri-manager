@@ -19,6 +19,7 @@ import {
   Sprout,
   Tractor,
   Users,
+  Truck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/contexts/auth-context";
@@ -62,7 +63,7 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
         { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout, kind: "route" },
         { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
         { labelKey: "tickets_nav", href: "/tickets", icon: Scale, kind: "route" },
-        { labelKey: "weather", href: "/weather-lab", icon: CloudSun, kind: "route" },
+        MORE_ITEM,
       ];
     case "director":
       return [{ labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard, kind: "route" }];
@@ -105,6 +106,8 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
 
 function getMoreRouteCandidates(role?: string | null): BottomItem[] {
   const shared: BottomItem[] = [
+    { labelKey: "traffic", href: "/traffic", icon: Truck, kind: "route" },
+    { labelKey: "weather", href: "/weather-lab", icon: CloudSun, kind: "route" },
     { labelKey: "field_map", href: "/fields-map", icon: Map, kind: "route" },
     { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout, kind: "route" },
     { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
@@ -131,7 +134,7 @@ function getRoleFilteredItems(role?: string | null): BottomItem[] {
   }
   const routeLimit = normalizedRole === "agronomist" ? 5 : 4;
   return getMobileRouteCandidates(role)
-    .filter((item) => canAccessPath(normalizedRole, item.href || ""))
+    .filter((item) => item.kind === "more" || canAccessPath(normalizedRole, item.href || ""))
     .slice(0, routeLimit);
 }
 

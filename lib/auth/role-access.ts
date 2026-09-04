@@ -16,6 +16,7 @@ const HIDDEN_PILOT_PREFIXES = [
 const AUTHENTICATED_SHARED_PREFIXES = ["/notifications"];
 
 const COMPANY_ADMIN_ALLOWED_PREFIXES = [
+  "/traffic",
   "/dashboard",
   "/fields",
   "/crop-structure",
@@ -82,7 +83,7 @@ const AGRONOMIST_ALLOWED_PREFIXES = [
   "/auth",
 ];
 
-const AGRONOMIST_ALLOWED_EXACT = ["/warehouses", "/settings"];
+const AGRONOMIST_ALLOWED_EXACT = ["/warehouses", "/settings", "/traffic"];
 
 const DIRECTOR_ALLOWED_PREFIXES = [
   "/dashboard",
