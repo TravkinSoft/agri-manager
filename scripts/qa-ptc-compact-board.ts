@@ -70,7 +70,7 @@ async function main() {
   const groups = nodes(tree).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-"));
   check(groups.map(group => group.props["data-testid"]), ["traffic-group-empty", "traffic-group-loaded", "traffic-group-unloading"]);
   const expected = [["car-1", "car-3"], ["car-0"], ["car-2"]];
-  for (const [index, group] of groups.entries()) {
+  for (const [index, group] of Array.from(groups.entries())) {
     check(cardNodes(group).map(card => card.props["data-testid"].replace("traffic-vehicle-", "")), expected[index]);
     const count = nodes(group).filter(node => node.props?.className?.includes("tabular-nums"));
     check(count.length, 1); check(count[0].props.children, expected[index].length);
