@@ -7,9 +7,9 @@ import {
   SessionAuthError,
 } from "@/lib/auth/server-session";
 import { assertActorAccess } from "@/lib/auth/server-acl";
-import { TRAFFIC_COOKIE, tokenHash } from "./credentials";
 import {
   visibleVehicles,
+  operatorRole,
   type TrafficRole,
   type TrafficSnapshot,
   type TrafficVehicle,
@@ -47,6 +47,10 @@ export function failed(error: unknown) {
   const message = error instanceof Error ? error.message : "";
   const known: Record<string, [number, string]> = {
     PTC_UNAUTHORIZED: [401, "Войдите в кабинет заново"],
+    PTC_PERSON_LINK_REQUIRED: [
+      403,
+      "Администратор должен связать аккаунт с одним действующим сотрудником Вашей компании",
+    ],
     PTC_DISABLED: [409, "Оборот машин приостановлен агрономом"],
     PTC_NOT_ASSIGNED: [403, "Машина не назначена этому потоку"],
     PTC_COMPANY_MISMATCH: [403, "Объект не принадлежит Вашей компании"],
@@ -91,42 +95,50 @@ export async function manager(request: NextRequest) {
   return { actor, companyId };
 }
 export async function operator(request: NextRequest) {
-  const token = request.cookies.get(TRAFFIC_COOKIE)?.value ?? "";
-  if (!/^[A-Za-z0-9_-]{43}$/.test(token))
-    throw new TrafficError("Войдите в кабинет", 401);
+  const actor = await getServerActorFromSession(request, {
+    ignoreImpersonation: true,
+    skipCache: true,
+  });
+  if (actor.id !== actor.authUserId)
+    throw new TrafficError(
+      "Учётная запись требует проверки администратором",
+      403,
+    );
+  const companyId = resolveCompanyForActor(actor);
   const db = getServiceClient();
-  const { data: session, error } = await db
-    .from("ptc_sessions")
-    .select("id,access_id")
-    .eq("token_hash", tokenHash(token))
-    .is("revoked_at", null)
-    .gt("expires_at", new Date().toISOString())
+  const { data: profile, error } = await db
+    .from("profiles")
+    .select("id,role,status,company_id")
+    .eq("id", actor.id)
+    .eq("company_id", companyId)
     .maybeSingle();
   if (error) throw error;
-  if (!session) throw new TrafficError("Сессия завершена. Войдите заново", 401);
-  const { data: access, error: accessError } = await db
-    .from("ptc_access")
-    .select("id,company_id,person_id,role")
-    .eq("id", session.access_id)
-    .is("revoked_at", null)
-    .maybeSingle();
-  if (accessError) throw accessError;
-  if (!access) throw new TrafficError("Доступ отозван", 401);
-  const { data: person, error: personError } = await db
+  const role =
+    profile?.status === "active" ? operatorRole(String(profile.role)) : null;
+  if (!role)
+    throw new TrafficError(
+      "Кабинет доступен только механизатору и бригадиру овощной бригады с активным аккаунтом",
+      403,
+    );
+  const { data: people, error: personError } = await db
     .from("company_people")
-    .select("full_name")
-    .eq("id", access.person_id)
-    .eq("company_id", access.company_id)
+    .select("id,full_name")
+    .eq("user_id", actor.id)
+    .eq("company_id", companyId)
     .eq("status", "active")
     .is("deleted_at", null)
-    .maybeSingle();
+    .limit(2);
   if (personError) throw personError;
-  if (!person) throw new TrafficError("Доступ сотрудника приостановлен", 401);
+  if (people?.length !== 1)
+    throw new TrafficError(
+      "Администратор должен связать аккаунт с одним действующим сотрудником Вашей компании",
+      403,
+    );
   return {
-    companyId: String(access.company_id),
-    role: access.role as TrafficRole,
-    personName: String(person.full_name),
-    hash: tokenHash(token),
+    companyId,
+    role,
+    personName: String(people[0].full_name),
+    actorId: actor.id,
   };
 }
 export async function readSnapshot(

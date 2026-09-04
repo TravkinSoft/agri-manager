@@ -1,9 +1,9 @@
 "use client";
 import { useRef, useState, type FormEvent } from "react";
-import { Truck, Settings2, KeyRound, Loader2, Copy, Check } from "lucide-react";
+import { Truck, Settings2, KeyRound, Loader2 } from "lucide-react";
 import { TrafficBoard } from "@/components/traffic/traffic-board";
 import { trafficRequest, useTraffic } from "@/components/traffic/use-traffic";
-import { ROLE_LABEL } from "@/lib/traffic/model";
+import { ROLE_LABEL, operatorRole } from "@/lib/traffic/model";
 import {
   Dialog,
   DialogContent,
@@ -23,19 +23,10 @@ export default function TrafficPage() {
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
   const [error, setError] = useState("");
-  const [credential, setCredential] = useState<{
-    login: string;
-    password: string;
-  } | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [revokeId, setRevokeId] = useState<string | null>(null);
   const managed = live.managerData;
   function open(next: "fleet" | "access") {
     if (!managed) return;
     setError("");
-    setCredential(null);
-    setCopied(false);
-    setRevokeId(null);
     setSelection(managed.snapshot.vehicles.map((v) => v.vehicle_id));
     setField(managed.snapshot.fieldId ?? "");
     setEnabled(managed.snapshot.enabled);
@@ -53,12 +44,8 @@ export default function TrafficPage() {
     setBusy(true);
     setError("");
     try {
-      const result = await trafficRequest("/api/traffic", "POST", body, true);
-      if (result.credential) {
-        setCredential(result.credential);
-        setCopied(false);
-      } else if (panel === "fleet") setPanel(null);
-      setRevokeId(null);
+      await trafficRequest("/api/traffic", "POST", body, true);
+      if (panel === "fleet") setPanel(null);
       await live.refresh(true);
     } catch (caught) {
       setError((caught as Error).message);
@@ -74,15 +61,6 @@ export default function TrafficPage() {
       enabled,
       fieldId: field || null,
       vehicleIds: selection,
-    });
-  }
-  async function issue(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await send({
-      action: "issue",
-      personId: form.get("person"),
-      role: form.get("role"),
     });
   }
   const available = new Map(
@@ -169,7 +147,6 @@ export default function TrafficPage() {
         onOpenChange={(isOpen) => {
           if (!isOpen && !busy) {
             setPanel(null);
-            setCredential(null);
           }
         }}
       >
@@ -300,167 +277,77 @@ export default function TrafficPage() {
               </Button>
             </form>
           ) : panel === "access" && managed ? (
-            <div className="space-y-5">
-              <p className="break-words rounded-xl bg-white/5 p-3 text-sm text-slate-400">
-                Страница входа:{" "}
-                <a
-                  className="text-amber-200 underline"
-                  href="/traffic-operator"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {typeof window !== "undefined" ? window.location.origin : ""}
-                  /traffic-operator
-                </a>
+            <div className="space-y-4">
+              <p className="text-sm leading-relaxed text-slate-300">
+                Сотрудники входят по обычной почте и паролю TravkinFlow.
+                Администратор приглашает человека в компанию через раздел
+                «Пользователи» и связывает его с записью сотрудника.
               </p>
-              {!live.data?.enabled ? (
-                <p className="text-sm text-amber-200">
-                  Сначала сохраните поток и включите его.
+              <div className="rounded-xl bg-white/5 p-3 text-sm text-slate-400">
+                <p>Механизатор → кабинет «Комбайнёр».</p>
+                <p className="mt-2">
+                  Бригадир овощной → кабинет «Приёмка картофеля».
                 </p>
-              ) : null}
-              <form
-                onSubmit={(event) => void issue(event)}
-                className="space-y-3"
-              >
-                <label className="block text-sm text-slate-300">
-                  Сотрудник
-                  <select
-                    name="person"
-                    required
-                    defaultValue=""
-                    className={`${inputClass} mt-2`}
-                  >
-                    <option value="" disabled>
-                      Выберите сотрудника
-                    </option>
-                    {managed.people.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.full_name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block text-sm text-slate-300">
-                  Рабочий кабинет
-                  <select
-                    name="role"
-                    className={`${inputClass} mt-2`}
-                    defaultValue="harvester"
-                  >
-                    <option value="harvester">Комбайнёр</option>
-                    <option value="receiver">Приёмка картофеля</option>
-                  </select>
-                </label>
-                <Button
-                  className="min-h-[48px] w-full"
-                  disabled={
-                    busy ||
-                    live.stale ||
-                    !live.data?.enabled ||
-                    !managed.people.length
-                  }
-                >
-                  {busy ? "Выдаём доступ…" : "Выдать персональный доступ"}
-                </Button>
-              </form>
-              {credential ? (
-                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-                  <p className="font-medium text-emerald-200">Доступ выдан</p>
-                  <p className="mt-1 text-xs text-slate-400">
-                    Пароль показывается только сейчас. Передайте его этому
-                    сотруднику.
-                  </p>
-                  <dl className="mt-3 space-y-2 break-all text-base">
-                    <div>
-                      <dt className="text-xs text-slate-500">Логин</dt>
-                      <dd>{credential.login}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-slate-500">Пароль</dt>
-                      <dd>{credential.password}</dd>
-                    </div>
-                  </dl>
-                  <button
-                    type="button"
-                    className="mt-3 flex min-h-[48px] items-center gap-2 text-sm text-emerald-200"
-                    onClick={() =>
-                      void navigator.clipboard
-                        .writeText(
-                          `${window.location.origin}/traffic-operator\nЛогин: ${credential.login}\nПароль: ${credential.password}`,
-                        )
-                        .then(() => setCopied(true))
-                        .catch(() =>
-                          setError("Скопируйте логин и пароль вручную"),
-                        )
-                    }
-                  >
-                    {copied ? <Check size={16} /> : <Copy size={16} />}{" "}
-                    {copied ? "Скопировано" : "Скопировать для сотрудника"}
-                  </button>
-                </div>
-              ) : null}
-              <div className="border-t border-white/10 pt-3">
-                <h3 className="mb-2 text-sm text-slate-400">
-                  Выданные доступы
-                </h3>
-                {managed.access.map((access) => (
-                  <div key={access.id} className="border-b border-white/5 py-3">
-                    <p className="font-medium">
-                      {managed.people.find((p) => p.id === access.person_id)
-                        ?.full_name || "Сотрудник компании"}
-                    </p>
-                    <p className="mt-1 text-sm text-slate-400">
-                      {ROLE_LABEL[access.role]}
-                    </p>
-                    <p className="mt-1 break-all text-xs text-slate-500">
-                      {access.login}
-                    </p>
-                    {access.revoked_at ? (
-                      <p className="mt-2 text-xs text-slate-500">
-                        Доступ отозван
-                      </p>
-                    ) : revokeId === access.id ? (
-                      <div className="mt-2">
-                        <p className="text-sm text-rose-200">
-                          Закрыть сотруднику этот кабинет?
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            disabled={busy}
-                            className="min-h-[48px] rounded-lg px-3 text-sm text-rose-300"
-                            onClick={() =>
-                              void send({
-                                action: "revoke",
-                                accessId: access.id,
-                              })
-                            }
-                          >
-                            Подтвердить отзыв
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busy}
-                            className="min-h-[48px] px-3 text-sm text-slate-400"
-                            onClick={() => setRevokeId(null)}
-                          >
-                            Оставить
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => setRevokeId(access.id)}
-                        className="mt-1 min-h-[48px] text-sm text-rose-300"
-                      >
-                        Отозвать доступ
-                      </button>
-                    )}
-                  </div>
-                ))}
               </div>
+              {managed.canManageUsers ? (
+                <a
+                  href="/users"
+                  className="flex min-h-[48px] items-center justify-center rounded-xl bg-amber-300 px-4 text-sm font-semibold text-slate-950"
+                >
+                  Пригласить через «Пользователи»
+                </a>
+              ) : (
+                <p className="text-sm text-amber-200">
+                  Для приглашения или изменения роли обратитесь к администратору
+                  компании.
+                </p>
+              )}
+              <a
+                href="/traffic-operator"
+                target="_blank"
+                rel="noreferrer"
+                className="flex min-h-[48px] items-center text-sm text-amber-200 underline"
+              >
+                Открыть вход в рабочий кабинет
+              </a>
+              <section className="border-t border-white/10 pt-3">
+                <h3 className="text-sm text-slate-400">Аккаунты операторов</h3>
+                {managed.accounts.length ? (
+                  managed.accounts.map((account) => {
+                    const people = managed.people.filter(
+                      (person) => person.user_id === account.id,
+                    );
+                    const linked = people.length === 1;
+                    const role = operatorRole(account.role);
+                    return (
+                      <div
+                        key={account.id}
+                        className="border-b border-white/5 py-3"
+                      >
+                        <p className="break-words font-medium">
+                          {linked
+                            ? people[0].full_name
+                            : account.full_name || "Сотрудник"}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-400">
+                          {role ? ROLE_LABEL[role] : "Кабинет не назначен"}
+                        </p>
+                        <p className="mt-2 text-xs text-slate-400">
+                          {account.status !== "active"
+                            ? "Аккаунт ещё не активен"
+                            : linked
+                              ? "Аккаунт активен · сотрудник связан"
+                              : "Нужна проверка связи с сотрудником"}
+                        </p>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="mt-3 text-sm text-slate-500">
+                    Пока нет аккаунтов с рабочими ролями.
+                  </p>
+                )}
+              </section>
             </div>
           ) : null}
           {error ? (
@@ -475,7 +362,6 @@ export default function TrafficPage() {
             disabled={busy}
             onClick={() => {
               setPanel(null);
-              setCredential(null);
             }}
           >
             Закрыть

@@ -3,8 +3,9 @@ import { useState, type FormEvent } from "react";
 import { Truck, LogOut, Loader2 } from "lucide-react";
 import { ROLE_LABEL } from "@/lib/traffic/model";
 import { TrafficBoard } from "@/components/traffic/traffic-board";
-import { trafficRequest, useTraffic } from "@/components/traffic/use-traffic";
+import { useTraffic } from "@/components/traffic/use-traffic";
 import { InstallTrafficApp } from "@/components/traffic/install-traffic-app";
+import { supabase } from "@/lib/supabase/client";
 export default function TrafficOperatorPage() {
   const live = useTraffic(false);
   const [busy, setBusy] = useState(false);
@@ -16,10 +17,14 @@ export default function TrafficOperatorPage() {
     setBusy(true);
     setError("");
     try {
-      await trafficRequest("/api/traffic/session", "POST", {
-        login: form.get("login"),
-        password: form.get("password"),
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: String(form.get("email") ?? "").trim(),
+        password: String(form.get("password") ?? ""),
       });
+      if (authError)
+        throw new Error(
+          "Не удалось войти. Проверьте приглашённую почту, пароль и подтверждение аккаунта.",
+        );
       await live.refresh(true);
     } catch (caught) {
       setError((caught as Error).message);
@@ -30,7 +35,10 @@ export default function TrafficOperatorPage() {
   async function logout() {
     setBusy(true);
     try {
-      await trafficRequest("/api/traffic/session", "DELETE");
+      const { error: authError } = await supabase.auth.signOut({
+        scope: "local",
+      });
+      if (authError) throw authError;
       await live.refresh(true);
     } catch (caught) {
       setError((caught as Error).message);
@@ -81,16 +89,18 @@ export default function TrafficOperatorPage() {
           >
             <h2 className="text-xl font-semibold">Вход в рабочий кабинет</h2>
             <p className="mb-6 mt-2 text-sm leading-relaxed text-slate-400">
-              Логин и пароль выдаёт агроном. После входа откроется Ваш кабинет.
+              Войдите с обычной почтой и паролем TravkinFlow. При первом входе
+              откройте приглашение администратора на почте и задайте пароль.
             </p>
             <label className="block text-sm text-slate-300">
-              Логин
+              Почта
               <input
-                name="login"
+                name="email"
+                type="email"
                 autoComplete="username"
                 autoCapitalize="none"
                 required
-                maxLength={40}
+                maxLength={254}
                 className="mt-2 mb-4 min-h-[48px] w-full rounded-xl border border-white/15 bg-black/20 px-3 text-base text-white outline-none focus:border-amber-400"
               />
             </label>
@@ -116,6 +126,12 @@ export default function TrafficOperatorPage() {
             >
               {busy ? "Входим…" : "Войти"}
             </button>
+            <a
+              href="/auth/forgot-password"
+              className="mt-2 flex min-h-[48px] items-center justify-center text-sm text-slate-400 underline"
+            >
+              Забыли пароль?
+            </a>
           </form>
         ) : live.data ? (
           <TrafficBoard
@@ -127,6 +143,14 @@ export default function TrafficOperatorPage() {
         ) : (
           <div role="alert" className="py-10 text-amber-200">
             {live.error || "Не удалось открыть кабинет"}
+            <button
+              type="button"
+              onClick={() => void logout()}
+              disabled={busy}
+              className="mt-3 block min-h-[48px] text-sm text-slate-300 underline"
+            >
+              Выйти и сменить аккаунт
+            </button>
             <button
               className="mt-3 block min-h-[48px] underline"
               onClick={() => void live.refresh(true)}

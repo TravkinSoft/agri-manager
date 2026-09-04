@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TrafficSnapshot } from "@/lib/traffic/model";
+import { supabase } from "@/lib/supabase/client";
 export interface ManagerData {
   snapshot: TrafficSnapshot;
   fleet: Array<{
@@ -11,34 +12,41 @@ export interface ManagerData {
     license_plate: string | null;
     plate_number: string | null;
   }>;
-  people: Array<{ id: string; full_name: string }>;
+  people: Array<{ id: string; full_name: string; user_id: string | null }>;
   fields: Array<{ id: string; name: string }>;
-  access: Array<{
+  canManageUsers: boolean;
+  accounts: Array<{
     id: string;
-    person_id: string;
-    role: "harvester" | "receiver";
-    login: string;
-    created_at: string;
-    revoked_at: string | null;
+    full_name: string;
+    role: "mechanic_operator" | "vegetable_brigadier";
+    status: string;
   }>;
 }
 export async function trafficRequest(
   path: string,
   method = "GET",
   body?: unknown,
-  manager = false,
+  _manager = false,
   signal?: AbortSignal,
 ) {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (manager)
+  try {
     Object.assign(
       headers,
       await (
         await import("@/lib/supabase/client-auth")
       ).buildClientAuthHeaders(),
     );
+  } catch (caught) {
+    if ((caught as Error).message.startsWith("Missing authorization token"))
+      throw Object.assign(
+        new Error("Войдите с Вашей почтой и паролем TravkinFlow"),
+        { status: 401 },
+      );
+    throw caught;
+  }
   const ownedController = signal ? null : new AbortController();
   const timeout = ownedController
     ? window.setTimeout(() => ownedController.abort(), 15000)
@@ -80,8 +88,12 @@ export function useTraffic(isManager: boolean) {
   const controller = useRef<AbortController | null>(null);
   const mounted = useRef(false);
   const hasManagerData = useRef(false);
+  const loggedOut = useRef(false);
+  const authGeneration = useRef(0);
+  const authIdentity = useRef<string | null | undefined>(undefined);
   const refresh = useCallback(
     async (fresh = false): Promise<void> => {
+      if (!isManager && loggedOut.current && !fresh) return;
       if (fresh) setStale(true);
       if (pending.current) {
         await pending.current;
@@ -89,6 +101,7 @@ export function useTraffic(isManager: boolean) {
         return;
       }
       const run = async () => {
+        const generation = authGeneration.current;
         if (!navigator.onLine) {
           setStale(true);
           setError("Нет связи. Показаны последние полученные данные");
@@ -111,7 +124,7 @@ export function useTraffic(isManager: boolean) {
             isManager,
             controller.current.signal,
           );
-          if (!mounted.current) return;
+          if (!mounted.current || generation !== authGeneration.current) return;
           setData(isManager ? payload.snapshot : payload);
           if (isManager) {
             if (compact)
@@ -124,12 +137,14 @@ export function useTraffic(isManager: boolean) {
             }
           }
           setNeedsLogin(false);
+          loggedOut.current = false;
           setStale(false);
           setError("");
         } catch (caught) {
-          if (!mounted.current) return;
+          if (!mounted.current || generation !== authGeneration.current) return;
           const failure = caught as Error & { status?: number };
           if (failure.status === 401 && !isManager) {
+            loggedOut.current = true;
             setNeedsLogin(true);
             setData(null);
             setError("");
@@ -177,6 +192,30 @@ export function useTraffic(isManager: boolean) {
       if (document.visibilityState === "visible") awaken();
     };
     void poll();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      const identity = session?.user.id ?? null;
+      if (event === "INITIAL_SESSION") {
+        authIdentity.current = identity;
+        return;
+      }
+      if (identity !== authIdentity.current || event === "SIGNED_OUT") {
+        authIdentity.current = identity;
+        authGeneration.current++;
+        controller.current?.abort();
+        setData(null);
+        setManagerData(null);
+        hasManagerData.current = false;
+        setStale(true);
+        loggedOut.current = event === "SIGNED_OUT";
+        if (!isManager) setNeedsLogin(event === "SIGNED_OUT");
+      }
+      if (event !== "SIGNED_OUT")
+        window.setTimeout(() => {
+          if (mounted.current) void refresh(true);
+        }, 0);
+    });
     window.addEventListener("focus", awaken);
     window.addEventListener("online", awaken);
     window.addEventListener("pageshow", awaken);
@@ -184,6 +223,7 @@ export function useTraffic(isManager: boolean) {
     document.addEventListener("visibilitychange", visible);
     return () => {
       cancelled = true;
+      subscription.unsubscribe();
       mounted.current = false;
       window.clearTimeout(timer);
       controller.current?.abort();
@@ -193,6 +233,6 @@ export function useTraffic(isManager: boolean) {
       window.removeEventListener("offline", offline);
       document.removeEventListener("visibilitychange", visible);
     };
-  }, [refresh]);
+  }, [refresh, isManager]);
   return { data, managerData, error, stale, needsLogin, loading, refresh };
 }

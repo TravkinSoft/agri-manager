@@ -4,18 +4,11 @@ import {
   nextState,
   visibleVehicles,
   stateAge,
+  operatorRole,
   type TrafficVehicle,
   type TrafficRole,
   type TrafficState,
 } from "../lib/traffic/model";
-import {
-  newCredential,
-  newToken,
-  tokenHash,
-  hashPassword,
-  verifyPassword,
-  SESSION_SECONDS,
-} from "../lib/traffic/credentials";
 import { canAccessPath } from "../lib/auth/role-access";
 
 async function main() {
@@ -88,21 +81,24 @@ async function main() {
     "brigadier",
   ] as const)
     check(canAccessPath(role, "/traffic"), false);
-  const credential = newCredential();
-  check(/^ptc-[a-f0-9]{10}$/.test(credential.login), true);
-  check(credential.password.length, 16);
-  check(credential.password !== newCredential().password, true);
-  const hash = await hashPassword(credential.password);
-  check(hash.length, 161);
-  check(await verifyPassword(credential.password, hash), true);
-  check(await verifyPassword("wrong", hash), false);
-  check(await verifyPassword(credential.password, "invalid"), false);
-  check((await hashPassword(credential.password)) !== hash, true);
-  const token = newToken();
-  check(token.length, 43);
-  check(tokenHash(token).length, 64);
-  check(tokenHash(token) !== token, true);
-  check(SESSION_SECONDS, 43200);
+  check(operatorRole("mechanic_operator"), "harvester");
+  check(operatorRole("vegetable_brigadier"), "receiver");
+  for (const role of [
+    "agronomist",
+    "global_admin",
+    "company_admin",
+    "weighman",
+    "brigadier",
+    "harvester",
+    "receiver",
+    "",
+  ])
+    check(operatorRole(role), null);
+  for (const role of ["mechanic_operator", "vegetable_brigadier"] as const) {
+    check(canAccessPath(role, "/traffic-operator"), true);
+    check(canAccessPath(role, "/traffic"), false);
+    check(canAccessPath(role, "/weighbridge"), false);
+  }
   const server = readFileSync("lib/traffic/server.ts", "utf8"),
     operator = readFileSync("app/api/traffic/operator/route.ts", "utf8"),
     hook = readFileSync("components/traffic/use-traffic.ts", "utf8");
@@ -131,6 +127,24 @@ async function main() {
       false,
     );
   }
+
+  check(server.includes("getServerActorFromSession(request"), true);
+  check(server.includes('.eq("user_id", actor.id)'), true);
+  check(server.includes("actor.id !== actor.authUserId"), true);
+  check(operator.includes('"ptc_actor_transition_v1"'), true);
+  check(/p_actor:\s*actor.actorId/.test(operator), true);
+  const sessionRoute = readFileSync("app/api/traffic/session/route.ts", "utf8");
+  check(/410/.test(sessionRoute) && !/cookies\s*\.|\.from\(/.test(sessionRoute), true);
+  const loginPage = readFileSync("app/traffic-operator/page.tsx", "utf8");
+  check(loginPage.includes("supabase.auth.signInWithPassword"), true);
+  check(loginPage.includes("supabase.auth.signOut"), true);
+  check(!loginPage.includes("/api/traffic/session"), true);
+  check(hook.includes("Missing authorization token"), true);
+  check(
+    hook.includes("loggedOut.current") &&
+      hook.includes("authGeneration.current"),
+    true,
+  );
   console.log(
     `PTC model/auth/client contract PASS: ${checks} assertions. No remote calls.`,
   );

@@ -33,13 +33,16 @@ export async function POST(request: NextRequest) {
     sameOrigin(request);
     const actor = await operator(request);
     const input = transition.parse(await request.json());
-    const { data, error } = await getServiceClient().rpc("ptc_transition_v1", {
-      p_token_hash: actor.hash,
-      p_vehicle: input.vehicleId,
-      p_version: input.version,
-      p_target: input.target,
-      p_key: input.key,
-    });
+    const { data, error } = await getServiceClient().rpc(
+      "ptc_actor_transition_v1",
+      {
+        p_actor: actor.actorId,
+        p_vehicle: input.vehicleId,
+        p_version: input.version,
+        p_target: input.target,
+        p_key: input.key,
+      },
+    );
     if (error)
       throw new Error(
         error.code === "23505" ? "PTC_KEY_CONFLICT" : error.message,

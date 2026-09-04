@@ -1,5 +1,12 @@
 export type TrafficState = "empty" | "loaded" | "unloading";
 export type TrafficRole = "harvester" | "receiver" | "manager";
+export function operatorRole(
+  profileRole: string,
+): Exclude<TrafficRole, "manager"> | null {
+  if (profileRole === "mechanic_operator") return "harvester";
+  if (profileRole === "vegetable_brigadier") return "receiver";
+  return null;
+}
 export const STATE_LABEL: Record<TrafficState, string> = {
   empty: "Пустая",
   loaded: "Загружена",
