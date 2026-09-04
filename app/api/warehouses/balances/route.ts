@@ -13,6 +13,7 @@ import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { buildCatalogIdentityKey, buildProductDisplayLabel } from "@/lib/catalog/catalog-identity";
 import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
 import { calculateStockMath } from "@/lib/warehouse/stock-math";
+import { loadWarehouseStockCatalog } from "@/lib/warehouse/load-stock-catalog";
 import {
   isHarvestLedgerRow,
   loadHarvestLedgerOriginRefs,
@@ -176,20 +177,10 @@ export async function GET(request: NextRequest) {
 
     let catalogRows: any[] = [];
     if (!warehouseId || referencedProductIds.size > 0) {
-      let catalogQuery = supabase
-        .from("products")
-        .select(PRODUCT_SELECT)
-        .or(`company_id.eq.${companyId},company_id.is.null`)
-        .eq("archived", false);
-
-      if (warehouseId) {
-        const ids = Array.from(referencedProductIds).join(",");
-        catalogQuery = catalogQuery.or(
-          `company_id.eq.${companyId},id.in.(${ids}),master_product_id.in.(${ids})`
-        );
-      }
-
-      const catalogResult = await catalogQuery;
+      const catalogResult = await loadWarehouseStockCatalog(
+        supabase, PRODUCT_SELECT, companyId,
+        warehouseId ? Array.from(referencedProductIds) : undefined
+      );
       if (catalogResult.error) {
         return NextResponse.json({ error: catalogResult.error.message }, { status: 400 });
       }

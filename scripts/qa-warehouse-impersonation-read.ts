@@ -16,12 +16,12 @@ const target = "44444444-4444-4444-8444-444444444444";
 const warehouse = "55555555-5555-4555-8555-555555555555";
 const product = "66666666-6666-4666-8666-666666666666";
 type Row = Record<string, any>;
-type Call = { client: string; table: string; filters: Array<[string, unknown]> };
+type Call = { client: string; table: string; filters: Array<[string, unknown]>; scopes: string[]; page?: [number, number]; order?: string };
 let checks = 0;
 async function test(name: string, run: () => void | Promise<void>) {
   await run(); checks++; console.log("PASS " + name);
 }
-function harness(options: { row?: Row; profile?: Row | null; hidden?: boolean; invalid?: boolean; ledger?: Row[] } = {}) {
+function harness(options: { row?: Row; profile?: Row | null; hidden?: boolean; invalid?: boolean; ledger?: Row[]; catalog?: Row[]; catalogErrorAt?: number } = {}) {
   const calls: Call[] = [];
   const row: Row = {
     auth_user_id: admin, profile_id: admin, role: "global_admin", status: "active",
@@ -42,22 +42,29 @@ function harness(options: { row?: Row; profile?: Row | null; hidden?: boolean; i
       auth: { getUser: async () => ({ data: { user: null }, error: { message: "invalid JWT" } }) },
       from: (table: string) => {
         if (kind === "service") assert.equal(table, "profiles", "Privileged client must never read stock");
-        const call: Call = { client: kind, table, filters: [] };
+        const call: Call = { client: kind, table, filters: [], scopes: [] };
         calls.push(call);
         const result = (single = false) => {
           let data: any[] = [];
           if (table === "profiles" && !(kind === "jwt" && options.hidden !== false) && profile) data = [profile];
           if (table === "warehouses") data = [{ id: warehouse, company_id: company, name: "Existing warehouse", place_type: "WAREHOUSE", archived: false, is_archived: false }];
-          if (table === "products") data = [{ id: product, company_id: company, name: "Existing material", archived: false, is_active: true, unit: "kg", base_uom: "kg" }];
+          if (table === "products") data = options.catalog || [{ id: product, company_id: company, name: "Existing material", archived: false, is_active: true, unit: "kg", base_uom: "kg" }];
           if (table === "stock_ledger_entries") data = options.ledger || [];
           data = data.filter((item) => call.filters.every(([key, value]) => item[key] === value));
+          if (table === "products") {
+            if (options.catalogErrorAt === (call.page?.[0] || 0)) return { data: null, error: { message: "catalog page unavailable" } };
+            data = data.filter((item) => item.company_id === company || item.company_id === null);
+            if (call.order === "id") data = [...data].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+            data = call.page ? data.slice(call.page[0], call.page[1] + 1) : data.slice(0, 1000);
+          }
           return { data: single ? data[0] || null : data, error: null };
         };
         const query: any = {
           select: () => query,
           eq: (key: string, value: unknown) => { call.filters.push([key, value]); return query; },
-          in: () => query, order: () => query, limit: () => query, range: () => query,
-          or: () => query, gt: () => query, is: () => query,
+          in: () => query, order: (key: string) => { call.order = key; return query; }, limit: () => query,
+          range: (from: number, to: number) => { call.page = [from, to]; return query; },
+          or: (scope: string) => { call.scopes.push(scope); return query; }, gt: () => query, is: () => query,
           maybeSingle: async () => result(true),
           then: (yes: (value: unknown) => unknown, no: (reason: unknown) => unknown) => Promise.resolve(result()).then(yes, no),
         };
@@ -119,6 +126,36 @@ async function invoke(h: ReturnType<typeof harness>, route: typeof routes[number
   return h.load(route.file).GET(request, { params: Promise.resolve({ id: warehouse }) });
 }
 async function main() {
+const catalog = [
+  ...Array.from({ length: 1200 }, (_, index) => ({ id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`, company_id: null, name: `Catalog product ${index}`, archived: false, is_active: true, unit: "kg", base_uom: "kg" })),
+  { id: product, company_id: null, name: "NPK 16-16-16", archived: false, is_active: true, unit: "kg", base_uom: "kg" },
+];
+const npkLedger = [{ id: "npk", company_id: company, warehouse_id: warehouse, product_id: product, uom: "kg", direction: "in", quantity: 8000, delta_qty_signed: 8000, batch_class: "material" }];
+await test("balances retain material referenced beyond the first 1000 catalog rows", async () => {
+  const h = harness({ catalog, ledger: npkLedger });
+  const response = await invoke(h, routes[1]);
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  assert.equal(response.body.balances.find((r: Row) => r.product_id === product)?.material_quantity, 8000);
+  const calls = h.calls.filter((c) => c.table === "products");
+  assert.equal(calls.length, 3);
+  assert.ok(calls.every((c) => c.client === "jwt" && c.order === "id" && c.scopes.includes(`company_id.eq.${company},company_id.is.null`)));
+});
+await test("material detail hydrates the same product beyond page one", async () => {
+  const h = harness({ catalog, ledger: npkLedger }); const route = routes[2];
+  const response = await invoke(h, route, h.request("GET", route.query + "&batchClass=material&stockOrigin=material"));
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  assert.equal(response.body.details.quantity, 8000);
+  assert.equal(h.calls.filter((c) => c.table === "products").length, 3);
+});
+for (const route of [routes[1], routes[2]]) {
+  await test(route.file + ": later catalog failure never succeeds with partial stock", async () => {
+    const h = harness({ catalog, ledger: npkLedger, catalogErrorAt: 500 });
+    const response = await invoke(h, route);
+    assert.ok(response.status >= 400);
+    assert.match(response.body.error, /catalog page unavailable/);
+    assert.equal(response.body.balances, undefined); assert.equal(response.body.details, undefined);
+  });
+}
 await test("material drill-down accepts canonical class and preserves exact class/tenant stock", async () => {
   const base = { company_id: company, warehouse_id: warehouse, product_id: product, uom: "kg", direction: "in", occurred_at: "2026-09-04T00:00:00Z" };
   const h = harness({ ledger: [

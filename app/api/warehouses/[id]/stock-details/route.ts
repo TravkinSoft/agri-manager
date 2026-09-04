@@ -6,6 +6,7 @@ import { WAREHOUSE_READ_ROLES, resolveWarehouseForActor } from "@/app/api/wareho
 import { buildCatalogIdentityKey, buildProductDisplayLabel } from "@/lib/catalog/catalog-identity";
 import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
 import { calculateStockMath, signedLedgerQuantity } from "@/lib/warehouse/stock-math";
+import { loadWarehouseStockCatalog } from "@/lib/warehouse/load-stock-catalog";
 import {
   isHarvestLedgerRow,
   loadHarvestLedgerOriginRefs,
@@ -71,11 +72,11 @@ export async function GET(
     });
     if (!existing?.id) return NextResponse.json({ error: "Склад не найден" }, { status: 404 });
 
-    const { data: catalogRows, error: catalogError } = await supabase
-      .from("products")
-      .select("id,master_product_id,name,trade_name,normalized_name,manufacturer,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,base_uom,company_id,archived,is_active")
-      .or(`company_id.eq.${companyId},company_id.is.null`)
-      .eq("archived", false);
+    const { data: catalogRows, error: catalogError } = await loadWarehouseStockCatalog(
+      supabase,
+      "id,master_product_id,name,trade_name,normalized_name,manufacturer,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,base_uom,company_id,archived,is_active",
+      companyId
+    );
     if (catalogError) throw new Error(catalogError.message);
     const selected = (catalogRows || []).find((row: any) => String(row.id) === productId);
     if (!selected) return NextResponse.json({ error: "Материал не найден" }, { status: 404 });
