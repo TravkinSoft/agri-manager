@@ -73,7 +73,7 @@ export default function LoginPage() {
                 placeholder="name@example.com"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                className="h-12"
+                className="h-12 text-base"
                 required
                 disabled={loading}
               />
@@ -86,7 +86,7 @@ export default function LoginPage() {
                 placeholder="Введите пароль"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                className="h-12"
+                className="h-12 text-base"
                 required
                 disabled={loading}
               />

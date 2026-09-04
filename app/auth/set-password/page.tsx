@@ -183,11 +183,11 @@ export default function SetPasswordPage() {
             )}
             <div className="space-y-2">
               <Label>Email</Label>
-              <Input value={fixedEmail} readOnly disabled className="h-12" />
+              <Input value={fixedEmail} readOnly disabled className="h-12 text-base" />
             </div>
             <div className="space-y-2">
               <Label>Роль</Label>
-              <Input value={fixedRole || 'assigned by admin'} readOnly disabled className="h-12" />
+              <Input value={fixedRole === 'mechanic_operator' ? 'Механизатор' : fixedRole === 'vegetable_brigadier' ? 'Бригадир овощной' : fixedRole || 'Назначена администратором'} readOnly disabled className="h-12 text-base" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Пароль</Label>
@@ -197,7 +197,7 @@ export default function SetPasswordPage() {
                 placeholder="Минимум 6 символов"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="h-12"
+                className="h-12 text-base"
                 required
                 minLength={6}
                 disabled={loading}
@@ -211,7 +211,7 @@ export default function SetPasswordPage() {
                 placeholder="Повторите пароль"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="h-12"
+                className="h-12 text-base"
                 required
                 disabled={loading}
               />
