@@ -1,9 +1,8 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Truck,
   Clock3,
-  RefreshCw,
   WifiOff,
 } from "lucide-react";
 import {
@@ -49,17 +48,21 @@ export function TrafficBoard({
   error,
   refresh,
   onCommitted,
+  mobileActions,
 }: {
   snapshot: TrafficSnapshot;
   stale: boolean;
   error: string;
   refresh: (fresh?: boolean) => Promise<void>;
   onCommitted?: (receipt: TrafficCommit, vehicleId: string, expectedVersion: number) => boolean;
+  mobileActions?: ReactNode;
 }) {
   const [now, setNow] = useState(Date.now());
   const [selected, setSelected] = useState<TrafficCommand | null>(null);
   const [actionError, setActionError] = useState("");
   const [pendingCommands, setPendingCommands] = useState<PendingTrafficCommand[]>([]);
+  const [mobileState, setMobileState] = useState<TrafficState>("empty");
+  const mobileListRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<PendingTrafficCommand[]>([]);
   const mounted = useRef(true);
   const snapshotRef = useRef(snapshot);
@@ -149,15 +152,15 @@ export function TrafficBoard({
             onClick={() => void confirm(command, true)}>Повторить отправку</button>
         </div>
       ))}
-      {stale || error ? <div className="mb-3 flex items-center justify-between gap-2 text-xs text-amber-200" role="status">
-        <span>{error || "Проверяем актуальность статусов…"}</span>
+      {error ? <div className="mb-3 flex min-w-0 items-center justify-between gap-2 text-xs text-amber-200" role="status">
+        <span className="min-w-0 break-words">{error}</span>
         <button
           type="button"
           onClick={() => void refresh(true)}
           className="flex min-h-[48px] shrink-0 items-center gap-2 px-2"
           aria-label="Обновить статусы"
         >
-          {error ? <WifiOff size={16} /> : <RefreshCw size={15} />}{" "} Обновить
+          <WifiOff size={16} /> Обновить
         </button>
       </div> : null}
       {!snapshot.enabled ? (
@@ -167,16 +170,49 @@ export function TrafficBoard({
             : "Агроном ещё не подтвердил список машин для работы."}
         </p>
       ) : null}
-      <div className={isManager ? "grid items-start gap-5 lg:grid-cols-3" : ""}>
+      <div
+        data-testid={isManager ? "traffic-manager-board" : undefined}
+        className={isManager ? "flex max-h-[max(12rem,calc(100dvh-14rem))] min-w-0 flex-col lg:max-h-none lg:block" : ""}
+      >
+        {isManager ? (
+          <div data-testid="traffic-mobile-toolbar" className="z-20 mb-3 flex min-w-0 shrink-0 items-stretch gap-1 rounded-xl bg-[#0f172a] py-1 lg:hidden">
+            <div role="group" aria-label="Показать машины по статусу" className="grid min-w-0 flex-1 grid-cols-3 gap-1">
+              {groups.map(({ state, vehicles }) => state ? (
+                <button
+                  key={state}
+                  type="button"
+                  data-testid={`traffic-filter-${state}`}
+                  aria-pressed={mobileState === state}
+                  aria-controls={`traffic-list-${state}`}
+                  onClick={() => {
+                    setMobileState(state);
+                    mobileListRef.current?.scrollTo({ top: 0 });
+                  }}
+                  className={`flex min-h-[48px] min-w-0 flex-col items-center justify-center rounded-lg border px-1 py-1 text-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${mobileState === state ? "border-slate-400 bg-slate-700 text-white" : "border-transparent text-slate-300"}`}
+                >
+                  <span className="w-full break-words text-[11px] leading-4">{groupLabels[state]}</span>
+                  <span className="flex items-center gap-1.5 text-lg font-semibold leading-5 tabular-nums">
+                    <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${groupDots[state]}`} />
+                    {vehicles.length}
+                  </span>
+                </button>
+              ) : null)}
+            </div>
+            {mobileActions ? <div className="flex w-12 shrink-0 items-center justify-center">{mobileActions}</div> : null}
+          </div>
+        ) : null}
+      <div ref={mobileListRef} data-testid={isManager ? "traffic-manager-lists" : undefined}
+        className={isManager ? "grid min-h-0 items-start gap-5 overflow-y-auto overscroll-contain lg:grid-cols-3 lg:overflow-visible lg:overscroll-auto" : ""}>
         {groups.map((group) => (
           <section
             key={group.state ?? "operator"}
+            id={group.state ? `traffic-list-${group.state}` : undefined}
             data-testid={group.state ? `traffic-group-${group.state}` : "traffic-operator-list"}
             aria-label={group.state ? groupLabels[group.state] : "Машины"}
-            className="min-w-0"
+            className={`min-w-0 ${group.state && group.state !== mobileState ? "hidden lg:block" : ""}`}
           >
             {group.state ? (
-              <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-200">
+              <h2 className="mb-3 hidden items-center gap-2 text-sm font-medium text-slate-200 lg:flex">
                 <span aria-hidden className={`h-2.5 w-2.5 rounded-full ${groupDots[group.state]}`} />
                 {groupLabels[group.state]}
                 <span className="ml-auto text-xl font-semibold tabular-nums text-white">
@@ -188,8 +224,7 @@ export function TrafficBoard({
         {group.vehicles.map((vehicle) => {
           const target = nextState(snapshot.role, vehicle.state);
           const pendingVehicle = pendingCommands.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id);
-          const muted = snapshot.role === "harvester" && !target;
-          const cardClass = `min-w-0 rounded-xl border p-2.5 text-left shadow-sm ${tones[vehicle.state]} ${muted ? "grayscale" : ""}`;
+          const cardClass = `min-w-0 rounded-xl border p-2.5 text-left shadow-sm ${tones[vehicle.state]}`;
           const content = (
             <>
               <span className="flex min-w-0 items-center gap-1.5">
@@ -258,6 +293,7 @@ export function TrafficBoard({
             ) : null}
           </section>
         ))}
+      </div>
       </div>
       {!displayVehicles.length ? (
         <div className="py-16 text-center">

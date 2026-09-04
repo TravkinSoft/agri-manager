@@ -12,6 +12,12 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 export default function TrafficPage() {
   const live = useTraffic(true);
   const [panel, setPanel] = useState<"fleet" | "access" | null>(null);
@@ -76,8 +82,9 @@ export default function TrafficPage() {
   const hasBusy =
     managed?.snapshot.vehicles.some((v) => v.state !== "empty") ?? false;
   return (
-    <div className="mx-auto w-full min-w-0 max-w-6xl px-4 pb-28 pt-5 sm:px-6">
-      <header className="mb-6">
+    <div className="mx-auto w-full min-w-0 max-w-6xl pb-28 pt-1 lg:px-6 lg:pt-5">
+      <h1 className="sr-only lg:hidden">Оборот машин</h1>
+      <header className="mb-6 hidden lg:block">
         <div className="flex items-center gap-3">
           <Truck className="shrink-0 text-amber-300" size={27} />
           <div>
@@ -122,6 +129,28 @@ export default function TrafficPage() {
           stale={live.stale}
           error={live.error}
           refresh={live.refresh}
+          mobileActions={(
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Настройки оборота машин"
+                  disabled={!managed}
+                  className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 disabled:opacity-40"
+                >
+                  <Settings2 aria-hidden size={20} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-w-[calc(100vw-2rem)]">
+                <DropdownMenuItem onSelect={() => open("fleet")} className="min-h-[48px] gap-2">
+                  <Truck aria-hidden size={17} /> Выбрать машины
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => open("access")} className="min-h-[48px] gap-2">
+                  <KeyRound aria-hidden size={17} /> Доступ сотрудников
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         />
       ) : (
         <div

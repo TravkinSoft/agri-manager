@@ -87,34 +87,56 @@ export function useTraffic(isManager: boolean) {
   const [needsLogin, setNeedsLogin] = useState(false);
   const [loading, setLoading] = useState(true);
   const pending = useRef<Promise<void> | null>(null);
+  const queued = useRef<Promise<void> | null>(null);
+  const queuedFull = useRef(false);
+  const activeRead = useRef({ generation: 0, epoch: 0 });
+  const lastWake = useRef(-Infinity);
   const controller = useRef<AbortController | null>(null);
   const mounted = useRef(false);
   const hasManagerData = useRef(false);
   const loggedOut = useRef(false);
   const authGeneration = useRef(0);
+  const authRevision = useRef(0);
   const authIdentity = useRef<string | null | undefined>(undefined);
   const readEpoch = useRef(0);
   const refresh = useCallback(
     async (fresh = false): Promise<void> => {
-      if (!isManager && loggedOut.current && !fresh) return;
-      if (fresh) setStale(true);
+      if (loggedOut.current && !fresh) return;
       if (pending.current) {
+        // Lifecycle events join the current read. Explicit metadata refreshes and
+        // reads invalidated by a commit/account change share ONE successor.
+        if (fresh || activeRead.current.generation !== authGeneration.current ||
+          activeRead.current.epoch !== readEpoch.current) {
+          queuedFull.current ||= fresh;
+          if (!queued.current) {
+            queued.current = pending.current.then(() => {
+              const full = queuedFull.current;
+              queued.current = null;
+              queuedFull.current = false;
+              if (mounted.current && (!loggedOut.current ||
+                (full && typeof authIdentity.current === "string"))) return refresh(full);
+            });
+          }
+          return queued.current;
+        }
         await pending.current;
-        if (fresh && mounted.current) return refresh(true);
         return;
       }
       const run = async () => {
         const generation = authGeneration.current;
+        const sessionRevision = authRevision.current;
         const epoch = readEpoch.current;
+        activeRead.current = { generation, epoch };
         if (!navigator.onLine) {
           setStale(true);
           setError("Нет связи. Показаны последние полученные данные");
           setLoading(false);
           return;
         }
-        controller.current = new AbortController();
+        const requestController = new AbortController();
+        controller.current = requestController;
         const timeout = window.setTimeout(
-          () => controller.current?.abort(),
+          () => requestController.abort(),
           12000,
         );
         try {
@@ -126,7 +148,7 @@ export function useTraffic(isManager: boolean) {
             "GET",
             undefined,
             isManager,
-            controller.current.signal,
+            requestController.signal,
           );
           if (!mounted.current || generation !== authGeneration.current || epoch !== readEpoch.current) return;
           setData(isManager ? payload.snapshot : payload);
@@ -142,11 +164,18 @@ export function useTraffic(isManager: boolean) {
           }
           setNeedsLogin(false);
           loggedOut.current = false;
-          setStale(false);
-          setError("");
+          setStale(!navigator.onLine);
+          setError(navigator.onLine ? "" : "Нет связи. Показаны последние полученные данные");
         } catch (caught) {
           if (!mounted.current || generation !== authGeneration.current || epoch !== readEpoch.current) return;
           const failure = caught as Error & { status?: number };
+          if (failure.status === 401 && sessionRevision !== authRevision.current && !loggedOut.current) {
+            // Auth may renew while this request is using the previous token.
+            // Recheck once with the newer session, not a premature login screen.
+            setStale(true);
+            void refresh(true);
+            return;
+          }
           if (failure.status === 401 && !isManager) {
             loggedOut.current = true;
             setNeedsLogin(true);
@@ -194,11 +223,8 @@ export function useTraffic(isManager: boolean) {
     if (!mounted.current || generation !== authGeneration.current || companyId !== data?.companyId) return;
     readEpoch.current++;
     controller.current?.abort();
-    // Quiet refresh, including when an older GET was already in flight.
-    void (async () => {
-      await pending.current;
-      if (mounted.current && generation === authGeneration.current) void refresh();
-    })();
+    // Epoch invalidation guarantees one quiet successor to the aborted read.
+    void refresh();
   }), [data?.companyId, generation, refresh]);
   useEffect(() => subscribeVehicleDriverAssignments((result) => {
     if (!mounted.current || generation !== authGeneration.current ||
@@ -217,35 +243,46 @@ export function useTraffic(isManager: boolean) {
   useEffect(() => {
     mounted.current = true;
     let timer: number;
+    const authTimers = new Set<number>();
     let cancelled = false;
     const poll = async () => {
       if (document.visibilityState !== "hidden") await refresh();
       if (!cancelled) timer = window.setTimeout(poll, 1000);
     };
     const awaken = () => {
-      if (document.visibilityState !== "hidden") {
-        setStale(true);
-        void refresh(true);
-      }
+      if (document.visibilityState === "hidden" || loggedOut.current) return;
+      // Browsers emit visibilitychange, focus, pageshow and same-user SIGNED_IN
+      // for one resume. Coalesce even when the first GET completes very quickly.
+      const now = Date.now();
+      if (now - lastWake.current < 750) return;
+      lastWake.current = now;
+      void refresh();
+    };
+    const online = () => {
+      lastWake.current = -Infinity;
+      awaken();
     };
     const offline = () => {
       setStale(true);
       setError("Нет связи. Действия недоступны до обновления");
     };
     const visible = () => {
-      setStale(true);
-      if (document.visibilityState === "visible") awaken();
+      if (document.visibilityState === "hidden") lastWake.current = -Infinity;
+      else awaken();
     };
     void poll();
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       const identity = session?.user.id ?? null;
-      if (event === "INITIAL_SESSION") {
+      if (event === "INITIAL_SESSION" && authIdentity.current === undefined) {
         authIdentity.current = identity;
         return;
       }
-      if (identity !== authIdentity.current || event === "SIGNED_OUT") {
+      const identityChanged = identity !== authIdentity.current || event === "SIGNED_OUT";
+      const recoveringSession = !!session && loggedOut.current;
+      if (session && (event === "SIGNED_IN" || event === "TOKEN_REFRESHED")) authRevision.current++;
+      if (identityChanged) {
         authIdentity.current = identity;
         authGeneration.current++;
         readEpoch.current++;
@@ -257,13 +294,20 @@ export function useTraffic(isManager: boolean) {
         loggedOut.current = event === "SIGNED_OUT";
         if (!isManager) setNeedsLogin(event === "SIGNED_OUT");
       }
-      if (event !== "SIGNED_OUT")
-        window.setTimeout(() => {
-          if (mounted.current) void refresh(true);
+      if (recoveringSession) loggedOut.current = false;
+      if (event !== "SIGNED_OUT") {
+        const scheduledGeneration = authGeneration.current;
+        const authTimer = window.setTimeout(() => {
+          authTimers.delete(authTimer);
+          if (!mounted.current || scheduledGeneration !== authGeneration.current || loggedOut.current) return;
+          if (identityChanged || recoveringSession) void refresh(true);
+          else awaken();
         }, 0);
+        authTimers.add(authTimer);
+      }
     });
     window.addEventListener("focus", awaken);
-    window.addEventListener("online", awaken);
+    window.addEventListener("online", online);
     window.addEventListener("pageshow", awaken);
     window.addEventListener("offline", offline);
     document.addEventListener("visibilitychange", visible);
@@ -272,9 +316,10 @@ export function useTraffic(isManager: boolean) {
       subscription.unsubscribe();
       mounted.current = false;
       window.clearTimeout(timer);
+      authTimers.forEach((authTimer) => window.clearTimeout(authTimer));
       controller.current?.abort();
       window.removeEventListener("focus", awaken);
-      window.removeEventListener("online", awaken);
+      window.removeEventListener("online", online);
       window.removeEventListener("pageshow", awaken);
       window.removeEventListener("offline", offline);
       document.removeEventListener("visibilitychange", visible);

@@ -28,6 +28,9 @@ function textOf(node: any): string {
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 const wrapper = ({ children }: any) => React.createElement("div", null, children);
 const Button = ({ children, ...props }: any) => React.createElement("button", props, children);
+const TrafficBoard = () => null;
+const DropdownMenuItem = wrapper;
+const DropdownMenuContent = ({ children }: any) => React.createElement("div", null, children);
 
 async function main() {
   const pageSource = readFileSync("app/(dashboard)/traffic/page.tsx", "utf8");
@@ -61,11 +64,12 @@ async function main() {
       useRef: (initial: any) => { const i = refIndex++; return refs[i] ?? (refs[i] = { current: initial }); },
     },
     "lucide-react": { Truck: () => null, Settings2: () => null, KeyRound: () => null, Loader2: () => null },
-    "@/components/traffic/traffic-board": { TrafficBoard: () => null },
+    "@/components/traffic/traffic-board": { TrafficBoard },
     "@/components/traffic/use-traffic": { useTraffic: () => live, trafficRequest: async (...args: any[]) => { submitted.push(args); return { ok: true }; } },
     "@/lib/traffic/model": { ROLE_LABEL: {}, operatorRole: () => null },
     "@/components/ui/dialog": { Dialog: wrapper, DialogContent: wrapper, DialogHeader: wrapper, DialogTitle: wrapper, DialogDescription: wrapper },
     "@/components/ui/button": { Button },
+    "@/components/ui/dropdown-menu": { DropdownMenu: wrapper, DropdownMenuTrigger: wrapper, DropdownMenuContent, DropdownMenuItem },
   }).default;
   function render() { stateIndex = 0; refIndex = 0; return component(); }
   function openSettings() {
@@ -73,6 +77,29 @@ async function main() {
     flatten(tree).find(node => node.type === "button" && textOf(node).includes("Выбрать машины")).props.onClick();
     return render();
   }
+  const initialTree = render();
+  const desktopHeader = flatten(initialTree).find(node => node.type === "header");
+  check(desktopHeader.props.className.includes("hidden lg:block"), true);
+  check(flatten(initialTree).some(node => node.type === "h1" && node.props.className.includes("sr-only lg:hidden")), true);
+  const mobileActions = flatten(initialTree).find(node => node.type === TrafficBoard).props.mobileActions;
+  const menuTrigger = flatten(mobileActions).find(node => node.type === "button");
+  check(menuTrigger.props["aria-label"], "Настройки оборота машин");
+  check(menuTrigger.props.className.includes("min-h-[48px] min-w-[48px]"), true);
+  check(menuTrigger.props.disabled, false);
+  const menuContent = flatten(mobileActions).find(node => node.type === DropdownMenuContent);
+  check(menuContent.props.align, "end");
+  check(menuContent.props.className, "max-w-[calc(100vw-2rem)]");
+  // The production Radix content uses a portal, outside the mobile list's scroller.
+  check(readFileSync("components/ui/dropdown-menu.tsx", "utf8").includes("<DropdownMenuPrimitive.Portal>"), true);
+  const menuItems = flatten(mobileActions).filter(node => node.type === DropdownMenuItem && node.props.onSelect);
+  check(menuItems.length, 2);
+  check(menuItems.every(node => node.props.className.includes("min-h-[48px]")), true);
+  menuItems[0].props.onSelect();
+  check(flatten(render()).some(node => node.type === "form"), true);
+  check(textOf(render()).includes("Машины в работе"), true);
+  menuItems[1].props.onSelect();
+  check(textOf(render()).includes("Аккаунты операторов"), true);
+  check(submitted.length, 0); // Opening either menu item is read-only.
   let tree = openSettings();
   let html = renderToStaticMarkup(tree);
   check(html.includes("<select"), false);

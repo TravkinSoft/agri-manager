@@ -5,7 +5,7 @@ import vm from "node:vm";
 import ts from "typescript";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import postcss from "postcss";
+import postcss, { type AtRule, type Node as PostcssNode } from "postcss";
 import tailwindcss from "tailwindcss";
 import config from "../tailwind.config";
 import * as model from "../lib/traffic/model";
@@ -15,6 +15,7 @@ const localRequire = createRequire(import.meta.url);
 const source = readFileSync("components/traffic/traffic-board.tsx", "utf8");
 let checks = 0;
 function check(actual: unknown, expected: unknown) { assert.deepEqual(actual, expected); checks++; }
+function isAtRule(node: PostcssNode): node is AtRule { return node.type === "atrule"; }
 function nodes(node: any): any[] {
   if (!node || typeof node !== "object") return [];
   if (Array.isArray(node)) return node.flatMap(nodes);
@@ -121,7 +122,7 @@ async function main() {
     const count = nodes(group).filter(node => node.props?.className?.includes("tabular-nums"));
     check(count.length, 1); check(count[0].props.children, expected[index].length);
   }
-  check(nodes(tree).filter(node => node.props?.className?.includes("tabular-nums")).length, 3); // No separate duplicate summary counts.
+  check(nodes(tree).filter(node => node.props?.className?.includes("tabular-nums")).length, 6); // Mobile selectors + desktop column headings; never visible together.
   check(cardNodes(tree).length, vehicles.length);
   check(new Set(cardNodes(tree).map(card => card.props["data-testid"])).size, vehicles.length);
   check(cardNodes(tree).every(card => card.type === "article"), true);
@@ -152,14 +153,62 @@ async function main() {
   check((managerHtml.match(/data-driver-assignment=/g) ?? []).length, vehicles.length);
   check(managerHtml.includes("<button><button"), false);
   const managerText = managerHtml.replace(/<[^>]*>/g, "");
-  check((managerText.match(/Пустые/g) ?? []).length, 1);
-  check((managerText.match(/Загруженные/g) ?? []).length, 1);
-  check((managerText.match(/На выгрузке/g) ?? []).length, 1);
+  check((managerText.match(/Пустые/g) ?? []).length, 2);
+  check((managerText.match(/Загруженные/g) ?? []).length, 2);
+  check((managerText.match(/На выгрузке/g) ?? []).length, 2);
   check(managerHtml.includes("lg:grid-cols-3"), true);
   check(managerHtml.includes("grid-cols-3") && !managerHtml.includes('class="grid grid-cols-3'), true);
   const emptyTree = harness("manager", []).render();
   check(nodes(emptyTree).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-")).length, 3);
   check((renderToStaticMarkup(emptyTree).match(/Нет машин/g) ?? []).length, 3);
+
+  const filterNodes = (value: any) => nodes(value).filter(node => node.props?.["data-testid"]?.startsWith("traffic-filter-"));
+  const mobileGroups = (value: any) => nodes(value).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-") && !node.props.className.split(/\s+/).includes("hidden"));
+  const filterCounts = (value: any) => filterNodes(value).map(filter => Number(words(nodes(filter).find(node => node.props?.className?.includes("tabular-nums")))));
+  check(filterCounts(tree), [2, 1, 1]);
+  check(mobileGroups(tree).map(group => group.props["data-testid"]), ["traffic-group-empty"]);
+  check(filterNodes(tree).map(filter => filter.props["aria-pressed"]), [true, false, false]);
+  check(nodes(tree).some(node => node.props?.role === "group" && node.props["aria-label"] === "Показать машины по статусу"), true);
+  filterNodes(tree).forEach(filter => {
+    check(filter.type, "button"); check(filter.props.type, "button");
+    check(filter.props.tabIndex, undefined); // Native Tab + Enter/Space, not an incomplete ARIA tablist.
+    check(filter.props.className.includes("min-h-[48px]"), true);
+    check(filter.props.className.includes("focus-visible:outline"), true);
+    check(groups.some(group => group.props.id === filter.props["aria-controls"]), true);
+  });
+  filterNodes(tree)[1].props.onClick();
+  let filteredTree = manager.render();
+  check(filterNodes(filteredTree).map(filter => filter.props["aria-pressed"]), [false, true, false]);
+  check(mobileGroups(filteredTree).map(group => group.props["data-testid"]), ["traffic-group-loaded"]);
+  check(cardNodes(mobileGroups(filteredTree)).map(card => card.props["data-testid"]), ["traffic-vehicle-car-0"]);
+  check(filterCounts(filteredTree), [2, 1, 1]);
+  check(manager.calls.length, 0);
+  manager.props.snapshot = { ...manager.props.snapshot, vehicles: manager.props.snapshot.vehicles.map(vehicle => vehicle.vehicle_id === "car-1" ? { ...vehicle, state: "loaded" } : vehicle) };
+  filteredTree = manager.render();
+  check(filterCounts(filteredTree), [1, 2, 1]);
+  check(filterNodes(filteredTree).map(filter => filter.props["aria-pressed"]), [false, true, false]);
+  check(cardNodes(mobileGroups(filteredTree)).length, 2);
+  check(nodes(filteredTree).filter(node => node.type === VehicleDriverAssignment).length, vehicles.length);
+
+  // A loaded vehicle is one filter click away even behind fourteen empty vehicles.
+  const longFleet = harness("manager", [...Array.from({ length: 14 }, (_, index) => ({ ...vehicles[1], vehicle_id: `empty-${index}` })), vehicles[0], vehicles[2]]);
+  check(cardNodes(mobileGroups(longFleet.render())).length, 14);
+  filterNodes(longFleet.render())[1].props.onClick();
+  check(cardNodes(mobileGroups(longFleet.render())).map(card => card.props["data-testid"]), ["traffic-vehicle-car-0"]);
+  check(filterCounts(longFleet.render()), [14, 1, 1]);
+  filterNodes(longFleet.render())[2].props.onClick();
+  check(cardNodes(mobileGroups(longFleet.render())).map(card => card.props["data-testid"]), ["traffic-vehicle-car-2"]);
+  check(filterNodes(emptyTree).map(filter => filter.props.disabled), [undefined, undefined, undefined]);
+
+  const refreshing = harness("harvester");
+  refreshing.props.stale = true;
+  check(words(refreshing.render()).includes("Проверяем актуальность"), false);
+  check(nodes(refreshing.render()).some(node => node.props?.role === "status"), false);
+  check(cardNodes(refreshing.render()).filter(card => card.type === "button").every(card => card.props.disabled), true);
+  refreshing.props.error = "Нет сети. Проверьте соединение.";
+  check(words(refreshing.render()).includes(refreshing.props.error), true);
+  nodes(refreshing.render()).find(node => node.props?.["aria-label"] === "Обновить статусы").props.onClick();
+  check(refreshing.refreshCalls, [true]);
 
   for (const role of ["harvester", "receiver"] as const) {
     const h = harness(role);
@@ -179,9 +228,12 @@ async function main() {
         check(words(card).includes(model.ACTION_LABEL[target]), false); // The card itself is the only action.
         check(nodes(card).filter(node => node.type === "button").length, 1); // No nested buttons.
       } else {
-        check(card.props.className.split(/\s+/).includes("grayscale"), true);
+        check(card.props.className.split(/\s+/).includes("grayscale"), false);
         check(card.props.className.split(/\s+/).some((name: string) => name.startsWith("opacity-")), false);
+        check(card.props.onClick, undefined);
+        check(card.props.tabIndex, undefined);
       }
+      check(card.props.className.includes({ empty: "bg-[#ffffff]", loaded: "bg-emerald-100", unloading: "bg-amber-100" }[vehicle.state]), true);
     }
     const actionable = cards.find(card => card.type === "button")!;
     const clicked = vehicles.find(car => `traffic-vehicle-${car.vehicle_id}` === actionable.props["data-testid"])!;
@@ -358,9 +410,62 @@ async function main() {
   for (const page of ["app/traffic-operator/page.tsx", "app/(dashboard)/traffic/page.tsx"]) {
     check(readFileSync(page, "utf8").includes("key={live.scopeKey}"), true);
   }
-  const css = (await postcss([tailwindcss({ ...config, content: [{ raw: source, extension: "tsx" }] })]).process("@tailwind utilities;", { from: undefined })).css;
+  const pageSource = readFileSync("app/(dashboard)/traffic/page.tsx", "utf8");
+  const css = (await postcss([tailwindcss({ ...config, content: [{ raw: `${source}\n${pageSource}`, extension: "tsx" }] })]).process("@tailwind utilities;", { from: undefined })).css;
   for (const expression of [/min-height:\s*48px/, /padding:\s*0\.625rem/, /@media \(min-width: 1024px\)/, /grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/,
-    /\.bg-emerald-100\s*\{/, /\.bg-amber-100\s*\{/, /--tw-grayscale:\s*grayscale\(100%\)/]) { assert.match(css, expression); checks++; }
+    /\.bg-emerald-100\s*\{/, /\.bg-amber-100\s*\{/]) { assert.match(css, expression); checks++; }
+  check(source.includes("grayscale"), false);
+  check(source.includes("Проверяем актуальность"), false);
+  const compiled = postcss.parse(css);
+  const stylesAt = (node: any, width: number) => {
+    const classes = new Set(node.props.className.split(/\s+/));
+    const declarations: Record<string, string> = {};
+    compiled.walkRules(rule => {
+      const parent = rule.parent;
+      if (parent && isAtRule(parent) && parent.name === "media") {
+        const minWidth = parent.params.match(/min-width:\s*(\d+)px/);
+        if (minWidth && width < Number(minWidth[1])) return;
+      }
+      const utility = rule.selector.replace(/^\./, "").replace(/\\([0-9a-fA-F]{1,6}\s?|.)/g,
+        (_match, escape: string) => /^[0-9a-fA-F]/.test(escape) ? String.fromCodePoint(parseInt(escape, 16)) : escape);
+      if (!classes.has(utility)) return;
+      rule.walkDecls(declaration => {
+        declarations[declaration.prop] = declaration.value;
+        if (declaration.prop === "overflow") declarations["overflow-x"] = declarations["overflow-y"] = declaration.value;
+      });
+    });
+    return declarations;
+  };
+  // These checks validate compiled responsive constraints, not browser geometry.
+  for (const width of [320, 360, 390, 412, 1024, 1440]) {
+    const desktop = width >= 1024;
+    const toolbar = nodes(filteredTree).find(node => node.props?.["data-testid"] === "traffic-mobile-toolbar");
+    const toolbarStyle = stylesAt(toolbar, width);
+    check(toolbarStyle.display, desktop ? "none" : "flex");
+    check(toolbarStyle["flex-shrink"], "0");
+    check(toolbarStyle["min-width"], "0px");
+    const board = nodes(filteredTree).find(node => node.props?.["data-testid"] === "traffic-manager-board");
+    check(stylesAt(board, width)["max-height"], desktop ? "none" : "max(12rem,calc(100dvh - 14rem))");
+    const lists = nodes(filteredTree).find(node => node.props?.["data-testid"] === "traffic-manager-lists");
+    check(stylesAt(lists, width)["min-height"], "0px");
+    check(stylesAt(lists, width)["overflow-y"] ?? stylesAt(lists, width).overflow, desktop ? "visible" : "auto");
+    check(nodes(lists).includes(toolbar), false); // Selector/menu never scroll away with the cards.
+    const renderedGroups = nodes(filteredTree).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-"));
+    check(renderedGroups.filter(group => stylesAt(group, width).display !== "none").length, desktop ? 3 : 1);
+    renderedGroups.forEach(group => {
+      check(stylesAt(group, width)["min-width"], "0px");
+      const heading = nodes(group).find(node => node.type === "h2");
+      check(stylesAt(heading, width).display, desktop ? "flex" : "none");
+    });
+    const filters = filterNodes(filteredTree);
+    filters.forEach(filter => {
+      check(stylesAt(filter, width)["min-height"], "48px");
+      check(stylesAt(filter, width)["min-width"], "0px");
+      check(stylesAt(nodes(filter).find(node => node.props?.className?.includes("break-words")), width)["overflow-wrap"], "break-word");
+    });
+    const filterGrid = nodes(toolbar).find(node => node.props?.role === "group");
+    check(stylesAt(filterGrid, width)["grid-template-columns"], "repeat(3, minmax(0, 1fr))");
+  }
   const explicitWhite = postcss.parse(css).nodes.find(node => node.type === "rule" && node.selector === ".bg-\\[\\#ffffff\\]");
   check(!!explicitWhite, true);
   if (explicitWhite?.type === "rule") {

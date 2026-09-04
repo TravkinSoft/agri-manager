@@ -46,6 +46,8 @@ function harness(isManager = false, initiallyHidden = false) {
   };
   const navigatorMock = { onLine: true };
   let stateIndex = 0, refIndex = 0, callbackIndex = 0, effectIndex = 0, timerId = 0, unsubscribed = 0;
+  let now = Date.parse("2026-09-04T10:00:00Z");
+  class TestDate extends Date { static now() { return now; } }
   let authChange: (event: string, session: { user: { id: string } } | null) => void = () => undefined;
   let assignmentListener: ((result: VehicleDriverAssignmentResult) => void) | null = null;
   let trafficListener: ((companyId: string) => void) | null = null;
@@ -93,7 +95,7 @@ function harness(isManager = false, initiallyHidden = false) {
   vm.runInNewContext(ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, {
-    module: loaded, exports: loaded.exports, AbortController,
+    module: loaded, exports: loaded.exports, AbortController, Date: TestDate,
     require: (name: string) => dependencies[name] ?? localRequire(name),
     navigator: navigatorMock, document: documentMock,
     window: {
@@ -114,6 +116,7 @@ function harness(isManager = false, initiallyHidden = false) {
   };
   return {
     render, requests, timers, navigator: navigatorMock, document: documentMock,
+    advance: (ms: number) => { now += ms; },
     request: loaded.exports.trafficRequest as (path: string, method?: string, body?: unknown) => Promise<any>,
     respond: async (index: number, payload: unknown, status = 200) => {
       assert.ok(requests[index], `fetch ${index} exists`);
@@ -260,7 +263,102 @@ async function main() {
   await account.runTimer(1000); check(account.requests.length, 3);
   account.unmount();
 
-  // Hidden pages do not poll; visibility/online wakeups retain the canonical freshness gate.
+  // Resume retains the same canonical snapshot/board scope and joins one GET,
+  // even when the first response beats the rest of the browser's wake events.
+  const resume = harness(); const beforeResume = await ready(resume);
+  resume.document.visibilityState = "hidden"; resume.fire("visibilitychange");
+  check(resume.render().stale, false); check(resume.render().data, beforeResume.data);
+  await resume.runTimer(1000); check(resume.requests.length, 1);
+  resume.document.visibilityState = "visible"; resume.fire("visibilitychange");
+  resume.fire("focus"); resume.fire("pageshow");
+  resume.auth("SIGNED_IN", "account-a"); resume.auth("TOKEN_REFRESHED", "account-a");
+  await resume.runTimer(0); await resume.runTimer(0);
+  check(resume.requests.length, 2);
+  check(resume.render().data, beforeResume.data); check(resume.render().scopeKey, beforeResume.scopeKey);
+  check(resume.render().loading, false); check(resume.render().stale, false); check(resume.render().error, "");
+  await resume.respond(1, snapshot("car-a", 2, "loaded"));
+  resume.advance(100); resume.fire("focus"); resume.fire("pageshow");
+  resume.auth("SIGNED_IN", "account-a"); await resume.runTimer(0);
+  check(resume.requests.length, 2); check(resume.render().data.vehicles[0].version, 2);
+  resume.advance(1000); resume.fire("focus"); await flush(); check(resume.requests.length, 3);
+  await resume.respond(2, { error: "Background server error" }, 500);
+  check(resume.render().data.vehicles[0].version, 2); check(resume.render().loading, false);
+  check(resume.render().stale, true); check(resume.render().error, "Background server error");
+  resume.advance(1000); resume.fire("focus"); await flush();
+  await resume.respond(3, snapshot("car-a", 3, "unloading")); check(resume.render().stale, false);
+  resume.auth("TOKEN_REFRESHED", "account-a"); // Unmount must also cancel delayed auth callbacks.
+  resume.unmount(); check(resume.cleanupState(), { unsubscribed: 1, windowListeners: 0, documentListeners: 0, timers: 0 });
+
+  // Manager wake reads only the snapshot; multiple explicit metadata requests
+  // during that GET share one full successor, without losing manager controls.
+  const manager = harness(true);
+  const managerSnapshot = snapshot("car-a", 1, "empty", "manager");
+  const metadata = { snapshot: managerSnapshot, fleet: [{ id: "car-a" }], people: [], fields: [], accounts: [], canManageUsers: true };
+  manager.render(); await flush(); await manager.respond(0, metadata);
+  const managerReady = manager.render(); check(managerReady.managerData.canManageUsers, true);
+  manager.fire("focus"); await flush(); check(manager.requests[1].path, "/api/traffic?snapshot=1");
+  const freshRequests = [managerReady.refresh(true), managerReady.refresh(true), managerReady.refresh(true)];
+  manager.fire("pageshow"); check(manager.render().stale, false);
+  await manager.respond(1, { snapshot: { ...managerSnapshot, vehicles: [] } });
+  check(manager.requests.length, 3); check(manager.requests[2].path, "/api/traffic");
+  check(manager.render().managerData.fleet, metadata.fleet);
+  await manager.respond(2, metadata); await Promise.all(freshRequests);
+  check(manager.requests.length, 3); check(manager.render().loading, false);
+  manager.auth("SIGNED_IN", "account-a"); manager.auth("SIGNED_OUT", null);
+  await manager.runTimer(0); check(manager.render().data, null); check(manager.render().managerData, null);
+  await manager.runTimer(1000); check(manager.requests.length, 3); manager.unmount();
+
+  // An explicit queued read or a delayed same-user auth event must not revive
+  // the previous account after sign-out, including a late successful response.
+  const exit = harness(); const beforeExit = await ready(exit);
+  const inFlight = beforeExit.refresh(); await flush();
+  const queuedExit = beforeExit.refresh(true);
+  exit.auth("SIGNED_IN", "account-a"); exit.auth("SIGNED_OUT", null);
+  await exit.runTimer(0); await exit.respond(1, snapshot()); await inFlight; await queuedExit;
+  check(exit.requests.length, 2); check(exit.render().data, null); check(exit.render().needsLogin, true);
+  exit.unmount();
+
+  // True authorization loss still clears protected operator data; role denial
+  // remains a visible error with all transitions disabled, not a quiet success.
+  const denied = harness(); const beforeDeny = await ready(denied);
+  const roleDenied = beforeDeny.refresh(); await flush();
+  await denied.respond(1, { error: "Role no longer allowed" }, 403); await roleDenied;
+  check(denied.render().stale, true); check(denied.render().error, "Role no longer allowed");
+  const sessionExpired = denied.render().refresh(true); await flush();
+  await denied.respond(2, { error: "Session expired" }, 401); await sessionExpired;
+  check(denied.render().data, null); check(denied.render().needsLogin, true);
+  denied.auth("TOKEN_REFRESHED", "account-a"); await denied.runTimer(0);
+  check(denied.requests.length, 4); await denied.respond(3, snapshot());
+  check(denied.render().needsLogin, false); check(denied.render().stale, false);
+  denied.unmount();
+
+  // A full refresh requested during login still runs if the older read returns
+  // 401. That is not an actual SIGNED_OUT and must not strand a valid login.
+  const relogin = harness(); const loggedIn = await ready(relogin);
+  const oldSession = loggedIn.refresh(); await flush();
+  const afterLogin = loggedIn.refresh(true);
+  await relogin.respond(1, { error: "Previous token expired" }, 401); await oldSession;
+  check(relogin.requests.length, 3);
+  await relogin.respond(2, snapshot()); await afterLogin;
+  check(relogin.render().needsLogin, false); check(relogin.render().stale, false);
+  relogin.unmount();
+
+  // Renewal can beat the old-token failure. Retry that old 401 exactly once
+  // using the newer session, but never loop if the fresh request is also denied.
+  for (const event of ["SIGNED_IN", "TOKEN_REFRESHED"]) {
+    const renewal = harness(); const oldTokenView = await ready(renewal);
+    const oldTokenRead = oldTokenView.refresh(); await flush();
+    renewal.auth(event, "account-a"); await renewal.runTimer(0);
+    check(renewal.requests.length, 2); check(renewal.render().stale, false);
+    await renewal.respond(1, { error: "Old token expired" }, 401); await oldTokenRead;
+    check(renewal.requests.length, 3); check(renewal.render().needsLogin, false);
+    check(renewal.render().stale, true); // No actions until the new session is verified.
+    await renewal.respond(2, { error: "Session really expired" }, 401);
+    check(renewal.requests.length, 3); check(renewal.render().needsLogin, true);
+    check(renewal.render().data, null); renewal.unmount();
+  }
+
+  // Hidden pages do not poll; real offline/online events retain the freshness gate.
   const hidden = harness(false, true);
   hidden.render(); await flush(); check(hidden.requests.length, 0);
   await hidden.runTimer(1000); check(hidden.requests.length, 0);

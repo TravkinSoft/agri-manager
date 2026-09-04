@@ -42,9 +42,9 @@ The central service role needs its existing SELECT/UPDATE privileges to acquire 
 
 All PTC interfaces are mobile-first, including manager setup, account guidance and history. Explicit 48px touch minimums, 16px inputs, compact narrow layouts, wrapped plates, full-card actions and bounded scrolling dialogs. Manager history retains vehicle labels even when a machine is no longer assigned. Existing navigation order remains; permitted mobile users enter through «Ещё».
 
-The manager board groups vehicles into «Пустые», «Загруженные», «На выгрузке» with white, green and yellow cards respectively. The three columns start at 1024 CSS px and stack as three clearly labelled groups on phones. Counts appear once in group headings. Cards prioritize the plate, then vehicle name and optional assigned driver; operator controls retain 48px touch targets and the same confirmed transitions.
+The manager board groups vehicles into «Пустые», «Загруженные», «На выгрузке» with white, green and yellow cards respectively. Three columns start at 1024 CSS px. On phones, three always-visible status selectors show all counts above one scrollable list; switching resets only that list's scroll. The oversized PTC heading/actions are desktop-only; a compact mobile menu retains fleet/account access. Cards prioritize the plate, then vehicle name and optional assigned driver; operator controls retain 48px touch targets and the same confirmed transitions.
 
-Visible clients poll canonical snapshots every two seconds after the previous request finishes, with one read in flight. Manager catalogs are paginated and omitted from repeated compact snapshots. Operator responses omit manager event history. Focus, online, pageshow and visible-tab return force refresh; hidden tabs do not poll. Old/offline data is marked stale and actions are disabled. A compact warning appears only while verification is needed; no permanent healthy-status bar.
+Visible clients poll canonical snapshots one second after the previous request finishes, with one read in flight. Manager catalogs are paginated and omitted from repeated compact snapshots. Operator responses omit manager event history. Focus/pageshow/visible-tab return and same-user auth events quietly revalidate, coalescing one resume burst (750ms), without marking a healthy snapshot stale or remounting the board. Hidden tabs do not poll. Explicit full refreshes and invalidated in-flight reads share one successor. Real offline/failure states still block actions and show errors; the routine verification banner is removed. Identity/sign-out clears data immediately; a renewed session arriving before an old-token401 causes one authorized recheck. Cold document reload or OS-discarded tabs still need an initial authenticated load; no protected snapshots are persisted offline.
 
 Confirming a card immediately closes the dialog and projects the requested next state locally, before awaiting auth/network. Harvester: loaded card moves below active empty cars and becomes inactive. Receiver: arrival becomes yellow unloading; empty disappears. No card spinner, «Сохраняем…» stripe, full-page reload or global fleet lock; other vehicles remain actionable. This is a display-only pending intent: the canonical version, cycle and history stay unchanged until a verified server receipt/snapshot arrives. The same vehicle cannot submit another transition while its request is unresolved.
 
@@ -56,7 +56,7 @@ The operator route overrides the ERP manifest with `/traffic-operator.webmanifes
 
 `/ptc-sw.js` is registered only for `/traffic-operator`. It has zero CacheStorage use and only intercepts cabinet document navigation, network no-store with a small honest offline fallback. API/session, mutations, RSC and other app routes are not stored or replayed. ERP OfflineRuntime is disabled on PTC routes; its existing worker and caches are untouched. Headless registration keeps browser-native installation available without any install panel. The operator route requests initial/minimum/maximum scale1, userScalable=false and vertical touch panning; system/browser accessibility settings may override zoom restrictions. ERP viewport is unchanged.
 
-Operator cards are whole-card48px-minimum buttons with no inner action bar. Compact current-state/elapsed-time text remains; loaded receiver cards are green, occupied harvester cards are grayscale and noninteractive. Confirmation still names the exact vehicle and action.
+Operator cards are whole-card48px-minimum buttons with no inner action bar. Compact current-state/elapsed-time text remains; every cabinet uses white empty, green loaded and yellow unloading cards. Occupied harvester cards remain noninteractive without grayscale. Confirmation still names the exact vehicle and action. Animated movement is a possible separate enhancement, not part of this resume/mobile correction.
 
 ## Local gates and hosted acceptance
 
@@ -65,9 +65,9 @@ Operator cards are whole-card48px-minimum buttons with no inner action bar. Comp
 - `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-model.ts`: 61 model, role and client/auth-contract assertions.
 - `node scripts/qa-ptc-pwa.cjs`: 32 manifest/icon/worker behavior assertions.
 - `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-mobile-css.ts`: eight actual generated Tailwind-rule assertions.
-- `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-simple-settings.ts`: 33 component/API assertions for field-free vehicle selection and preserved history context.
-- `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-compact-board.ts`: 148 component/SSR/CSS and deferred-confirmation assertions.
-- `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-fast-client.ts`: 93 actual hook/request assertions for receipts, old-read/account guards and bounded polling.
+- `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-simple-settings.ts`: 47 component/API assertions for field-free vehicle selection, compact mobile menu and preserved history context.
+- `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-compact-board.ts`: 406 component/SSR/CSS and deferred-confirmation assertions.
+- `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-fast-client.ts`: 216 actual hook/request assertions for receipts, old-read/account guards, quiet/coalesced resume, token-renewal races and bounded polling.
 - `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-transition-receipt.ts`: 171 API/fresh-authorization/receipt assertions with injected database/auth responses.
 - `node node_modules/tsx/dist/cli.mjs scripts/qa-ptc-operator-shell.ts`: 90 headless PWA/viewport/rendered-role/CSS assertions.
 - Full TypeScript and scoped Next lint.
