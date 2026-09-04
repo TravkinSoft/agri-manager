@@ -62,6 +62,8 @@ const INVITE_ROLES = [
   "weighman",
   "fuel_operator",
   "brigadier",
+  "mechanic_operator",
+  "vegetable_brigadier",
 ] as const;
 
 const ROLE_BADGE_CLASS: Record<string, string> = {
@@ -76,6 +78,8 @@ const ROLE_BADGE_CLASS: Record<string, string> = {
   weighman: "bg-violet-100 text-violet-800 border-violet-200",
   fuel_operator: "bg-cyan-100 text-cyan-800 border-cyan-200",
   brigadier: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  mechanic_operator: "bg-green-100 text-green-800 border-green-200",
+  vegetable_brigadier: "bg-amber-100 text-amber-800 border-amber-200",
 };
 
 function normalizeStatus(status: string | null | undefined) {
@@ -95,6 +99,11 @@ export default function UsersPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<(typeof INVITE_ROLES)[number]>("agronomist");
   const [inviting, setInviting] = useState(false);
+  const [invitePerson, setInvitePerson] = useState("");
+  const [invitePeople, setInvitePeople] = useState<Array<{ id: string; full_name: string }>>([]);
+  const [peopleLoading, setPeopleLoading] = useState(false);
+  const [peopleError, setPeopleError] = useState("");
+  const trafficInvite = inviteRole === "mechanic_operator" || inviteRole === "vegetable_brigadier";
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [impersonatingProfileId, setImpersonatingProfileId] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ row: ProfileRow; action: UserAction } | null>(null);
@@ -116,6 +125,8 @@ export default function UsersPage() {
     if (role === "weighman") return t("Весовщик", "Таразышы", "Weighman");
     if (role === "fuel_operator") return t("Оператор ГСМ", "Жанармай операторы", "Fuel operator");
     if (role === "brigadier") return t("Бригадир", "Бригадир", "Brigadier");
+    if (role === "mechanic_operator") return t("Механизатор", "Механизатор", "Machine operator");
+    if (role === "vegetable_brigadier") return t("Бригадир овощной", "Көкөніс бригадирі", "Vegetable foreman");
     return role;
   };
 
@@ -164,6 +175,26 @@ export default function UsersPage() {
   const isAdmin = profile?.role === "company_admin" || profile?.role === "global_admin";
   const isGlobalAdmin = profile?.role === "global_admin";
   const activeCompanyId = profile?.context_company_id || profile?.company_id || null;
+
+  useEffect(() => {
+    if (!inviteDialogOpen || !trafficInvite || !activeCompanyId) return;
+    let cancelled = false;
+    setPeopleLoading(true);
+    setPeopleError("");
+    setInvitePerson("");
+    void (async () => {
+      try {
+        const headers = await buildClientAuthHeaders();
+        const response = await fetch(`/api/invite-user?company_id=${encodeURIComponent(activeCompanyId)}`, { headers, cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "Не удалось загрузить сотрудников");
+        if (!cancelled) setInvitePeople(payload.people);
+      } catch (error) {
+        if (!cancelled) { setInvitePeople([]); setPeopleError(error instanceof Error ? error.message : "Не удалось загрузить сотрудников"); }
+      } finally { if (!cancelled) setPeopleLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [inviteDialogOpen, trafficInvite, activeCompanyId]);
 
   const summary = useMemo(() => {
     const counts = { active: 0, pending: 0, inactive: 0, revoked: 0 };
@@ -229,6 +260,7 @@ export default function UsersPage() {
 
   const handleInvite = async () => {
     if (!inviteEmail.trim() || !inviteFullName.trim() || !activeCompanyId || !profile?.id) return;
+    if (trafficInvite && (!invitePerson || peopleLoading || peopleError)) return;
     setInviting(true);
     try {
       const headers = await buildClientAuthHeaders("json");
@@ -241,6 +273,7 @@ export default function UsersPage() {
           email: inviteEmail.trim(),
           role: inviteRole,
           company_id: activeCompanyId,
+          ...(trafficInvite ? { person_id: invitePerson === "new" ? null : invitePerson, create_person: invitePerson === "new" } : {}),
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -258,6 +291,7 @@ export default function UsersPage() {
       setInviteFullName("");
       setInviteEmail("");
       setInviteRole("agronomist");
+      setInvitePerson("");
       await loadProfiles();
     } catch (error: any) {
       toast({
@@ -620,7 +654,7 @@ export default function UsersPage() {
       </Card>
 
       <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t("Пригласить пользователя", "Пайдаланушыны шақыру", "Invite user")}</DialogTitle>
             <DialogDescription>
@@ -633,9 +667,10 @@ export default function UsersPage() {
               <Label htmlFor="invite-full-name">{t("ФИО", "Аты-жөні", "Full name")}</Label>
               <Input
                 id="invite-full-name"
+                className="min-h-[48px] text-base"
                 value={inviteFullName}
                 onChange={(event) => setInviteFullName(event.target.value)}
-                disabled={inviting}
+                disabled={inviting || (trafficInvite && !!invitePerson && invitePerson !== "new")}
                 placeholder={t("Например: Иванов Иван", "Мысалы: Иванов Иван", "John Smith")}
               />
             </div>
@@ -643,6 +678,7 @@ export default function UsersPage() {
               <Label htmlFor="invite-email">Email</Label>
               <Input
                 id="invite-email"
+                className="min-h-[48px] text-base"
                 type="email"
                 value={inviteEmail}
                 onChange={(event) => setInviteEmail(event.target.value)}
@@ -657,25 +693,43 @@ export default function UsersPage() {
                 onValueChange={(value) => setInviteRole(value as (typeof INVITE_ROLES)[number])}
                 disabled={inviting}
               >
-                <SelectTrigger id="invite-role">
+                <SelectTrigger id="invite-role" className="min-h-[48px] text-base">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {INVITE_ROLES.map((role) => (
-                    <SelectItem key={role} value={role}>
+                    <SelectItem key={role} value={role} className="min-h-[48px] text-base">
                       {roleLabel(role)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+            {trafficInvite ? (
+              <div className="space-y-2">
+                <Label htmlFor="invite-person">Сотрудник компании</Label>
+                <select id="invite-person" value={invitePerson} disabled={inviting || peopleLoading || !!peopleError}
+                  className="min-h-[48px] w-full min-w-0 rounded-md border bg-background px-3 text-base"
+                  onChange={(event) => {
+                    setInvitePerson(event.target.value);
+                    const person = invitePeople.find((item) => item.id === event.target.value);
+                    if (person) setInviteFullName(person.full_name);
+                  }}>
+                  <option value="">{peopleLoading ? "Загружаем сотрудников…" : "Выберите сотрудника"}</option>
+                  {invitePeople.map((person) => <option key={person.id} value={person.id}>{person.full_name}</option>)}
+                  <option value="new">Новый сотрудник — создать запись по указанному ФИО</option>
+                </select>
+                <p className="text-sm text-muted-foreground">Письмо активирует единый аккаунт TravkinFlow. Роль открывает только кабинет PTC, без весовой. Если человек уже есть в персонале, выберите его — новую запись создавать не нужно.</p>
+                {peopleError ? <p role="alert" className="text-sm text-red-500">{peopleError}. Закройте и откройте приглашение для повтора.</p> : null}
+              </div>
+            ) : null}
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setInviteDialogOpen(false)} disabled={inviting}>
+            <Button className="min-h-[48px]" type="button" variant="outline" onClick={() => setInviteDialogOpen(false)} disabled={inviting}>
               {t("Отмена", "Болдырмау", "Cancel")}
             </Button>
-            <Button onClick={handleInvite} disabled={inviting || !inviteEmail.trim() || !inviteFullName.trim()}>
+            <Button className="min-h-[48px]" onClick={handleInvite} disabled={inviting || !inviteEmail.trim() || !inviteFullName.trim() || (trafficInvite && (!invitePerson || peopleLoading || !!peopleError))}>
               {inviting ? t("Отправка...", "Жіберілуде...", "Sending...") : t("Отправить приглашение", "Шақыру жіберу", "Send invite")}
             </Button>
           </DialogFooter>

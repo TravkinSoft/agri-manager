@@ -98,6 +98,11 @@ export function canAccessPath(role: AppRole, pathname: string): boolean {
 
   if (role === "global_admin") return true;
 
+  // These are company accounts, but their initial cabinet is intentionally PTC-only.
+  if (role === "mechanic_operator" || role === "vegetable_brigadier") {
+    return path === "/traffic-operator" || path === "/auth" || path.startsWith("/auth/");
+  }
+
   if (AUTHENTICATED_SHARED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
     return true;
   }
@@ -172,6 +177,7 @@ export function canAccessPath(role: AppRole, pathname: string): boolean {
 }
 
 export function getDefaultPathForRole(role: AppRole): string {
+  if (role === "mechanic_operator" || role === "vegetable_brigadier") return "/traffic-operator";
   if (role === "global_admin") return "/platform";
   if (role === "warehouse") return "/warehouses";
   if (role === "warehouse_operator") return "/warehouses";

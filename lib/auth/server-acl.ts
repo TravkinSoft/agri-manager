@@ -14,7 +14,9 @@ type AllowedRole =
   | "weighman"
   | "specialist"
   | "fuel_operator"
-  | "brigadier";
+  | "brigadier"
+  | "mechanic_operator"
+  | "vegetable_brigadier";
 
 type NormalizedRole = CanonicalRole;
 

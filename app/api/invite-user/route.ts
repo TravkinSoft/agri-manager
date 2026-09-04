@@ -15,6 +15,8 @@ const GLOBAL_ADMIN_ALLOWED_TARGETS = [
   "weighman",
   "fuel_operator",
   "brigadier",
+  "mechanic_operator",
+  "vegetable_brigadier",
 ] as const;
 const COMPANY_ADMIN_ALLOWED_TARGETS = [
   "agronomist",
@@ -26,6 +28,8 @@ const COMPANY_ADMIN_ALLOWED_TARGETS = [
   "weighman",
   "fuel_operator",
   "brigadier",
+  "mechanic_operator",
+  "vegetable_brigadier",
 ] as const;
 
 function errorToText(err: any): string {
@@ -58,15 +62,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { email, role, company_id, full_name } = await request.json();
+    const { email, role, company_id, full_name, person_id, create_person } = await request.json();
     if (!email || !role || !full_name) {
       return NextResponse.json({ success: false, message: "Missing required fields" }, { status: 400 });
     }
-    const actor = await getServerActorFromSession(request);
+    const actor = await getServerActorFromSession(request, { ignoreImpersonation: true, skipCache: true });
 
     const normalizedEmail = String(email).trim().toLowerCase();
     const normalizedRoleRaw = String(role).trim().toLowerCase();
     const normalizedRole = normalizedRoleRaw === "admin" ? "company_admin" : normalizedRoleRaw;
+    const trafficInvite = normalizedRole === "mechanic_operator" || normalizedRole === "vegetable_brigadier";
     const normalizedFullName = String(full_name).trim().replace(/\s+/g, " ");
 
     if (!normalizedFullName) {
@@ -110,6 +115,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const personId = typeof person_id === "string" ? person_id.trim() : "";
+    if (trafficInvite) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || normalizedFullName.length > 150) {
+        return NextResponse.json({ success: false, message: "Проверьте email и ФИО" }, { status: 400 });
+      }
+      if (personId) {
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(personId)) {
+          return NextResponse.json({ success: false, message: "Выберите сотрудника компании" }, { status: 400 });
+        }
+        const { data: person, error: personError } = await supabaseAdmin.from("company_people")
+          .select("id,user_id").eq("id", personId).eq("company_id", targetCompanyId)
+          .eq("status", "active").is("deleted_at", null).maybeSingle();
+        if (personError) throw personError;
+        if (!person) return NextResponse.json({ success: false, message: "Сотрудник не найден в этой компании" }, { status: 403 });
+        if (person.user_id) return NextResponse.json({ success: false, message: "У сотрудника уже есть аккаунт. Используйте управление существующим пользователем." }, { status: 409 });
+      } else if (create_person !== true) {
+        return NextResponse.json({ success: false, message: "Выберите сотрудника или явно укажите, что он новый" }, { status: 400 });
+      }
+    }
+
     const redirectTo = getInviteSetPasswordRedirectTo();
     let shouldSendRecoveryEmail = false;
 
@@ -134,6 +159,15 @@ export async function POST(request: NextRequest) {
     }
 
     const existingUser = allUsers.find((u) => u.email?.toLowerCase() === normalizedEmail);
+    const freshAuth = !existingUser;
+    if (trafficInvite && existingUser) {
+      const { data: target, error: targetError } = await supabaseAdmin.from("profiles")
+        .select("company_id,role,status").eq("id", existingUser.id).maybeSingle();
+      if (targetError) throw targetError;
+      if (target && (target.company_id !== targetCompanyId || target.role !== normalizedRole || target.status !== "pending")) {
+        return NextResponse.json({ success: false, message: "Этот email уже связан с аккаунтом. Не меняем его компанию или роль через новое приглашение; управляйте существующим пользователем." }, { status: 409 });
+      }
+    }
 
     if (!existingUser) {
       const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
@@ -177,7 +211,7 @@ export async function POST(request: NextRequest) {
     if (!userId) {
       const { data: createdUserData, error: createError } = await supabaseAdmin.auth.admin.createUser({
         email: normalizedEmail,
-        email_confirm: true,
+        email_confirm: !trafficInvite,
         user_metadata: {
           role: normalizedRole,
           invited_by_company: targetCompanyId,
@@ -208,7 +242,23 @@ export async function POST(request: NextRequest) {
       .eq("id", userId)
       .maybeSingle();
 
-    if (profileAfterTrigger) {
+    if (trafficInvite) {
+      const { error: bindingError } = await supabaseAdmin.rpc("ptc_bind_invited_profile_v1", {
+        p_actor: actor.id, p_user: userId, p_company: targetCompanyId, p_role: normalizedRole,
+        p_name: normalizedFullName, p_email: normalizedEmail, p_person: personId || null,
+        p_create_person: create_person === true, p_fresh_auth: freshAuth,
+      });
+      if (bindingError) {
+        const messages: Record<string, string> = {
+          PTC_SELECT_EXISTING_PERSON: "Такой сотрудник уже есть. Выберите его из списка — дубль не создаём.",
+          PTC_PERSON_ALREADY_LINKED_OR_UNAVAILABLE: "Сотрудник уже связан с аккаунтом или недоступен. Обновите список.",
+          PTC_USER_ALREADY_LINKED: "Этот аккаунт уже связан с другим сотрудником.",
+          PTC_EXISTING_ACCOUNT_CONFLICT: "Не изменяем компанию или роль существующего аккаунта через приглашение.",
+        };
+        const message = Object.entries(messages).find(([key]) => bindingError.message.includes(key))?.[1];
+        return NextResponse.json({ success: false, message: message || "Не удалось связать приглашение с сотрудником. Доступ PTC не выдан; проверьте пользователя перед повтором." }, { status: 409 });
+      }
+    } else if (profileAfterTrigger) {
       await supabaseAdmin
         .from("profiles")
         .update({ status: "pending", company_id: targetCompanyId, role: normalizedRole, full_name: normalizedFullName })
@@ -255,5 +305,30 @@ export async function POST(request: NextRequest) {
       { success: false, message: errorToText(err) },
       { status: 500 }
     );
+  }
+}
+
+// Active unlinked personnel for an explicit administrator selection; no inferred name matching.
+export async function GET(request: NextRequest) {
+  try {
+    const actor = await getServerActorFromSession(request, { ignoreImpersonation: true, skipCache: true });
+    const companyId = resolveCompanyForActor(actor, request.nextUrl.searchParams.get("company_id"));
+    const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    await assertActorAccess({ supabase: db, actorUserId: actor.id, companyId, allowedRoles: ["global_admin", "company_admin"] });
+    const people: Array<{ id: string; full_name: string }> = [];
+    for (let from = 0; ; from += 500) {
+      const { data, error } = await db.from("company_people").select("id,full_name")
+        .eq("company_id", companyId).eq("status", "active").is("deleted_at", null).is("user_id", null)
+        .order("full_name").order("id").range(from, from + 499);
+      if (error) throw error;
+      people.push(...(data ?? []));
+      if ((data?.length ?? 0) < 500) break;
+    }
+    return NextResponse.json({ people }, { headers: { "Cache-Control": "no-store, private" } });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof SessionAuthError ? error.message : "Не удалось загрузить сотрудников" },
+      { status: error instanceof SessionAuthError ? error.status : 500, headers: { "Cache-Control": "no-store" } });
   }
 }
