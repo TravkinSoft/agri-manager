@@ -187,7 +187,7 @@ export default function SetPasswordPage() {
             </div>
             <div className="space-y-2">
               <Label>Роль</Label>
-              <Input value={fixedRole === 'mechanic_operator' ? 'Механизатор' : fixedRole === 'vegetable_brigadier' ? 'Бригадир овощной' : fixedRole || 'Назначена администратором'} readOnly disabled className="h-12 text-base" />
+              <Input value={fixedRole === 'fleet_manager' ? 'Заведующий автопарком' : fixedRole === 'mechanic_operator' ? 'Механизатор' : fixedRole === 'vegetable_brigadier' ? 'Бригадир овощной' : fixedRole || 'Назначена администратором'} readOnly disabled className="h-12 text-base" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Пароль</Label>

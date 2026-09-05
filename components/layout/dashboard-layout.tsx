@@ -45,7 +45,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [stoppingImpersonation, setStoppingImpersonation] = useState(false);
   const isWeatherLab = pathname === "/weather-lab" || pathname?.startsWith("/weather-lab/");
   const isWeighbridge = pathname === "/weighbridge" || pathname?.startsWith("/weighbridge/");
-  const isTraffic = pathname === "/traffic" || pathname?.startsWith("/traffic/");
+  const isTraffic = pathname === "/traffic" || pathname?.startsWith("/traffic/") || pathname === "/fleet";
   const assistantEnabled = canUseAssistantShell(profile?.role) && !isWeatherLab && !isWeighbridge;
 
   useEffect(() => {

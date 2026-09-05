@@ -2,7 +2,7 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 const MARKER = "ptc_invitation_v1";
 const PROVISIONING_BAN = "876000h";
-const OPERATOR_ROLES = ["mechanic_operator", "vegetable_brigadier"] as const;
+const OPERATOR_ROLES = ["mechanic_operator", "vegetable_brigadier", "fleet_manager"] as const;
 type OperatorRole = (typeof OPERATOR_ROLES)[number];
 type Profile = { id: string; company_id: string | null; role: string | null; status: string | null };
 type Person = { id: string; company_id: string; full_name: string; status: string; deleted_at: string | null };

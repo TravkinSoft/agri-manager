@@ -12,6 +12,7 @@ export const CANONICAL_ROLES = [
   "brigadier",
   "mechanic_operator",
   "vegetable_brigadier",
+  "fleet_manager",
 ] as const;
 
 export type CanonicalRole = (typeof CANONICAL_ROLES)[number];
@@ -30,6 +31,7 @@ const CANONICAL_ROLE_MAP: Record<string, CanonicalRole> = {
   brigadier: "brigadier",
   mechanic_operator: "mechanic_operator",
   vegetable_brigadier: "vegetable_brigadier",
+  fleet_manager: "fleet_manager",
 };
 
 const LEGACY_ROLE_ALIASES: Record<string, CanonicalRole> = {

@@ -18,6 +18,7 @@ const GLOBAL_ADMIN_ALLOWED_TARGETS = [
   "brigadier",
   "mechanic_operator",
   "vegetable_brigadier",
+  "fleet_manager",
 ] as const;
 const COMPANY_ADMIN_ALLOWED_TARGETS = [
   "agronomist",
@@ -31,6 +32,7 @@ const COMPANY_ADMIN_ALLOWED_TARGETS = [
   "brigadier",
   "mechanic_operator",
   "vegetable_brigadier",
+  "fleet_manager",
 ] as const;
 
 function errorToText(err: any): string {
@@ -72,7 +74,7 @@ export async function POST(request: NextRequest) {
     const normalizedEmail = String(email).trim().toLowerCase();
     const normalizedRoleRaw = String(role).trim().toLowerCase();
     const normalizedRole = normalizedRoleRaw === "admin" ? "company_admin" : normalizedRoleRaw;
-    const trafficInvite = normalizedRole === "mechanic_operator" || normalizedRole === "vegetable_brigadier";
+    const trafficInvite = normalizedRole === "mechanic_operator" || normalizedRole === "vegetable_brigadier" || normalizedRole === "fleet_manager";
     const normalizedFullName = String(full_name).trim().replace(/\s+/g, " ");
 
     if (!normalizedFullName) {
@@ -141,7 +143,7 @@ export async function POST(request: NextRequest) {
     if (trafficInvite) {
       const method = await sendTrafficInvitation({
         db: supabaseAdmin, actorId: actor.id, companyId: targetCompanyId,
-        role: normalizedRole as "mechanic_operator" | "vegetable_brigadier",
+        role: normalizedRole as "mechanic_operator" | "vegetable_brigadier" | "fleet_manager",
         email: normalizedEmail, fullName: normalizedFullName,
         personId: personId || null, createPerson: create_person === true, redirectTo,
       });

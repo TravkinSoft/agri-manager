@@ -16,7 +16,8 @@ type AllowedRole =
   | "fuel_operator"
   | "brigadier"
   | "mechanic_operator"
-  | "vegetable_brigadier";
+  | "vegetable_brigadier"
+  | "fleet_manager";
 
 type NormalizedRole = CanonicalRole;
 

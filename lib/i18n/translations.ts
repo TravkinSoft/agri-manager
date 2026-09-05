@@ -218,6 +218,7 @@ export const translations = {
     role_warehouse_operator: "Оператор склада",
     role_fuel_operator: "Оператор АЗС / ГСМ",
     role_brigadier: "Бригадир",
+    role_fleet_manager: "Заведующий автопарком",
     role_legal_operator: "Юрист / бухгалтер",
 
     kg: "кг",
@@ -443,6 +444,7 @@ export const translations = {
     role_warehouse_operator: "Қойма операторы",
     role_fuel_operator: "ЖҚС / ЖЖМ операторы",
     role_brigadier: "Бригадир",
+    role_fleet_manager: "Автопарк меңгерушісі",
     role_legal_operator: "Заңгер / бухгалтер",
 
     kg: "кг",
@@ -668,6 +670,7 @@ export const translations = {
     role_warehouse_operator: "Warehouse operator",
     role_fuel_operator: "Fuel operator",
     role_brigadier: "Brigadier",
+    role_fleet_manager: "Fleet manager",
     role_legal_operator: "Legal / accounting",
 
     kg: "kg",

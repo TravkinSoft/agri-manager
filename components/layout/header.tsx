@@ -208,6 +208,7 @@ export function Header() {
     if (role === "fuel_operator") return t("role_fuel_operator");
     if (role === "brigadier") return t("role_brigadier");
     if (role === "legal_operator") return t("role_legal_operator");
+    if (role === "fleet_manager") return t("role_fleet_manager");
     return role || "-";
   };
 
@@ -432,10 +433,10 @@ export function Header() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator className="bg-[#2C3446]" />
-            <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
+            {profile?.role !== "fleet_manager" ? <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
               <SettingsIcon className="mr-2 h-4 w-4" />
               {t("settings_menu")}
-            </DropdownMenuItem>
+            </DropdownMenuItem> : null}
             <DropdownMenuSeparator className="bg-[#2C3446]" />
             <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-400 focus:text-red-300">
               <LogOut className="mr-2 h-4 w-4" />

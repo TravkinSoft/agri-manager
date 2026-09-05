@@ -84,14 +84,14 @@ export async function manager(request: NextRequest) {
     ignoreImpersonation: true,
     skipCache: true,
   });
-  if (!["agronomist", "company_admin", "global_admin"].includes(actor.role))
-    throw new TrafficError("Доступ только агроному и администратору", 403);
+  if (!["agronomist", "company_admin", "global_admin", "fleet_manager"].includes(actor.role))
+    throw new TrafficError("Доступ только агроному, заведующему автопарком и администратору", 403);
   const companyId = resolveCompanyForActor(actor);
   await assertActorAccess({
     supabase: getServiceClient(),
     actorUserId: actor.id,
     companyId,
-    allowedRoles: ["agronomist", "company_admin", "global_admin"],
+    allowedRoles: ["agronomist", "company_admin", "global_admin", "fleet_manager"],
   });
   return { actor, companyId };
 }

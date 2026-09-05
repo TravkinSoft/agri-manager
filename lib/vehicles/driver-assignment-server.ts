@@ -12,7 +12,7 @@ import {
 } from "@/lib/auth/server-session";
 import { requireWeighbridgeOperatorSession } from "@/app/api/weighbridge/_auth";
 
-const writeRoles = ["global_admin", "company_admin", "agronomist", "weighman"] as const;
+const writeRoles = ["global_admin", "company_admin", "agronomist", "weighman", "fleet_manager"] as const;
 const readRoles = [...writeRoles, "director", "warehouse", "warehouse_operator", "specialist"] as const;
 export const assignmentQuery = z.object({
   companyId: z.string().uuid().optional(),

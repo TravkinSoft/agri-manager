@@ -41,6 +41,11 @@ const DASHBOARD_ITEM: BottomItem = { labelKey: "dashboard", href: "/dashboard", 
 
 function getMobileRouteCandidates(role?: string | null): BottomItem[] {
   switch (role) {
+    case "fleet_manager":
+      return [
+        { labelKey: "fleet", href: "/fleet", icon: Truck, kind: "route" },
+        { labelKey: "traffic", href: "/traffic", icon: History, kind: "route" },
+      ];
     case "global_admin":
       return [
         DASHBOARD_ITEM,
@@ -106,6 +111,7 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
 
 function getMoreRouteCandidates(role?: string | null): BottomItem[] {
   const shared: BottomItem[] = [
+    { labelKey: "fleet", href: "/fleet", icon: Truck, kind: "route" },
     { labelKey: "traffic", href: "/traffic", icon: Truck, kind: "route" },
     { labelKey: "weather", href: "/weather-lab", icon: CloudSun, kind: "route" },
     { labelKey: "field_map", href: "/fields-map", icon: Map, kind: "route" },

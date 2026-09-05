@@ -45,6 +45,7 @@ const GLOBAL_ADMIN_NAV: NavItem[] = [
   { labelKey: "warehouses", href: "/warehouses", icon: Package },
   { labelKey: "weighbridge", href: "/weighbridge", icon: Scale },
   { labelKey: "traffic", href: "/traffic", icon: Truck },
+  { labelKey: "fleet", href: "/fleet", icon: Truck },
   { labelKey: "fuel", href: "/fuel", icon: Droplets },
   { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
   { labelKey: "references", href: "/references", icon: BookOpen },
@@ -59,6 +60,7 @@ const COMPANY_ADMIN_NAV: NavItem[] = [
   { labelKey: "warehouses", href: "/warehouses", icon: Package },
   { labelKey: "weighbridge", href: "/weighbridge", icon: Scale },
   { labelKey: "traffic", href: "/traffic", icon: Truck },
+  { labelKey: "fleet", href: "/fleet", icon: Truck },
   { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
   { labelKey: "references", href: "/references", icon: BookOpen },
   { labelKey: "users", href: "/users", icon: Users },
@@ -114,6 +116,10 @@ const LEGAL_OPERATOR_NAV: NavItem[] = [
 const FUEL_OPERATOR_NAV: NavItem[] = [{ labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard }];
 
 function getNavigationByRole(role?: string | null): NavItem[] {
+  if (role === "fleet_manager") return [
+    { labelKey: "fleet", href: "/fleet", icon: Truck },
+    { labelKey: "traffic", href: "/traffic", icon: History },
+  ];
   if (role === "global_admin") return GLOBAL_ADMIN_NAV;
   if (role === "company_admin") return COMPANY_ADMIN_NAV;
   if (role === "agronomist") return AGRONOMIST_NAV;

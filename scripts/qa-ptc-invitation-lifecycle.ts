@@ -5,7 +5,7 @@ import ts from "typescript";
 import { sendTrafficInvitation, assertTrafficActivationReady, TrafficInvitationError } from "../lib/auth/ptc-invitations";
 
 const company = "company-a", otherCompany = "company-b", userId = "auth-1", personId = "person-1";
-const role = "mechanic_operator" as const;
+const role = process.env.QA_INVITE_ROLE === "fleet_manager" ? "fleet_manager" as const : "mechanic_operator" as const;
 const copy = <T>(value: T): T => structuredClone(value);
 let checks = 0;
 const ok = (value: unknown) => { assert.ok(value); checks++; };

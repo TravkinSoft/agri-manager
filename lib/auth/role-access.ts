@@ -16,6 +16,7 @@ const HIDDEN_PILOT_PREFIXES = [
 const AUTHENTICATED_SHARED_PREFIXES = ["/notifications"];
 
 const COMPANY_ADMIN_ALLOWED_PREFIXES = [
+  "/fleet",
   "/traffic",
   "/dashboard",
   "/fields",
@@ -98,6 +99,10 @@ export function canAccessPath(role: AppRole, pathname: string): boolean {
 
   if (role === "global_admin") return true;
 
+  if (role === "fleet_manager") {
+    return path === "/fleet" || path === "/traffic" || path === "/auth" || path.startsWith("/auth/");
+  }
+
   // These are company accounts, but their initial cabinet is intentionally PTC-only.
   if (role === "mechanic_operator" || role === "vegetable_brigadier") {
     return path === "/traffic-operator" || path === "/auth" || path.startsWith("/auth/");
@@ -177,6 +182,7 @@ export function canAccessPath(role: AppRole, pathname: string): boolean {
 }
 
 export function getDefaultPathForRole(role: AppRole): string {
+  if (role === "fleet_manager") return "/fleet";
   if (role === "mechanic_operator" || role === "vegetable_brigadier") return "/traffic-operator";
   if (role === "global_admin") return "/platform";
   if (role === "warehouse") return "/warehouses";

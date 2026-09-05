@@ -596,6 +596,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await clearGlobalAdminCompanyContext(accessToken);
         return { defaultPath: "/platform" };
       }
+      if (parseCanonicalRole(profileRow?.role) === "fleet_manager") {
+        return { defaultPath: "/fleet" };
+      }
     }
     return { defaultPath: "/dashboard" };
   };

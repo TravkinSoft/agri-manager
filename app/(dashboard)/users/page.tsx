@@ -64,6 +64,7 @@ const INVITE_ROLES = [
   "brigadier",
   "mechanic_operator",
   "vegetable_brigadier",
+  "fleet_manager",
 ] as const;
 
 const ROLE_BADGE_CLASS: Record<string, string> = {
@@ -80,6 +81,7 @@ const ROLE_BADGE_CLASS: Record<string, string> = {
   brigadier: "bg-emerald-100 text-emerald-800 border-emerald-200",
   mechanic_operator: "bg-green-100 text-green-800 border-green-200",
   vegetable_brigadier: "bg-amber-100 text-amber-800 border-amber-200",
+  fleet_manager: "bg-sky-100 text-sky-800 border-sky-200",
 };
 
 function normalizeStatus(status: string | null | undefined) {
@@ -104,7 +106,7 @@ export default function UsersPage() {
   const [invitePeople, setInvitePeople] = useState<Array<{ id: string; full_name: string }>>([]);
   const [peopleLoading, setPeopleLoading] = useState(false);
   const [peopleError, setPeopleError] = useState("");
-  const trafficInvite = inviteRole === "mechanic_operator" || inviteRole === "vegetable_brigadier";
+  const trafficInvite = inviteRole === "mechanic_operator" || inviteRole === "vegetable_brigadier" || inviteRole === "fleet_manager";
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [impersonatingProfileId, setImpersonatingProfileId] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ row: ProfileRow; action: UserAction } | null>(null);
@@ -128,6 +130,7 @@ export default function UsersPage() {
     if (role === "brigadier") return t("Бригадир", "Бригадир", "Brigadier");
     if (role === "mechanic_operator") return t("Механизатор", "Механизатор", "Machine operator");
     if (role === "vegetable_brigadier") return t("Бригадир овощной", "Көкөніс бригадирі", "Vegetable foreman");
+    if (role === "fleet_manager") return t("Заведующий автопарком", "Автопарк меңгерушісі", "Fleet manager");
     return role;
   };
 
