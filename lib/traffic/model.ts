@@ -20,8 +20,9 @@ export const ROLE_LABEL: Record<TrafficRole, string> = {
 export function nextState(
   role: TrafficRole,
   state: TrafficState,
+  inRepair = false,
 ): TrafficState | null {
-  if (role === "harvester" && state === "empty") return "loaded";
+  if (role === "harvester" && state === "empty" && !inRepair) return "loaded";
   if (role === "receiver" && state === "loaded") return "unloading";
   if (role === "receiver" && state === "unloading") return "empty";
   return null;
@@ -41,6 +42,7 @@ export interface TrafficVehicle {
   since: string;
   cycle: number;
   assigned: boolean;
+  inRepair?: boolean;
 }
 export interface TrafficSnapshot {
   companyId?: string;
@@ -96,6 +98,7 @@ export function visibleVehicles(
     .filter((v) => v.assigned && (role !== "receiver" || v.state !== "empty"))
     .sort(
       (a, b) =>
+        Number(!!a.inRepair) - Number(!!b.inRepair) ||
         rank[a.state] - rank[b.state] ||
         a.since.localeCompare(b.since) ||
         a.vehicle_id.localeCompare(b.vehicle_id),

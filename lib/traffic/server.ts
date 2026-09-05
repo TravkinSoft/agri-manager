@@ -8,6 +8,7 @@ import {
 } from "@/lib/auth/server-session";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { activeAssignedDriverName } from "@/lib/vehicles/driver-name";
+import { readVehicleRepairs } from "@/lib/fleet/repairs-server";
 import {
   visibleVehicles,
   operatorRole,
@@ -47,6 +48,11 @@ export function failed(error: unknown) {
     return noStore({ error: "Проверьте заполненные поля" }, 400);
   const message = error instanceof Error ? error.message : "";
   const known: Record<string, [number, string]> = {
+    FLEET_REPAIR_FORBIDDEN: [403, "Нет доступа к ремонту этой машины"],
+    FLEET_REPAIR_INVALID: [400, "Обновите карточку машины"],
+    FLEET_REPAIR_VEHICLE_UNAVAILABLE: [404, "Машина недоступна в этой компании"],
+    FLEET_REPAIR_CONFLICT: [409, "Статус ремонта уже изменили. Обновите карточку и проверьте машину"],
+    FLEET_VEHICLE_IN_REPAIR: [409, "Машина на ремонте. Новая загрузка недоступна до возвращения в работу"],
     PTC_UNAUTHORIZED: [401, "Войдите в кабинет заново"],
     PTC_PERSON_LINK_REQUIRED: [
       403,
@@ -223,13 +229,14 @@ export async function readSnapshot(
   };
   const fleetRows = (fleetResult.data ?? []) as FleetRow[];
   const fleet = new Map(fleetRows.map((v) => [v.id, v]));
+  const repairsPromise = readVehicleRepairs(db, companyId, vehicleIds);
   const driverIds = fleetRows.flatMap((v) =>
     v.primary_responsible_personnel_id
       ? [v.primary_responsible_personnel_id]
       : [],
   );
-  const driverResult = driverIds.length
-    ? await db
+  const [repairs, driverResult] = await Promise.all([repairsPromise, driverIds.length
+    ? db
         .from("reference_specialists")
         .select("id,personnel_type,status,archived,person:person_id(full_name,company_id,role_type,status,deleted_at)")
         .eq("company_id", companyId)
@@ -237,7 +244,7 @@ export async function readSnapshot(
         .eq("status", "active")
         .eq("archived", false)
         .in("id", driverIds)
-    : { data: [], error: null };
+    : { data: [], error: null }]);
   if (driverResult.error) throw driverResult.error;
   const drivers = new Map(
     (driverResult.data ?? []).map(
@@ -248,6 +255,7 @@ export async function readSnapshot(
     const vehicle = fleet.get(s.vehicle_id);
     return {
       ...s,
+      inRepair: repairs.get(s.vehicle_id)?.inRepair ?? false,
       name:
         vehicle?.name ||
         [vehicle?.brand, vehicle?.model].filter(Boolean).join(" ") ||

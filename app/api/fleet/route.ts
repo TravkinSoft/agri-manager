@@ -6,6 +6,7 @@ import { getServiceClient } from "@/lib/supabase/service";
 import { failed, noStore } from "@/lib/traffic/server";
 import { activeAssignedDriverName } from "@/lib/vehicles/driver-name";
 import type { FleetVehicle } from "@/lib/fleet/model";
+import { readVehicleRepairs } from "@/lib/fleet/repairs-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,9 +35,12 @@ export async function GET(request: NextRequest) {
       const rows = result.data ?? [];
       const ids = Array.from(new Set(rows.flatMap(row => row.primary_responsible_personnel_id
         ? [String(row.primary_responsible_personnel_id)] : [])));
-      const assignments = ids.length ? await db.from("reference_specialists")
+      const [repairs, assignments] = await Promise.all([
+        readVehicleRepairs(db, companyId, rows.map(row => String(row.id))),
+        ids.length ? db.from("reference_specialists")
         .select("id,personnel_type,status,archived,person:person_id(full_name,company_id,role_type,status,deleted_at)")
-        .eq("company_id", companyId).in("id", ids) : { data: [], error: null };
+        .eq("company_id", companyId).in("id", ids) : { data: [], error: null },
+      ]);
       if (assignments.error) throw assignments.error;
       const drivers = new Map((assignments.data ?? []).map(row =>
         [String(row.id), activeAssignedDriverName(row, companyId)]));
@@ -45,6 +49,8 @@ export async function GET(request: NextRequest) {
         name: row.name || [row.brand, row.model].filter(Boolean).join(" ") || "Машина",
         plate: row.license_plate || row.plate_number || null,
         driver: drivers.get(String(row.primary_responsible_personnel_id ?? "")) ?? null,
+        inRepair: repairs.get(String(row.id))?.inRepair ?? false,
+        repairVersion: repairs.get(String(row.id))?.repairVersion ?? 0,
       })));
       if (rows.length < 250) break;
     }

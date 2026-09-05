@@ -10,6 +10,7 @@ import { operatorRole } from "../lib/traffic/model";
 import { isTrafficOperatorRole } from "../lib/auth/ptc-invitations";
 import { filterFleet } from "../lib/fleet/model";
 import { activeAssignedDriverName } from "../lib/vehicles/driver-name";
+import { readVehicleRepairs } from "../lib/fleet/repairs-server";
 
 const company = "00000000-0000-4000-8000-000000000001";
 const foreign = "00000000-0000-4000-8000-000000000002";
@@ -49,7 +50,8 @@ async function main() {
   const db = { from(table: string) {
     queries++;
     let subset: any[] = table === "reference_vehicles" ? [...rows,
-      { ...rows[0], id: "foreign", company_id: foreign }, { ...rows[0], id: "archived", archived: true }] : specialists;
+      { ...rows[0], id: "foreign", company_id: foreign }, { ...rows[0], id: "archived", archived: true }] : table === "fleet_vehicle_repairs"
+      ? [{ vehicle_id: "0", company_id: company, in_repair: true, version: 3 }, { vehicle_id: "1", company_id: foreign, in_repair: true, version: 9 }] : specialists;
     let start = 0, end = Infinity;
     const q: any = {
       select: () => q, order: () => q,
@@ -81,6 +83,7 @@ async function main() {
     } };
     if (name === "@/lib/supabase/service") return { getServiceClient: () => db };
     if (name === "@/lib/vehicles/driver-name") return { activeAssignedDriverName };
+    if (name === "@/lib/fleet/repairs-server") return { readVehicleRepairs };
     if (name === "@/lib/traffic/server") return {
       noStore: (body: unknown) => new Response(JSON.stringify(body), { headers: { "Cache-Control": "no-store, private" } }),
       failed: (error: any) => new Response("denied", { status: error.status || 500 }),
@@ -95,7 +98,11 @@ async function main() {
   equal(payload.companyId, company);
   equal(payload.vehicles.length, 251);
   equal(payload.vehicles[0].driver, "Иван");
-  equal(queries, 4);
+  equal(queries, 6);
+  equal(payload.vehicles[0].inRepair, true);
+  equal(payload.vehicles[0].repairVersion, 3);
+  equal(payload.vehicles[1].inRepair, false);
+  equal(payload.vehicles[1].repairVersion, 0);
   person.company_id = foreign;
   equal((await (await get()).json()).vehicles[0].driver, null);
   person.company_id = company;

@@ -87,7 +87,7 @@ function harness(role: model.TrafficRole, input = vehicles, options: { acceptRec
       },
       useRef: (initial: unknown) => { const i = refCursor++; return refs[i] ?? (refs[i] = { current: initial }); },
     },
-    "lucide-react": Object.fromEntries(["Truck", "Clock3", "Loader2", "RefreshCw", "WifiOff"].map(key => [key, () => null])),
+    "lucide-react": Object.fromEntries(["Truck", "Clock3", "Loader2", "RefreshCw", "WifiOff", "Wrench"].map(key => [key, () => null])),
     "@/lib/traffic/model": model,
     "@/lib/traffic/optimistic": optimistic,
     "./use-traffic": { trafficRequest: (...args: any[]) => {
@@ -112,6 +112,17 @@ function harness(role: model.TrafficRole, input = vehicles, options: { acceptRec
 }
 
 async function main() {
+  // A repair mark does not replace cargo state. It only blocks starting new loads.
+  const repairVehicles = vehicles.map(vehicle => ({ ...vehicle, inRepair: true }));
+  for (const role of ["manager", "harvester", "receiver"] as const) {
+    const repairTree = harness(role, repairVehicles).render();
+    const repairCards = cardNodes(repairTree);
+    check(repairCards.every(card => card.props.className.includes("bg-rose-100")), true);
+    check(repairCards.every(card => words(card).includes("На ремонте")), true);
+    check(repairCards.every(card => card.type === (role === "receiver" ? "button" : "article")), true);
+    const repairHtml = renderToStaticMarkup(repairTree);
+    check(repairHtml.includes("На ремонте"), true);
+  }
   const manager = harness("manager");
   const tree = manager.render();
   const groups = nodes(tree).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-"));

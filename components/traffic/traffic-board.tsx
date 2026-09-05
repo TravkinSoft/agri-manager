@@ -4,6 +4,7 @@ import {
   Truck,
   Clock3,
   WifiOff,
+  Wrench,
 } from "lucide-react";
 import {
   ACTION_LABEL,
@@ -91,7 +92,7 @@ export function TrafficBoard({
     if (existing && (!retry || existing.phase !== "uncertain" || existing.key !== command.key)) return;
     const current = snapshotRef.current.vehicles.find(vehicle => vehicle.vehicle_id === vehicleId);
     if (!retry && (!current || current.version !== command.vehicle.version || current.state !== command.vehicle.state ||
-      nextState(snapshot.role, current.state) !== command.target)) {
+      nextState(snapshot.role, current.state, current.inRepair) !== command.target)) {
       setSelected(null);
       setActionError("Статус машины уже изменился. Проверьте актуальную карточку.");
       return;
@@ -222,9 +223,9 @@ export function TrafficBoard({
             ) : null}
             <div className={isManager ? "grid gap-2" : "grid gap-2 sm:grid-cols-2 xl:grid-cols-3"}>
         {group.vehicles.map((vehicle) => {
-          const target = nextState(snapshot.role, vehicle.state);
+          const target = nextState(snapshot.role, vehicle.state, vehicle.inRepair);
           const pendingVehicle = pendingCommands.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id);
-          const cardClass = `min-w-0 rounded-xl border p-2.5 text-left shadow-sm ${tones[vehicle.state]}`;
+          const cardClass = `min-w-0 rounded-xl border p-2.5 text-left shadow-sm ${vehicle.inRepair ? "border-rose-400 bg-rose-100 text-rose-950" : tones[vehicle.state]}`;
           const content = (
             <>
               <span className="flex min-w-0 items-center gap-1.5">
@@ -244,6 +245,9 @@ export function TrafficBoard({
                   {vehicle.driver}
                 </span>
               ) : null}
+              {vehicle.inRepair ? <span className="mt-1 flex items-center gap-1 text-xs font-semibold">
+                <Wrench size={12} aria-hidden /> На ремонте
+              </span> : null}
               <span className="mt-1 flex flex-wrap items-center gap-1 text-[11px] leading-4 opacity-70">
                 {!isManager ? <span>{STATE_LABEL[vehicle.state]} ·</span> : null}
                 <Clock3 aria-hidden size={11} />

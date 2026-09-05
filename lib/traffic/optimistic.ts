@@ -25,7 +25,7 @@ export function optimisticTrafficVehicles(snapshot: TrafficSnapshot, pending: Pe
   return visibleVehicles(snapshot.vehicles.map(vehicle => {
     const command = pending.find(item => item.vehicle.vehicle_id === vehicle.vehicle_id);
     if (!command || command.phase === "uncertain" || vehicle.version !== command.vehicle.version ||
-      vehicle.state !== command.vehicle.state || nextState(snapshot.role, vehicle.state) !== command.target) return vehicle;
+      vehicle.state !== command.vehicle.state || nextState(snapshot.role, vehicle.state, vehicle.inRepair) !== command.target) return vehicle;
     return { ...vehicle, state: command.target, since: command.since };
   }), snapshot.role);
 }
