@@ -5,6 +5,9 @@ export interface FleetVehicle {
   driver: string | null;
   inRepair?: boolean;
   repairVersion?: number;
+  assigned?: boolean;
+  state?: "empty" | "loaded" | "unloading";
+  lastActivity?: string | null;
 }
 
 export interface FleetSnapshot {

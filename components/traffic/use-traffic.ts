@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyTrafficCommit, type TrafficCommit, type TrafficSnapshot } from "@/lib/traffic/model";
 import { supabase } from "@/lib/supabase/client";
+import type { FleetVehicle } from "@/lib/fleet/model";
 import { subscribeVehicleDriverAssignments } from "@/lib/vehicles/driver-assignment-client";
 import { publishTrafficChanged, subscribeTrafficChanges } from "@/lib/traffic/changes";
 
@@ -12,6 +13,7 @@ function sameSnapshotContent(left: TrafficSnapshot, right: TrafficSnapshot) {
     left.personName !== right.personName ||
     left.enabled !== right.enabled ||
     left.fieldId !== right.fieldId ||
+    left.flowRevision !== right.flowRevision ||
     left.fieldName !== right.fieldName
   ) return false;
   return JSON.stringify(left.vehicles) === JSON.stringify(right.vehicles) &&
@@ -19,14 +21,8 @@ function sameSnapshotContent(left: TrafficSnapshot, right: TrafficSnapshot) {
 }
 export interface ManagerData {
   snapshot: TrafficSnapshot;
-  fleet: Array<{
-    id: string;
-    name: string;
-    brand: string | null;
-    model: string | null;
-    license_plate: string | null;
-    plate_number: string | null;
-  }>;
+  fleet: FleetVehicle[];
+  canManageRepairs?: boolean;
   people: Array<{ id: string; full_name: string; user_id: string | null }>;
   fields: Array<{ id: string; name: string }>;
   canManageUsers: boolean;

@@ -389,7 +389,7 @@ export function Header() {
         ) : null}
 
         <div className="hidden md:block">
-          <LanguageSwitcher />
+          {profile?.role !== "fleet_manager" ? <LanguageSwitcher /> : null}
         </div>
         {user ? (
           <NotificationCenter userId={user.id} companyId={activeUserCompanyId} role={profile?.role} />
@@ -410,7 +410,7 @@ export function Header() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 border-[#2C3446] bg-[#1A1F2B] text-[#F3F4F6]">
             <DropdownMenuLabel className="md:hidden">Язык</DropdownMenuLabel>
-            {MOBILE_LANGUAGES.map((item) => (
+            {profile?.role !== "fleet_manager" && MOBILE_LANGUAGES.map((item) => (
               <DropdownMenuItem
                 key={item.code}
                 onClick={() => setLanguage(item.code)}

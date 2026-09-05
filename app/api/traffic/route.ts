@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { getServiceClient } from "@/lib/supabase/service";
+import { readCompanyFleet } from "@/lib/fleet/server";
 import {
   failed,
   manager,
@@ -42,17 +43,7 @@ export async function GET(request: NextRequest) {
       });
     const [snapshot, fleet, people, accounts] = await Promise.all([
       readSnapshot(companyId, "manager", ""),
-      allRows((from, to) =>
-        db
-          .from("reference_vehicles")
-          .select("id,name,brand,model,license_plate,plate_number")
-          .eq("company_id", companyId)
-          .eq("is_active", true)
-          .eq("archived", false)
-          .order("name")
-          .order("id")
-          .range(from, to),
-      ),
+      readCompanyFleet(db, companyId),
       allRows((from, to) =>
         db
           .from("company_people")
@@ -77,11 +68,13 @@ export async function GET(request: NextRequest) {
     ]);
     return noStore({
       snapshot,
-      fleet,
+      // Keep plate aliases for already-open clients during a rolling release.
+      fleet: fleet.map(vehicle => ({ ...vehicle, license_plate: vehicle.plate, plate_number: vehicle.plate })),
       people,
       // Keep old open clients compatible without fetching the field catalog.
       fields: [],
       accounts,
+      canManageRepairs: ["fleet_manager", "company_admin", "global_admin"].includes(actor.role),
       canManageUsers:
         actor.role === "global_admin" || actor.role === "company_admin",
     });

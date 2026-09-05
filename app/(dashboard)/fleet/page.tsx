@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowRight, RefreshCw, Search, Truck, Wrench } from "lucide-react";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
@@ -16,7 +17,12 @@ import { Button } from "@/components/ui/button";
 
 export default function FleetPage() {
   const { user, profile } = useAuth();
+  const router = useRouter();
+  useEffect(() => {
+    if (profile?.role === "fleet_manager") router.replace("/traffic");
+  }, [profile?.role, router]);
   const companyId = profile?.company_id;
+  if (profile?.role === "fleet_manager") return null;
   if (!user || !companyId) return <p className="p-4 text-slate-400">Выберите компанию для автопарка.</p>;
   // A company/account change unmounts all requests and assignment dialogs.
   return <FleetCabinet key={`${user.id}:${companyId}:${profile.role}`} companyId={companyId} />;

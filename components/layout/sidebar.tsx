@@ -117,7 +117,6 @@ const FUEL_OPERATOR_NAV: NavItem[] = [{ labelKey: "dashboard", href: "/dashboard
 
 function getNavigationByRole(role?: string | null): NavItem[] {
   if (role === "fleet_manager") return [
-    { labelKey: "fleet", href: "/fleet", icon: Truck },
     { labelKey: "traffic", href: "/traffic", icon: History },
   ];
   if (role === "global_admin") return GLOBAL_ADMIN_NAV;

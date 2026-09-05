@@ -154,7 +154,7 @@ export function MobileBottomNav() {
     setMoreOpen(false);
   }, [pathname]);
 
-  if (!pathname) return null;
+  if (!pathname || profile?.role === "fleet_manager") return null;
 
   const items = getRoleFilteredItems(profile?.role);
   const moreItems = getMoreRouteCandidates(profile?.role);

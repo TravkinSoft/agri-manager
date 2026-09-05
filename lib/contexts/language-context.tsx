@@ -12,8 +12,9 @@ interface LanguageContextType {
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
-export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const [language, setLanguageState] = useState<Language>('ru');
+export function LanguageProvider({ children, forcedLanguage }: { children: React.ReactNode; forcedLanguage?: Language }) {
+  const [savedLanguage, setLanguageState] = useState<Language>('ru');
+  const language = forcedLanguage ?? savedLanguage;
   const [initialized, setInitialized] = useState(false);
 
   const isLanguage = (value: unknown): value is Language =>
@@ -56,6 +57,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setLanguage = (lang: Language) => {
+    if (forcedLanguage) return;
     setLanguageState(lang);
     localStorage.setItem('language', lang);
     document.cookie = `language=${lang}; path=/; max-age=31536000; samesite=lax`;
@@ -66,7 +68,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   }, [language]);
 
   useEffect(() => {
-    if (!initialized) return;
+    if (!initialized || forcedLanguage) return;
     const sync = async () => {
       const { data: authData } = await supabase.auth.getUser();
       const userId = authData?.user?.id;
@@ -77,7 +79,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
         .eq('id', userId);
     };
     sync();
-  }, [language, initialized]);
+  }, [language, initialized, forcedLanguage]);
 
   const t = (key: TranslationKey): string => {
     return translations[language][key] || key;

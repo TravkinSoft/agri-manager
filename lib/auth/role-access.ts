@@ -182,7 +182,7 @@ export function canAccessPath(role: AppRole, pathname: string): boolean {
 }
 
 export function getDefaultPathForRole(role: AppRole): string {
-  if (role === "fleet_manager") return "/fleet";
+  if (role === "fleet_manager") return "/traffic";
   if (role === "mechanic_operator" || role === "vegetable_brigadier") return "/traffic-operator";
   if (role === "global_admin") return "/platform";
   if (role === "warehouse") return "/warehouses";

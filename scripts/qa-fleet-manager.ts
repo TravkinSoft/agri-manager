@@ -22,7 +22,7 @@ class SessionAuthError extends Error { constructor(message: string, public statu
 
 async function main() {
   equal(parseCanonicalRole("fleet_manager"), "fleet_manager");
-  equal(getDefaultPathForRole("fleet_manager"), "/fleet");
+  equal(getDefaultPathForRole("fleet_manager"), "/traffic");
   for (const path of ["/fleet", "/traffic", "/auth/set-password"]) equal(canAccessPath("fleet_manager", path), true);
   for (const path of ["/users", "/weighbridge", "/references", "/settings", "/warehouses", "/dashboard", "/fleet/other"]) {
     equal(canAccessPath("fleet_manager", path), false);

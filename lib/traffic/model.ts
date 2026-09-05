@@ -43,6 +43,7 @@ export interface TrafficVehicle {
   cycle: number;
   assigned: boolean;
   inRepair?: boolean;
+  repairVersion?: number;
 }
 export interface TrafficSnapshot {
   companyId?: string;
@@ -51,6 +52,7 @@ export interface TrafficSnapshot {
   enabled: boolean;
   fieldName: string | null;
   fieldId: string | null;
+  flowRevision?: string | null;
   serverTime: string;
   vehicles: TrafficVehicle[];
   events: Array<{

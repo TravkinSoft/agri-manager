@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, UserRound, X } from "lucide-react";
+import { Check, Loader2, UserRound, X } from "lucide-react";
+import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { SearchableCombobox } from "@/components/weighbridge/searchable-combobox";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import {
@@ -21,19 +22,22 @@ export interface VehicleDriverAssignmentProps {
   onAssigned?: (result: VehicleDriverAssignmentResult) => void;
   className?: string;
   iconOnly?: boolean;
+  autoOpen?: boolean;
+  onClosed?: () => void;
 }
 
 const NO_DRIVER = "__no_driver__";
 const conflictMessage = "Привязку уже изменили. Показан текущий водитель — выберите нужного и сохраните ещё раз.";
 
 export function VehicleDriverAssignment({ vehicleId, companyId, driverName, vehicleLabel, disabled = false,
-  onAssigned, className, iconOnly = false }: VehicleDriverAssignmentProps) {
+  onAssigned, className, iconOnly = false, autoOpen = false, onClosed }: VehicleDriverAssignmentProps) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<VehicleDriverAssignmentResult | null>(null);
   const [selected, setSelected] = useState(NO_DRIVER);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
   const request = useRef<AbortController | null>(null);
   const epoch = useRef(0);
   const busy = useRef(false);
@@ -71,6 +75,10 @@ export function VehicleDriverAssignment({ vehicleId, companyId, driverName, vehi
   }, [scope]);
 
   useEffect(() => {
+    if (autoOpen) { openScope.current = scope; setOpen(true); }
+  }, [autoOpen, scope]);
+
+  useEffect(() => {
     if (!open || openScope.current !== scope) return;
     let identity: string | null | undefined;
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -104,9 +112,10 @@ export function VehicleDriverAssignment({ vehicleId, companyId, driverName, vehi
         driverPersonId: selected === NO_DRIVER ? null : selected,
         expectedAssignmentId: data.vehicle.assignmentId }, owner.signal);
       if (owner.signal.aborted || generation !== epoch.current || scope !== currentScope.current) return;
-      setData(result); setOpen(false);
+      flushSync(() => { setData(result); setOpen(false); });
       publishVehicleDriverAssignment(result);
       try { onAssigned?.(result); } catch { /* The assignment is already committed. */ }
+      onClosed?.();
     } catch (caught) {
       if (owner.signal.aborted || generation !== epoch.current || scope !== currentScope.current) return;
       if ((caught as { status?: number })?.status === 409) {
@@ -129,26 +138,39 @@ export function VehicleDriverAssignment({ vehicleId, companyId, driverName, vehi
     options.push({ value: data.vehicle.driverPersonId, label: data.vehicle.driverName || "Текущий водитель" });
   }
   return <>
-    <Button type="button" variant="ghost" disabled={disabled || !vehicleId} aria-label={actionLabel} title={actionLabel}
+    {!autoOpen ? <Button type="button" variant="ghost" disabled={disabled || !vehicleId} aria-label={actionLabel} title={actionLabel}
       className={cn("min-h-[48px] min-w-[48px] max-w-full touch-manipulation", iconOnly ? "h-12 w-12 shrink-0 p-0" : "justify-start gap-2 px-2", className)}
       onClick={event => { event.stopPropagation(); openScope.current = scope; setOpen(true); }}>
       <UserRound className="h-4 w-4 shrink-0" aria-hidden="true" />
       {!iconOnly ? <span className="truncate">{driverName || "Назначить водителя"}</span> : null}
-    </Button>
-    <Dialog open={open} onOpenChange={next => { if (!next) close(); }}>
-      <DialogContent hideCloseButton className="w-[calc(100%-2rem)] max-w-md rounded-xl border-slate-700 bg-slate-950 p-4 text-slate-100 data-[state=closed]:hidden"
+    </Button> : null}
+    {open ? <Dialog open onOpenChange={next => { if (!next) { close(); onClosed?.(); } }}>
+      <DialogContent hideCloseButton className="flex max-h-[90dvh] w-[calc(100%-2rem)] max-w-md flex-col overflow-hidden rounded-xl border-slate-700 bg-slate-950 p-4 text-slate-100"
         onClick={event => event.stopPropagation()}>
         <DialogHeader className="pr-10 text-left">
           <DialogTitle>Водитель машины</DialogTitle>
           <DialogDescription className="break-words text-slate-400">{vehicleLabel || [data?.vehicle.name, data?.vehicle.plate].filter(Boolean).join(" · ") || vehicleId}</DialogDescription>
         </DialogHeader>
-        <Button type="button" variant="ghost" aria-label="Закрыть выбор водителя" className="absolute right-1 top-1 h-12 w-12 p-0" onClick={close}>
+        <Button type="button" variant="ghost" aria-label="Закрыть выбор водителя" className="absolute right-1 top-1 h-12 w-12 p-0" onClick={() => { close(); onClosed?.(); }}>
           <X className="h-5 w-5" aria-hidden="true" />
         </Button>
         {loading ? <p role="status" className="flex min-h-[48px] items-center gap-2 text-sm text-slate-400"><Loader2 className="h-4 w-4 animate-spin" />Загружаем водителей…</p> : null}
-        {data ? <SearchableCombobox mobile value={selected} options={options} onValueChange={setSelected}
-          placeholder="Выберите водителя" searchPlaceholder="Найти водителя" emptyLabel="Водитель не найден"
-          ariaLabel="Водитель машины" disabled={saving || disabled || !data.canEdit} /> : null}
+        {data ? <>
+          <Input aria-label="Найти водителя" placeholder="Найти водителя" value={search}
+            onChange={event => setSearch(event.target.value)} className="min-h-[48px] shrink-0 text-base" />
+          <div role="radiogroup" aria-label="Водитель машины" data-testid="driver-scroll-list"
+            className="min-h-0 max-h-[45dvh] flex-1 touch-pan-y overflow-y-auto overscroll-contain rounded-xl border border-white/10">
+            {options.filter(option => option.label.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())).map(option => (
+              <button key={option.value} type="button" role="radio" aria-checked={selected === option.value}
+                disabled={saving || disabled || !data.canEdit} onClick={() => setSelected(option.value)}
+                className={cn("flex min-h-[48px] w-full items-center justify-between gap-3 border-b border-white/5 px-3 py-3 text-left text-sm last:border-0", selected === option.value && "bg-amber-300/10 text-amber-200")}>
+                <span className="break-words">{option.label}</span>
+                {selected === option.value ? <Check size={18} className="shrink-0" aria-hidden /> : null}
+              </button>
+            ))}
+            {!options.some(option => option.label.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) ? <p className="p-3 text-sm text-slate-400">Водитель не найден</p> : null}
+          </div>
+        </> : null}
         <p className="text-sm text-slate-400">Закреплён за машиной до ручной смены. Старые талоны не изменятся.</p>
         {data && !data.canEdit ? <p className="text-sm text-amber-300">Нет прав на смену водителя.</p> : null}
         {error ? <p role="alert" className="text-sm text-amber-300">{error}</p> : null}
@@ -157,6 +179,6 @@ export function VehicleDriverAssignment({ vehicleId, companyId, driverName, vehi
           {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />Сохраняем…</> : "Сохранить"}
         </Button>
       </DialogContent>
-    </Dialog>
+    </Dialog> : null}
   </>;
 }

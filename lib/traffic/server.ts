@@ -66,6 +66,9 @@ export function failed(error: unknown) {
       "Статус уже изменился. Обновите список и проверьте машину",
     ],
     PTC_KEY_CONFLICT: [409, "Это подтверждение уже использовано"],
+    PTC_LINE_FORBIDDEN: [403, "Нет прав на изменение машин на линии"],
+    PTC_LINE_CONFLICT: [409, "Список уже изменился. Проверьте обновлённые машины и повторите действие"],
+    PTC_INVALID_FLEET: [400, "На линии может быть не более 100 машин"],
     PTC_FORBIDDEN_TRANSITION: [403, "Этот переход недоступен в Вашем кабинете"],
     PTC_ACTIVE_VEHICLE: [409, "Сначала завершите оборот занятых машин"],
     PTC_ACTIVE_FIELD: [
@@ -164,7 +167,7 @@ export async function readSnapshot(
   const results = await Promise.all([
     db
       .from("ptc_flows")
-      .select("enabled,field_id")
+      .select("enabled,field_id,updated_at")
       .eq("company_id", companyId)
       .maybeSingle(),
     db
@@ -187,6 +190,7 @@ export async function readSnapshot(
   const flow = results[0].data as {
     enabled: boolean;
     field_id: string | null;
+    updated_at: string;
   } | null;
   const states = (results[1].data ?? []) as Array<
     Pick<
@@ -256,6 +260,7 @@ export async function readSnapshot(
     return {
       ...s,
       inRepair: repairs.get(s.vehicle_id)?.inRepair ?? false,
+      repairVersion: repairs.get(s.vehicle_id)?.repairVersion ?? 0,
       name:
         vehicle?.name ||
         [vehicle?.brand, vehicle?.model].filter(Boolean).join(" ") ||
@@ -271,6 +276,7 @@ export async function readSnapshot(
     personName,
     enabled: flow?.enabled ?? false,
     fieldId: flow?.field_id ?? null,
+    flowRevision: flow?.updated_at ?? null,
     // Legacy IDs stay intact; PTC no longer reads or displays field information.
     fieldName: null,
     serverTime: new Date().toISOString(),

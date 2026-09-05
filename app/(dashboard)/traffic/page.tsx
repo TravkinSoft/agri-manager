@@ -1,8 +1,10 @@
 "use client";
-import { useRef, useState, type FormEvent } from "react";
+import { useState } from "react";
+import { TrafficFleetControls } from "@/components/traffic/traffic-fleet-controls";
+import type { TrafficVehicle } from "@/lib/traffic/model";
 import { History, Truck, Settings2, KeyRound, Loader2 } from "lucide-react";
 import { TrafficBoard } from "@/components/traffic/traffic-board";
-import { trafficRequest, useTraffic } from "@/components/traffic/use-traffic";
+import { useTraffic } from "@/components/traffic/use-traffic";
 import { ROLE_LABEL, STATE_LABEL, operatorRole } from "@/lib/traffic/model";
 import {
   Dialog,
@@ -20,73 +22,23 @@ import {
 } from "@/components/ui/dropdown-menu";
 export default function TrafficPage() {
   const live = useTraffic(true);
-  const [panel, setPanel] = useState<"fleet" | "access" | "history" | null>(null);
-  const [selection, setSelection] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
+  return <TrafficManager key={live.scopeKey} live={live} />;
+}
+function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
+  const [selected, setSelected] = useState<TrafficVehicle | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [panel, setPanel] = useState<"access" | "history" | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const lock = useRef(false);
-  const [error, setError] = useState("");
   const managed = live.managerData;
   function open(next: "fleet" | "access" | "history") {
     if (!managed) return;
-    setError("");
-    if (next === "fleet")
-      setSelection(managed.snapshot.vehicles.map((v) => v.vehicle_id));
+    if (next === "fleet") { setDrawerOpen(true); return; }
     setPanel(next);
     if (next === "history") {
       setHistoryLoading(true);
       void live.refresh(true).finally(() => setHistoryLoading(false));
     }
   }
-  async function send(body: unknown) {
-    if (lock.current) return;
-    if (live.stale) {
-      setError(
-        "Сначала обновите данные — сейчас нет подтверждённой связи с сервером",
-      );
-      return;
-    }
-    lock.current = true;
-    setBusy(true);
-    setError("");
-    try {
-      await trafficRequest("/api/traffic", "POST", body, true);
-      if (panel === "fleet") setPanel(null);
-      await live.refresh(true);
-    } catch (caught) {
-      setError((caught as Error).message);
-    } finally {
-      setBusy(false);
-      lock.current = false;
-    }
-  }
-  async function configure(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    await send({
-      action: "configure",
-      enabled: true,
-      // Preserve legacy context, without offering or changing field assignments.
-      fieldId: managed?.snapshot.fieldId ?? null,
-      vehicleIds: selection,
-    });
-  }
-  const available = new Map(
-    (managed?.fleet ?? []).map((v) => [
-      v.id,
-      { id: v.id, name: v.name, plate: v.license_plate || v.plate_number },
-    ]),
-  );
-  // Keep assigned-but-archived vehicles in settings, so no hidden selection is dropped.
-  managed?.snapshot.vehicles.forEach((v) => {
-    if (!available.has(v.vehicle_id))
-      available.set(v.vehicle_id, {
-        id: v.vehicle_id,
-        name: v.name,
-        plate: v.plate,
-      });
-  });
-  const hasBusy =
-    managed?.snapshot.vehicles.some((v) => v.state !== "empty") ?? false;
   return (
     <div className="mx-auto w-full min-w-0 max-w-6xl touch-pan-y pt-1 lg:px-6 lg:pb-28 lg:pt-5">
       <h1 className="sr-only lg:hidden">Оборот машин</h1>
@@ -109,7 +61,7 @@ export default function TrafficPage() {
             onClick={() => open("fleet")}
             className="flex min-h-[48px] items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 text-sm text-slate-200 disabled:opacity-40"
           >
-            <Settings2 size={17} /> Выбрать машины
+            <Settings2 size={17} /> Не на линии
           </button>
           <button
             type="button"
@@ -135,6 +87,7 @@ export default function TrafficPage() {
           stale={live.stale}
           error={live.error}
           refresh={live.refresh}
+          onManageVehicle={setSelected}
           mobileActions={(
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -149,7 +102,7 @@ export default function TrafficPage() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="max-w-[calc(100vw-2rem)]">
                 <DropdownMenuItem onSelect={() => open("fleet")} className="min-h-[48px] gap-2">
-                  <Truck aria-hidden size={17} /> Выбрать машины
+                  <Truck aria-hidden size={17} /> Не на линии
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => open("access")} className="min-h-[48px] gap-2">
                   <KeyRound aria-hidden size={17} /> Доступ сотрудников
@@ -176,10 +129,14 @@ export default function TrafficPage() {
           </button>
         </div>
       )}
+      {managed && live.data ? <TrafficFleetControls
+        managed={managed} snapshot={live.data} selected={selected} onSelected={setSelected}
+        drawerOpen={drawerOpen} onDrawerOpen={setDrawerOpen} stale={live.stale} refresh={live.refresh}
+      /> : null}
       <Dialog
         open={!!panel}
         onOpenChange={(isOpen) => {
-          if (!isOpen && !busy) {
+          if (!isOpen) {
             setPanel(null);
           }
         }}
@@ -190,102 +147,17 @@ export default function TrafficPage() {
         >
           <DialogHeader>
             <DialogTitle>
-              {panel === "fleet"
-                ? "Машины в работе"
-                : panel === "access"
+              {panel === "access"
                   ? "Доступ сотрудников"
                   : "Последние 50 изменений"}
             </DialogTitle>
             <DialogDescription>
-              {panel === "fleet"
-                ? "Выберите машины. После сохранения они доступны комбайнёру. Новые машины начинают со статуса «Пустая»."
-                : panel === "access"
+              {panel === "access"
                   ? "Персональные кабинеты. Доступ не открывает остальные разделы TravkinFlow."
                   : "Последние переходы машин между статусами."}
             </DialogDescription>
           </DialogHeader>
-          {panel === "fleet" && managed ? (
-            <form
-              onSubmit={(event) => void configure(event)}
-              className="space-y-4"
-            >
-              {hasBusy ? (
-                <p className="text-xs leading-relaxed text-amber-200/80">
-                  Загруженную машину или машину на выгрузке можно убрать из
-                  списка только после разгрузки.
-                </p>
-              ) : null}
-              <fieldset>
-                <legend className="mb-2 text-sm text-slate-300">
-                  Машины · выбрано {selection.length}
-                </legend>
-                <div className="max-h-[36dvh] space-y-1 overflow-y-auto rounded-xl border border-white/10 p-1">
-                  {Array.from(available.values()).map((vehicle) => {
-                    const state = managed.snapshot.vehicles.find(
-                      (v) => v.vehicle_id === vehicle.id,
-                    );
-                    const disabled = !!state && state.state !== "empty";
-                    return (
-                      <label
-                        key={vehicle.id}
-                        className={`flex min-h-[64px] cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ${selection.includes(vehicle.id) ? "bg-amber-300/5" : ""}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selection.includes(vehicle.id)}
-                          disabled={disabled}
-                          onChange={(event) =>
-                            setSelection((old) =>
-                              event.target.checked
-                                ? [...old, vehicle.id]
-                                : old.filter((id) => id !== vehicle.id),
-                            )
-                          }
-                          className="h-5 w-5 shrink-0 accent-amber-300"
-                        />
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm text-slate-300">
-                            {vehicle.name}
-                          </span>
-                          <span className="block break-words text-lg font-semibold text-white">
-                            {vehicle.plate || "Номер не указан"}
-                          </span>
-                        </span>
-                      </label>
-                    );
-                  })}
-                  {!available.size ? (
-                    <p className="p-4 text-sm text-slate-500">
-                      Нет действующих машин. Добавьте их в штатный справочник
-                      автопарка.
-                    </p>
-                  ) : null}
-                </div>
-              </fieldset>
-              {selection.some(
-                (id) =>
-                  !managed.snapshot.vehicles.some((v) => v.vehicle_id === id),
-              ) ? (
-                <label className="flex min-h-[48px] items-start gap-3 text-sm text-slate-300">
-                  <input
-                    type="checkbox"
-                    required
-                    className="mt-1 h-5 w-5 shrink-0 accent-amber-300"
-                  />
-                  <span>
-                    Добавляемые машины сейчас пустые.
-                  </span>
-                </label>
-              ) : null}
-              <Button
-                type="submit"
-                disabled={busy || live.stale}
-                className="min-h-[48px] w-full"
-              >
-                {busy ? "Сохраняем…" : "Сохранить машины"}
-              </Button>
-            </form>
-          ) : panel === "access" && managed ? (
+          {panel === "access" && managed ? (
             <div className="space-y-4">
               <p className="text-sm leading-relaxed text-slate-300">
                 Сотрудники входят по обычной почте и паролю TravkinFlow.
@@ -379,16 +251,10 @@ export default function TrafficPage() {
               <p className="py-6 text-sm text-slate-500">Изменений пока нет.</p>
             )
           ) : null}
-          {error ? (
-            <p role="alert" className="text-sm text-rose-300">
-              {error}
-            </p>
-          ) : null}
           <Button
             type="button"
             variant="outline"
             className="min-h-[48px]"
-            disabled={busy}
             onClick={() => {
               setPanel(null);
             }}

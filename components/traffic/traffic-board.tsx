@@ -15,6 +15,7 @@ import {
   type TrafficSnapshot,
   type TrafficState,
   type TrafficCommit,
+  type TrafficVehicle,
 } from "@/lib/traffic/model";
 import {
   AlertDialog,
@@ -27,7 +28,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { trafficRequest } from "./use-traffic";
-import { VehicleDriverAssignment } from "@/components/vehicles/vehicle-driver-assignment";
 import { isTrafficAcknowledgement, optimisticTrafficVehicles, trafficCommandObserved, type PendingTrafficCommand, type TrafficCommand } from "@/lib/traffic/optimistic";
 const tones: Record<TrafficState, string> = {
   empty: "border-slate-300 bg-[#ffffff] text-slate-950",
@@ -51,6 +51,7 @@ export function TrafficBoard({
   refresh,
   onCommitted,
   mobileActions,
+  onManageVehicle,
 }: {
   snapshot: TrafficSnapshot;
   stale: boolean;
@@ -58,6 +59,7 @@ export function TrafficBoard({
   refresh: (fresh?: boolean) => Promise<void>;
   onCommitted?: (receipt: TrafficCommit, vehicleId: string, expectedVersion: number) => boolean;
   mobileActions?: ReactNode;
+  onManageVehicle?: (vehicle: TrafficVehicle) => void;
 }) {
   const [now, setNow] = useState(Date.now());
   const [selected, setSelected] = useState<TrafficCommand | null>(null);
@@ -244,28 +246,23 @@ export function TrafficBoard({
           const cardClass = `min-w-0 rounded-xl border p-2.5 text-left shadow-sm ${vehicle.inRepair ? "border-rose-400 bg-rose-100 text-rose-950" : tones[vehicle.state]}`;
           const content = (
             <>
+              <span className="block break-words text-lg font-bold leading-6">
+                {vehicle.driver || "Водитель не назначен"}
+              </span>
               <span className="flex min-w-0 items-center gap-1.5">
                 <Truck aria-hidden size={15} className="shrink-0 opacity-60" />
                 <span className="truncate text-xs font-medium opacity-80" title={vehicle.name}>
                   {vehicle.name}
                 </span>
               </span>
-              <span className="mt-0.5 block break-words text-xl font-bold leading-6 tracking-wide">
+              <span className="mt-0.5 block break-words text-sm font-semibold">
                 {vehicle.plate || "Номер не указан"}
               </span>
-              {vehicle.driver ? (
-                <span
-                  className="mt-0.5 block truncate text-xs opacity-70"
-                  title={vehicle.driver}
-                >
-                  {vehicle.driver}
-                </span>
-              ) : null}
               {vehicle.inRepair ? <span className="mt-1 flex items-center gap-1 text-xs font-semibold">
                 <Wrench size={12} aria-hidden /> На ремонте
               </span> : null}
               <span className="mt-1 flex flex-wrap items-center gap-1 text-[11px] leading-4 opacity-70">
-                {!isManager ? <span>{STATE_LABEL[vehicle.state]} ·</span> : null}
+                {!isManager || vehicle.inRepair ? <span>{STATE_LABEL[vehicle.state]} ·</span> : null}
                 <Clock3 aria-hidden size={11} />
                 {stateAge(vehicle.since, now + offset)}
               </span>
@@ -286,24 +283,21 @@ export function TrafficBoard({
             >
               {content}
             </button>
+          ) : isManager && onManageVehicle ? (
+            <button key={vehicle.vehicle_id} type="button"
+              data-testid={`traffic-vehicle-${vehicle.vehicle_id}`}
+              aria-label={`Управление машиной: ${vehicle.driver || vehicle.name}, ${vehicle.plate || "без номера"}`}
+              onClick={() => onManageVehicle(vehicle)}
+              className={`${cardClass} w-full cursor-pointer active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300`}>
+              {content}
+            </button>
           ) : (
             <article
               key={vehicle.vehicle_id}
               data-testid={`traffic-vehicle-${vehicle.vehicle_id}`}
-              className={`${cardClass} relative ${isManager ? "pr-14" : ""}`}
+              className={cardClass}
             >
               {content}
-              {isManager ? (
-                <VehicleDriverAssignment
-                  vehicleId={vehicle.vehicle_id}
-                  companyId={snapshot.companyId}
-                  driverName={vehicle.driver}
-                  vehicleLabel={`${vehicle.name} · ${vehicle.plate || "без номера"}`}
-                  iconOnly
-                  className="absolute right-1 top-1 text-inherit hover:bg-black/5"
-                  disabled={stale}
-                />
-              ) : null}
             </article>
           );
         })}
