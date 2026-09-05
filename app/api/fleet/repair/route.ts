@@ -15,7 +15,7 @@ const command = z.object({
 export async function POST(request: NextRequest) {
   try {
     sameOrigin(request);
-    const input = command.parse(await request.json());
+    const input = command.parse(await request.json().catch(() => null));
     const actor = await getServerActorFromSession(request, { ignoreImpersonation: true, skipCache: true });
     if (!["fleet_manager", "company_admin", "global_admin"].includes(actor.role)) {
       throw new SessionAuthError("Ремонт отмечает заведующий автопарком или администратор", 403);

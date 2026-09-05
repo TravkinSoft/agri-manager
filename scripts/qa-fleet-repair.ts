@@ -146,6 +146,8 @@ async function main() {
   equal((await post({ ...input, companyId: foreign })).status, 403);
   for (const invalid of [{ ...input, expectedVersion: -1 }, { ...input, inRepair: "true" }, { ...input, actorId: manager }, { ...input, vehicleId: "bad" }]) equal((await post(invalid)).status, 400);
   originAllowed = false; equal((await post()).status, 403);
+  originAllowed = true;
+  equal((await module.exports.POST({ json: async () => { throw new SyntaxError("Malformed JSON"); } })).status, 400);
   equal(rpcCalls, beforeDenied);
   await db.close();
   console.log(`Fleet repair PASS: ${checks} checks; actual PostgreSQL functions, roles, transitions and retained history; no hosted writes.`);
