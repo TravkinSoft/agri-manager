@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import {
   Truck,
   Clock3,
@@ -81,6 +82,16 @@ export function TrafficBoard({
     const resolved = pendingRef.current.filter(command => command.phase !== "sending" && trafficCommandObserved(snapshot, command));
     if (resolved.length) updatePending(commands => commands.filter(command => !resolved.includes(command)));
   }, [snapshot]);
+  useEffect(() => {
+    if (!selected) return;
+    const current = snapshot.vehicles.find(vehicle => vehicle.vehicle_id === selected.vehicle.vehicle_id);
+    if (!snapshot.enabled || !current || !current.assigned ||
+      current.version !== selected.vehicle.version || current.state !== selected.vehicle.state ||
+      nextState(snapshot.role, current.state, current.inRepair) !== selected.target) {
+      setSelected(null);
+      setActionError("Статус машины уже изменился. Проверьте актуальную карточку.");
+    }
+  }, [snapshot, selected]);
   const offset = useMemo(
     () => Date.parse(snapshot.serverTime) - Date.now(),
     [snapshot.serverTime],
@@ -97,11 +108,16 @@ export function TrafficBoard({
       setActionError("Статус машины уже изменился. Проверьте актуальную карточку.");
       return;
     }
-    updatePending(commands => [...commands.filter(item => item.vehicle.vehicle_id !== vehicleId), {
-      ...command, phase: "sending", since: new Date(Date.now() + offset).toISOString(),
-    }]);
-    setSelected(null);
-    setActionError("");
+    // Commit the modal removal, scroll/pointer unlock and optimistic card BEFORE
+    // entering auth/transport. PWA resume must not leave a queued dialog close.
+    // This is only a user-event boundary, never a render/effect or polling path.
+    flushSync(() => {
+      updatePending(commands => [...commands.filter(item => item.vehicle.vehicle_id !== vehicleId), {
+        ...command, phase: "sending", since: new Date(Date.now() + offset).toISOString(),
+      }]);
+      setSelected(null);
+      setActionError("");
+    });
     try {
       const receipt = await trafficRequest("/api/traffic/operator", "POST", {
         vehicleId: command.vehicle.vehicle_id,
@@ -343,7 +359,7 @@ export function TrafficBoard({
           </div>
         </details>
       ) : null}
-      <AlertDialog
+      {selected ? <AlertDialog
         open={!!selected}
         onOpenChange={(open) => {
           if (!open) setSelected(null);
@@ -369,6 +385,7 @@ export function TrafficBoard({
               Отмена
             </AlertDialogCancel>
             <Button
+              type="button"
               className="min-h-[48px]"
               onClick={() => void confirm()}
               disabled={stale || !snapshot.enabled || !!selected && pendingCommands.some(command => command.vehicle.vehicle_id === selected.vehicle.vehicle_id)}
@@ -377,7 +394,7 @@ export function TrafficBoard({
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
-      </AlertDialog>
+      </AlertDialog> : null}
     </>
   );
 }
