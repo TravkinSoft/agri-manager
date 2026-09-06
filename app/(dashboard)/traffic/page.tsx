@@ -33,8 +33,10 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
   const [historyLoading, setHistoryLoading] = useState(false);
   const managed = live.managerData;
   const companyId = live.data?.companyId;
+  const canManageFleet = managed?.canManageFleet === true;
   function open(next: "fleet" | "access" | "history") {
     if (!managed) return;
+    if (next !== "history" && !canManageFleet) return;
     if (next === "fleet") { setDrawerOpen(true); return; }
     setPanel(next);
     if (next === "history") {
@@ -57,7 +59,7 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
             </p>
           </div>
         </div>
-        <div className="mt-5 flex flex-wrap gap-2">
+        {canManageFleet ? <div className="mt-5 flex flex-wrap gap-2">
           {managed?.canCreateFleetEntities ? <button
             type="button"
             onClick={() => setCreateOpen(true)}
@@ -81,7 +83,7 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
           >
             <KeyRound size={17} /> Доступ сотрудников
           </button>
-        </div>
+        </div> : null}
       </header>
       {live.loading || (!live.data && !live.error) ? (
         <div
@@ -97,8 +99,8 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
           stale={live.stale}
           error={live.error}
           refresh={live.refresh}
-          onManageVehicle={setSelected}
-          mobileActions={<div className="flex items-center">
+          onManageVehicle={canManageFleet ? setSelected : undefined}
+          mobileActions={canManageFleet ? <div className="flex items-center">
             {managed?.canCreateFleetEntities ? <button
               type="button"
               aria-label="Добавить машину или водителя"
@@ -130,7 +132,14 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </div>}
+          </div> : managed?.snapshot.events.length ? <button
+            type="button"
+            aria-label="Последние 50 изменений"
+            onClick={() => open("history")}
+            className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+          >
+            <History aria-hidden size={20} />
+          </button> : null}
         />
       ) : (
         <div
@@ -147,7 +156,7 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
           </button>
         </div>
       )}
-      {managed && live.data ? <TrafficFleetControls
+      {canManageFleet && managed && live.data ? <TrafficFleetControls
         managed={managed} snapshot={live.data} selected={selected} onSelected={setSelected}
         drawerOpen={drawerOpen} onDrawerOpen={setDrawerOpen} stale={live.stale} refresh={live.refresh}
       /> : null}

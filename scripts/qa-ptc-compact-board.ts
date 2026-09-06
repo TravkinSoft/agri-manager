@@ -46,7 +46,7 @@ function receiptFor(vehicle: model.TrafficVehicle, state: model.TrafficState, ve
   return { eventId: "60000000-0000-4000-8000-000000000001", replayed: false, serverTime: "2026-09-04T10:09:00Z", refreshRequired: false,
     vehicle: { vehicle_id: vehicle.vehicle_id, state, version, cycle: vehicle.cycle, assigned: true, since: "2026-09-04T10:09:00Z" } };
 }
-function harness(role: model.TrafficRole, input = vehicles, options: { acceptReceipt?: boolean; deferRefresh?: boolean } = {}) {
+function harness(role: model.TrafficRole, input = vehicles, options: { acceptReceipt?: boolean; deferRefresh?: boolean; readOnlyManager?: boolean } = {}) {
   const snapshot: model.TrafficSnapshot = {
     role, companyId: "company-a", personName: "", enabled: true, fieldId: null, fieldName: null, serverTime: "2026-09-04T10:08:00Z",
     vehicles: model.visibleVehicles(input, role), events: [],
@@ -55,7 +55,7 @@ function harness(role: model.TrafficRole, input = vehicles, options: { acceptRec
   const requests: ReturnType<typeof deferred<model.TrafficCommit>>[] = [];
   const refreshCalls: Array<boolean | undefined> = [];
   const refreshGate = deferred<void>();
-  const props = { snapshot, stale: false, error: "", onManageVehicle: role === "manager"
+  const props = { snapshot, stale: false, error: "", onManageVehicle: role === "manager" && !options.readOnlyManager
     ? (vehicle: model.TrafficVehicle) => managedVehicles.push(vehicle.vehicle_id)
     : undefined, refresh: async (fresh?: boolean) => {
     refreshCalls.push(fresh); if (options.deferRefresh) await refreshGate.promise;
@@ -142,6 +142,10 @@ async function main() {
   check(cardNodes(tree).every(card => !card.props.className.includes("pr-14")), true);
   cardNodes(groups[3])[0].props.onClick();
   check(manager.managedVehicles, ["car-3"]); // Repair card stays fully clickable for Fleet Manager controls.
+  const agronomistView = harness("manager", managerVehicles, { readOnlyManager: true });
+  const agronomistCards = cardNodes(agronomistView.render());
+  check(agronomistCards.every(card => card.type === "article"), true);
+  check(agronomistCards.every(card => card.props.onClick === undefined), true);
   const colors = ["bg-[#ffffff]", "bg-emerald-100", "bg-amber-100", "bg-rose-100"];
   groups.forEach((group, index) => check(cardNodes(group).every(card => card.props.className.split(" ").includes(colors[index])), true));
   const globalCss = readFileSync("app/globals.css", "utf8");

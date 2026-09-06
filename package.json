@@ -80,6 +80,7 @@
     "qa:tz315:outgoing-batch-projection": "npx --no-install tsx scripts/qa-tz315-outgoing-batch-projection.ts",
     "qa:tz315:ticket-cargo-composition": "npx --no-install tsx scripts/qa-tz315-ticket-cargo-composition.ts",
     "qa:ptc:notifications": "npx --no-install tsx scripts/qa-ptc-operational-notifications-v1.ts",
+    "qa:ptc:agronomist-readonly": "npx --no-install tsx scripts/qa-ptc-agronomist-readonly.ts",
     "qa:tz315:weighbridge-cache-shape": "npx --no-install tsx scripts/qa-tz315-weighbridge-cache-shape.ts",
     "qa:tz315:impurity-place-type-source": "npx --no-install tsx scripts/qa-tz315-impurity-place-type-source.ts",
     "qa:tz315:s19-s20-s23-corrective": "npx --no-install tsx scripts/qa-tz315-s19-s20-s23-corrective.ts",

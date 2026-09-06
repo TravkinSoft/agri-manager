@@ -110,6 +110,22 @@ export async function manager(request: NextRequest) {
   });
   return { actor, companyId };
 }
+export async function fleetManager(request: NextRequest) {
+  const actor = await getServerActorFromSession(request, {
+    ignoreImpersonation: true,
+    skipCache: true,
+  });
+  if (actor.role !== "fleet_manager")
+    throw new TrafficError("Управление оборотом доступно только заведующему автопарком", 403);
+  const companyId = resolveCompanyForActor(actor);
+  await assertActorAccess({
+    supabase: getServiceClient(),
+    actorUserId: actor.id,
+    companyId,
+    allowedRoles: ["fleet_manager"],
+  });
+  return { actor, companyId };
+}
 export async function operator(request: NextRequest) {
   const actor = await getServerActorFromSession(request, {
     ignoreImpersonation: true,

@@ -37,7 +37,9 @@ async function main() {
     create table company_people(id uuid primary key,company_id uuid,user_id uuid,full_name text,status text,deleted_at timestamptz);
     grant select on all tables in schema public to service_role;
     grant update on profiles,company_people,reference_vehicles to service_role;`);
-  for (const file of ["20260904103550_ptc_independent_machine_turnover_v1.sql", "20260904112119_ptc_unified_account_auth_v1.sql", "20260905041243_fleet_vehicle_repair_v1.sql"]) {
+  for (const file of ["20260904103550_ptc_independent_machine_turnover_v1.sql", "20260904112119_ptc_unified_account_auth_v1.sql",
+    "20260905041243_fleet_vehicle_repair_v1.sql", "20260905103242_ptc_vehicle_line_actions_v1.sql",
+    "20260906221526_ptc_fleet_manager_only_mutations.sql"]) {
     await db.exec(readFileSync(`supabase/migrations/${file}`, "utf8"));
   }
   const company = randomUUID(), foreign = randomUUID(), vehicle = randomUUID(), foreignVehicle = randomUUID(), archivedVehicle = randomUUID();
@@ -63,7 +65,7 @@ async function main() {
 
   equal((await repair(false, 0)).version, 0);
   equal(await counts(), { ptc: 0, repairs: 0 });
-  for (const who of [harvester, receiver, agronomist, outsider, inactive]) await reject(() => repair(true, 0, who), "FLEET_REPAIR_FORBIDDEN");
+  for (const who of [harvester, receiver, agronomist, admin, globalAdmin, outsider, inactive]) await reject(() => repair(true, 0, who), "FLEET_REPAIR_FORBIDDEN");
   await reject(() => repair(true, 0, manager, foreignVehicle), "FLEET_REPAIR_VEHICLE_UNAVAILABLE");
   await reject(() => repair(true, 0, manager, archivedVehicle), "FLEET_REPAIR_VEHICLE_UNAVAILABLE");
   await reject(() => repair(true, -1), "FLEET_REPAIR_INVALID");
@@ -76,12 +78,12 @@ async function main() {
   equal(await counts(), { ptc: 0, repairs: 1 });
   await reject(() => transition(harvester, 0, "loaded"), "FLEET_VEHICLE_IN_REPAIR");
   equal(await state(), before);
-  equal((await repair(false, 1, admin)).version, 2);
+  equal((await repair(false, 1, manager)).version, 2);
   const loadKey = randomUUID();
   const loaded = await transition(harvester, 0, "loaded", loadKey);
   equal(loaded.replayed, false);
   const cargo = await state();
-  equal((await repair(true, 2, globalAdmin)).version, 3);
+  equal((await repair(true, 2, manager)).version, 3);
   equal(await state(), cargo);
   equal((await transition(harvester, 0, "loaded", loadKey)).replayed, true);
   await transition(receiver, 1, "unloading");
@@ -110,7 +112,7 @@ async function main() {
   let rpcCalls = 0;
   let originAllowed = true;
   class AuthError extends Error { constructor(message: string, public status = 403) { super(message); } }
-  const module = { exports: {} as any };
+  const compiledModule = { exports: {} as any };
   const service = { rpc: async (name: string, input: any) => {
     rpcCalls++; equal(name, "fleet_set_vehicle_repair_v1");
     equal(input.p_actor, manager);
@@ -118,15 +120,15 @@ async function main() {
   } };
   const dependencies: Record<string, unknown> = {
     zod: { z },
-    "@/lib/auth/server-session": { SessionAuthError: AuthError,
-      getServerActorFromSession: async (_req: unknown, options: unknown) => {
-        equal(JSON.parse(JSON.stringify(options)), { ignoreImpersonation: true, skipCache: true });
-        return { id: manager, role: apiRole, companyId: company };
-      },
-      resolveCompanyForActor: (_actor: unknown, requested: string) => { if (requested !== company) throw new AuthError("Foreign company"); return company; } },
-    "@/lib/auth/server-acl": { assertActorAccess: async (input: any) => { equal(input.actorUserId, manager); equal(input.companyId, company); } },
+    "@vercel/functions": { waitUntil: () => undefined },
     "@/lib/supabase/service": { getServiceClient: () => service },
+    "@/lib/notifications/push-server": { dispatchPushNotifications: async () => undefined },
     "@/lib/traffic/server": {
+      TrafficError: AuthError,
+      fleetManager: async () => {
+        if (apiRole !== "fleet_manager") throw new AuthError("Fleet manager only", 403);
+        return { actor: { id: manager, role: apiRole }, companyId: company };
+      },
       sameOrigin: () => { if (!originAllowed) throw new AuthError("Foreign origin"); },
       noStore: (data: unknown) => new Response(JSON.stringify(data), { headers: { "Cache-Control": "no-store, private" } }),
       failed: (error: any) => new Response("denied", { status: error.status || (error instanceof z.ZodError ? 400 : 409) }),
@@ -134,20 +136,20 @@ async function main() {
   };
   vm.runInNewContext(ts.transpileModule(readFileSync("app/api/fleet/repair/route.ts", "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, { module, exports: module.exports, require: (name: string) => { assert.ok(name in dependencies, name); return dependencies[name]; } });
+  }).outputText, { module: compiledModule, exports: compiledModule.exports, require: (name: string) => { assert.ok(name in dependencies, name); return dependencies[name]; } });
   const input = { companyId: company, vehicleId: vehicle, inRepair: false, expectedVersion: 4 };
-  const post = (body: unknown = input): Promise<Response> => module.exports.POST({ json: async () => body });
+  const post = (body: unknown = input): Promise<Response> => compiledModule.exports.POST({ json: async () => body });
   const result = await post();
   equal(result.status, 200); equal(result.headers.get("Cache-Control"), "no-store, private");
   equal((await result.json()).version, 4);
   const beforeDenied = rpcCalls;
-  for (const denied of ["agronomist", "mechanic_operator", "vegetable_brigadier"]) { apiRole = denied; equal((await post()).status, 403); }
+  for (const denied of ["agronomist", "company_admin", "global_admin", "mechanic_operator", "vegetable_brigadier"]) { apiRole = denied; equal((await post()).status, 403); }
   apiRole = "fleet_manager";
-  equal((await post({ ...input, companyId: foreign })).status, 403);
+  equal((await post({ ...input, companyId: foreign })).status, 409);
   for (const invalid of [{ ...input, expectedVersion: -1 }, { ...input, inRepair: "true" }, { ...input, actorId: manager }, { ...input, vehicleId: "bad" }]) equal((await post(invalid)).status, 400);
   originAllowed = false; equal((await post()).status, 403);
   originAllowed = true;
-  equal((await module.exports.POST({ json: async () => { throw new SyntaxError("Malformed JSON"); } })).status, 400);
+  equal((await compiledModule.exports.POST({ json: async () => { throw new SyntaxError("Malformed JSON"); } })).status, 400);
   equal(rpcCalls, beforeDenied);
   await db.close();
   console.log(`Fleet repair PASS: ${checks} checks; actual PostgreSQL functions, roles, transitions and retained history; no hosted writes.`);
