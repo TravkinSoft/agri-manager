@@ -133,6 +133,11 @@ async function main() {
   check(cardNodes(tree).length, vehicles.length);
   check(new Set(cardNodes(tree).map(card => card.props["data-testid"])).size, vehicles.length);
   check(cardNodes(tree).every(card => card.type === "button"), true);
+  const unassignedCard = cardNodes(tree).find(card => card.props["data-testid"] === "traffic-vehicle-car-0")!;
+  const assignedCard = cardNodes(tree).find(card => card.props["data-testid"] === "traffic-vehicle-car-1")!;
+  check(words(unassignedCard).startsWith("QA-0Truck 0Без водителя"), true);
+  check(words(unassignedCard).includes("Водитель не назначен"), false);
+  check(words(assignedCard).startsWith("Existing DriverTruck 1 · QA-1"), true);
   check(nodes(tree).filter(node => node.props?.["data-driver-assignment"]).length, 0);
   check(cardNodes(tree).every(card => !card.props.className.includes("pr-14")), true);
   cardNodes(groups[3])[0].props.onClick();

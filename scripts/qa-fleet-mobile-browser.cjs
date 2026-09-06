@@ -14,7 +14,7 @@ async function main() {
     import {TrafficBoard} from './components/traffic/traffic-board';
     import {TrafficFleetControls} from './components/traffic/traffic-fleet-controls';
     const company='10000000-0000-4000-8000-000000000001';
-    const fleet=Array.from({length:60},(_,i)=>({id:'car-'+i,name:'КАМАЗ',plate:'НОМЕР-'+i,driver:'Виктор Новоковский '+i,assigned:i<2,inRepair:i===2,repairVersion:i===2?1:0,state:i===1?'loaded':'empty'}));
+    const fleet=Array.from({length:60},(_,i)=>({id:'car-'+i,name:'КАМАЗ',plate:'НОМЕР-'+i,driver:i===5||i===6?null:'Виктор Новоковский '+i,assigned:i<2,inRepair:i===2,repairVersion:i===2?1:0,state:i===1?'loaded':'empty'}));
     const vehicles=fleet.slice(0,2).map(v=>({...v,vehicle_id:v.id,version:0,cycle:0,since:new Date().toISOString()}));
     window.calls=[]; window.published=[]; window.fleet=fleet;
     function App(){
@@ -96,6 +96,13 @@ async function main() {
           const sheet=await page.getByTestId('offline-sheet').boundingBox();
           check(Math.abs(sheet.y+sheet.height-844)<3,true,'sheet anchored to viewport bottom');
           check(await page.getByTestId('offline-scroll-list').evaluate(el=>el.scrollHeight>el.clientHeight),true,'offline list scrolls');
+          check(await page.getByTestId('offline-scroll-list').locator('section').evaluateAll(nodes=>nodes.map(node=>node.dataset.testid)),['offline-group-repair','offline-group-with-driver','offline-group-without-driver'],'offline vehicles grouped by attention');
+          check(await page.getByTestId('offline-group-repair').getByRole('button').count(),1,'repair group count');
+          check(await page.getByTestId('offline-group-with-driver').getByRole('button').count(),55,'assigned driver group count');
+          check(await page.getByTestId('offline-group-without-driver').getByRole('button').count(),2,'missing driver group count');
+          check(await page.getByTestId('offline-scroll-list').locator('[data-testid^="offline-vehicle-"]').count(),58,'every offline vehicle rendered once');
+          check(await page.getByTestId('offline-sheet').getByText('Водитель не назначен').count(),0,'legacy missing-driver headline removed');
+          check((await page.getByTestId('offline-vehicle-car-5').innerText()).split('\n')[0],'НОМЕР-5','plate is primary without driver');
           await page.getByRole('button',{name:/Виктор Новоковский 3 КАМАЗ · НОМЕР-3$/}).tap();
           await page.getByRole('button',{name:/Виктор Новоковский 4 КАМАЗ · НОМЕР-4$/}).tap();
           check(await page.getByRole('button',{pressed:true}).count(),2,'multi-select checkmarks');

@@ -8,7 +8,7 @@ import { canAccessPath, getDefaultPathForRole } from "../lib/auth/role-access";
 import { parseCanonicalRole } from "../lib/auth/role-contract";
 import { operatorRole } from "../lib/traffic/model";
 import { isTrafficOperatorRole } from "../lib/auth/ptc-invitations";
-import { filterFleet } from "../lib/fleet/model";
+import { filterFleet, getFleetVehicleCardIdentity } from "../lib/fleet/model";
 import { activeAssignedDriverName } from "../lib/vehicles/driver-name";
 import { readVehicleRepairs } from "../lib/fleet/repairs-server";
 import { readCompanyFleet } from "../lib/fleet/server";
@@ -38,6 +38,15 @@ async function main() {
   equal(filterFleet(fleet, "ИВАН", false).map(v => v.id), ["one"]);
   equal(filterFleet(fleet, "", true).map(v => v.id), ["two"]);
   equal(filterFleet(fleet, "несуществующая", false), []);
+  equal(getFleetVehicleCardIdentity(fleet[0]), {
+    primary: "Иванов Иван", secondary: "КАМАЗ · 984 AE 15", hasDriver: true,
+  });
+  equal(getFleetVehicleCardIdentity(fleet[1]), {
+    primary: "T-309 BK", secondary: "ЗИЛ", hasDriver: false,
+  });
+  equal(getFleetVehicleCardIdentity({ name: " Трактор ", plate: " ", driver: " " }), {
+    primary: "Трактор", secondary: null, hasDriver: false,
+  });
 
   // Execute the real GET handler with fault-injected identity/DB boundaries.
   let role = "fleet_manager";

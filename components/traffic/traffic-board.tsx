@@ -27,6 +27,7 @@ import {
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { getFleetVehicleCardIdentity } from "@/lib/fleet/model";
 import { trafficRequest } from "./use-traffic";
 import { isTrafficAcknowledgement, optimisticTrafficVehicles, trafficCommandObserved, type PendingTrafficCommand, type TrafficCommand } from "@/lib/traffic/optimistic";
 const tones: Record<TrafficState, string> = {
@@ -255,21 +256,20 @@ export function TrafficBoard({
         {group.vehicles.map((vehicle) => {
           const target = nextState(snapshot.role, vehicle.state, vehicle.inRepair);
           const pendingVehicle = pendingCommands.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id);
+          const identity = getFleetVehicleCardIdentity(vehicle);
           const cardClass = `min-w-0 rounded-xl border p-2.5 text-left shadow-sm ${vehicle.inRepair ? "border-rose-400 bg-rose-100 text-rose-950" : tones[vehicle.state]}`;
           const content = (
             <>
               <span className="block break-words text-lg font-bold leading-6">
-                {vehicle.driver || "Водитель не назначен"}
+                {identity.primary}
               </span>
-              <span className="flex min-w-0 items-center gap-1.5">
+              {identity.secondary ? <span className="flex min-w-0 items-center gap-1.5">
                 <Truck aria-hidden size={15} className="shrink-0 opacity-60" />
-                <span className="truncate text-xs font-medium opacity-80" title={vehicle.name}>
-                  {vehicle.name}
+                <span className="truncate text-xs font-medium opacity-80" title={identity.secondary}>
+                  {identity.secondary}
                 </span>
-              </span>
-              <span className="mt-0.5 block break-words text-sm font-semibold">
-                {vehicle.plate || "Номер не указан"}
-              </span>
+              </span> : null}
+              {!identity.hasDriver ? <span className="mt-0.5 block text-[11px] font-medium opacity-60">Без водителя</span> : null}
               {vehicle.inRepair ? <span className="mt-1 flex items-center gap-1 text-xs font-semibold">
                 <Wrench size={12} aria-hidden /> На ремонте
               </span> : null}

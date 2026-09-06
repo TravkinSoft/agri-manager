@@ -23,6 +23,25 @@ export interface FleetRepairReceipt {
   changedAt: string | null;
 }
 
+export interface FleetVehicleCardIdentity {
+  primary: string;
+  secondary: string | null;
+  hasDriver: boolean;
+}
+
+export function getFleetVehicleCardIdentity(
+  vehicle: Pick<FleetVehicle, "name" | "plate" | "driver">,
+): FleetVehicleCardIdentity {
+  const driver = vehicle.driver?.trim() || null;
+  const name = vehicle.name.trim() || "Машина";
+  const plate = vehicle.plate?.trim() || null;
+  return {
+    primary: driver ?? plate ?? name,
+    secondary: driver ? [name, plate].filter(Boolean).join(" · ") : plate ? name : null,
+    hasDriver: !!driver,
+  };
+}
+
 export function isFleetRepairReceipt(value: unknown): value is FleetRepairReceipt {
   if (!value || typeof value !== "object") return false;
   const result = value as FleetRepairReceipt;

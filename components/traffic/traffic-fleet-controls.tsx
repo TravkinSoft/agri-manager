@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VehicleDriverAssignment } from "@/components/vehicles/vehicle-driver-assignment";
-import { filterFleet, isFleetRepairReceipt, type FleetVehicle } from "@/lib/fleet/model";
+import { filterFleet, getFleetVehicleCardIdentity, isFleetRepairReceipt, type FleetVehicle } from "@/lib/fleet/model";
 import { STATE_LABEL, type TrafficSnapshot, type TrafficVehicle } from "@/lib/traffic/model";
 import { publishTrafficChanged } from "@/lib/traffic/changes";
 import { trafficRequest, type ManagerData } from "./use-traffic";
@@ -84,6 +84,13 @@ export function TrafficFleetControls({ managed, snapshot, selected, onSelected, 
   }
   const single = chosen.length === 1 ? fleet.find(vehicle => vehicle.id === chosen[0]) : undefined;
   const isOffline = panel === "offline";
+  const currentIdentity = current ? getFleetVehicleCardIdentity(current) : null;
+  const filteredOffline = filterFleet(offline, search, false);
+  const offlineGroups = [
+    { key: "repair", label: "На ремонте", vehicles: filteredOffline.filter(vehicle => vehicle.inRepair) },
+    { key: "with-driver", label: "С водителем", vehicles: filteredOffline.filter(vehicle => !vehicle.inRepair && !!vehicle.driver?.trim()) },
+    { key: "without-driver", label: "Без водителя", vehicles: filteredOffline.filter(vehicle => !vehicle.inRepair && !vehicle.driver?.trim()) },
+  ].filter(group => group.vehicles.length);
   return <>
     <button type="button" onClick={() => onDrawerOpen(true)} disabled={pending}
       className="mt-3 flex min-h-[48px] w-full items-center justify-between rounded-xl border border-white/15 bg-white/5 px-4 text-sm font-medium text-slate-200">
@@ -104,29 +111,42 @@ export function TrafficFleetControls({ managed, snapshot, selected, onSelected, 
           : "flex max-h-[90dvh] w-[calc(100%-2rem)] max-w-md flex-col overflow-y-auto rounded-2xl border-slate-700 bg-slate-950 p-4 text-slate-100"}>
         {isOffline ? <div aria-hidden className="mx-auto h-1 w-10 shrink-0 rounded-full bg-white/25" /> : null}
         <DialogHeader className="shrink-0 pr-10 text-left">
-          <DialogTitle>{isOffline ? "Не на линии" : panel === "repair" ? current?.inRepair ? "Вернуть из ремонта?" : "Отправить на ремонт?" : panel === "remove" ? "Убрать с линии?" : current?.driver || "Водитель не назначен"}</DialogTitle>
+          <DialogTitle>{isOffline ? "Не на линии" : panel === "repair" ? current?.inRepair ? "Вернуть из ремонта?" : "Отправить на ремонт?" : panel === "remove" ? "Убрать с линии?" : currentIdentity?.primary || "Машина"}</DialogTitle>
           <DialogDescription className="break-words text-slate-400">
-            {isOffline ? "Выберите машины для работы" : `${current?.name} · ${current?.plate || "без номера"}`}
+            {isOffline ? "Выберите машины для работы" : currentIdentity?.secondary || "Номер не указан"}
           </DialogDescription>
         </DialogHeader>
         <Button type="button" variant="ghost" aria-label="Закрыть" onClick={close} className="absolute right-1 top-2 h-12 w-12 p-0"><X size={20} /></Button>
         {isOffline ? <>
           <Input aria-label="Найти машину или водителя" placeholder="Машина или водитель" value={search}
             onChange={event => setSearch(event.target.value)} className="min-h-[48px] shrink-0 text-base" />
-          <div data-testid="offline-scroll-list" className="min-h-0 flex-1 touch-pan-y space-y-2 overflow-y-auto overscroll-contain">
-            {filterFleet(offline, search, false).map(vehicle => (
-              <button key={vehicle.id} type="button" aria-pressed={!vehicle.inRepair && chosen.includes(vehicle.id)}
-                onClick={() => vehicle.inRepair ? manage(vehicle) : setChecked(previous => previous.includes(vehicle.id) ? previous.filter(id => id !== vehicle.id) : [...previous, vehicle.id])}
-                className={`flex min-h-[64px] w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left ${vehicle.inRepair ? "border-rose-400/50 bg-rose-100 text-rose-950" : chosen.includes(vehicle.id) ? "border-amber-300 bg-amber-300/10" : "border-white/15 bg-white/5"}`}>
-                <span className="min-w-0">
-                  <span className="block break-words font-semibold">{vehicle.driver || "Водитель не назначен"}</span>
-                  <span className="block break-words text-xs opacity-80">{vehicle.name} · {vehicle.plate || "Номер не указан"}</span>
-                  {vehicle.inRepair ? <span className="mt-1 block text-xs font-medium">Ремонт · {STATE_LABEL[vehicle.state ?? "empty"]}{vehicle.assigned ? " · на линии" : ""}</span> : null}
-                </span>
-                {chosen.includes(vehicle.id) && !vehicle.inRepair ? <Check className="shrink-0 text-amber-300" size={21} /> : null}
-              </button>
+          <div data-testid="offline-scroll-list" className="min-h-0 flex-1 touch-pan-y space-y-4 overflow-y-auto overscroll-contain">
+            {offlineGroups.map(group => (
+              <section key={group.key} data-testid={`offline-group-${group.key}`} aria-label={`${group.label}: ${group.vehicles.length}`}>
+                <h3 className={`mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide ${group.key === "repair" ? "text-rose-300" : "text-slate-400"}`}>
+                  <span>{group.label}</span>
+                  <span className="tabular-nums">{group.vehicles.length}</span>
+                </h3>
+                <div className="space-y-2">
+                  {group.vehicles.map(vehicle => {
+                    const identity = getFleetVehicleCardIdentity(vehicle);
+                    return <button key={vehicle.id} type="button" data-testid={`offline-vehicle-${vehicle.id}`}
+                      aria-pressed={!vehicle.inRepair && chosen.includes(vehicle.id)}
+                      onClick={() => vehicle.inRepair ? manage(vehicle) : setChecked(previous => previous.includes(vehicle.id) ? previous.filter(id => id !== vehicle.id) : [...previous, vehicle.id])}
+                      className={`flex min-h-[64px] w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left ${vehicle.inRepair ? "border-rose-400/50 bg-rose-100 text-rose-950" : chosen.includes(vehicle.id) ? "border-amber-300 bg-amber-300/10" : "border-white/15 bg-white/5"}`}>
+                      <span className="min-w-0">
+                        <span className="block break-words font-semibold">{identity.primary}</span>
+                        {identity.secondary ? <span className="block break-words text-xs opacity-80">{identity.secondary}</span> : null}
+                        {!identity.hasDriver ? <span className="mt-1 block text-[11px] font-medium opacity-60">Без водителя</span> : null}
+                        {vehicle.inRepair ? <span className="mt-1 block text-xs font-medium">Ремонт · {STATE_LABEL[vehicle.state ?? "empty"]}{vehicle.assigned ? " · на линии" : ""}</span> : null}
+                      </span>
+                      {chosen.includes(vehicle.id) && !vehicle.inRepair ? <Check className="shrink-0 text-amber-300" size={21} /> : null}
+                    </button>;
+                  })}
+                </div>
+              </section>
             ))}
-            {!filterFleet(offline, search, false).length ? <p className="py-6 text-sm text-slate-400">Машин не найдено</p> : null}
+            {!filteredOffline.length ? <p className="py-6 text-sm text-slate-400">Машин не найдено</p> : null}
           </div>
           <div className="shrink-0 space-y-2 border-t border-white/10 pt-3">
             {single ? <Button variant="outline" className="min-h-[48px] w-full" onClick={() => manage(single)}>Водитель{managed.canManageRepairs ? " и ремонт" : ""}</Button> : null}
