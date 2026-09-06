@@ -1,18 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bell, CheckCheck, ClipboardList, PackageCheck, Scale, Settings, Sparkles } from "lucide-react";
+import { Bell, CheckCheck, ClipboardList, PackageCheck, Scale, Settings, Sparkles, Truck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { supabase } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { PushNotificationsToggle } from "@/components/notifications/push-notifications-toggle";
 
 export type UserNotification = {
   id: string;
   company_id: string;
   recipient_user_id: string;
-  category: "operation" | "warehouse" | "weighbridge" | "assistant" | "system";
+  category: "operation" | "warehouse" | "weighbridge" | "assistant" | "traffic" | "system";
   event_type: string;
   title: string;
   body: string | null;
@@ -37,6 +38,7 @@ function categoryIcon(category: UserNotification["category"]) {
   if (category === "warehouse") return PackageCheck;
   if (category === "weighbridge") return Scale;
   if (category === "assistant") return Sparkles;
+  if (category === "traffic") return Truck;
   return Settings;
 }
 
@@ -296,6 +298,8 @@ export function NotificationCenter({ userId, companyId, role }: NotificationCent
             })
           )}
         </div>
+
+        <PushNotificationsToggle companyId={companyId} role={role} />
 
         <button
           type="button"

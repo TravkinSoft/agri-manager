@@ -1,9 +1,11 @@
 import type { NextRequest } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { z } from "zod";
 import { getServerActorFromSession, resolveCompanyForActor, SessionAuthError } from "@/lib/auth/server-session";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { getServiceClient } from "@/lib/supabase/service";
 import { failed, noStore, sameOrigin } from "@/lib/traffic/server";
+import { dispatchPushNotifications } from "@/lib/notifications/push-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +31,16 @@ export async function POST(request: NextRequest) {
       p_in_repair: input.inRepair, p_expected_version: input.expectedVersion,
     });
     if (result.error) throw new Error(result.error.message);
+    const eventKey = String(result.data?.notificationEventKey || "").trim();
+    if (eventKey) {
+      waitUntil(
+        dispatchPushNotifications(db, { eventKey }).catch((pushError) => {
+          // The fleet transaction and durable in-app notification already
+          // committed. Push is a best-effort secondary delivery channel.
+          console.warn("Fleet repair push dispatch failed", pushError);
+        }),
+      );
+    }
     return noStore(result.data);
   } catch (error) { return failed(error); }
 }

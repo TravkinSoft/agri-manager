@@ -21,6 +21,7 @@ export interface FleetRepairReceipt {
   inRepair: boolean;
   version: number;
   changedAt: string | null;
+  notificationEventKey?: string | null;
 }
 
 export interface FleetVehicleCardIdentity {

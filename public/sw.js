@@ -1,4 +1,4 @@
-const CACHE_VERSION = "travkinflow-v7-static-only";
+const CACHE_VERSION = "travkinflow-v8-static-push";
 const STATIC_CACHE = `${CACHE_VERSION}:static`;
 
 const STATIC_ASSETS = [
@@ -145,4 +145,47 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(fetch(request));
+});
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { body: event.data ? event.data.text() : "" };
+  }
+  const title = payload.title || "TravkinFlow";
+  const href = typeof payload.href === "string" && payload.href.startsWith("/")
+    ? payload.href
+    : "/traffic";
+  const notificationId = String(payload.id || Date.now());
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: payload.body || "Новое событие оборота машин",
+      icon: "/brand/v1/icons/icon-192-compact-v2.png",
+      badge: "/brand/v1/icons/favicon-32-compact-v2.png",
+      tag: `travkinflow-${notificationId}`,
+      renotify: true,
+      silent: false,
+      vibrate: [180, 80, 180],
+      data: { href, notificationId },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const href = event.notification.data && typeof event.notification.data.href === "string"
+    ? event.notification.data.href
+    : "/traffic";
+  const targetUrl = new URL(href, self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ("navigate" in client) client.navigate(targetUrl);
+        if ("focus" in client) return client.focus();
+      }
+      return self.clients.openWindow ? self.clients.openWindow(targetUrl) : undefined;
+    }),
+  );
 });

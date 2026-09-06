@@ -26,18 +26,16 @@ async function getCurrentAuthHeaders() {
 export function OfflineRuntime() {
   const pathname = usePathname();
   const independentTraffic = pathname === "/traffic" || pathname === "/traffic-operator" || pathname?.startsWith("/traffic-operator/");
+  const operatorTraffic = pathname === "/traffic-operator" || pathname?.startsWith("/traffic-operator/");
   const [isOnline, setIsOnline] = useState(true);
   const [queueCount, setQueueCount] = useState(0);
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [lastSyncText, setLastSyncText] = useState("");
 
   useEffect(() => {
-    if (independentTraffic) return;
     if (typeof window === "undefined") return;
-    setIsOnline(navigator.onLine);
-    setQueueCount(getOfflineQueueCount());
 
-    if ("serviceWorker" in navigator) {
+    if ("serviceWorker" in navigator && !operatorTraffic) {
       if (process.env.NODE_ENV !== "production") {
         navigator.serviceWorker
           .getRegistrations()
@@ -63,6 +61,10 @@ export function OfflineRuntime() {
       }
     }
 
+    if (independentTraffic) return;
+    setIsOnline(navigator.onLine);
+    setQueueCount(getOfflineQueueCount());
+
     const refreshQueueState = () => setQueueCount(getOfflineQueueCount());
     const handleOffline = () => {
       setIsOnline(false);
@@ -86,7 +88,7 @@ export function OfflineRuntime() {
       window.removeEventListener(offlineQueueEvents.changed, refreshQueueState);
       window.removeEventListener("storage", refreshQueueState);
     };
-  }, [independentTraffic]);
+  }, [independentTraffic, operatorTraffic]);
 
   useEffect(() => {
     if (independentTraffic) return;

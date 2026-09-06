@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/ptc-idle-alerts",
+      "schedule": "* * * * *"
+    }
+  ]
+}
