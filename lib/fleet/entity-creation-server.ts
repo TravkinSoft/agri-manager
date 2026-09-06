@@ -61,8 +61,8 @@ export function fleetEntitySameOrigin(request: NextRequest) {
 
 async function createContext(request: NextRequest, requestedCompany?: string): Promise<CreateContext> {
   const actor = await getServerActorFromSession(request, { ignoreImpersonation: true, skipCache: true });
-  if (!["fleet_manager", "company_admin", "global_admin"].includes(actor.role)) {
-    throw new SessionAuthError("Создавать машины и водителей может заведующий автопарком или администратор", 403);
+  if (actor.role !== "fleet_manager") {
+    throw new SessionAuthError("Создавать машины и водителей может только заведующий автопарком", 403);
   }
   const companyId = resolveCompanyForActor(actor, requestedCompany);
   const db = getServiceClient();
@@ -70,10 +70,10 @@ async function createContext(request: NextRequest, requestedCompany?: string): P
     supabase: db,
     actorUserId: actor.id,
     companyId,
-    allowedRoles: ["fleet_manager", "company_admin", "global_admin"],
+    allowedRoles: ["fleet_manager"],
   });
   if (profile.status !== "active" || profile.role !== actor.role ||
-      (actor.role !== "global_admin" && profile.company_id !== companyId)) {
+      profile.company_id !== companyId) {
     throw new SessionAuthError("Права доступа изменились. Войдите заново", 403);
   }
   return { db, actorId: actor.id, companyId };

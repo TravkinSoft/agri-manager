@@ -14,12 +14,13 @@ async function main() {
     grant select on all tables in schema public to service_role;
     grant update on profiles,reference_vehicles,company_people to service_role;`);
   for (const file of ["20260904103550_ptc_independent_machine_turnover_v1.sql", "20260904112119_ptc_unified_account_auth_v1.sql",
-    "20260905041243_fleet_vehicle_repair_v1.sql", "20260905103242_ptc_vehicle_line_actions_v1.sql"]) {
+    "20260905041243_fleet_vehicle_repair_v1.sql", "20260905103242_ptc_vehicle_line_actions_v1.sql",
+    "20260906221526_ptc_fleet_manager_only_mutations.sql"]) {
     await db.exec(readFileSync("supabase/migrations/" + file, "utf8"));
   }
-  const company = randomUUID(), foreign = randomUUID(), manager = randomUUID(), operator = randomUUID(), vehicle = randomUUID(), second = randomUUID(), outsider = randomUUID();
+  const company = randomUUID(), foreign = randomUUID(), manager = randomUUID(), operator = randomUUID(), agronomist = randomUUID(), admin = randomUUID(), vehicle = randomUUID(), second = randomUUID(), outsider = randomUUID();
   await db.query("insert into companies values($1),($2)", [company, foreign]);
-  await db.query("insert into profiles values($1,$2,'fleet_manager','active'),($3,$2,'mechanic_operator','active')", [manager, company, operator]);
+  await db.query("insert into profiles values($1,$2,'fleet_manager','active'),($3,$2,'mechanic_operator','active'),($4,$2,'agronomist','active'),($5,$2,'company_admin','active')", [manager, company, operator, agronomist, admin]);
   await db.query("insert into reference_vehicles values($1,$2,true,false),($3,$2,true,false),($4,$5,true,false)", [vehicle, company, second, outsider, foreign]);
   const revision = async () => (await db.query<{ value: string | null }>("select (select updated_at::text from ptc_flows where company_id=$1) value", [company])).rows[0].value;
   const line = async (ids: string[], assigned: boolean, expected: string | null, actor = manager) =>
@@ -28,6 +29,8 @@ async function main() {
   const rejected = (fn: () => Promise<unknown>, message: string) => assert.rejects(fn, new RegExp(message));
   await db.exec("set role service_role");
   await rejected(() => line([vehicle], true, null, operator), "PTC_LINE_FORBIDDEN");
+  await rejected(() => line([vehicle], true, null, agronomist), "PTC_LINE_FORBIDDEN");
+  await rejected(() => line([vehicle], true, null, admin), "PTC_LINE_FORBIDDEN");
   await rejected(() => line([outsider], true, null), "PTC_COMPANY_MISMATCH");
   assert.equal(await revision(), null); // Entire rejected initialization rolled back.
   await line([vehicle], true, null);
@@ -57,6 +60,6 @@ async function main() {
   }
   assert.equal((await db.query<{ total: number }>("select count(*)::int total from ptc_events")).rows[0].total, 0);
   await db.close();
-  console.log("PASS: line multi-select, fresh role/company ACL, CAS, repair guard, atomic busy rejection, cargo/history preservation, grants");
+  console.log("PASS: fleet-manager-only line mutations, multi-select, fresh role/company ACL, CAS, repair guard, atomic busy rejection, cargo/history preservation, grants");
 }
 main().catch(error => { console.error(error); process.exit(1); });

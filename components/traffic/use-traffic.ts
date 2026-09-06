@@ -22,6 +22,7 @@ function sameSnapshotContent(left: TrafficSnapshot, right: TrafficSnapshot) {
 export interface ManagerData {
   snapshot: TrafficSnapshot;
   fleet: FleetVehicle[];
+  canManageFleet: boolean;
   canManageRepairs?: boolean;
   people: Array<{ id: string; full_name: string; user_id: string | null }>;
   fields: Array<{ id: string; name: string }>;

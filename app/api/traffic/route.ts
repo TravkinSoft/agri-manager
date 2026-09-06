@@ -4,6 +4,7 @@ import { getServiceClient } from "@/lib/supabase/service";
 import { readCompanyFleet } from "@/lib/fleet/server";
 import {
   failed,
+  fleetManager,
   manager,
   noStore,
   readSnapshot,
@@ -37,14 +38,15 @@ export async function GET(request: NextRequest) {
   try {
     const { actor, companyId } = await manager(request);
     const db = getServiceClient();
+    const canManageFleet = actor.role === "fleet_manager";
     if (request.nextUrl.searchParams.get("snapshot") === "1")
       return noStore({
         snapshot: await readSnapshot(companyId, "manager", "", false),
       });
     const [snapshot, fleet, people, accounts] = await Promise.all([
       readSnapshot(companyId, "manager", ""),
-      readCompanyFleet(db, companyId),
-      allRows((from, to) =>
+      canManageFleet ? readCompanyFleet(db, companyId) : Promise.resolve([]),
+      canManageFleet ? allRows((from, to) =>
         db
           .from("company_people")
           .select("id,full_name,user_id")
@@ -54,8 +56,8 @@ export async function GET(request: NextRequest) {
           .order("full_name")
           .order("id")
           .range(from, to),
-      ),
-      allRows((from, to) =>
+      ) : Promise.resolve([]),
+      canManageFleet ? allRows((from, to) =>
         db
           .from("profiles")
           .select("id,full_name,role,status")
@@ -64,7 +66,7 @@ export async function GET(request: NextRequest) {
           .order("full_name")
           .order("id")
           .range(from, to),
-      ),
+      ) : Promise.resolve([]),
     ]);
     return noStore({
       snapshot,
@@ -74,10 +76,10 @@ export async function GET(request: NextRequest) {
       // Keep old open clients compatible without fetching the field catalog.
       fields: [],
       accounts,
-      canManageRepairs: ["fleet_manager", "company_admin", "global_admin"].includes(actor.role),
-      canCreateFleetEntities: ["fleet_manager", "company_admin", "global_admin"].includes(actor.role),
-      canManageUsers:
-        actor.role === "global_admin" || actor.role === "company_admin",
+      canManageFleet,
+      canManageRepairs: canManageFleet,
+      canCreateFleetEntities: canManageFleet,
+      canManageUsers: false,
     });
   } catch (error) {
     return failed(error);
@@ -86,7 +88,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     sameOrigin(request);
-    const { companyId } = await manager(request);
+    const { companyId } = await fleetManager(request);
     const input = command.parse(await request.json());
     const { error } = await getServiceClient().rpc("ptc_configure_v1", {
       p_company: companyId,

@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { z } from "zod";
 import { getServiceClient } from "@/lib/supabase/service";
-import { failed, manager, noStore, sameOrigin, TrafficError } from "@/lib/traffic/server";
+import { failed, fleetManager, noStore, sameOrigin, TrafficError } from "@/lib/traffic/server";
 import { dispatchPushNotifications } from "@/lib/notifications/push-server";
 
 export const runtime = "nodejs";
@@ -16,7 +16,7 @@ const command = z.object({
 export async function POST(request: NextRequest) {
   try {
     sameOrigin(request);
-    const { actor, companyId } = await manager(request);
+    const { actor, companyId } = await fleetManager(request);
     const input = command.parse(await request.json());
     if (input.companyId !== companyId) throw new TrafficError("Компания изменилась. Откройте список заново.", 409);
     const db = getServiceClient();
