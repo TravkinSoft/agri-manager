@@ -243,7 +243,7 @@ export function useTraffic(isManager: boolean) {
     publishTrafficChanged(data?.companyId);
     return true;
   }, [generation, data?.companyId]);
-  useEffect(() => subscribeTrafficChanges((companyId) => {
+  useEffect(() => subscribeTrafficChanges(data?.companyId, (companyId) => {
     if (!mounted.current || generation !== authGeneration.current || companyId !== data?.companyId) return;
     readEpoch.current++;
     controller.current?.abort();

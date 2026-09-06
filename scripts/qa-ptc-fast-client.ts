@@ -78,7 +78,7 @@ function harness(isManager = false, initiallyHidden = false) {
     "@/lib/traffic/model": model,
     "@/lib/traffic/changes": {
       publishTrafficChanged: (companyId: string) => published.push(companyId),
-      subscribeTrafficChanges: (listener: (companyId: string) => void) => {
+      subscribeTrafficChanges: (_companyId: string | undefined, listener: (companyId: string) => void) => {
         trafficListener = listener; return () => { if (trafficListener === listener) trafficListener = null; };
       },
     },

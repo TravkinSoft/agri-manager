@@ -16,7 +16,7 @@ async function main() {
     const company='10000000-0000-4000-8000-000000000001';
     const fleet=Array.from({length:60},(_,i)=>({id:'car-'+i,name:'КАМАЗ',plate:'НОМЕР-'+i,driver:'Виктор Новоковский '+i,assigned:i<2,inRepair:i===2,repairVersion:i===2?1:0,state:i===1?'loaded':'empty'}));
     const vehicles=fleet.slice(0,2).map(v=>({...v,vehicle_id:v.id,version:0,cycle:0,since:new Date().toISOString()}));
-    window.calls=[]; window.fleet=fleet;
+    window.calls=[]; window.published=[]; window.fleet=fleet;
     function App(){
       const [snapshot,setSnapshot]=useState({companyId:company,role:'manager',personName:'',enabled:true,fieldId:null,fieldName:null,flowRevision:new Date().toISOString(),serverTime:new Date().toISOString(),vehicles,events:[]});
       const [managed,setManaged]=useState({fleet,canManageRepairs:true,snapshot});
@@ -38,7 +38,7 @@ async function main() {
       await new Promise(r=>setTimeout(r,150));
       return url.includes('/repair')?{companyId:body.companyId,vehicleId:body.vehicleId,inRepair:body.inRepair,version:2,changedAt:new Date().toISOString()}:{};
     }`,
-    changes: 'export const publishTrafficChanged=()=>{};',
+    changes: 'export const publishTrafficChanged=companyId=>window.published.push(companyId);',
     auth: 'export const supabase={auth:{onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}})}};',
     drivers: `export async function loadVehicleDriverAssignment(id,company){return {companyId:company,canEdit:true,vehicle:{id,name:'КАМАЗ',plate:id,assignmentId:null,driverPersonId:null},drivers:Array.from({length:75},(_,i)=>({id:'driver-'+i,name:'Андрей Водитель '+i}))};}
       export async function saveVehicleDriverAssignment(body){window.driverSave=body;return {companyId:body.companyId,vehicle:{id:body.vehicleId,driverPersonId:body.driverPersonId}};}
@@ -104,6 +104,7 @@ async function main() {
           await page.waitForTimeout(350);
           check(await page.evaluate(()=>window.calls[0].body.vehicleIds),['car-3','car-4'],'only selected IDs posted');
           check(await page.evaluate(()=>window.calls[0].dialogs),0,'no modal at transport entry');
+          check(await page.evaluate(()=>window.published),['10000000-0000-4000-8000-000000000001'],'line change broadcasts after commit');
           await page.getByRole('button',{name:/^Не на линии/}).tap();
           await page.getByRole('button',{name:/Виктор Новоковский 2 КАМАЗ · НОМЕР-2/}).tap();
           check(await page.getByRole('button',{name:'Вывести на линию',exact:true}).count(),0,'repair not sent onto line');
@@ -112,6 +113,7 @@ async function main() {
           check(await page.getByRole('dialog').count(),0,'repair confirmation unmounts');
           await page.waitForTimeout(350);
           check(await page.evaluate(()=>window.calls.at(-1).body.inRepair),false,'return repair only');
+          check(await page.evaluate(()=>window.published.length),2,'repair change broadcasts after commit');
           check(await page.evaluate(()=>window.calls.some(c=>c.url.includes('/operator'))),false,'manager has no cargo transport');
           check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'no horizontal overflow');
           check(errors,[],name+' browser errors');

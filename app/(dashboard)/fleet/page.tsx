@@ -94,7 +94,7 @@ function FleetCabinet({ companyId }: { companyId: string }) {
       setData(old => old ? { ...old, vehicles: old.vehicles.map(vehicle => vehicle.id === result.vehicle.id
         ? { ...vehicle, driver: result.vehicle.driverName } : vehicle) } : old);
     });
-    const unsubscribeTraffic = subscribeTrafficChanges(changedCompany => {
+    const unsubscribeTraffic = subscribeTrafficChanges(companyId, changedCompany => {
       if (changedCompany !== companyId) return;
       cancelRead();
       void refresh();

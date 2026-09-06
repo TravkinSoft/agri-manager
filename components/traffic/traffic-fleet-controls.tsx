@@ -74,8 +74,8 @@ export function TrafficFleetControls({ managed, snapshot, selected, onSelected, 
         await trafficRequest("/api/traffic/line", "POST", { companyId: snapshot.companyId,
           vehicleIds: ids, assigned, expectedRevision: snapshot.flowRevision ?? null }, true);
       }
-      if (!alive.current) return;
       publishTrafficChanged(snapshot.companyId);
+      if (!alive.current) return;
     } catch (caught) {
       if (alive.current) setError((caught as Error).message);
     } finally {
