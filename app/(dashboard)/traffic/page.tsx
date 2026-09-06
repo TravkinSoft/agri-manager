@@ -1,8 +1,9 @@
 "use client";
 import { useState } from "react";
 import { TrafficFleetControls } from "@/components/traffic/traffic-fleet-controls";
+import { FleetEntityCreator } from "@/components/traffic/fleet-entity-creator";
 import type { TrafficVehicle } from "@/lib/traffic/model";
-import { History, Truck, Settings2, KeyRound, Loader2 } from "lucide-react";
+import { History, Truck, Settings2, KeyRound, Loader2, Plus } from "lucide-react";
 import { TrafficBoard } from "@/components/traffic/traffic-board";
 import { useTraffic } from "@/components/traffic/use-traffic";
 import { ROLE_LABEL, STATE_LABEL, operatorRole } from "@/lib/traffic/model";
@@ -27,9 +28,11 @@ export default function TrafficPage() {
 function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
   const [selected, setSelected] = useState<TrafficVehicle | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [panel, setPanel] = useState<"access" | "history" | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const managed = live.managerData;
+  const companyId = live.data?.companyId;
   function open(next: "fleet" | "access" | "history") {
     if (!managed) return;
     if (next === "fleet") { setDrawerOpen(true); return; }
@@ -55,6 +58,13 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
           </div>
         </div>
         <div className="mt-5 flex flex-wrap gap-2">
+          {managed?.canCreateFleetEntities ? <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="flex min-h-[48px] items-center gap-2 rounded-xl bg-amber-300 px-4 text-sm font-semibold text-slate-950"
+          >
+            <Plus size={17} /> Добавить
+          </button> : null}
           <button
             type="button"
             disabled={!managed}
@@ -88,7 +98,15 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
           error={live.error}
           refresh={live.refresh}
           onManageVehicle={setSelected}
-          mobileActions={(
+          mobileActions={<div className="flex items-center">
+            {managed?.canCreateFleetEntities ? <button
+              type="button"
+              aria-label="Добавить машину или водителя"
+              onClick={() => setCreateOpen(true)}
+              className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg text-amber-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+            >
+              <Plus aria-hidden size={22} />
+            </button> : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -112,7 +130,7 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          )}
+          </div>}
         />
       ) : (
         <div
@@ -132,6 +150,12 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
       {managed && live.data ? <TrafficFleetControls
         managed={managed} snapshot={live.data} selected={selected} onSelected={setSelected}
         drawerOpen={drawerOpen} onDrawerOpen={setDrawerOpen} stale={live.stale} refresh={live.refresh}
+      /> : null}
+      {managed?.canCreateFleetEntities && companyId ? <FleetEntityCreator
+        open={createOpen}
+        companyId={companyId}
+        onOpenChange={setCreateOpen}
+        onCreated={() => live.refresh(true)}
       /> : null}
       <Dialog
         open={!!panel}

@@ -75,6 +75,7 @@ export async function GET(request: NextRequest) {
       fields: [],
       accounts,
       canManageRepairs: ["fleet_manager", "company_admin", "global_admin"].includes(actor.role),
+      canCreateFleetEntities: ["fleet_manager", "company_admin", "global_admin"].includes(actor.role),
       canManageUsers:
         actor.role === "global_admin" || actor.role === "company_admin",
     });

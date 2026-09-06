@@ -26,6 +26,7 @@ export interface ManagerData {
   people: Array<{ id: string; full_name: string; user_id: string | null }>;
   fields: Array<{ id: string; name: string }>;
   canManageUsers: boolean;
+  canCreateFleetEntities: boolean;
   accounts: Array<{
     id: string;
     full_name: string;
