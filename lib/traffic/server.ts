@@ -7,7 +7,7 @@ import {
   SessionAuthError,
 } from "@/lib/auth/server-session";
 import { assertActorAccess } from "@/lib/auth/server-acl";
-import { activeAssignedDriverName } from "@/lib/vehicles/driver-name";
+import { activeAssignedDriverName, vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
 import { readVehicleRepairs } from "@/lib/fleet/repairs-server";
 import {
   isPtcEligibleReferenceVehicle,
@@ -266,16 +266,14 @@ export async function readSnapshot(
         .from("reference_specialists")
         .select("id,personnel_type,status,archived,person:person_id(full_name,company_id,role_type,status,deleted_at)")
         .eq("company_id", companyId)
-        .eq("personnel_type", "driver")
+        .in("personnel_type", ["driver", "machine_operator"])
         .eq("status", "active")
         .eq("archived", false)
         .in("id", driverIds)
     : { data: [], error: null }]);
   if (driverResult.error) throw driverResult.error;
-  const drivers = new Map(
-    (driverResult.data ?? []).map(
-      (p: any) => [String(p.id), activeAssignedDriverName(p, companyId)] as const,
-    ),
+  const driverAssignments = new Map(
+    (driverResult.data ?? []).map((row: any) => [String(row.id), row] as const),
   );
   const vehicles: TrafficVehicle[] = states.filter((state) =>
     eligibleVehicleIds.has(state.vehicle_id)).map((s) => {
@@ -289,8 +287,11 @@ export async function readSnapshot(
         [vehicle?.brand, vehicle?.model].filter(Boolean).join(" ") ||
         "Машина",
       plate: vehicle ? ptcVehicleDisplayPlate(vehicle) : null,
-      driver:
-        drivers.get(vehicle?.primary_responsible_personnel_id ?? "") || null,
+      driver: activeAssignedDriverName(
+        driverAssignments.get(vehicle?.primary_responsible_personnel_id ?? ""),
+        companyId,
+        vehicleAllowsMachineOperator(vehicle),
+      ),
     };
   });
   return {

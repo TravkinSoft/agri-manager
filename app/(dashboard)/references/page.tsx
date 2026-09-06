@@ -22,7 +22,7 @@ import { useAuth } from "@/lib/contexts/auth-context";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import { VehicleDriverAssignment } from "@/components/vehicles/vehicle-driver-assignment";
 import { subscribeVehicleDriverAssignments, type VehicleDriverAssignmentResult } from "@/lib/vehicles/driver-assignment-client";
-import { activeAssignedDriverName } from "@/lib/vehicles/driver-name";
+import { activeAssignedDriverName, vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
 import {
   archiveCompanyPerson,
   archiveVehicleReference,
@@ -271,14 +271,19 @@ function withDriverAssignment(row: any, result?: VehicleDriverAssignmentResult) 
   return { ...row, primary_responsible_personnel_id: result.vehicle.assignmentId,
     primary_responsible: result.vehicle.driverName ? {
       id: result.vehicle.assignmentId, full_name: result.vehicle.driverName,
-      personnel_type: "driver", status: "active", archived: false,
+      personnel_type: result.vehicle.driverRoleType === "mechanic_operator" ? "machine_operator" : "driver",
+      status: "active", archived: false,
       person: { full_name: result.vehicle.driverName, company_id: result.companyId,
-        role_type: "driver", status: "active", deleted_at: null },
+        role_type: result.vehicle.driverRoleType ?? "driver", status: "active", deleted_at: null },
     } : null };
 }
 
 function currentDriverName(row: any): string | null {
-  return activeAssignedDriverName(row.primary_responsible, row.company_id);
+  return activeAssignedDriverName(
+    row.primary_responsible,
+    row.company_id,
+    vehicleAllowsMachineOperator(row),
+  );
 }
 
 function materialKind(row: any) {

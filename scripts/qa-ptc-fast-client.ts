@@ -237,7 +237,7 @@ async function main() {
   const oldNamesRead = namesLive.refresh(); await flush();
   const assignedDriver: VehicleDriverAssignmentResult = {
     companyId: "company-a", canEdit: true,
-    vehicle: { id: "car-a", name: "Existing truck", plate: "QA-101", assignmentId: "assignment-b", driverPersonId: "person-b", driverName: "New Driver" },
+    vehicle: { id: "car-a", name: "Existing truck", plate: "QA-101", assignmentId: "assignment-b", driverPersonId: "person-b", driverName: "New Driver", driverRoleType: "driver" },
   };
   names.assignment({ ...assignedDriver, companyId: "other-company" });
   check(names.requests[1].options.signal?.aborted, false); check(names.render().data.vehicles[0].driver, "Existing driver");
@@ -247,7 +247,7 @@ async function main() {
   check(names.requests[1].options.signal?.aborted, true);
   await names.respond(1, snapshot()); await oldNamesRead; await flush();
   check(names.render().data.vehicles[0].driver, "New Driver");
-  names.assignment({ ...assignedDriver, vehicle: { ...assignedDriver.vehicle, assignmentId: null, driverPersonId: null, driverName: null } });
+  names.assignment({ ...assignedDriver, vehicle: { ...assignedDriver.vehicle, assignmentId: null, driverPersonId: null, driverName: null, driverRoleType: null } });
   await flush(); check(names.render().data.vehicles[0].driver, null);
   check(names.render().data.vehicles[0].state, "empty");
   await names.respond(2, { ...snapshot(), vehicles: snapshot().vehicles.map(vehicle => ({ ...vehicle, driver: null })) });

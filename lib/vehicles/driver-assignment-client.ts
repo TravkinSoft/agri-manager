@@ -9,6 +9,7 @@ export interface VehicleDriverAssignmentResult {
     assignmentId: string | null;
     driverPersonId: string | null;
     driverName: string | null;
+    driverRoleType: "driver" | "mechanic_operator" | null;
   };
   canEdit: boolean;
   drivers?: Array<{ id: string; name: string }>;
@@ -29,6 +30,8 @@ let channel: BroadcastChannel | null = null;
 
 const text = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
 const nullableText = (value: unknown): value is string | null => value === null || text(value);
+const nullableDriverRole = (value: unknown): value is "driver" | "mechanic_operator" | null =>
+  value === null || value === "driver" || value === "mechanic_operator";
 
 export function isVehicleDriverAssignmentResult(value: unknown): value is VehicleDriverAssignmentResult {
   if (!value || typeof value !== "object") return false;
@@ -37,6 +40,7 @@ export function isVehicleDriverAssignmentResult(value: unknown): value is Vehicl
   return text(result.companyId) && typeof result.canEdit === "boolean" && !!vehicle &&
     text(vehicle.id) && typeof vehicle.name === "string" && nullableText(vehicle.plate) &&
     nullableText(vehicle.assignmentId) && nullableText(vehicle.driverPersonId) && nullableText(vehicle.driverName) &&
+    nullableDriverRole(vehicle.driverRoleType) &&
     (result.drivers === undefined || (Array.isArray(result.drivers) && result.drivers.every(driver =>
       !!driver && text(driver.id) && text(driver.name))));
 }

@@ -5,6 +5,7 @@ import {
   resolveWeighbridgeSession,
 } from "@/app/api/weighbridge/_auth";
 import { isCargoVehicle, isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
+import { vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -153,13 +154,17 @@ export async function GET(request: NextRequest) {
     const vehicles = vehicleRows.filter((row) => isCargoVehicle(row));
     const trailers = vehicleRows.filter((row) => isTrailerTransport(row));
 
-    const legacyPersonById = new Map<string, string>();
+    const legacyPersonById = new Map<string, { personId: string; personnelType: string }>();
     const driverNames: Record<string, string> = {};
     legacyDriverRows.forEach((row: any) => {
       const legacyId = String(row.id);
       // Current assignments require an active driver bridge; historical names stay unfiltered.
-      if (row.person_id && row.status === "active" && row.archived === false && row.personnel_type === "driver") {
-        legacyPersonById.set(legacyId, String(row.person_id));
+      if (row.person_id && row.status === "active" && row.archived === false &&
+          (row.personnel_type === "driver" || row.personnel_type === "machine_operator")) {
+        legacyPersonById.set(legacyId, {
+          personId: String(row.person_id),
+          personnelType: String(row.personnel_type),
+        });
       }
       driverNames[legacyId] = String(
         row.name_ru || row.full_name || row.name_en || row.name_kz || "Водитель"
@@ -172,11 +177,12 @@ export async function GET(request: NextRequest) {
     const byDriver = new Map<string, string[]>();
     vehicleRows.forEach((vehicle) => {
       if (!vehicle.primaryPersonnelId) return;
-      const canonicalPersonId = legacyPersonById.get(vehicle.primaryPersonnelId);
-      if (!canonicalPersonId) return;
-      const assigned = byDriver.get(canonicalPersonId) || [];
+      const bridge = legacyPersonById.get(vehicle.primaryPersonnelId);
+      if (!bridge || (bridge.personnelType === "machine_operator" &&
+          !vehicleAllowsMachineOperator(vehicle))) return;
+      const assigned = byDriver.get(bridge.personId) || [];
       assigned.push(vehicle.id);
-      byDriver.set(canonicalPersonId, assigned);
+      byDriver.set(bridge.personId, assigned);
     });
 
     const drivers = peopleRows.filter((row: any) => WEIGHBRIDGE_PERSONNEL_ROLES.has(String(row.role_type))).map((row: any) => {

@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import vm from "node:vm";
 import ts from "typescript";
 import * as transport from "../lib/weighbridge/transport";
+import * as driverNames from "../lib/vehicles/driver-name";
 import {
   preferredDriverForVehicle,
   preferredVehicleForDriver,
@@ -106,6 +107,8 @@ check("resource loads started before assignment cannot restore old driver links"
 async function checkCurrentResourceAssignmentBridges() {
   const bridges = [
     { status: "active", archived: false, personnel_type: "driver" },
+    { status: "active", archived: false, personnel_type: "machine_operator" },
+    { status: "active", archived: false, personnel_type: "machine_operator" },
     { status: "inactive", archived: false, personnel_type: "driver" },
     { status: "active", archived: true, personnel_type: "driver" },
     { status: "active", archived: false, personnel_type: "specialist" },
@@ -117,12 +120,14 @@ async function checkCurrentResourceAssignmentBridges() {
       ...bridge, id: `bridge-${index}`, person_id: `person-${index}`, company_id: "company",
       full_name: `Historical ${index}`,
     })),
-    company_people: bridges.map((_, index) => ({
+    company_people: bridges.map((bridge, index) => ({
       id: `person-${index}`, company_id: "company", full_name: `Canonical ${index}`,
-      role_type: "driver", status: "active", deleted_at: null,
+      role_type: bridge.personnel_type === "machine_operator" ? "mechanic_operator" : "driver",
+      status: "active", deleted_at: null,
     })),
     reference_vehicles: bridges.map((_, index) => ({
-      id: `vehicle-${index}`, company_id: "company", name: "KAMAZ", type: "truck", fleet_type: "truck",
+      id: `vehicle-${index}`, company_id: "company", name: index === 1 ? "МТЗ" : "KAMAZ",
+      type: index === 1 ? "tractor" : "truck", fleet_type: index === 1 ? "tractor" : "truck",
       primary_responsible_personnel_id: `bridge-${index}`, is_active: true, archived: false,
     })),
     profiles: [], fields: [], warehouses: [],
@@ -153,6 +158,7 @@ async function checkCurrentResourceAssignmentBridges() {
       asSessionErrorResponse: () => null,
     },
     "@/lib/weighbridge/transport": transport,
+    "@/lib/vehicles/driver-name": driverNames,
   };
   const loaded = { exports: {} as any };
   vm.runInNewContext(ts.transpileModule(read("app/api/weighbridge/resources/route.ts"), {
@@ -165,9 +171,9 @@ async function checkCurrentResourceAssignmentBridges() {
     },
   });
   const result = await loaded.exports.GET({});
-  check("resource route accepts only active, non-archived driver bridges for current assignments", () => {
+  check("resource route accepts machine-operator bridge only for a concrete tractor", () => {
     assert.deepEqual(JSON.parse(JSON.stringify(result.drivers.map((driver: any) => driver.assignedVehicleIds))),
-      [["vehicle-0"], [], [], [], [], []]);
+      [["vehicle-0"], ["vehicle-1"], [], [], [], [], [], []]);
   });
   check("resource route keeps historical names for inactive, archived and non-driver bridges", () => {
     bridges.forEach((_, index) => assert.equal(result.driverNames[`bridge-${index}`], `Historical ${index}`));
@@ -177,6 +183,130 @@ async function checkCurrentResourceAssignmentBridges() {
   });
 }
 
-checkCurrentResourceAssignmentBridges().then(() => {
+async function checkInitialWorkspaceAssignmentBridges() {
+  const payload = {
+    vehicles: [
+      { id: "truck-driver", name: "KAMAZ", type: "truck", fleet_type: "truck", primary_responsible_personnel_id: "bridge-driver" },
+      { id: "truck-mechanic", name: "KAMAZ", type: "truck", fleet_type: "truck", primary_responsible_personnel_id: "bridge-mechanic-truck" },
+      { id: "tractor-mechanic", name: "МТЗ", type: "tractor", fleet_type: "tractor", primary_responsible_personnel_id: "bridge-mechanic-tractor" },
+      { id: "truck-inactive", name: "KAMAZ", type: "truck", fleet_type: "truck", primary_responsible_personnel_id: "bridge-inactive" },
+      { id: "truck-archived", name: "KAMAZ", type: "truck", fleet_type: "truck", primary_responsible_personnel_id: "bridge-archived" },
+      { id: "truck-wrong-type", name: "KAMAZ", type: "truck", fleet_type: "truck", primary_responsible_personnel_id: "bridge-wrong-type" },
+    ],
+    legacyDrivers: [
+      { id: "bridge-driver", person_id: "person-driver", full_name: "Legacy Driver" },
+      { id: "bridge-mechanic-truck", person_id: "person-mechanic", full_name: "Legacy Mechanic" },
+      { id: "bridge-mechanic-tractor", person_id: "person-mechanic", full_name: "Legacy Mechanic" },
+      { id: "bridge-inactive", person_id: "person-driver", full_name: "Legacy Driver" },
+      { id: "bridge-archived", person_id: "person-driver", full_name: "Legacy Driver" },
+      { id: "bridge-wrong-type", person_id: "person-driver", full_name: "Legacy Driver" },
+    ],
+    people: [
+      { id: "person-driver", full_name: "Canonical Driver", role_type: "driver", status: "active", deleted_at: null },
+      { id: "person-mechanic", full_name: "Canonical Mechanic", role_type: "mechanic_operator", status: "active", deleted_at: null },
+    ],
+    profiles: [], fields: [], destinations: [], allocations: [],
+  };
+  const assignmentBridges = [
+    { id: "bridge-driver", person_id: "person-driver", personnel_type: "driver", status: "active", archived: false },
+    { id: "bridge-mechanic-truck", person_id: "person-mechanic", personnel_type: "machine_operator", status: "active", archived: false },
+    { id: "bridge-mechanic-tractor", person_id: "person-mechanic", personnel_type: "machine_operator", status: "active", archived: false },
+    { id: "bridge-inactive", person_id: "person-driver", personnel_type: "driver", status: "inactive", archived: false },
+    { id: "bridge-archived", person_id: "person-driver", personnel_type: "driver", status: "active", archived: true },
+    { id: "bridge-wrong-type", person_id: "person-driver", personnel_type: "specialist", status: "active", archived: false },
+  ];
+  const headers = new Map<string, string>();
+  let requestedBridgeIds: string[] = [];
+  let bridgeFailure: { code: string } | null = null;
+  const db = {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      assert.equal(name, "weighbridge_initial_workspace_v1");
+      assert.equal(args.p_company_id, "company");
+      assert.equal(args.p_include_workspace, true);
+      return { data: { operator_state: {}, initial_workspace: payload }, error: null };
+    },
+    from(table: string) {
+      assert.equal(table, "reference_specialists");
+      const query: any = {
+        select(fields: string) { assert.equal(fields, "id,person_id,personnel_type,status,archived"); return query; },
+        eq(key: string, value: unknown) { assert.equal(key, "company_id"); assert.equal(value, "company"); return query; },
+        in(key: string, value: string[]) { assert.equal(key, "id"); requestedBridgeIds = value; return query; },
+        then(done: (value: unknown) => unknown, failed: (reason: unknown) => unknown) {
+          return Promise.resolve({
+            data: bridgeFailure ? null : assignmentBridges.filter((row) => requestedBridgeIds.includes(row.id)),
+            error: bridgeFailure,
+          }).then(done, failed);
+        },
+      };
+      return query;
+    },
+  };
+  const dependencies: Record<string, unknown> = {
+    "next/server": {
+      NextRequest: class {},
+      NextResponse: { json: (body: Record<string, unknown>, init?: { status?: number }) => ({
+        ...body, status: init?.status ?? 200,
+        headers: { set: (key: string, value: string) => headers.set(key, value) },
+      }) },
+    },
+    "@/app/api/weighbridge/_auth": {
+      WEIGHBRIDGE_OPERATOR_COOKIE: "fixture-only",
+      asSessionErrorResponse: () => null,
+      resolveWeighbridgeSession: async () => { throw new Error("POST is outside this QA"); },
+    },
+    "@/lib/auth/server-session": {
+      SessionAuthError: class extends Error {},
+      getUserScopedClientFromRequest: async () => db,
+    },
+    "@/lib/utils/qa-data": { hasQaDataMarker: () => false },
+    "@/lib/weighbridge/transport": transport,
+    "@/lib/vehicles/driver-name": driverNames,
+  };
+  const loaded = { exports: {} as any };
+  vm.runInNewContext(ts.transpileModule(read("app/api/weighbridge/operator-session/route.ts"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, {
+    module: loaded, exports: loaded.exports, console, performance, process,
+    require: (key: string) => {
+      if (!(key in dependencies)) throw new Error(`Unexpected operator-session dependency: ${key}`);
+      return dependencies[key];
+    },
+  });
+  const response = await loaded.exports.GET({
+    nextUrl: { searchParams: new URLSearchParams("companyId=company&workspace=true") },
+    cookies: { get: () => undefined },
+  });
+  const assignments = Object.fromEntries(response.initial_workspace.resources.drivers
+    .map((driver: any) => [driver.id, driver.assignedVehicleIds]));
+  check("initial workspace keeps permanent driver assignment for an ordinary truck", () => {
+    assert.deepEqual(JSON.parse(JSON.stringify(assignments["person-driver"])), ["truck-driver"]);
+  });
+  check("initial workspace assigns mechanic only to a concrete tractor", () => {
+    assert.deepEqual(JSON.parse(JSON.stringify(assignments["person-mechanic"])), ["tractor-mechanic"]);
+  });
+  check("initial workspace verifies only referenced specialist IDs", () => {
+    assert.deepEqual([...requestedBridgeIds].sort(), assignmentBridges.map((row) => row.id).sort());
+  });
+  check("initial workspace rejects inactive, archived and incompatible bridges", () => {
+    assert.equal(assignments["person-driver"].includes("truck-inactive"), false);
+    assert.equal(assignments["person-driver"].includes("truck-archived"), false);
+    assert.equal(assignments["person-driver"].includes("truck-wrong-type"), false);
+  });
+  check("initial workspace timing includes authoritative bridge validation", () => {
+    assert.match(String(headers.get("Server-Timing")), /initial_workspace_rpc;dur=.*assignment_bridges;dur=/);
+  });
+  bridgeFailure = { code: "fixture_failure" };
+  const failedResponse = await loaded.exports.GET({
+    nextUrl: { searchParams: new URLSearchParams("companyId=company&workspace=true") },
+    cookies: { get: () => undefined },
+  });
+  check("initial workspace fails closed when authoritative bridge validation fails", () => {
+    assert.equal(failedResponse.status, 500);
+    assert.equal(failedResponse.error, "Не удалось проверить актуальные привязки водителей.");
+    assert.equal(failedResponse.initial_workspace, undefined);
+  });
+}
+
+checkCurrentResourceAssignmentBridges().then(checkInitialWorkspaceAssignmentBridges).then(() => {
   console.log(`Vehicle-driver weighbridge regression PASS: ${checks}/${checks}`);
 }).catch((error) => { console.error(error); process.exitCode = 1; });

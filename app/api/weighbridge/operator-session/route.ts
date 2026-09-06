@@ -9,6 +9,7 @@ import {
   getUserScopedClientFromRequest,
 } from "@/lib/auth/server-session";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
+import { vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
 import { isCargoVehicle, isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
 
 const OPERATOR_SESSION_ROLES = ["global_admin", "company_admin", "director", "weighman"] as const;
@@ -48,7 +49,10 @@ function jsonWithOperatorCookie(payload: Record<string, any>) {
   return response;
 }
 
-function normalizeInitialWorkspace(payload: Record<string, any> | null | undefined) {
+function normalizeInitialWorkspace(
+  payload: Record<string, any> | null | undefined,
+  assignmentBridges: Record<string, any>[] = [],
+) {
   if (!payload) return null;
   const rawVehicles = Array.isArray(payload.vehicles) ? payload.vehicles : [];
   const vehicleRows = rawVehicles.map((row: any) => {
@@ -75,11 +79,10 @@ function normalizeInitialWorkspace(payload: Record<string, any> | null | undefin
   const legacyDrivers = Array.isArray(payload.legacyDrivers) ? payload.legacyDrivers : [];
   const people = Array.isArray(payload.people) ? payload.people : [];
   const profiles = Array.isArray(payload.profiles) ? payload.profiles : [];
-  const legacyPersonById = new Map<string, string>();
+  const legacyPersonById = new Map<string, { personId: string; personnelType: string }>();
   const driverNames: Record<string, string> = {};
   legacyDrivers.forEach((row: any) => {
     const legacyId = String(row.id || "");
-    if (row.person_id) legacyPersonById.set(legacyId, String(row.person_id));
     if (legacyId) {
       driverNames[legacyId] = String(
         row.name_ru || row.full_name || row.name_en || row.name_kz || "Водитель"
@@ -89,13 +92,32 @@ function normalizeInitialWorkspace(payload: Record<string, any> | null | undefin
   profiles.forEach((row: any) => {
     if (row.id) driverNames[String(row.id)] = String(row.full_name || row.email || "Водитель");
   });
+  assignmentBridges.forEach((row: any) => {
+    const legacyId = String(row.id || "");
+    if (legacyId && row.person_id && row.status === "active" && row.archived === false &&
+        (row.personnel_type === "driver" || row.personnel_type === "machine_operator")) {
+      legacyPersonById.set(legacyId, {
+        personId: String(row.person_id),
+        personnelType: String(row.personnel_type),
+      });
+    }
+  });
 
+  const personnelRoleById = new Map<string, string>();
+  people.forEach((row: any) => {
+    if (row.id) personnelRoleById.set(String(row.id), String(row.role_type || ""));
+  });
   const byDriver = new Map<string, string[]>();
   vehicleRows.forEach((vehicle) => {
     if (!vehicle.primaryPersonnelId) return;
-    const canonicalPersonId = legacyPersonById.get(vehicle.primaryPersonnelId);
-    if (!canonicalPersonId) return;
-    byDriver.set(canonicalPersonId, [...(byDriver.get(canonicalPersonId) || []), vehicle.id]);
+    const bridge = legacyPersonById.get(vehicle.primaryPersonnelId);
+    if (!bridge) return;
+    const role = personnelRoleById.get(bridge.personId);
+    const compatible = (bridge.personnelType === "driver" && role === "driver") ||
+      (bridge.personnelType === "machine_operator" && role === "mechanic_operator" &&
+        vehicleAllowsMachineOperator(vehicle));
+    if (!compatible) return;
+    byDriver.set(bridge.personId, [...(byDriver.get(bridge.personId) || []), vehicle.id]);
   });
 
   const drivers = people
@@ -182,13 +204,40 @@ export async function GET(request: NextRequest) {
     const rpcMs = performance.now() - rpcStartedAt;
     if (error) return NextResponse.json({ error: error.message }, { status: error.code === "42501" ? 403 : 400 });
     const payload = (data || {}) as Record<string, any>;
+    const initialWorkspace = payload.initial_workspace as Record<string, any> | null | undefined;
+    const initialVehicles = initialWorkspace && Array.isArray(initialWorkspace.vehicles)
+      ? initialWorkspace.vehicles
+      : [];
+    const assignmentBridgeIds = Array.from(new Set(
+      initialVehicles
+        .map((row: any) => String(row?.primary_responsible_personnel_id || ""))
+        .filter(Boolean),
+    ));
+    let assignmentBridges: Record<string, any>[] = [];
+    let bridgesMs = 0;
+    if (assignmentBridgeIds.length > 0) {
+      const bridgesStartedAt = performance.now();
+      const { data: bridgeRows, error: bridgeError } = await supabase
+        .from("reference_specialists")
+        .select("id,person_id,personnel_type,status,archived")
+        .eq("company_id", requestedCompanyId)
+        .in("id", assignmentBridgeIds);
+      bridgesMs = performance.now() - bridgesStartedAt;
+      if (bridgeError) {
+        return NextResponse.json(
+          { error: "Не удалось проверить актуальные привязки водителей." },
+          { status: bridgeError.code === "42501" ? 403 : 500 },
+        );
+      }
+      assignmentBridges = (bridgeRows || []) as Record<string, any>[];
+    }
     const response = NextResponse.json({
       ...(payload.operator_state || {}),
-      initial_workspace: normalizeInitialWorkspace(payload.initial_workspace),
+      initial_workspace: normalizeInitialWorkspace(initialWorkspace, assignmentBridges),
     });
     response.headers.set(
       "Server-Timing",
-      `initial_workspace_rpc;dur=${rpcMs.toFixed(1)}, total;dur=${(performance.now() - startedAt).toFixed(1)}`
+      `initial_workspace_rpc;dur=${rpcMs.toFixed(1)}, assignment_bridges;dur=${bridgesMs.toFixed(1)}, total;dur=${(performance.now() - startedAt).toFixed(1)}`
     );
     return response;
   } catch (error) {

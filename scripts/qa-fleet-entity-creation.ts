@@ -59,7 +59,8 @@ async function main() {
       name text not null, full_name text not null, custom_name text, type text not null,
       fleet_type text not null, plate_number text not null, license_plate text,
       status text not null default 'free', is_active boolean not null default true,
-      archived boolean not null default false, created_at timestamptz not null default now()
+      archived boolean not null default false, import_source text,
+      created_at timestamptz not null default now()
     );
     create unique index vehicle_plate_live on public.reference_vehicles(company_id, lower(plate_number)) where archived=false;
     create table public.company_people(
@@ -79,7 +80,16 @@ async function main() {
       ('${fleetManager}','${company}','fleet_manager','active'),
       ('${outsider}','${otherCompany}','fleet_manager','active');
   `);
-  await db.exec(fs.readFileSync("supabase/migrations/20260906105748_fleet_entity_creation_v1.sql", "utf8"));
+  const originalMigration = fs.readFileSync(
+    "supabase/migrations/20260906105748_fleet_entity_creation_v1.sql", "utf8",
+  );
+  const correctiveMigration = fs.readFileSync(
+    "supabase/migrations/20260906130000_fleet_entity_ptc_provenance_corrective_v1.sql", "utf8",
+  );
+  assert.doesNotMatch(originalMigration, /ptc_fleet_manager_manual_v1/);
+  assert.match(correctiveMigration, /ptc_fleet_manager_manual_v1/);
+  await db.exec(originalMigration);
+  await db.exec(correctiveMigration);
 
   const create = async (actor: string, kind: "vehicle" | "driver", name: string, plate: string | null) => {
     const result = await db.query<{ result: Record<string, unknown> }>(
@@ -92,8 +102,9 @@ async function main() {
   const vehicle = await create(fleetManager, "vehicle", "ZIL MMZ 554", "Т-309 ВК");
   equal(vehicle.status, "created");
   equal(vehicle.kind, "vehicle");
-  equal((await db.query("select name,plate_number,license_plate,status from reference_vehicles")).rows, [{
+  equal((await db.query("select name,plate_number,license_plate,status,import_source from reference_vehicles")).rows, [{
     name: "ZIL MMZ 554", plate_number: "Т-309 ВК", license_plate: "Т-309 ВК", status: "free",
+    import_source: "ptc_fleet_manager_manual_v1",
   }]);
   const duplicateVehicle = await create(fleetManager, "vehicle", "Другая запись", "T 309-BK");
   equal(duplicateVehicle.status, "duplicate");

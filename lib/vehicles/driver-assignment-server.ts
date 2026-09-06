@@ -12,6 +12,7 @@ import {
 } from "@/lib/auth/server-session";
 import { requireWeighbridgeOperatorSession } from "@/app/api/weighbridge/_auth";
 import { ptcVehicleDisplayPlate } from "@/lib/traffic/vehicle-eligibility";
+import { vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
 
 const writeRoles = ["global_admin", "company_admin", "agronomist", "weighman", "fleet_manager"] as const;
 const readRoles = [...writeRoles, "director", "warehouse", "warehouse_operator", "specialist"] as const;
@@ -23,7 +24,7 @@ export const assignmentCommand = assignmentQuery.extend({
   driverPersonId: z.string().uuid().nullable(),
   expectedAssignmentId: z.string().uuid().nullable(),
 }).strict();
-const vehicleColumns = "id,name,brand,model,license_plate,plate_number,source_machine_id,primary_responsible_personnel_id";
+const vehicleColumns = "id,name,brand,model,license_plate,plate_number,type,fleet_type,source_machine_id,primary_responsible_personnel_id";
 type Db = ReturnType<typeof getServiceClient>;
 type VehicleRow = {
   id: string;
@@ -32,10 +33,12 @@ type VehicleRow = {
   model: string | null;
   license_plate: string | null;
   plate_number: string | null;
+  type: string | null;
+  fleet_type: string | null;
   source_machine_id: string | null;
   primary_responsible_personnel_id: string | null;
 };
-type Person = { id: string; full_name: string };
+type Person = { id: string; full_name: string; role_type: "driver" | "mechanic_operator" };
 type Specialist = { id: string; person_id: string | null; personnel_type: string; status: string };
 type Context = { db: Db; companyId: string; creatorAuthUserId: string; canEdit: boolean };
 
@@ -85,20 +88,31 @@ async function vehicleRow(context: Context, id: string): Promise<VehicleRow> {
   if (!result.data) throw new SessionAuthError("Машина недоступна в выбранной компании", 404);
   return result.data as VehicleRow;
 }
-async function activePerson(context: Context, id: string): Promise<Person | null> {
-  const result = await context.db.from("company_people").select("id,full_name")
-    .eq("company_id", context.companyId).eq("id", id).eq("role_type", "driver")
+async function activePerson(context: Context, id: string, allowMachineOperator: boolean): Promise<Person | null> {
+  const result = await context.db.from("company_people").select("id,full_name,role_type")
+    .eq("company_id", context.companyId).eq("id", id)
     .eq("status", "active").is("deleted_at", null).maybeSingle();
   if (result.error) throw result.error;
-  return result.data as Person | null;
+  if (!result.data || (result.data.role_type !== "driver" &&
+      !(allowMachineOperator && result.data.role_type === "mechanic_operator"))) return null;
+  return result.data as Person;
 }
-async function assignedPerson(context: Context, assignmentId: string | null): Promise<Person | null> {
+function specialistType(person: Person) {
+  return person.role_type === "mechanic_operator" ? "machine_operator" : "driver";
+}
+async function assignedPerson(
+  context: Context,
+  assignmentId: string | null,
+  allowMachineOperator: boolean,
+): Promise<Person | null> {
   if (!assignmentId) return null;
-  const result = await context.db.from("reference_specialists").select("id,person_id")
+  const result = await context.db.from("reference_specialists").select("id,person_id,personnel_type")
     .eq("company_id", context.companyId).eq("id", assignmentId)
-    .eq("personnel_type", "driver").eq("status", "active").eq("archived", false).maybeSingle();
+    .eq("status", "active").eq("archived", false).maybeSingle();
   if (result.error) throw result.error;
-  return result.data?.person_id ? activePerson(context, result.data.person_id) : null;
+  if (!result.data?.person_id) return null;
+  const person = await activePerson(context, result.data.person_id, allowMachineOperator);
+  return person && result.data.personnel_type === specialistType(person) ? person : null;
 }
 function presentVehicle(row: VehicleRow, person: Person | null) {
   return {
@@ -109,15 +123,21 @@ function presentVehicle(row: VehicleRow, person: Person | null) {
     assignmentId: row.primary_responsible_personnel_id,
     driverPersonId: person?.id ?? null,
     driverName: person?.full_name ?? null,
+    driverRoleType: person?.role_type ?? null,
   };
 }
 export async function readDriverAssignment(context: Context, id: string) {
   const row = await vehicleRow(context, id);
+  const allowMachineOperator = vehicleAllowsMachineOperator(row);
+  let driversQuery = context.db.from("company_people").select("id,full_name,role_type")
+    .eq("company_id", context.companyId)
+    .eq("status", "active").is("deleted_at", null);
+  driversQuery = allowMachineOperator
+    ? driversQuery.in("role_type", ["driver", "mechanic_operator"])
+    : driversQuery.eq("role_type", "driver");
   const [person, drivers] = await Promise.all([
-    assignedPerson(context, row.primary_responsible_personnel_id),
-    context.db.from("company_people").select("id,full_name")
-      .eq("company_id", context.companyId).eq("role_type", "driver")
-      .eq("status", "active").is("deleted_at", null).order("full_name", { ascending: true }),
+    assignedPerson(context, row.primary_responsible_personnel_id, allowMachineOperator),
+    driversQuery.order("full_name", { ascending: true }),
   ]);
   if (drivers.error) throw drivers.error;
   return {
@@ -125,37 +145,47 @@ export async function readDriverAssignment(context: Context, id: string) {
     drivers: ((drivers.data ?? []) as Person[]).map(driver => ({ id: driver.id, name: driver.full_name })),
   };
 }
-async function liveSpecialist(context: Context, personId: string): Promise<Specialist | null> {
+async function liveSpecialist(context: Context, person: Person): Promise<Specialist | null> {
   const result = await context.db.from("reference_specialists")
     .select("id,person_id,personnel_type,status").eq("company_id", context.companyId)
-    .eq("person_id", personId).eq("archived", false).maybeSingle();
+    .eq("person_id", person.id).eq("archived", false).maybeSingle();
   if (result.error) throw result.error;
-  if (result.data && (result.data.personnel_type !== "driver" || result.data.status !== "active"))
+  if (result.data && (result.data.personnel_type !== specialistType(person) || result.data.status !== "active"))
     throw new SessionAuthError("Карточка водителя неактивна. Проверьте её в справочнике", 409);
   return result.data as Specialist | null;
 }
 async function ensureSpecialist(context: Context, person: Person): Promise<string> {
-  const existing = await liveSpecialist(context, person.id);
+  const existing = await liveSpecialist(context, person);
   if (existing) return existing.id;
   // Compatibility FK: only this exact canonical person. Never match names or create people.
   // ux_reference_specialists_person_live is a unique partial index on person_id.
+  const personnelType = specialistType(person);
   const inserted = await context.db.from("reference_specialists").insert({
     company_id: context.companyId, user_id: context.creatorAuthUserId, person_id: person.id,
-    full_name: person.full_name, role: "driver", personnel_type: "driver", status: "active", archived: false,
+    full_name: person.full_name,
+    role: person.role_type === "mechanic_operator" ? "mechanic_operator" : "driver",
+    personnel_type: personnelType, status: "active", archived: false,
   }).select("id").single();
   if (!inserted.error && inserted.data?.id) return inserted.data.id;
   if (inserted.error?.code !== "23505") throw inserted.error ?? new Error("Missing inserted driver");
-  const winner = await liveSpecialist(context, person.id);
+  const winner = await liveSpecialist(context, person);
   if (!winner) throw new SessionAuthError("Связь водителя изменилась. Обновите данные", 409);
   return winner.id;
 }
 export async function saveDriverAssignment(context: Context, input: z.infer<typeof assignmentCommand>) {
   if (!context.canEdit) throw new SessionAuthError("Нет права менять водителя", 403);
   const row = await vehicleRow(context, input.vehicleId);
-  const person = input.driverPersonId ? await activePerson(context, input.driverPersonId) : null;
+  const allowMachineOperator = vehicleAllowsMachineOperator(row);
+  const person = input.driverPersonId
+    ? await activePerson(context, input.driverPersonId, allowMachineOperator)
+    : null;
   if (input.driverPersonId && !person)
     throw new SessionAuthError("Выберите действующего водителя этой компании", 400);
-  const currentPerson = await assignedPerson(context, row.primary_responsible_personnel_id);
+  const currentPerson = await assignedPerson(
+    context,
+    row.primary_responsible_personnel_id,
+    allowMachineOperator,
+  );
   const isDesired = (candidate: VehicleRow, candidatePerson: Person | null) => input.driverPersonId
     ? candidatePerson?.id === input.driverPersonId
     : candidate.primary_responsible_personnel_id === null;
@@ -168,9 +198,9 @@ export async function saveDriverAssignment(context: Context, input: z.infer<type
     throw new SessionAuthError("Водителя уже изменили. Обновите данные и проверьте машину", 409);
   const nextId = person ? await ensureSpecialist(context, person) : null;
   // Recheck the canonical driver's active state before the CAS, including a lazy-link race.
-  const checkedPerson = person ? await activePerson(context, person.id) : null;
+  const checkedPerson = person ? await activePerson(context, person.id, allowMachineOperator) : null;
   if (person && !checkedPerson) throw new SessionAuthError("Водитель больше не активен", 409);
-  if (person && (await liveSpecialist(context, person.id))?.id !== nextId)
+  if (person && (await liveSpecialist(context, person))?.id !== nextId)
     throw new SessionAuthError("Связь водителя изменилась. Обновите данные", 409);
   let update = context.db.from("reference_vehicles")
     .update({ primary_responsible_personnel_id: nextId })
@@ -183,7 +213,11 @@ export async function saveDriverAssignment(context: Context, input: z.infer<type
   if (saved.data) return result(saved.data as VehicleRow, checkedPerson);
   // Zero affected rows is a conflict, not success. Only the same desired assignment is an idempotent win.
   const concurrent = await vehicleRow(context, input.vehicleId);
-  const concurrentPerson = await assignedPerson(context, concurrent.primary_responsible_personnel_id);
+  const concurrentPerson = await assignedPerson(
+    context,
+    concurrent.primary_responsible_personnel_id,
+    vehicleAllowsMachineOperator(concurrent),
+  );
   if (isDesired(concurrent, concurrentPerson)) return result(concurrent, concurrentPerson);
   throw new SessionAuthError("Водителя уже изменили. Обновите данные и проверьте машину", 409);
 }

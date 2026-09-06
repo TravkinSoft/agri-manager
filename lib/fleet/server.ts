@@ -1,5 +1,5 @@
 import { getServiceClient } from "@/lib/supabase/service";
-import { activeAssignedDriverName } from "@/lib/vehicles/driver-name";
+import { activeAssignedDriverName, vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
 import { readVehicleRepairs } from "./repairs-server";
 import type { FleetVehicle } from "./model";
 import { isPtcEligibleReferenceVehicle, ptcVehicleDisplayPlate } from "@/lib/traffic/vehicle-eligibility";
@@ -32,12 +32,16 @@ export async function readCompanyFleet(db: ReturnType<typeof getServiceClient>, 
     ]);
     if (assignments.error) throw assignments.error;
     if (traffic.error) throw traffic.error;
-    const drivers = new Map((assignments.data ?? []).map(row => [String(row.id), activeAssignedDriverName(row, companyId)]));
+    const driverAssignments = new Map((assignments.data ?? []).map(row => [String(row.id), row]));
     const states = new Map((traffic.data ?? []).map(row => [String(row.vehicle_id), row]));
     vehicles.push(...rows.map(row => ({
       id: String(row.id), name: row.name || [row.brand, row.model].filter(Boolean).join(" ") || "Машина",
       plate: ptcVehicleDisplayPlate(row),
-      driver: drivers.get(String(row.primary_responsible_personnel_id ?? "")) ?? null,
+      driver: activeAssignedDriverName(
+        driverAssignments.get(String(row.primary_responsible_personnel_id ?? "")),
+        companyId,
+        vehicleAllowsMachineOperator(row),
+      ),
       inRepair: repairs.get(String(row.id))?.inRepair ?? false,
       repairVersion: repairs.get(String(row.id))?.repairVersion ?? 0,
       assigned: states.get(String(row.id))?.assigned ?? false,

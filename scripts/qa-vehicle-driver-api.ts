@@ -25,12 +25,18 @@ const vehicleId = "30000000-0000-4000-8000-000000000001";
 const vehicle2 = "30000000-0000-4000-8000-000000000002";
 const personId = "40000000-0000-4000-8000-000000000001";
 const person2 = "40000000-0000-4000-8000-000000000002";
+const mechanicPersonId = "40000000-0000-4000-8000-000000000003";
 const specialistId = "50000000-0000-4000-8000-000000000001";
 const specialist2 = "50000000-0000-4000-8000-000000000002";
 const vehicle = { id: vehicleId, company_id: company, archived: false, name: "KAMAZ", brand: null, model: null,
-  license_plate: "QA-207", plate_number: "old", primary_responsible_personnel_id: null, status: "in_trip" };
+  license_plate: "QA-207", plate_number: "old", type: "truck", fleet_type: "truck",
+  source_machine_id: null, primary_responsible_personnel_id: null, status: "in_trip" };
+const tractor = { ...vehicle, name: "МТЗ 878", type: "tractor", fleet_type: "tractor" };
 const driver = { id: personId, company_id: company, full_name: "Canonical Driver", role_type: "driver", status: "active", deleted_at: null };
+const mechanic = { id: mechanicPersonId, company_id: company, full_name: "Калымов Канат Айтенович", role_type: "mechanic_operator", status: "active", deleted_at: null };
 const specialist = { id: specialistId, company_id: company, person_id: personId, full_name: "Old copied name", personnel_type: "driver", status: "active", archived: false };
+const machineSpecialist = { ...specialist, id: specialist2, person_id: mechanicPersonId,
+  full_name: "Калымов Канат Айтенович", personnel_type: "machine_operator" };
 type Row = Record<string, any>;
 type Options = {
   role?: string; profileRole?: string; profileStatus?: string | null; profileCompany?: string; authUserId?: string;
@@ -55,7 +61,8 @@ function setup(options: Options = {}) {
         calls.push({ table, filters: plain(filters), fields, payload: payload ? plain(payload) : null, op });
         if (op === "select" && options.failReadTable === table) return { data: null, error: new Error("secret database detail") };
         if (op !== "select" && options.failWrite) return { data: null, error: new Error("secret write detail") };
-        const matches = (row: Row) => filters.every(([key, value]) => row[key] === value);
+        const matches = (row: Row) => filters.every(([key, value, operator]) =>
+          operator === "in" ? value.includes(row[key]) : row[key] === value);
         let rows: Row[];
         if (op === "insert") {
           if (options.insertConflict) {
@@ -78,6 +85,7 @@ function setup(options: Options = {}) {
       const q: any = {
         select(value: string) { fields = value; return q; },
         eq(key: string, value: unknown) { filters.push([key, value]); return q; },
+        in(key: string, value: unknown[]) { filters.push([key, value, "in"]); return q; },
         is(key: string, value: unknown) { filters.push([key, value]); return q; },
         order() { return q; },
         insert(value: Row) { op = "insert"; payload = value; return q; },
@@ -113,10 +121,12 @@ function setup(options: Options = {}) {
     "@/lib/auth/server-session": session, "@/lib/auth/server-acl": acl, "@/lib/supabase/service": { getServiceClient: () => db },
   });
   const eligibility = load("lib/traffic/vehicle-eligibility.ts", {});
+  const driverNames = load("lib/vehicles/driver-name.ts", {});
   const helper = load("lib/vehicles/driver-assignment-server.ts", {
     "@/lib/supabase/service": { getServiceClient: () => db }, "@/lib/auth/server-session": session,
     "@/lib/auth/server-acl": acl, "@/lib/auth/role-contract": roles, "@/app/api/weighbridge/_auth": wb,
     "@/lib/traffic/vehicle-eligibility": eligibility,
+    "@/lib/vehicles/driver-name": driverNames,
   });
   const route = load("app/api/vehicles/driver-assignment/route.ts", { "@/lib/vehicles/driver-assignment-server": helper });
   const command = { vehicleId, driverPersonId: personId, expectedAssignmentId: null };
@@ -136,9 +146,41 @@ async function main() {
   let s = setup({ specialists: [specialist], vehicles: [{ ...vehicle, primary_responsible_personnel_id: specialistId }], people: [driver,
     { ...driver, id: person2, company_id: other }, { ...driver, id: other, status: "inactive" }] });
   let body = await response(200, s.route.GET(s.request()));
-  check(body.vehicle, { id: vehicleId, name: "KAMAZ", plate: "QA-207", assignmentId: specialistId, driverPersonId: personId, driverName: "Canonical Driver" });
+  check(body.vehicle, { id: vehicleId, name: "KAMAZ", plate: "QA-207", assignmentId: specialistId, driverPersonId: personId, driverName: "Canonical Driver", driverRoleType: "driver" });
   check(body.drivers, [{ id: personId, name: "Canonical Driver" }]); check(body.canEdit, true);
   check(s.auth, [{ ignoreImpersonation: true, skipCache: true }]); check(s.calls.some(c => c.op !== "select"), false);
+  s = setup({ people: [driver, mechanic] });
+  body = await response(200, s.route.GET(s.request()));
+  check(body.drivers, [{ id: personId, name: "Canonical Driver" }]);
+  s = setup({ people: [mechanic] });
+  await response(400, s.route.POST(s.request("POST", {
+    vehicleId, driverPersonId: mechanicPersonId, expectedAssignmentId: null,
+  })));
+  check(s.calls.some(c => c.op !== "select"), false);
+  s = setup({ people: [driver, mechanic], vehicles: [tractor] });
+  body = await response(200, s.route.GET(s.request()));
+  check(body.drivers, [
+    { id: personId, name: "Canonical Driver" },
+    { id: mechanicPersonId, name: "Калымов Канат Айтенович" },
+  ]);
+  s = setup({ people: [mechanic], vehicles: [tractor] });
+  body = await response(200, s.route.POST(s.request("POST", {
+    vehicleId, driverPersonId: mechanicPersonId, expectedAssignmentId: null,
+  })));
+  check(body.vehicle.driverPersonId, mechanicPersonId);
+  check(body.vehicle.driverRoleType, "mechanic_operator");
+  check(s.calls.find(c => c.op === "insert").payload.personnel_type, "machine_operator");
+  check(s.calls.find(c => c.op === "insert").payload.role, "mechanic_operator");
+  s = setup({ people: [mechanic], specialists: [machineSpecialist],
+    vehicles: [{ ...vehicle, primary_responsible_personnel_id: specialist2 }] });
+  body = await response(200, s.route.GET(s.request()));
+  check(body.vehicle.assignmentId, specialist2);
+  check(body.vehicle.driverPersonId, null);
+  check(body.vehicle.driverRoleType, null);
+  body = await response(200, s.route.POST(s.request("POST", {
+    vehicleId, driverPersonId: null, expectedAssignmentId: specialist2,
+  })));
+  check(body.vehicle.assignmentId, null);
   for (const role of ["global_admin", "company_admin", "agronomist", "weighman"]) {
     s = setup({ role }); body = await response(200, s.route.POST(s.request("POST")));
     check(body.vehicle.driverPersonId, personId); check(body.vehicle.assignmentId, specialistId);

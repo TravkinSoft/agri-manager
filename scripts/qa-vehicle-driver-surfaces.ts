@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import vm from "node:vm";
 import ts from "typescript";
-import { activeAssignedDriverName } from "../lib/vehicles/driver-name";
+import { activeAssignedDriverName, vehicleAllowsMachineOperator } from "../lib/vehicles/driver-name";
 import * as model from "../lib/traffic/model";
 import * as eligibility from "../lib/traffic/vehicle-eligibility";
 
@@ -12,9 +12,17 @@ const check = (actual: unknown, expected: unknown) => { assert.deepEqual(actual,
 const companyId = "10000000-0000-4000-8000-000000000001";
 const person = { full_name: "Текущий водитель", role_type: "driver", company_id: companyId, status: "active", deleted_at: null };
 const specialist = { id: "reference-driver", full_name: "Старое имя", personnel_type: "driver", status: "active", archived: false, person };
+const mechanic = { ...person, full_name: "Калымов Канат Айтенович", role_type: "mechanic_operator" };
+const machineOperator = { ...specialist, id: "reference-mechanic", personnel_type: "machine_operator", person: mechanic };
 check(activeAssignedDriverName(specialist, companyId), person.full_name);
 check(activeAssignedDriverName([{ ...specialist, person: [person] }], companyId), person.full_name);
-for (const change of [{ archived: true }, { status: "inactive" }, { personnel_type: "machine_operator" }, { person: null }])
+check(activeAssignedDriverName(machineOperator, companyId), null);
+check(activeAssignedDriverName(machineOperator, companyId, true), mechanic.full_name);
+check(vehicleAllowsMachineOperator({ type: "truck", fleet_type: "truck" }), false);
+check(vehicleAllowsMachineOperator({ type: "tractor", fleet_type: "tractor" }), true);
+check(activeAssignedDriverName({ ...specialist, person: mechanic }, companyId), null);
+check(activeAssignedDriverName({ ...machineOperator, person }, companyId), null);
+for (const change of [{ archived: true }, { status: "inactive" }, { personnel_type: "specialist" }, { person: null }])
   check(activeAssignedDriverName({ ...specialist, ...change }, companyId), null);
 for (const change of [{ status: "inactive" }, { role_type: "worker" }, { company_id: "foreign" }, { deleted_at: "2026-09-04" }, { full_name: "" }])
   check(activeAssignedDriverName({ ...specialist, person: { ...person, ...change } }, companyId), null);
@@ -57,7 +65,7 @@ const dependencies: Record<string, unknown> = {
   "@/lib/supabase/service": { getServiceClient: () => db },
   "@/lib/auth/server-session": {}, "@/lib/auth/server-acl": {},
   "@/lib/traffic/vehicle-eligibility": eligibility,
-  "@/lib/vehicles/driver-name": { activeAssignedDriverName }, "./model": model,
+  "@/lib/vehicles/driver-name": { activeAssignedDriverName, vehicleAllowsMachineOperator }, "./model": model,
 };
 vm.runInNewContext(code, { module: moduleScope, exports: moduleScope.exports, Date,
   require: (name: string) => dependencies[name] ?? localRequire(name) });
@@ -75,7 +83,8 @@ async function main() {
   check((await moduleScope.exports.readSnapshot(companyId, "receiver", "Бригадир")).vehicles[0].driver, null);
   const references = readFileSync("app/(dashboard)/references/page.tsx", "utf8");
   check(references.includes('"Водитель",'), true);
-  check(references.includes("activeAssignedDriverName(row.primary_responsible, row.company_id)"), true);
+  check(references.includes("vehicleAllowsMachineOperator(row)"), true);
+  check(references.includes('result.vehicle.driverRoleType === "mechanic_operator"'), true);
   check(references.includes("result.companyId !== companyId"), true);
   check(references.includes("assignmentUpdates.current.get(row.id)"), true);
   check(readFileSync("lib/services/references.ts", "utf8").includes("person:person_id(full_name,company_id,role_type,status,deleted_at)"), true);

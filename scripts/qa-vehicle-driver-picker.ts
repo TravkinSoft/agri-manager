@@ -21,9 +21,11 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
-const result = (driver = "driver-a", assignment = "assignment-a", vehicle = "vehicle-a", company = "company-a"): VehicleDriverAssignmentResult => ({
+const result = (driver = "driver-a", assignment = "assignment-a", vehicle = "vehicle-a", company = "company-a",
+  driverRoleType: "driver" | "mechanic_operator" = "driver"): VehicleDriverAssignmentResult => ({
   companyId: company, vehicle: { id: vehicle, name: "KAMAZ", plate: "QA-207", assignmentId: assignment || null,
-    driverPersonId: driver || null, driverName: driver ? `Имя ${driver}` : null }, canEdit: true,
+    driverPersonId: driver || null, driverName: driver ? `Имя ${driver}` : null,
+    driverRoleType: driver ? driverRoleType : null }, canEdit: true,
   drivers: [{ id: "driver-a", name: "Имя driver-a" }, { id: "driver-b", name: "Имя driver-b" }],
 });
 function nodes(node: any): any[] {
@@ -38,8 +40,9 @@ function words(node: any): string {
 }
 const wrapper = ({ children }: any) => React.createElement("div", null, children);
 const Dialog = ({ children, open }: any) => open ? React.createElement("div", null, children) : null;
-const Combo = () => null;
 const Button = () => null;
+const Input = () => null;
+const CheckIcon = () => null;
 function harness() {
   const state: any[] = [], refs: any[] = [], effects: Array<() => void> = [];
   const effectSlots: Array<{ deps: unknown[]; cleanup?: () => void }> = [];
@@ -64,10 +67,11 @@ function harness() {
         });
       },
     },
-    "lucide-react": { Loader2: () => null, UserRound: () => null, X: () => null },
+    "lucide-react": { Check: CheckIcon, Loader2: () => null, UserRound: () => null, X: () => null },
+    "react-dom": { flushSync: (callback: () => void) => callback() },
     "@/components/ui/button": { Button },
     "@/components/ui/dialog": { Dialog, DialogContent: wrapper, DialogDescription: wrapper, DialogHeader: wrapper, DialogTitle: wrapper },
-    "@/components/weighbridge/searchable-combobox": { SearchableCombobox: Combo },
+    "@/components/ui/input": { Input },
     "@/lib/utils": { cn: (...args: any[]) => args.filter(Boolean).join(" ") },
     "@/lib/supabase/client": { supabase: { auth: { onAuthStateChange: (callback: typeof authChange) => {
       subscriptions++; authChange = callback; callback("INITIAL_SESSION", { user: { id: "account-a" } });
@@ -92,8 +96,11 @@ function harness() {
 }
 const trigger = (tree: any) => nodes(tree).find(node => node.type === Button && node.props?.title);
 const saveButton = (tree: any) => nodes(tree).find(node => node.type === Button && (words(node) === "Сохранить" || words(node) === "Сохраняем…"));
-const combo = (tree: any) => nodes(tree).find(node => node.type === Combo);
-const isOpen = (tree: any) => nodes(tree).find(node => node.type === Dialog).props.open;
+const input = (tree: any) => nodes(tree).find(node => node.type === Input);
+const radioGroup = (tree: any) => nodes(tree).find(node => node.props?.role === "radiogroup");
+const radios = (tree: any) => nodes(tree).filter(node => node.type === "button" && node.props?.role === "radio");
+const radio = (tree: any, label: string) => radios(tree).find(node => words(node) === label);
+const isOpen = (tree: any) => Boolean(nodes(tree).find(node => node.type === Dialog && node.props.open));
 const alert = (tree: any) => words(nodes(tree).find(node => node.props?.role === "alert"));
 async function openReady(h: ReturnType<typeof harness>, response = result()) {
   trigger(h.render()).props.onClick({ stopPropagation: () => undefined }); h.render();
@@ -143,10 +150,18 @@ async function main() {
   h.props.iconOnly = true; tree = h.render();
   check(words(trigger(tree)), ""); check(trigger(tree).props.className.includes("h-12 w-12"), true);
   tree = await openReady(h);
-  check(h.counts().subscriptions, 1); check(combo(tree).props.mobile, true);
-  check(combo(tree).props.options[0].label, "Без водителя"); check(combo(tree).props.value, "driver-a");
+  check(h.counts().subscriptions, 1); check(input(tree).props.placeholder, "Найти водителя");
+  check(input(tree).props.className.includes("text-base"), true);
+  check(radioGroup(tree).props["data-testid"], "driver-scroll-list");
+  check(radioGroup(tree).props.className.includes("touch-pan-y"), true);
+  check(radios(tree).map(words), ["Без водителя", "Имя driver-a", "Имя driver-b"]);
+  check(radio(tree, "Имя driver-a").props["aria-checked"], true);
+  check(nodes(radio(tree, "Имя driver-a")).some(node => node.type === CheckIcon), true);
   check(saveButton(tree).props.disabled, true); check(words(tree).includes("Старые талоны не изменятся"), true);
-  combo(tree).props.onValueChange("driver-b"); tree = h.render();
+  input(tree).props.onChange({ target: { value: "driver-b" } }); tree = h.render();
+  check(radios(tree).map(words), ["Имя driver-b"]);
+  input(tree).props.onChange({ target: { value: "" } }); tree = h.render();
+  radio(tree, "Имя driver-b").props.onClick(); tree = h.render();
   check(saveButton(tree).props.disabled, false);
   saveButton(tree).props.onClick(); saveButton(tree).props.onClick(); tree = h.render();
   check(h.requests.length, 2); check(h.requests[1].method, "POST"); check(h.assigned.length, 0); check(h.published.length, 0);
@@ -157,19 +172,19 @@ async function main() {
   check(h.assigned[0].vehicle.driverPersonId, "driver-b");
   h.unmount(); check(h.counts().unsubscribed, 1);
 
-  const failed = harness(); tree = await openReady(failed); combo(tree).props.onValueChange("driver-b");
+  const failed = harness(); tree = await openReady(failed); radio(tree, "Имя driver-b").props.onClick();
   saveButton(failed.render()).props.onClick(); failed.requests[1].gate.reject(new Error("Сеть недоступна")); await flush(); tree = failed.render();
-  check(isOpen(tree), true); check(combo(tree).props.value, "driver-b"); check(alert(tree), "Сеть недоступна");
+  check(isOpen(tree), true); check(radio(tree, "Имя driver-b").props["aria-checked"], true); check(alert(tree), "Сеть недоступна");
   check(saveButton(tree).props.disabled, false); check(failed.assigned.length, 0); check(failed.published.length, 0);
   failed.unmount();
 
-  const conflict = harness(); tree = await openReady(conflict); combo(tree).props.onValueChange("driver-b");
+  const conflict = harness(); tree = await openReady(conflict); radio(tree, "Имя driver-b").props.onClick();
   saveButton(conflict.render()).props.onClick(); conflict.requests[1].gate.reject(Object.assign(new Error("Conflict"), { status: 409 })); await flush(); tree = conflict.render();
-  check(conflict.requests.length, 3); check(conflict.requests[2].method, "GET"); check(combo(tree), undefined);
+  check(conflict.requests.length, 3); check(conflict.requests[2].method, "GET"); check(radioGroup(tree), undefined);
   check(saveButton(tree).props.disabled, true); check(alert(tree).includes("Привязку уже изменили"), true);
   conflict.requests[2].gate.resolve(result("driver-b", "assignment-new")); await flush(); tree = conflict.render();
-  check(combo(tree).props.value, "driver-b"); check(saveButton(tree).props.disabled, true);
-  combo(tree).props.onValueChange("__no_driver__"); saveButton(conflict.render()).props.onClick();
+  check(radio(tree, "Имя driver-b").props["aria-checked"], true); check(saveButton(tree).props.disabled, true);
+  radio(tree, "Без водителя").props.onClick(); saveButton(conflict.render()).props.onClick();
   check(conflict.requests[3].args[0].expectedAssignmentId, "assignment-new"); check(conflict.requests[3].args[0].driverPersonId, null);
   conflict.requests[3].gate.resolve(result("", "")); await flush(); conflict.render();
   check(conflict.published[0].vehicle.driverPersonId, null); conflict.unmount();
@@ -177,7 +192,7 @@ async function main() {
   // Legacy assignment rows can outlive their driver person. "No driver" must
   // clear that actual row rather than be incorrectly considered unchanged.
   const legacy = harness(); tree = await openReady(legacy, result("", "legacy-assignment"));
-  check(combo(tree).props.value, "__no_driver__"); check(saveButton(tree).props.disabled, false);
+  check(radio(tree, "Без водителя").props["aria-checked"], true); check(saveButton(tree).props.disabled, false);
   saveButton(tree).props.onClick(); check(legacy.requests.length, 2);
   check(legacy.requests[1].args[0].driverPersonId, null); check(legacy.requests[1].args[0].expectedAssignmentId, "legacy-assignment");
   legacy.requests[1].gate.resolve(result("", "")); await flush(); tree = legacy.render();
@@ -186,10 +201,10 @@ async function main() {
   check(saveButton(tree).props.disabled, true); saveButton(tree).props.onClick(); check(alreadyClear.requests.length, 1); alreadyClear.unmount();
 
   const conflictReadFailure = harness(); tree = await openReady(conflictReadFailure);
-  combo(tree).props.onValueChange("driver-b"); saveButton(conflictReadFailure.render()).props.onClick();
+  radio(tree, "Имя driver-b").props.onClick(); saveButton(conflictReadFailure.render()).props.onClick();
   conflictReadFailure.requests[1].gate.reject(Object.assign(new Error("Conflict"), { status: 409 })); await flush();
   conflictReadFailure.requests[2].gate.reject(new Error("Нет связи")); await flush(); tree = conflictReadFailure.render();
-  check(combo(tree), undefined); check(saveButton(tree).props.disabled, true);
+  check(radioGroup(tree), undefined); check(saveButton(tree).props.disabled, true);
   check(alert(tree).includes("Привязку уже изменили"), true); check(alert(tree).includes("Нет связи"), true);
   check(conflictReadFailure.assigned.length, 0); conflictReadFailure.unmount();
 
@@ -197,38 +212,45 @@ async function main() {
   nodes(tree).find(node => node.type === Button && node.props["aria-label"] === "Закрыть выбор водителя").props.onClick();
   closedRead.render(); check(closedRead.requests[0].args[2].aborted, true);
   closedRead.requests[0].gate.resolve(result()); await flush(); tree = closedRead.render();
-  check(isOpen(tree), false); check(combo(tree), undefined); closedRead.unmount();
+  check(isOpen(tree), false); check(radioGroup(tree), undefined); closedRead.unmount();
 
   const denied = harness(); tree = await openReady(denied, { ...result(), canEdit: false });
-  check(combo(tree).props.disabled, true); check(saveButton(tree).props.disabled, true);
+  check(radios(tree).every(node => node.props.disabled), true); check(saveButton(tree).props.disabled, true);
   check(words(tree).includes("Нет прав на смену водителя"), true); denied.unmount();
 
-  const scope = harness(); tree = await openReady(scope); combo(tree).props.onValueChange("driver-b"); saveButton(scope.render()).props.onClick();
+  const scope = harness(); tree = await openReady(scope); radio(tree, "Имя driver-b").props.onClick(); saveButton(scope.render()).props.onClick();
   scope.props.vehicleId = "vehicle-new"; scope.props.companyId = "company-new"; scope.render(); scope.render();
   check(scope.requests[1].args[1].aborted, true); check(scope.requests.length, 2);
   scope.requests[1].gate.resolve(result("driver-b", "assignment-b")); await flush(); tree = scope.render();
   check(scope.assigned.length, 0); check(scope.published.length, 0); check(isOpen(tree), false); scope.unmount();
 
-  const unmounted = harness(); tree = await openReady(unmounted); combo(tree).props.onValueChange("driver-b"); saveButton(unmounted.render()).props.onClick();
+  const unmounted = harness(); tree = await openReady(unmounted); radio(tree, "Имя driver-b").props.onClick(); saveButton(unmounted.render()).props.onClick();
   unmounted.unmount(); check(unmounted.requests[1].args[1].aborted, true);
   unmounted.requests[1].gate.resolve(result("driver-b", "assignment-b")); await flush();
   check(unmounted.assigned.length, 0); check(unmounted.published.length, 0);
 
-  const account = harness(); tree = await openReady(account); combo(tree).props.onValueChange("driver-b"); saveButton(account.render()).props.onClick();
+  const account = harness(); tree = await openReady(account); radio(tree, "Имя driver-b").props.onClick(); saveButton(account.render()).props.onClick();
   account.auth("SIGNED_IN", "account-b"); account.render();
   check(account.requests[1].args[1].aborted, true);
   account.requests[1].gate.resolve(result("driver-b", "assignment-b")); await flush(); tree = account.render();
   check(account.assigned.length, 0); check(isOpen(tree), false); account.unmount();
 
   const c = clientHarness();
+  const missingRole: any = result();
+  delete missingRole.vehicle.driverRoleType;
+  const invalidRole = { ...result(), vehicle: { ...result().vehicle, driverRoleType: "worker" } };
+  check(c.api.isVehicleDriverAssignmentResult(missingRole), false);
+  check(c.api.isVehicleDriverAssignmentResult(invalidRole), false);
+  check(c.api.isVehicleDriverAssignmentResult(result("mechanic-a", "assignment-m", "vehicle-a", "company-a", "mechanic_operator")), true);
   let received = 0, secondary = 0;
   const stop = c.api.subscribeVehicleDriverAssignments(() => { received++; });
   const stop2 = c.api.subscribeVehicleDriverAssignments(() => { secondary++; });
   check(c.channels.length, 1); check(c.eventListeners.get("travkin:vehicle-driver-assigned")!.size, 1);
   c.api.publishVehicleDriverAssignment(result()); check(received, 1); check(secondary, 1); check(c.channels[0].posts.length, 1);
   check(c.channels[0].posts[0].drivers, undefined);
+  c.api.publishVehicleDriverAssignment(missingRole); check(received, 1); check(secondary, 1); check(c.channels[0].posts.length, 1);
   c.channels[0].onmessage({ data: result("driver-b", "assignment-b") }); check(received, 2); check(c.channels[0].posts.length, 1);
-  c.channels[0].onmessage({ data: { companyId: "company-a" } }); check(received, 2);
+  c.channels[0].onmessage({ data: missingRole }); c.channels[0].onmessage({ data: { companyId: "company-a" } }); check(received, 2);
   stop(); check(c.channels[0].closed, false); stop2(); check(c.channels[0].closed, true);
   check(c.eventListeners.get("travkin:vehicle-driver-assigned")!.size, 0);
   c.api.publishVehicleDriverAssignment(result()); check(c.channels.length, 2); check(c.channels[1].closed, true);
@@ -247,18 +269,20 @@ async function main() {
   await assert.rejects(badCompany, /не соответствует/); checks++;
   const missingDrivers = c.api.loadVehicleDriverAssignment("vehicle-a"); await flush(); c.respond(4, { ...result(), drivers: undefined });
   await assert.rejects(missingDrivers, /не соответствует/); checks++;
-  const failure = c.api.saveVehicleDriverAssignment({ vehicleId: "vehicle-a", driverPersonId: "driver-b", expectedAssignmentId: "assignment-a" }); await flush(); c.respond(5, { error: "Конфликт назначения" }, 409);
+  const missingDriverRole = c.api.loadVehicleDriverAssignment("vehicle-a"); await flush(); c.respond(5, missingRole);
+  await assert.rejects(missingDriverRole, /не соответствует/); checks++;
+  const failure = c.api.saveVehicleDriverAssignment({ vehicleId: "vehicle-a", driverPersonId: "driver-b", expectedAssignmentId: "assignment-a" }); await flush(); c.respond(6, { error: "Конфликт назначения" }, 409);
   await assert.rejects(failure, (error: any) => error.status === 409 && error.message === "Конфликт назначения"); checks++;
   const blocked = clientHarness(); const auth = blocked.blockAuth(); const controller = new AbortController();
   const aborted = blocked.api.loadVehicleDriverAssignment("vehicle-a", "company-a", controller.signal);
   controller.abort(); auth.resolve({ Authorization: "Bearer fixture-only" });
   await assert.rejects(aborted, /Нет подтверждения/); checks++; check(blocked.requests.length, 0);
 
-  const comboSource = readFileSync("components/weighbridge/searchable-combobox.tsx", "utf8");
-  check(comboSource.includes("mobile = false"), true); check(comboSource.includes('mobile ? "min-w-0 max-w-[calc(100vw-2rem)]" : "min-w-[320px]"'), true);
-  const css = await postcss([tailwindcss({ ...config, content: [{ raw: componentSource + comboSource, extension: "tsx" }] })]).process("@tailwind utilities;", { from: undefined });
+  check(componentSource.includes('data-testid="driver-scroll-list"'), true);
+  check(componentSource.includes('role="radio"'), true);
+  const css = await postcss([tailwindcss({ ...config, content: [{ raw: componentSource, extension: "tsx" }] })]).process("@tailwind utilities;", { from: undefined });
   check(css.css.includes("min-height: 48px"), true); check(css.css.includes("font-size: 1rem"), true);
-  check(css.css.includes("max-width: calc(100vw - 2rem)"), true); check(css.css.includes("width: calc(100% - 2rem)"), true);
+  check(css.css.includes("--tw-pan-y: pan-y"), true); check(css.css.includes("width: calc(100% - 2rem)"), true);
   console.log(`Vehicle driver picker: ${checks} PASS`);
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
