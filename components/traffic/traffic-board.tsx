@@ -34,15 +34,24 @@ const tones: Record<TrafficState, string> = {
   loaded: "border-emerald-300 bg-emerald-100 text-emerald-950",
   unloading: "border-amber-300 bg-amber-100 text-amber-950",
 };
-const groupLabels: Record<TrafficState, string> = {
+type ManagerTrafficGroup = TrafficState | "repair";
+const managerGroupOrder: readonly ManagerTrafficGroup[] = [
+  "empty",
+  "loaded",
+  "unloading",
+  "repair",
+];
+const groupLabels: Record<ManagerTrafficGroup, string> = {
   empty: "Пустые",
   loaded: "Загруженные",
   unloading: "На выгрузке",
+  repair: "На ремонте",
 };
-const groupDots: Record<TrafficState, string> = {
+const groupDots: Record<ManagerTrafficGroup, string> = {
   empty: "bg-[#ffffff]",
   loaded: "bg-emerald-400",
   unloading: "bg-amber-300",
+  repair: "bg-rose-400",
 };
 export function TrafficBoard({
   snapshot,
@@ -65,7 +74,7 @@ export function TrafficBoard({
   const [selected, setSelected] = useState<TrafficCommand | null>(null);
   const [actionError, setActionError] = useState("");
   const [pendingCommands, setPendingCommands] = useState<PendingTrafficCommand[]>([]);
-  const [mobileState, setMobileState] = useState<TrafficState>("empty");
+  const [mobileState, setMobileState] = useState<ManagerTrafficGroup>("empty");
   const mobileListRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<PendingTrafficCommand[]>([]);
   const mounted = useRef(true);
@@ -156,9 +165,12 @@ export function TrafficBoard({
   const isManager = snapshot.role === "manager";
   const displayVehicles = optimisticTrafficVehicles(snapshot, pendingCommands);
   const groups = isManager
-    ? (["empty", "loaded", "unloading"] as const).map((state) => ({
+    ? managerGroupOrder.map((state) => ({
         state,
-        vehicles: displayVehicles.filter((vehicle) => vehicle.state === state),
+        vehicles: displayVehicles.filter((vehicle) =>
+          state === "repair"
+            ? !!vehicle.inRepair
+            : !vehicle.inRepair && vehicle.state === state),
       }))
     : [{ state: null, vehicles: displayVehicles }];
   return (
@@ -195,7 +207,7 @@ export function TrafficBoard({
       >
         {isManager ? (
           <div data-testid="traffic-mobile-toolbar" className="sticky top-0 z-20 mb-3 flex min-w-0 shrink-0 items-stretch gap-1 rounded-xl bg-[#0f172a] py-1 lg:hidden">
-            <div role="group" aria-label="Показать машины по статусу" className="grid min-w-0 flex-1 grid-cols-3 gap-1">
+            <div role="group" aria-label="Показать машины по статусу" className="grid min-w-0 flex-1 grid-cols-4 gap-1">
               {groups.map(({ state, vehicles }) => state ? (
                 <button
                   key={state}
@@ -221,7 +233,7 @@ export function TrafficBoard({
           </div>
         ) : null}
       <div ref={mobileListRef} data-testid={isManager ? "traffic-manager-lists" : undefined}
-        className={isManager ? "grid min-h-0 items-start gap-5 overflow-y-auto overscroll-contain lg:grid-cols-3 lg:overflow-visible lg:overscroll-auto" : ""}>
+        className={isManager ? "grid min-h-0 items-start gap-4 overflow-y-auto overscroll-contain lg:grid-cols-4 lg:overflow-visible lg:overscroll-auto" : ""}>
         {groups.map((group) => (
           <section
             key={group.state ?? "operator"}

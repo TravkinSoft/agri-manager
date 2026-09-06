@@ -30,12 +30,6 @@ const cardNodes = (tree: any) => nodes(tree).filter(node => node.props?.["data-t
 const wrapper = ({ children }: any) => React.createElement("div", null, children);
 const Dialog = ({ open, children }: any) => open ? React.createElement("div", { role: "alertdialog" }, children) : null;
 const Button = ({ children, ...props }: any) => React.createElement("button", props, children);
-// The picker has its own real-handler suite; isolate its auth-dependent module
-// here while preserving the manager's actual integration props and DOM slot.
-const VehicleDriverAssignment = ({ vehicleId, iconOnly, driverName, vehicleLabel, disabled, className }: any) => React.createElement("button", {
-  type: "button", "data-driver-assignment": vehicleId, disabled, className,
-  "aria-label": `${driverName ? "Сменить водителя" : "Назначить водителя"}: ${vehicleLabel}`,
-}, iconOnly ? null : driverName || "Назначить водителя");
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -57,11 +51,13 @@ function harness(role: model.TrafficRole, input = vehicles, options: { acceptRec
     role, companyId: "company-a", personName: "", enabled: true, fieldId: null, fieldName: null, serverTime: "2026-09-04T10:08:00Z",
     vehicles: model.visibleVehicles(input, role), events: [],
   };
-  const state: any[] = [], refs: any[] = [], calls: any[] = [], commits: any[] = [];
+  const state: any[] = [], refs: any[] = [], calls: any[] = [], commits: any[] = [], managedVehicles: string[] = [];
   const requests: ReturnType<typeof deferred<model.TrafficCommit>>[] = [];
   const refreshCalls: Array<boolean | undefined> = [];
   const refreshGate = deferred<void>();
-  const props = { snapshot, stale: false, error: "", refresh: async (fresh?: boolean) => {
+  const props = { snapshot, stale: false, error: "", onManageVehicle: role === "manager"
+    ? (vehicle: model.TrafficVehicle) => managedVehicles.push(vehicle.vehicle_id)
+    : undefined, refresh: async (fresh?: boolean) => {
     refreshCalls.push(fresh); if (options.deferRefresh) await refreshGate.promise;
   }, onCommitted: (receipt: model.TrafficCommit, vehicleId: string, expectedVersion: number) => {
     commits.push([receipt, vehicleId, expectedVersion]);
@@ -96,7 +92,6 @@ function harness(role: model.TrafficRole, input = vehicles, options: { acceptRec
     "@/components/ui/alert-dialog": { AlertDialog: Dialog, AlertDialogContent: wrapper, AlertDialogHeader: wrapper, AlertDialogTitle: wrapper,
       AlertDialogDescription: wrapper, AlertDialogFooter: wrapper, AlertDialogCancel: Button },
     "@/components/ui/button": { Button },
-    "@/components/vehicles/vehicle-driver-assignment": { VehicleDriverAssignment },
   };
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
     { module: loaded, exports: loaded.exports, window: { setInterval: () => 1, clearInterval: () => undefined },
@@ -107,7 +102,7 @@ function harness(role: model.TrafficRole, input = vehicles, options: { acceptRec
     effects.splice(0).forEach(effect => effect());
     return tree;
   };
-  return { render, props, calls, requests, commits, refreshCalls, refreshGate, refreshCount: () => refreshCalls.length,
+  return { render, props, calls, requests, commits, refreshCalls, refreshGate, managedVehicles, refreshCount: () => refreshCalls.length,
     unmount: () => effectSlots.forEach(effect => effect.cleanup?.()) };
 }
 
@@ -119,39 +114,36 @@ async function main() {
     const repairCards = cardNodes(repairTree);
     check(repairCards.every(card => card.props.className.includes("bg-rose-100")), true);
     check(repairCards.every(card => words(card).includes("На ремонте")), true);
-    check(repairCards.every(card => card.type === (role === "receiver" ? "button" : "article")), true);
+    check(repairCards.every(card => card.type === (role === "harvester" ? "article" : "button")), true);
     const repairHtml = renderToStaticMarkup(repairTree);
     check(repairHtml.includes("На ремонте"), true);
   }
-  const manager = harness("manager");
+  const managerVehicles = vehicles.map(vehicle => vehicle.vehicle_id === "car-3" ? { ...vehicle, inRepair: true } : vehicle);
+  const manager = harness("manager", managerVehicles);
   const tree = manager.render();
   const groups = nodes(tree).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-"));
-  check(groups.map(group => group.props["data-testid"]), ["traffic-group-empty", "traffic-group-loaded", "traffic-group-unloading"]);
-  const expected = [["car-1", "car-3"], ["car-0"], ["car-2"]];
+  check(groups.map(group => group.props["data-testid"]), ["traffic-group-empty", "traffic-group-loaded", "traffic-group-unloading", "traffic-group-repair"]);
+  const expected = [["car-1"], ["car-0"], ["car-2"], ["car-3"]];
   for (const [index, group] of Array.from(groups.entries())) {
     check(cardNodes(group).map(card => card.props["data-testid"].replace("traffic-vehicle-", "")), expected[index]);
     const count = nodes(group).filter(node => node.props?.className?.includes("tabular-nums"));
     check(count.length, 1); check(count[0].props.children, expected[index].length);
   }
-  check(nodes(tree).filter(node => node.props?.className?.includes("tabular-nums")).length, 6); // Mobile selectors + desktop column headings; never visible together.
+  check(nodes(tree).filter(node => node.props?.className?.includes("tabular-nums")).length, 8); // Mobile selectors + desktop column headings; never visible together.
   check(cardNodes(tree).length, vehicles.length);
   check(new Set(cardNodes(tree).map(card => card.props["data-testid"])).size, vehicles.length);
-  check(cardNodes(tree).every(card => card.type === "article"), true);
-  const assignments = nodes(tree).filter(node => node.type === VehicleDriverAssignment);
-  check(assignments.length, vehicles.length);
-  assignments.forEach(control => {
-    check(control.props.iconOnly, true); check(control.props.companyId, "company-a");
-    check(control.props.className.includes("absolute right-1 top-1"), true);
-    check(control.props.disabled, false);
-  });
-  check(cardNodes(tree).every(card => card.props.className.includes("pr-14")), true);
-  const colors = ["bg-[#ffffff]", "bg-emerald-100", "bg-amber-100"];
+  check(cardNodes(tree).every(card => card.type === "button"), true);
+  check(nodes(tree).filter(node => node.props?.["data-driver-assignment"]).length, 0);
+  check(cardNodes(tree).every(card => !card.props.className.includes("pr-14")), true);
+  cardNodes(groups[3])[0].props.onClick();
+  check(manager.managedVehicles, ["car-3"]); // Repair card stays fully clickable for Fleet Manager controls.
+  const colors = ["bg-[#ffffff]", "bg-emerald-100", "bg-amber-100", "bg-rose-100"];
   groups.forEach((group, index) => check(cardNodes(group).every(card => card.props.className.split(" ").includes(colors[index])), true));
   const globalCss = readFileSync("app/globals.css", "utf8");
   // The dashboard shell deliberately remaps .bg-white with !important. PTC cards and
   // the category dot must use an explicit white utility outside that selector.
   const whiteNodes = [...cardNodes(groups[0]), ...nodes(groups[0]).filter(node => node.type === "span" && node.props?.["aria-hidden"])];
-  check(whiteNodes.length, 3);
+  check(whiteNodes.length, 2);
   for (const node of whiteNodes) {
     const classes = node.props.className.split(/\s+/);
     check(classes.includes("bg-white"), false);
@@ -161,24 +153,31 @@ async function main() {
   check(globalCss.includes(".travkin-shell .bg-\\[\\#ffffff\\]"), false);
   check(cardNodes(tree).every(card => card.props.className.includes("p-2.5")), true);
   const managerHtml = renderToStaticMarkup(tree);
-  check((managerHtml.match(/data-driver-assignment=/g) ?? []).length, vehicles.length);
+  check((managerHtml.match(/data-driver-assignment=/g) ?? []).length, 0);
   check(managerHtml.includes("<button><button"), false);
   const managerText = managerHtml.replace(/<[^>]*>/g, "");
   check((managerText.match(/Пустые/g) ?? []).length, 2);
   check((managerText.match(/Загруженные/g) ?? []).length, 2);
   check((managerText.match(/На выгрузке/g) ?? []).length, 2);
-  check(managerHtml.includes("lg:grid-cols-3"), true);
-  check(managerHtml.includes("grid-cols-3") && !managerHtml.includes('class="grid grid-cols-3'), true);
+  check((managerText.match(/На ремонте/g) ?? []).length >= 2, true);
+  check(managerHtml.includes("lg:grid-cols-4"), true);
+  check(managerHtml.includes("grid-cols-4") && !managerHtml.includes('class="grid grid-cols-4'), true);
   const emptyTree = harness("manager", []).render();
-  check(nodes(emptyTree).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-")).length, 3);
-  check((renderToStaticMarkup(emptyTree).match(/Нет машин/g) ?? []).length, 3);
+  check(nodes(emptyTree).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-")).length, 4);
+  check((renderToStaticMarkup(emptyTree).match(/Нет машин/g) ?? []).length, 4);
 
   const filterNodes = (value: any) => nodes(value).filter(node => node.props?.["data-testid"]?.startsWith("traffic-filter-"));
   const mobileGroups = (value: any) => nodes(value).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-") && !node.props.className.split(/\s+/).includes("hidden"));
   const filterCounts = (value: any) => filterNodes(value).map(filter => Number(words(nodes(filter).find(node => node.props?.className?.includes("tabular-nums")))));
-  check(filterCounts(tree), [2, 1, 1]);
+  const allRepairManager = harness("manager", repairVehicles);
+  const allRepairTree = allRepairManager.render();
+  const allRepairGroups = nodes(allRepairTree).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-"));
+  check(allRepairGroups.map(group => cardNodes(group).length), [0, 0, 0, repairVehicles.length]);
+  filterNodes(allRepairTree)[3].props.onClick();
+  check(mobileGroups(allRepairManager.render()).map(group => group.props["data-testid"]), ["traffic-group-repair"]);
+  check(filterCounts(tree), [1, 1, 1, 1]);
   check(mobileGroups(tree).map(group => group.props["data-testid"]), ["traffic-group-empty"]);
-  check(filterNodes(tree).map(filter => filter.props["aria-pressed"]), [true, false, false]);
+  check(filterNodes(tree).map(filter => filter.props["aria-pressed"]), [true, false, false, false]);
   check(nodes(tree).some(node => node.props?.role === "group" && node.props["aria-label"] === "Показать машины по статусу"), true);
   filterNodes(tree).forEach(filter => {
     check(filter.type, "button"); check(filter.props.type, "button");
@@ -189,10 +188,10 @@ async function main() {
   });
   filterNodes(tree)[1].props.onClick();
   let filteredTree = manager.render();
-  check(filterNodes(filteredTree).map(filter => filter.props["aria-pressed"]), [false, true, false]);
+  check(filterNodes(filteredTree).map(filter => filter.props["aria-pressed"]), [false, true, false, false]);
   check(mobileGroups(filteredTree).map(group => group.props["data-testid"]), ["traffic-group-loaded"]);
   check(cardNodes(mobileGroups(filteredTree)).map(card => card.props["data-testid"]), ["traffic-vehicle-car-0"]);
-  check(filterCounts(filteredTree), [2, 1, 1]);
+  check(filterCounts(filteredTree), [1, 1, 1, 1]);
   check(manager.calls.length, 0);
   manager.props.snapshot = {
     ...manager.props.snapshot,
@@ -200,20 +199,21 @@ async function main() {
     events: [{ id: "event-1", vehicle_id: "car-1", from_state: "empty", to_state: "loaded", created_at: "2026-09-04T10:00:00Z", actor_name: "Operator", field_id: null, field_name: null, vehicle_name: "Truck", vehicle_plate: "QA-1" }],
   };
   filteredTree = manager.render();
-  check(filterCounts(filteredTree), [1, 2, 1]);
-  check(filterNodes(filteredTree).map(filter => filter.props["aria-pressed"]), [false, true, false]);
+  check(filterCounts(filteredTree), [0, 2, 1, 1]);
+  check(filterNodes(filteredTree).map(filter => filter.props["aria-pressed"]), [false, true, false, false]);
   check(cardNodes(mobileGroups(filteredTree)).length, 2);
-  check(nodes(filteredTree).filter(node => node.type === VehicleDriverAssignment).length, vehicles.length);
+  check(nodes(filteredTree).filter(node => node.props?.["data-driver-assignment"]).length, 0);
 
   // A loaded vehicle is one filter click away even behind fourteen empty vehicles.
   const longFleet = harness("manager", [...Array.from({ length: 14 }, (_, index) => ({ ...vehicles[1], vehicle_id: `empty-${index}` })), vehicles[0], vehicles[2]]);
   check(cardNodes(mobileGroups(longFleet.render())).length, 14);
   filterNodes(longFleet.render())[1].props.onClick();
   check(cardNodes(mobileGroups(longFleet.render())).map(card => card.props["data-testid"]), ["traffic-vehicle-car-0"]);
-  check(filterCounts(longFleet.render()), [14, 1, 1]);
+  check(filterCounts(longFleet.render()), [14, 1, 1, 0]);
   filterNodes(longFleet.render())[2].props.onClick();
   check(cardNodes(mobileGroups(longFleet.render())).map(card => card.props["data-testid"]), ["traffic-vehicle-car-2"]);
-  check(filterNodes(emptyTree).map(filter => filter.props.disabled), [undefined, undefined, undefined]);
+  check(filterNodes(longFleet.render())[3].props["aria-pressed"], false);
+  check(filterNodes(emptyTree).map(filter => filter.props.disabled), [undefined, undefined, undefined, undefined]);
 
   const refreshing = harness("harvester");
   refreshing.props.stale = true;
@@ -229,7 +229,7 @@ async function main() {
     const h = harness(role);
     let operatorTree = h.render();
     const cards = cardNodes(operatorTree);
-    check(nodes(operatorTree).filter(node => node.type === VehicleDriverAssignment).length, 0);
+    check(nodes(operatorTree).filter(node => node.props?.["data-driver-assignment"]).length, 0);
     check(nodes(operatorTree).some(node => node.props?.["data-testid"]?.startsWith("traffic-group-")), false);
     check(cards.map(card => card.props["data-testid"]), model.visibleVehicles(vehicles, role).map(car => `traffic-vehicle-${car.vehicle_id}`));
     for (const card of cards) {
@@ -427,7 +427,7 @@ async function main() {
   }
   const pageSource = readFileSync("app/(dashboard)/traffic/page.tsx", "utf8");
   const css = (await postcss([tailwindcss({ ...config, content: [{ raw: `${source}\n${pageSource}`, extension: "tsx" }] })]).process("@tailwind utilities;", { from: undefined })).css;
-  for (const expression of [/min-height:\s*48px/, /padding:\s*0\.625rem/, /@media \(min-width: 1024px\)/, /grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/,
+  for (const expression of [/min-height:\s*48px/, /padding:\s*0\.625rem/, /@media \(min-width: 1024px\)/, /grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/,
     /\.bg-emerald-100\s*\{/, /\.bg-amber-100\s*\{/]) { assert.match(css, expression); checks++; }
   check(source.includes("grayscale"), false);
   check(source.includes("Проверяем актуальность"), false);
@@ -468,7 +468,7 @@ async function main() {
     check(stylesAt(lists, width)["overflow-y"] ?? stylesAt(lists, width).overflow, desktop ? "visible" : "auto");
     check(nodes(lists).includes(toolbar), false); // Selector/menu never scroll away with the cards.
     const renderedGroups = nodes(filteredTree).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-"));
-    check(renderedGroups.filter(group => stylesAt(group, width).display !== "none").length, desktop ? 3 : 1);
+    check(renderedGroups.filter(group => stylesAt(group, width).display !== "none").length, desktop ? 4 : 1);
     renderedGroups.forEach(group => {
       check(stylesAt(group, width)["min-width"], "0px");
       const heading = nodes(group).find(node => node.type === "h2");
@@ -481,7 +481,7 @@ async function main() {
       check(stylesAt(nodes(filter).find(node => node.props?.className?.includes("break-words")), width)["overflow-wrap"], "break-word");
     });
     const filterGrid = nodes(toolbar).find(node => node.props?.role === "group");
-    check(stylesAt(filterGrid, width)["grid-template-columns"], "repeat(3, minmax(0, 1fr))");
+    check(stylesAt(filterGrid, width)["grid-template-columns"], "repeat(4, minmax(0, 1fr))");
     const explainer = nodes(filteredTree).find(node => node.props?.["data-testid"] === "traffic-empty-explainer");
     check(stylesAt(explainer, width).display, desktop ? "block" : "none");
     const inlineHistory = nodes(filteredTree).find(node => node.props?.["data-testid"] === "traffic-manager-history-inline");
