@@ -11,6 +11,7 @@ import {
   SessionAuthError,
 } from "@/lib/auth/server-session";
 import { requireWeighbridgeOperatorSession } from "@/app/api/weighbridge/_auth";
+import { ptcVehicleDisplayPlate } from "@/lib/traffic/vehicle-eligibility";
 
 const writeRoles = ["global_admin", "company_admin", "agronomist", "weighman", "fleet_manager"] as const;
 const readRoles = [...writeRoles, "director", "warehouse", "warehouse_operator", "specialist"] as const;
@@ -22,7 +23,7 @@ export const assignmentCommand = assignmentQuery.extend({
   driverPersonId: z.string().uuid().nullable(),
   expectedAssignmentId: z.string().uuid().nullable(),
 }).strict();
-const vehicleColumns = "id,name,brand,model,license_plate,plate_number,primary_responsible_personnel_id";
+const vehicleColumns = "id,name,brand,model,license_plate,plate_number,source_machine_id,primary_responsible_personnel_id";
 type Db = ReturnType<typeof getServiceClient>;
 type VehicleRow = {
   id: string;
@@ -31,6 +32,7 @@ type VehicleRow = {
   model: string | null;
   license_plate: string | null;
   plate_number: string | null;
+  source_machine_id: string | null;
   primary_responsible_personnel_id: string | null;
 };
 type Person = { id: string; full_name: string };
@@ -102,7 +104,7 @@ function presentVehicle(row: VehicleRow, person: Person | null) {
   return {
     id: row.id,
     name: row.name || [row.brand, row.model].filter(Boolean).join(" ") || "Машина",
-    plate: row.license_plate || row.plate_number || null,
+    plate: ptcVehicleDisplayPlate(row),
     // Preserve opaque legacy/invalid IDs for CAS without presenting them as a current driver.
     assignmentId: row.primary_responsible_personnel_id,
     driverPersonId: person?.id ?? null,

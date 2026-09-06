@@ -5,6 +5,7 @@ import vm from "node:vm";
 import ts from "typescript";
 import { activeAssignedDriverName } from "../lib/vehicles/driver-name";
 import * as model from "../lib/traffic/model";
+import * as eligibility from "../lib/traffic/vehicle-eligibility";
 
 let checks = 0;
 const check = (actual: unknown, expected: unknown) => { assert.deepEqual(actual, expected); checks++; };
@@ -21,9 +22,24 @@ check(activeAssignedDriverName(null, companyId), null);
 const queries: Array<{ table: string; columns: string }> = [];
 const fixture: Record<string, unknown> = {
   ptc_flows: { enabled: true, field_id: null },
-  ptc_vehicle_states: [{ vehicle_id: "vehicle", state: "loaded", version: 9, cycle: 3, assigned: true, since: "2026-09-04T10:00:00Z" }],
-  ptc_events: [],
-  reference_vehicles: [{ id: "vehicle", name: "КАМАЗ", license_plate: "QA-207", primary_responsible_personnel_id: specialist.id }],
+  ptc_vehicle_states: [
+    { vehicle_id: "vehicle", state: "loaded", version: 9, cycle: 3, assigned: true, since: "2026-09-04T10:00:00Z" },
+    { vehicle_id: "light", state: "empty", version: 1, cycle: 0, assigned: true, since: "2026-09-04T10:00:00Z" },
+    { vehicle_id: "trailer", state: "empty", version: 1, cycle: 0, assigned: true, since: "2026-09-04T10:00:00Z" },
+    { vehicle_id: "audit", state: "empty", version: 1, cycle: 0, assigned: true, since: "2026-09-04T10:00:00Z" },
+  ],
+  ptc_events: [
+    { id: "visible-event", vehicle_id: "vehicle", from_state: "empty", to_state: "loaded", created_at: "2026-09-04T10:00:00Z", actor_name: "Комбайнёр", field_id: null },
+    { id: "retained-event", vehicle_id: "retained", from_state: "empty", to_state: "loaded", created_at: "2026-09-04T09:30:00Z", actor_name: "Комбайнёр", field_id: null },
+    { id: "hidden-event", vehicle_id: "audit", from_state: "empty", to_state: "loaded", created_at: "2026-09-04T10:00:00Z", actor_name: "QA", field_id: null },
+  ],
+  reference_vehicles: [
+    { id: "vehicle", name: "КАМАЗ", license_plate: "QA-207", type: "truck", fleet_type: "truck", ptc_enabled: true, primary_responsible_personnel_id: specialist.id },
+    { id: "retained", name: "ЗИЛ", license_plate: "T-804 BN", type: "truck", fleet_type: "truck", ptc_enabled: false, primary_responsible_personnel_id: null },
+    { id: "light", name: "Hilux", type: "truck", fleet_type: "truck", ptc_enabled: true, transport_model: { category: "light_vehicle" }, primary_responsible_personnel_id: null },
+    { id: "trailer", name: "Прицеп", type: "trailer", fleet_type: "trailer", ptc_enabled: true, primary_responsible_personnel_id: null },
+    { id: "audit", name: "Машина", type: "truck", fleet_type: "truck", ptc_enabled: true, import_source: "ptc_audit_2026", primary_responsible_personnel_id: null },
+  ],
   reference_specialists: [specialist],
 };
 const db = { from(table: string) {
@@ -40,6 +56,7 @@ const code = ts.transpileModule(readFileSync("lib/traffic/server.ts", "utf8"), {
 const dependencies: Record<string, unknown> = {
   "@/lib/supabase/service": { getServiceClient: () => db },
   "@/lib/auth/server-session": {}, "@/lib/auth/server-acl": {},
+  "@/lib/traffic/vehicle-eligibility": eligibility,
   "@/lib/vehicles/driver-name": { activeAssignedDriverName }, "./model": model,
 };
 vm.runInNewContext(code, { module: moduleScope, exports: moduleScope.exports, Date,
@@ -51,6 +68,8 @@ async function main() {
   check(snapshot.vehicles[0].state, "loaded");
   check(snapshot.vehicles[0].version, 9);
   check(snapshot.vehicles[0].cycle, 3);
+  check(snapshot.vehicles.length, 1);
+  check(snapshot.events.map((event: { id: string }) => event.id), ["visible-event", "retained-event"]);
   check(queries.some(q => q.table === "reference_specialists" && q.columns.includes("person:person_id")), true);
   fixture.reference_specialists = [{ ...specialist, person: { ...person, status: "inactive" } }];
   check((await moduleScope.exports.readSnapshot(companyId, "receiver", "Бригадир")).vehicles[0].driver, null);

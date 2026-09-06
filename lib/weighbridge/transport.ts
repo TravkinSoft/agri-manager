@@ -55,7 +55,7 @@ export function isTrailerTransport(transport: WeighbridgeTransportKind | null | 
 
 export function isCargoVehicle(transport: WeighbridgeTransportKind | null | undefined) {
   const kinds = normalizedKinds(transport);
-  if (kinds.includes("light_vehicle") || isTrailerTransport(transport)) return false;
+  if (kinds.includes("light_vehicle") || kinds.includes("tractor") || isTrailerTransport(transport)) return false;
   return kinds.some((kind) => CARGO_TYPES.has(kind));
 }
 
@@ -73,6 +73,7 @@ export function formatVehiclePlate(value: unknown) {
 
 const INVALID_PLATE_PATTERNS = [
   /^OSV[-_\s]?ROW[-_\s]?/iu,
+  /^PTC[-_\s]?TRACTOR[-_\s]?/iu,
   /^IMPORT[-_\s]?/iu,
   /^(SOURCE|SRC)[-_\s]?ROW[-_\s]?/iu,
   /^(ROW|LINE)[-_\s]?\d+$/iu,

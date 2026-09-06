@@ -11,6 +11,7 @@ import { isTrafficOperatorRole } from "../lib/auth/ptc-invitations";
 import { filterFleet } from "../lib/fleet/model";
 import { activeAssignedDriverName } from "../lib/vehicles/driver-name";
 import { readVehicleRepairs } from "../lib/fleet/repairs-server";
+import { readCompanyFleet } from "../lib/fleet/server";
 
 const company = "00000000-0000-4000-8000-000000000001";
 const foreign = "00000000-0000-4000-8000-000000000002";
@@ -43,6 +44,7 @@ async function main() {
   const rows = Array.from({ length: 251 }, (_, i) => ({
     id: String(i), company_id: company, is_active: true, archived: false,
     name: "КАМАЗ", license_plate: String(i), primary_responsible_personnel_id: "driver",
+    type: "truck", fleet_type: "truck", ptc_enabled: true,
   }));
   const person = { full_name: "Иван", company_id: company, status: "active", role_type: "driver", deleted_at: null };
   const specialists = [{ id: "driver", company_id: company, archived: false, status: "active", personnel_type: "driver", person }];
@@ -82,6 +84,7 @@ async function main() {
       equal(options.companyId, company); equal(options.allowedRoles.includes(role), true);
     } };
     if (name === "@/lib/supabase/service") return { getServiceClient: () => db };
+    if (name === "@/lib/fleet/server") return { readCompanyFleet };
     if (name === "@/lib/vehicles/driver-name") return { activeAssignedDriverName };
     if (name === "@/lib/fleet/repairs-server") return { readVehicleRepairs };
     if (name === "@/lib/traffic/server") return {
@@ -98,7 +101,7 @@ async function main() {
   equal(payload.companyId, company);
   equal(payload.vehicles.length, 251);
   equal(payload.vehicles[0].driver, "Иван");
-  equal(queries, 6);
+  equal(queries, 8);
   equal(payload.vehicles[0].inRepair, true);
   equal(payload.vehicles[0].repairVersion, 3);
   equal(payload.vehicles[1].inRepair, false);

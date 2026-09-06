@@ -10,6 +10,11 @@ import { assertActorAccess } from "@/lib/auth/server-acl";
 import { activeAssignedDriverName } from "@/lib/vehicles/driver-name";
 import { readVehicleRepairs } from "@/lib/fleet/repairs-server";
 import {
+  isPtcEligibleReferenceVehicle,
+  isStructurallyPtcReferenceVehicle,
+  ptcVehicleDisplayPlate,
+} from "@/lib/traffic/vehicle-eligibility";
+import {
   visibleVehicles,
   operatorRole,
   type TrafficRole,
@@ -75,6 +80,7 @@ export function failed(error: unknown) {
       409,
       "Поле можно изменить после возвращения всех машин в состояние «Пустая»",
     ],
+    PTC_INELIGIBLE_VEHICLE: [409, "Эта техника не входит в картофельный оборот"],
     PTC_INACTIVE_VEHICLE: [409, "Выберите действующие машины компании"],
   };
   const match = Object.entries(known).find(([key]) => message.includes(key));
@@ -216,7 +222,7 @@ export async function readSnapshot(
     ? await db
         .from("reference_vehicles")
         .select(
-          "id,name,model,brand,license_plate,plate_number,primary_responsible_personnel_id",
+          "id,name,model,brand,license_plate,plate_number,type,fleet_type,import_source,inventory_number,source_raw_name,source_clean_name,source_machine_id,ptc_enabled,primary_responsible_personnel_id,transport_model:transport_model_id(category)",
         )
         .eq("company_id", companyId)
         .in("id", vehicleIds)
@@ -230,11 +236,27 @@ export async function readSnapshot(
     license_plate: string | null;
     plate_number: string | null;
     primary_responsible_personnel_id: string | null;
+    type: string | null;
+    fleet_type: string | null;
+    import_source: string | null;
+    inventory_number: string | null;
+    source_raw_name: string | null;
+    source_clean_name: string | null;
+    source_machine_id: string | null;
+    ptc_enabled: boolean;
+    transport_model: { category?: string | null } | Array<{ category?: string | null }> | null;
   };
   const fleetRows = (fleetResult.data ?? []) as FleetRow[];
+  const eligibleFleetRows = fleetRows.filter(isPtcEligibleReferenceVehicle);
   const fleet = new Map(fleetRows.map((v) => [v.id, v]));
-  const repairsPromise = readVehicleRepairs(db, companyId, vehicleIds);
-  const driverIds = fleetRows.flatMap((v) =>
+  const eligibleVehicleIds = new Set(
+    eligibleFleetRows.map((vehicle) => vehicle.id),
+  );
+  const historicalVehicleIds = new Set(
+    fleetRows.filter(isStructurallyPtcReferenceVehicle).map((vehicle) => vehicle.id),
+  );
+  const repairsPromise = readVehicleRepairs(db, companyId, Array.from(eligibleVehicleIds));
+  const driverIds = eligibleFleetRows.flatMap((v) =>
     v.primary_responsible_personnel_id
       ? [v.primary_responsible_personnel_id]
       : [],
@@ -255,7 +277,8 @@ export async function readSnapshot(
       (p: any) => [String(p.id), activeAssignedDriverName(p, companyId)] as const,
     ),
   );
-  const vehicles: TrafficVehicle[] = states.map((s) => {
+  const vehicles: TrafficVehicle[] = states.filter((state) =>
+    eligibleVehicleIds.has(state.vehicle_id)).map((s) => {
     const vehicle = fleet.get(s.vehicle_id);
     return {
       ...s,
@@ -265,7 +288,7 @@ export async function readSnapshot(
         vehicle?.name ||
         [vehicle?.brand, vehicle?.model].filter(Boolean).join(" ") ||
         "Машина",
-      plate: vehicle?.license_plate || vehicle?.plate_number || null,
+      plate: vehicle ? ptcVehicleDisplayPlate(vehicle) : null,
       driver:
         drivers.get(vehicle?.primary_responsible_personnel_id ?? "") || null,
     };
@@ -281,14 +304,13 @@ export async function readSnapshot(
     fieldName: null,
     serverTime: new Date().toISOString(),
     vehicles: visibleVehicles(vehicles, role),
-    events: history.map((event) => ({
+    events: history.filter((event) => historicalVehicleIds.has(event.vehicle_id)).map((event) => ({
       ...event,
       field_name: null,
       vehicle_name: fleet.get(event.vehicle_id)?.name || "Машина",
-      vehicle_plate:
-        fleet.get(event.vehicle_id)?.license_plate ||
-        fleet.get(event.vehicle_id)?.plate_number ||
-        null,
+      vehicle_plate: fleet.has(event.vehicle_id)
+        ? ptcVehicleDisplayPlate(fleet.get(event.vehicle_id)!)
+        : null,
     })),
   };
 }

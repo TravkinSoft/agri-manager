@@ -112,9 +112,11 @@ function setup(options: Options = {}) {
   const wb = load("app/api/weighbridge/_auth.ts", {
     "@/lib/auth/server-session": session, "@/lib/auth/server-acl": acl, "@/lib/supabase/service": { getServiceClient: () => db },
   });
+  const eligibility = load("lib/traffic/vehicle-eligibility.ts", {});
   const helper = load("lib/vehicles/driver-assignment-server.ts", {
     "@/lib/supabase/service": { getServiceClient: () => db }, "@/lib/auth/server-session": session,
     "@/lib/auth/server-acl": acl, "@/lib/auth/role-contract": roles, "@/app/api/weighbridge/_auth": wb,
+    "@/lib/traffic/vehicle-eligibility": eligibility,
   });
   const route = load("app/api/vehicles/driver-assignment/route.ts", { "@/lib/vehicles/driver-assignment-server": helper });
   const command = { vehicleId, driverPersonId: personId, expectedAssignmentId: null };

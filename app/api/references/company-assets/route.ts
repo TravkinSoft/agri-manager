@@ -45,6 +45,7 @@ async function loadActiveCompanyAssets(
         primary_responsible:primary_responsible_personnel_id(id,full_name,personnel_type,status)
       `)
       .eq("company_id", companyId)
+      .is("source_machine_id", null)
       .eq("archived", false)
       .eq("is_active", true)
       .order("name", { ascending: true }),

@@ -661,6 +661,7 @@ export async function getVehicleReferences(
       primary_responsible:primary_responsible_personnel_id(id,full_name,personnel_type,status,archived,person:person_id(full_name,company_id,role_type,status,deleted_at))
     `)
     .eq("company_id", companyId)
+    .is("source_machine_id", null)
     .order("name", { ascending: true });
 
   if (!includeArchived) query = query.eq("archived", false);
@@ -920,6 +921,7 @@ function cleanAssetPart(value: unknown): string {
   if (!raw) return "";
   if (/^\[?\?+\]?$/u.test(raw)) return "";
   if (/^OSV-ROW-/iu.test(raw)) return "";
+  if (/^PTC-TRACTOR-/iu.test(raw)) return "";
   return raw.replace(/\s+/g, " ");
 }
 
