@@ -20,6 +20,7 @@ type NotificationPreferences = {
   operation_updates_enabled: boolean;
   warehouse_updates_enabled: boolean;
   weighbridge_updates_enabled: boolean;
+  traffic_updates_enabled: boolean;
   proactive_assist_enabled: boolean;
   proactive_assist_cadence: "events" | "twice_daily" | "daily" | "every_3_days" | "weekly";
 };
@@ -29,6 +30,7 @@ const defaultPreferences: NotificationPreferences = {
   operation_updates_enabled: true,
   warehouse_updates_enabled: true,
   weighbridge_updates_enabled: true,
+  traffic_updates_enabled: true,
   proactive_assist_enabled: true,
   proactive_assist_cadence: "events",
 };
@@ -221,6 +223,23 @@ export default function SettingsPage() {
                   disabled={notificationsLoading || notificationSaving !== null}
                   onCheckedChange={(checked) =>
                     void updateNotificationPreference("warehouse_updates_enabled", checked)
+                  }
+                />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="notification-traffic">{t("Оборот машин", "Көлік айналымы", "Vehicle turnover")}</Label>
+                  <p className="text-sm text-slate-500">
+                    {t("Линия, ремонт и предупреждения о простое", "Желі, жөндеу және тоқтап қалу ескертулері", "Line, repair, and idle alerts")}
+                  </p>
+                </div>
+                <Switch
+                  id="notification-traffic"
+                  checked={notificationPreferences.traffic_updates_enabled}
+                  disabled={notificationsLoading || notificationSaving !== null}
+                  onCheckedChange={(checked) =>
+                    void updateNotificationPreference("traffic_updates_enabled", checked)
                   }
                 />
               </div>

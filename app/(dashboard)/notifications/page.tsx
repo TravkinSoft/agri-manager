@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCheck, ClipboardList, PackageCheck, Scale, Settings, Sparkles } from "lucide-react";
+import { CheckCheck, ClipboardList, PackageCheck, Scale, Settings, Sparkles, Truck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/contexts/auth-context";
@@ -16,6 +16,7 @@ function iconFor(category: UserNotification["category"]) {
   if (category === "warehouse") return PackageCheck;
   if (category === "weighbridge") return Scale;
   if (category === "assistant") return Sparkles;
+  if (category === "traffic") return Truck;
   return Settings;
 }
 
@@ -105,8 +106,8 @@ export default function NotificationsPage() {
           <h1 className="text-2xl font-semibold text-slate-100">Уведомления</h1>
           <p className="mt-1 text-sm text-slate-400">
             {profile?.role === "global_admin"
-              ? "События операций, склада, весовой и рекомендации Assist"
-              : "События операций, склада и весовой"}
+              ? "События операций, склада, весовой, оборота машин и рекомендации Assist"
+              : "События операций, склада, весовой и оборота машин"}
           </p>
         </div>
         <Button type="button" variant="outline" disabled={unreadCount === 0} onClick={() => void markAllRead()}>

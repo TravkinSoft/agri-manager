@@ -11,6 +11,7 @@ type NotificationPreferences = {
   operation_updates_enabled: boolean;
   warehouse_updates_enabled: boolean;
   weighbridge_updates_enabled: boolean;
+  traffic_updates_enabled: boolean;
   proactive_assist_enabled: boolean;
   proactive_assist_cadence: "events" | "twice_daily" | "daily" | "every_3_days" | "weekly";
 };
@@ -20,6 +21,7 @@ const defaults: NotificationPreferences = {
   operation_updates_enabled: true,
   warehouse_updates_enabled: true,
   weighbridge_updates_enabled: true,
+  traffic_updates_enabled: true,
   proactive_assist_enabled: true,
   proactive_assist_cadence: "events",
 };
@@ -74,7 +76,7 @@ export async function GET(request: NextRequest) {
     const { actor, companyId, supabase } = await resolveSession(request, requestedCompanyId);
     const { data, error } = await supabase
       .from("user_notification_preferences")
-      .select("email_enabled,operation_updates_enabled,warehouse_updates_enabled,weighbridge_updates_enabled,proactive_assist_enabled,proactive_assist_cadence")
+      .select("email_enabled,operation_updates_enabled,warehouse_updates_enabled,weighbridge_updates_enabled,traffic_updates_enabled,proactive_assist_enabled,proactive_assist_cadence")
       .eq("profile_id", actor.id)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -108,6 +110,10 @@ export async function PATCH(request: NextRequest) {
         body.weighbridge_updates_enabled,
         "weighbridge_updates_enabled"
       ),
+      traffic_updates_enabled: parseBoolean(
+        body.traffic_updates_enabled,
+        "traffic_updates_enabled"
+      ),
       proactive_assist_enabled: parseBoolean(
         body.proactive_assist_enabled,
         "proactive_assist_enabled"
@@ -126,7 +132,7 @@ export async function PATCH(request: NextRequest) {
         },
         { onConflict: "profile_id,company_id" }
       )
-      .select("email_enabled,operation_updates_enabled,warehouse_updates_enabled,weighbridge_updates_enabled,proactive_assist_enabled,proactive_assist_cadence")
+      .select("email_enabled,operation_updates_enabled,warehouse_updates_enabled,weighbridge_updates_enabled,traffic_updates_enabled,proactive_assist_enabled,proactive_assist_cadence")
       .single();
     if (error) throw new Error(error.message);
 

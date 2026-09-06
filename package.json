@@ -79,6 +79,7 @@
     "qa:tz315:shipment-gross-stock": "npx --no-install tsx scripts/qa-tz315-shipment-gross-stock.ts",
     "qa:tz315:outgoing-batch-projection": "npx --no-install tsx scripts/qa-tz315-outgoing-batch-projection.ts",
     "qa:tz315:ticket-cargo-composition": "npx --no-install tsx scripts/qa-tz315-ticket-cargo-composition.ts",
+    "qa:ptc:notifications": "npx --no-install tsx scripts/qa-ptc-operational-notifications-v1.ts",
     "qa:tz315:weighbridge-cache-shape": "npx --no-install tsx scripts/qa-tz315-weighbridge-cache-shape.ts",
     "qa:tz315:impurity-place-type-source": "npx --no-install tsx scripts/qa-tz315-impurity-place-type-source.ts",
     "qa:tz315:s19-s20-s23-corrective": "npx --no-install tsx scripts/qa-tz315-s19-s20-s23-corrective.ts",
@@ -152,6 +153,7 @@
     "@types/node": "20.6.2",
     "@types/react": "18.2.22",
     "@types/react-dom": "18.2.7",
+    "@vercel/functions": "3.9.5",
     "autoprefixer": "10.4.15",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
@@ -180,11 +182,13 @@
     "tailwindcss-animate": "^1.0.7",
     "typescript": "5.2.2",
     "vaul": "^0.9.9",
+    "web-push": "3.6.7",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.4",
     "@types/pdf-parse": "^1.1.5",
+    "@types/web-push": "3.6.4",
     "tsx": "^4.23.5"
   }
 }

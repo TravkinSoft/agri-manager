@@ -53,3 +53,5 @@ tmp-dev-*.log
 next-env.d.ts
 
 .vercel
+.env.local
+.env.preview.local
