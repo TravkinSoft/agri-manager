@@ -14,7 +14,7 @@ const equal = (a: unknown, b: unknown) => { assert.deepEqual(a, b); checks++; };
 async function main() {
   equal(nextState("harvester", "empty", true), null);
   equal(nextState("harvester", "empty", false), "loaded");
-  equal(nextState("receiver", "loaded", true), "unloading");
+  equal(nextState("weighman", "loaded", true), "unloading");
   equal(nextState("receiver", "unloading", true), "empty");
   const receipt = { companyId: "a", vehicleId: "v", inRepair: true, version: 1, changedAt: "2026-09-05T00:00:00Z" };
   equal(isFleetRepairReceipt(receipt), true);
@@ -31,7 +31,7 @@ async function main() {
   const db = new PGlite();
   await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
     create table companies(id uuid primary key);
-    create table profiles(id uuid primary key,company_id uuid,role text,status text);
+    create table profiles(id uuid primary key,company_id uuid,role text,status text,full_name text);
     create table fields(id uuid primary key,company_id uuid,archived boolean);
     create table reference_vehicles(id uuid primary key,company_id uuid,is_active boolean,archived boolean,status text default 'in_trip');
     create table company_people(id uuid primary key,company_id uuid,user_id uuid,full_name text,status text,deleted_at timestamptz);
@@ -39,7 +39,7 @@ async function main() {
     grant update on profiles,company_people,reference_vehicles to service_role;`);
   for (const file of ["20260904103550_ptc_independent_machine_turnover_v1.sql", "20260904112119_ptc_unified_account_auth_v1.sql",
     "20260905041243_fleet_vehicle_repair_v1.sql", "20260905103242_ptc_vehicle_line_actions_v1.sql",
-    "20260906221526_ptc_fleet_manager_only_mutations.sql"]) {
+    "20260906221526_ptc_fleet_manager_only_mutations.sql", "20260907085500_ptc_weighman_handoff_v1.sql"]) {
     await db.exec(readFileSync(`supabase/migrations/${file}`, "utf8"));
   }
   const company = randomUUID(), foreign = randomUUID(), vehicle = randomUUID(), foreignVehicle = randomUUID(), archivedVehicle = randomUUID();
@@ -48,11 +48,11 @@ async function main() {
   await db.query("select ptc_configure_v1($1,true,null,$2)", [company, [vehicle]]);
   const actor = async (role: string, companyId = company, status = "active") => {
     const id = randomUUID();
-    await db.query("insert into profiles values($1,$2,$3,$4)", [id, companyId, role, status]);
+    await db.query("insert into profiles(id,company_id,role,status,full_name) values($1,$2,$3,$4,$5)", [id, companyId, role, status, role]);
     await db.query("insert into company_people values($1,$2,$3,$4,'active',null)", [randomUUID(), companyId, id, role]);
     return id;
   };
-  const manager = await actor("fleet_manager"), harvester = await actor("mechanic_operator"), receiver = await actor("vegetable_brigadier");
+  const manager = await actor("fleet_manager"), harvester = await actor("mechanic_operator"), weighman = await actor("weighman"), receiver = await actor("vegetable_brigadier");
   const admin = await actor("company_admin"), globalAdmin = await actor("global_admin", foreign), agronomist = await actor("agronomist");
   const outsider = await actor("fleet_manager", foreign), inactive = await actor("fleet_manager", company, "inactive");
   const repair = async (value: boolean, version: number, who = manager, car = vehicle, tenant = company) =>
@@ -65,7 +65,7 @@ async function main() {
 
   equal((await repair(false, 0)).version, 0);
   equal(await counts(), { ptc: 0, repairs: 0 });
-  for (const who of [harvester, receiver, agronomist, admin, globalAdmin, outsider, inactive]) await reject(() => repair(true, 0, who), "FLEET_REPAIR_FORBIDDEN");
+  for (const who of [harvester, weighman, receiver, agronomist, admin, globalAdmin, outsider, inactive]) await reject(() => repair(true, 0, who), "FLEET_REPAIR_FORBIDDEN");
   await reject(() => repair(true, 0, manager, foreignVehicle), "FLEET_REPAIR_VEHICLE_UNAVAILABLE");
   await reject(() => repair(true, 0, manager, archivedVehicle), "FLEET_REPAIR_VEHICLE_UNAVAILABLE");
   await reject(() => repair(true, -1), "FLEET_REPAIR_INVALID");
@@ -86,7 +86,7 @@ async function main() {
   equal((await repair(true, 2, manager)).version, 3);
   equal(await state(), cargo);
   equal((await transition(harvester, 0, "loaded", loadKey)).replayed, true);
-  await transition(receiver, 1, "unloading");
+  await transition(weighman, 1, "unloading");
   await transition(receiver, 2, "empty");
   const returned = await state();
   equal({ state: returned.state, version: returned.version, cycle: returned.cycle }, { state: "empty", version: 3, cycle: 1 });
@@ -143,7 +143,7 @@ async function main() {
   equal(result.status, 200); equal(result.headers.get("Cache-Control"), "no-store, private");
   equal((await result.json()).version, 4);
   const beforeDenied = rpcCalls;
-  for (const denied of ["agronomist", "company_admin", "global_admin", "mechanic_operator", "vegetable_brigadier"]) { apiRole = denied; equal((await post()).status, 403); }
+  for (const denied of ["agronomist", "company_admin", "global_admin", "mechanic_operator", "weighman", "vegetable_brigadier"]) { apiRole = denied; equal((await post()).status, 403); }
   apiRole = "fleet_manager";
   equal((await post({ ...input, companyId: foreign })).status, 409);
   for (const invalid of [{ ...input, expectedVersion: -1 }, { ...input, inRepair: "true" }, { ...input, actorId: manager }, { ...input, vehicleId: "bad" }]) equal((await post(invalid)).status, 400);

@@ -82,8 +82,8 @@ async function main() {
   } };
   const source = ts.transpileModule(fs.readFileSync("app/api/fleet/route.ts", "utf8"),
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  const module = { exports: {} as any };
-  vm.runInNewContext(source, { module, exports: module.exports, require: (name: string) => {
+  const compiledModule = { exports: {} as any };
+  vm.runInNewContext(source, { module: compiledModule, exports: compiledModule.exports, require: (name: string) => {
     if (name === "zod") return { z };
     if (name === "@/lib/auth/server-session") return {
       SessionAuthError,
@@ -109,7 +109,7 @@ async function main() {
     };
     throw new Error(name);
   } });
-  const get = (c = company) => module.exports.GET({ nextUrl: new URL(`https://test/api/fleet?companyId=${c}`) }) as Promise<Response>;
+  const get = (c = company) => compiledModule.exports.GET({ nextUrl: new URL(`https://test/api/fleet?companyId=${c}`) }) as Promise<Response>;
   const response = await get();
   equal(response.status, 200);
   equal(response.headers.get("Cache-Control"), "no-store, private");

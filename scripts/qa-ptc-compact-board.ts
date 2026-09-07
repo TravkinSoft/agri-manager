@@ -171,8 +171,8 @@ async function main() {
   check(managerHtml.includes("<button><button"), false);
   const managerText = managerHtml.replace(/<[^>]*>/g, "");
   check((managerText.match(/Пустые/g) ?? []).length, 2);
-  check((managerText.match(/Загруженные/g) ?? []).length, 2);
-  check((managerText.match(/На выгрузке/g) ?? []).length, 2);
+  check((managerText.match(/Загруженные/g) ?? []).length, 1);
+  check((managerText.match(/На выгрузке/g) ?? []).length, 1);
   check((managerText.match(/На ремонте/g) ?? []).length >= 2, true);
   check(managerHtml.includes("lg:grid-cols-4"), true);
   check(managerHtml.includes("grid-cols-4") && !managerHtml.includes('class="grid grid-cols-4'), true);
@@ -490,7 +490,7 @@ async function main() {
     filters.forEach(filter => {
       check(stylesAt(filter, width)["min-height"], "52px");
       check(stylesAt(filter, width)["min-width"], "0px");
-      check(stylesAt(nodes(filter).find(node => node.props?.className?.includes("break-words")), width)["overflow-wrap"], "break-word");
+      check(stylesAt(nodes(filter).find(node => node.props?.className?.includes("whitespace-nowrap")), width)["white-space"], "nowrap");
     });
     const filterGrid = nodes(toolbar).find(node => node.props?.role === "group");
     check(stylesAt(filterGrid, width)["grid-template-columns"], "repeat(4, minmax(0, 1fr))");
