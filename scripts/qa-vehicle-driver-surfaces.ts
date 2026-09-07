@@ -48,6 +48,9 @@ const fixture: Record<string, unknown> = {
     { id: "trailer", name: "Прицеп", type: "trailer", fleet_type: "trailer", ptc_enabled: true, primary_responsible_personnel_id: null },
     { id: "audit", name: "Машина", type: "truck", fleet_type: "truck", ptc_enabled: true, import_source: "ptc_audit_2026", primary_responsible_personnel_id: null },
   ],
+  fleet_vehicle_repairs: [
+    { vehicle_id: "vehicle", in_repair: false, version: 2, changed_at: "2026-09-04T11:00:00Z" },
+  ],
   reference_specialists: [specialist],
 };
 const db = { from(table: string) {
@@ -76,6 +79,7 @@ async function main() {
   check(snapshot.vehicles[0].state, "loaded");
   check(snapshot.vehicles[0].version, 9);
   check(snapshot.vehicles[0].cycle, 3);
+  check(snapshot.vehicles[0].repairChangedAt, "2026-09-04T11:00:00Z");
   check(snapshot.vehicles.length, 1);
   check(snapshot.events.map((event: { id: string }) => event.id), ["visible-event", "retained-event"]);
   check(snapshot.events[0].vehicle_driver, person.full_name);

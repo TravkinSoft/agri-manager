@@ -62,6 +62,12 @@ async function main() {
     vehicles.map((v) => v.state),
     ["loaded", "unloading", "empty"],
   );
+  const emptyOrder = visibleVehicles([
+    { ...vehicles[2], vehicle_id: "ordinary", since: "2026-09-04T10:00:00Z" },
+    { ...vehicles[2], vehicle_id: "returned", since: "2026-09-04T09:00:00Z", repairChangedAt: "2026-09-04T11:00:00Z" },
+    { ...vehicles[2], vehicle_id: "completed-after-repair", since: "2026-09-04T12:00:00Z", repairChangedAt: "2026-09-04T11:00:00Z" },
+  ], "manager");
+  check(emptyOrder.map((v) => v.vehicle_id), ["returned", "ordinary", "completed-after-repair"]);
   check(
     stateAge("2026-09-04T10:00:00Z", Date.parse("2026-09-04T10:15:00Z")),
     "15 мин",

@@ -300,6 +300,7 @@ export async function readSnapshot(
       ...s,
       inRepair: repairs.get(s.vehicle_id)?.inRepair ?? false,
       repairVersion: repairs.get(s.vehicle_id)?.repairVersion ?? 0,
+      repairChangedAt: repairs.get(s.vehicle_id)?.changedAt ?? null,
       name:
         vehicle?.name ||
         [vehicle?.brand, vehicle?.model].filter(Boolean).join(" ") ||

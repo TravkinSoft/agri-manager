@@ -49,6 +49,7 @@ export interface TrafficVehicle {
   assigned: boolean;
   inRepair?: boolean;
   repairVersion?: number;
+  repairChangedAt?: string | null;
 }
 export interface TrafficSnapshot {
   companyId?: string;
@@ -118,6 +119,12 @@ export function visibleVehicles(
   role: TrafficRole,
 ): TrafficVehicle[] {
   const rank = { empty: 0, loaded: 1, unloading: 2 };
+  const returnedFromRepairAt = (vehicle: TrafficVehicle) => {
+    if (vehicle.inRepair || vehicle.state !== "empty" || !vehicle.repairChangedAt) return 0;
+    const repairAt = Date.parse(vehicle.repairChangedAt);
+    const stateAt = Date.parse(vehicle.since);
+    return Number.isFinite(repairAt) && repairAt > stateAt ? repairAt : 0;
+  };
   return vehicles
     .filter((v) =>
       v.assigned &&
@@ -125,11 +132,16 @@ export function visibleVehicles(
       (role !== "weighman" || v.state === "loaded") &&
       (role !== "receiver" || v.state === "unloading"))
     .sort(
-      (a, b) =>
-        Number(!!a.inRepair) - Number(!!b.inRepair) ||
-        rank[a.state] - rank[b.state] ||
-        a.since.localeCompare(b.since) ||
-        a.vehicle_id.localeCompare(b.vehicle_id),
+      (a, b) => {
+        const stateOrder = rank[a.state] - rank[b.state];
+        const aReturnedAt = returnedFromRepairAt(a);
+        const bReturnedAt = returnedFromRepairAt(b);
+        return Number(!!a.inRepair) - Number(!!b.inRepair) ||
+          stateOrder ||
+          bReturnedAt - aReturnedAt ||
+          a.since.localeCompare(b.since) ||
+          a.vehicle_id.localeCompare(b.vehicle_id);
+      },
     );
 }
 export function stateAge(since: string, now: number): string {
