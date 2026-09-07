@@ -307,13 +307,28 @@ async function main() {
   const manager = harness(true);
   const managerSnapshot = {
     ...snapshot("car-a", 1, "empty", "manager"),
+    analytics: {
+      windowLabel: "Текущая смена", windowStartedAt: "2026-09-04T08:00:00Z", completedLoads: 2,
+      lastLoadIntervalMinutes: 10, averageLoadIntervalMinutes: 10,
+      averageFieldToWeighbridgeMinutes: 5, averageUnloadingMinutes: 3,
+      averageReturnToLoadMinutes: 8, averageVehicleCycleMinutes: 16,
+      latestFleetRoundMinutes: 12, probableDowntimeCount: 0,
+      probableDowntimeMinutes: 0, currentProbableDowntimeMinutes: null,
+    },
+    combineShift: {
+      id: "shift-a", operatorName: "Комбайнёр", openedAt: "2026-09-04T08:00:00Z",
+      closedAt: null, hectaresShift: null, hectaresFieldTotal: null, status: "open" as const,
+    },
     events: [{
       id: "event-a", vehicle_id: "car-a", from_state: "empty" as const, to_state: "loaded" as const,
       created_at: "2026-09-04T09:59:00Z", actor_name: "Operator", field_id: null, field_name: null,
       vehicle_name: "Existing truck", vehicle_plate: "QA-101",
     }],
   };
-  const metadata = { snapshot: managerSnapshot, fleet: [{ id: "car-a" }], people: [], fields: [], accounts: [], canManageUsers: true };
+  const metadata = {
+    snapshot: managerSnapshot, fleet: [{ id: "car-a" }], people: [], fields: [], accounts: [],
+    canManageUsers: true, managerRole: "agronomist",
+  };
   manager.render(); await flush(); await manager.respond(0, metadata);
   const managerReady = manager.render(); check(managerReady.managerData.canManageUsers, true);
   const managerDataReference = managerReady.data;
@@ -321,10 +336,16 @@ async function main() {
   manager.fire("focus"); await flush(); check(manager.requests[1].path, "/api/traffic?snapshot=1");
   const freshRequests = [managerReady.refresh(true), managerReady.refresh(true), managerReady.refresh(true)];
   manager.fire("pageshow"); check(manager.render().stale, false);
-  await manager.respond(1, { snapshot: { ...managerSnapshot, vehicles: [], events: [] } });
+  await manager.respond(1, {
+    snapshot: { ...managerSnapshot, vehicles: [], events: [], analytics: null, combineShift: null },
+  });
   check(manager.requests.length, 3); check(manager.requests[2].path, "/api/traffic");
   check(manager.render().managerData.fleet, metadata.fleet);
   check(manager.render().managerData.snapshot.events, managerSnapshot.events);
+  check(manager.render().data.analytics, managerSnapshot.analytics);
+  check(manager.render().managerData.snapshot.analytics, managerSnapshot.analytics);
+  check(manager.render().data.combineShift, managerSnapshot.combineShift);
+  check(manager.render().managerData.snapshot.combineShift, managerSnapshot.combineShift);
   check(manager.render().data === managerDataReference, false); // The vehicle list changed.
   check(manager.render().managerData === managerMetadataReference, false);
   await manager.respond(2, metadata); await Promise.all(freshRequests);
@@ -332,6 +353,73 @@ async function main() {
   manager.auth("SIGNED_IN", "account-a"); manager.auth("SIGNED_OUT", null);
   await manager.runTimer(0); check(manager.render().data, null); check(manager.render().managerData, null);
   await manager.runTimer(1000); check(manager.requests.length, 3); manager.unmount();
+
+  // One-second board reads stay cheap. Analytics join only the 15-second read,
+  // and a committed cross-device invalidation forces one immediate aggregate.
+  const rhythm = harness(true);
+  rhythm.render(); await flush(); await rhythm.respond(0, metadata); rhythm.render();
+  rhythm.advance(15_000); await rhythm.runTimer(1000);
+  check(rhythm.requests[1].path, "/api/traffic?snapshot=1&analytics=1");
+  const updatedAnalytics = { ...managerSnapshot.analytics, completedLoads: 3 };
+  await rhythm.respond(1, { snapshot: { ...managerSnapshot, analytics: updatedAnalytics, events: [] } });
+  check(rhythm.render().data.analytics.completedLoads, 3);
+  rhythm.changed("company-a"); await flush();
+  check(rhythm.requests[2].path, "/api/traffic?snapshot=1&analytics=1");
+  await rhythm.respond(2, { snapshot: { ...managerSnapshot, analytics: updatedAnalytics, events: [] } });
+  rhythm.advance(1_000); rhythm.fire("focus"); await flush();
+  check(rhythm.requests[3].path, "/api/traffic?snapshot=1");
+  await rhythm.respond(3, {
+    snapshot: { ...managerSnapshot, analytics: null, events: [] },
+    managerRole: "fleet_manager",
+  });
+  await flush();
+  check(rhythm.render().data.analytics, null);
+  check(rhythm.render().managerData.managerRole, "fleet_manager");
+  check(rhythm.render().managerData.canManageFleet, false);
+  check(rhythm.requests[4].path, "/api/traffic");
+  await rhythm.respond(4, {
+    ...metadata,
+    managerRole: "fleet_manager",
+    canManageFleet: true,
+    snapshot: { ...managerSnapshot, analytics: null },
+  });
+  check(rhythm.render().managerData.canManageFleet, true);
+  rhythm.unmount();
+
+  // A server-side company-context switch never combines the new board with
+  // cached events/analytics/metadata from the previous tenant.
+  const scope = harness(true);
+  scope.render(); await flush(); await scope.respond(0, metadata); scope.render();
+  scope.fire("focus"); await flush();
+  check(scope.requests[1].path, "/api/traffic?snapshot=1");
+  const companyBSnapshot = { ...managerSnapshot, companyId: "company-b", analytics: null, events: [] };
+  await scope.respond(1, { snapshot: companyBSnapshot, managerRole: "agronomist" });
+  await flush();
+  check(scope.render().data.companyId, "company-b");
+  check(scope.render().data.events, []);
+  check(scope.render().data.analytics, null);
+  check(scope.render().managerData, null);
+  check(scope.requests[2].path, "/api/traffic");
+  await scope.respond(2, { ...metadata, snapshot: { ...managerSnapshot, companyId: "company-b" } });
+  check(scope.render().managerData.snapshot.companyId, "company-b");
+  scope.unmount();
+
+  // If manager authorization is revoked before a replacement scope can be
+  // returned, neither tenant data nor agronomist analytics remains visible.
+  for (const status of [401, 403]) {
+    const revoked = harness(true);
+    revoked.render(); await flush(); await revoked.respond(0, metadata);
+    const priorView = revoked.render(); check(priorView.data.analytics, managerSnapshot.analytics);
+    const deniedRead = priorView.refresh(); await flush();
+    await revoked.respond(1, { error: status === 401 ? "Session revoked" : "Role revoked" }, status);
+    await deniedRead;
+    check(revoked.render().data, null);
+    check(revoked.render().managerData, null);
+    check(revoked.render().stale, true);
+    check(revoked.render().error, status === 401 ? "Session revoked" : "Role revoked");
+    check(revoked.render().needsLogin, status === 401);
+    revoked.unmount();
+  }
 
   // An explicit queued read or a delayed same-user auth event must not revive
   // the previous account after sign-out, including a late successful response.
@@ -349,6 +437,7 @@ async function main() {
   const roleDenied = beforeDeny.refresh(); await flush();
   await denied.respond(1, { error: "Role no longer allowed" }, 403); await roleDenied;
   check(denied.render().stale, true); check(denied.render().error, "Role no longer allowed");
+  check(denied.render().data, null); check(denied.render().needsLogin, false);
   const sessionExpired = denied.render().refresh(true); await flush();
   await denied.respond(2, { error: "Session expired" }, 401); await sessionExpired;
   check(denied.render().data, null); check(denied.render().needsLogin, true);

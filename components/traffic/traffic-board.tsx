@@ -61,6 +61,7 @@ export function TrafficBoard({
   onAuxiliaryCommitted,
   mobileActions,
   onManageVehicle,
+  compactAgronomistMobile = false,
 }: {
   snapshot: TrafficSnapshot;
   stale: boolean;
@@ -70,6 +71,7 @@ export function TrafficBoard({
   onAuxiliaryCommitted?: () => Promise<void>;
   mobileActions?: ReactNode;
   onManageVehicle?: (vehicle: TrafficVehicle) => void;
+  compactAgronomistMobile?: boolean;
 }) {
   const [now, setNow] = useState(Date.now());
   const [actionError, setActionError] = useState("");
@@ -186,6 +188,15 @@ export function TrafficBoard({
             : !vehicle.inRepair && vehicle.state === state),
       }))
     : [{ state: null, vehicles: displayVehicles }];
+  const lineVehicleCount = isManager
+    ? displayVehicles.filter((vehicle) => !vehicle.inRepair).length
+    : 0;
+  const lineVehicleWord = lineVehicleCount % 10 === 1 && lineVehicleCount % 100 !== 11
+    ? "машина"
+    : lineVehicleCount % 10 >= 2 && lineVehicleCount % 10 <= 4 &&
+        (lineVehicleCount % 100 < 12 || lineVehicleCount % 100 > 14)
+      ? "машины"
+      : "машин";
   return (
     <>
       {snapshot.role === "receiver" && snapshot.lastVehicle ? (
@@ -222,8 +233,23 @@ export function TrafficBoard({
       ) : null}
       <div
         data-testid={isManager ? "traffic-manager-board" : undefined}
-        className={isManager ? "flex max-h-[max(12rem,calc(100dvh-14rem))] min-w-0 flex-col lg:max-h-none lg:block" : ""}
+        className={isManager
+          ? compactAgronomistMobile
+            ? "min-w-0 lg:block lg:max-h-none"
+            : "flex max-h-[max(12rem,calc(100dvh-14rem))] min-w-0 flex-col lg:max-h-none lg:block"
+          : ""}
       >
+        {isManager ? (
+          <p
+            data-testid="traffic-line-total"
+            className="mb-2 flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-sm text-slate-300"
+          >
+            <span>На линии:</span>
+            <strong className="text-lg font-semibold tabular-nums text-white">{lineVehicleCount}</strong>
+            <span>{lineVehicleWord}</span>
+            <span className="text-xs text-slate-500">· без машин в ремонте</span>
+          </p>
+        ) : null}
         {isManager ? (
           <div data-testid="traffic-mobile-toolbar" className="sticky top-0 z-20 mb-3 flex min-w-0 shrink-0 items-stretch gap-1 rounded-xl bg-[#0f172a] py-1 lg:hidden">
             <div role="group" aria-label="Показать машины по статусу" className="grid min-w-0 flex-1 grid-cols-4 gap-1">
@@ -236,7 +262,12 @@ export function TrafficBoard({
                   aria-controls={`traffic-list-${state}`}
                   onClick={() => {
                     setMobileState(state);
-                    mobileListRef.current?.scrollTo({ top: 0 });
+                    if (compactAgronomistMobile) {
+                      window.requestAnimationFrame(() =>
+                        mobileListRef.current?.scrollIntoView({ block: "start", behavior: "auto" }));
+                    } else {
+                      mobileListRef.current?.scrollTo({ top: 0 });
+                    }
                   }}
                   className={`grid min-h-[52px] min-w-0 grid-rows-[1rem_1.25rem] content-center items-center justify-items-center rounded-lg border px-0.5 py-1 text-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${mobileState === state ? "border-slate-400 bg-slate-700 text-white" : "border-transparent text-slate-300"}`}
                 >
@@ -252,7 +283,11 @@ export function TrafficBoard({
           </div>
         ) : null}
       <div ref={mobileListRef} data-testid={isManager ? "traffic-manager-lists" : undefined}
-        className={isManager ? "grid min-h-0 items-start gap-4 overflow-y-auto overscroll-contain lg:grid-cols-4 lg:overflow-visible lg:overscroll-auto" : ""}>
+        className={isManager
+          ? compactAgronomistMobile
+            ? "grid min-h-0 scroll-mt-16 items-start gap-3 lg:grid-cols-4 lg:gap-4"
+            : "grid min-h-0 items-start gap-4 overflow-y-auto overscroll-contain lg:grid-cols-4 lg:overflow-visible lg:overscroll-auto"
+          : ""}>
         {groups.map((group) => (
           <section
             key={group.state ?? "operator"}
@@ -270,7 +305,9 @@ export function TrafficBoard({
                 </span>
               </h2>
             ) : null}
-            <div className={isManager ? "grid gap-2" : "grid gap-2 sm:grid-cols-2 xl:grid-cols-3"}>
+            <div className={isManager
+              ? compactAgronomistMobile ? "grid gap-1.5 lg:gap-2" : "grid gap-2"
+              : "grid gap-2 sm:grid-cols-2 xl:grid-cols-3"}>
         {group.vehicles.map((vehicle) => {
           const target = nextState(snapshot.role, vehicle.state, vehicle.inRepair);
           const pendingVehicle = pendingCommands.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id);
@@ -278,19 +315,23 @@ export function TrafficBoard({
           const isLastVehicle = snapshot.lastVehicle?.vehicleId === vehicle.vehicle_id;
           const canChangeLastVehicle = snapshot.role === "harvester" && !vehicle.inRepair &&
             (isLastVehicle || vehicle.state === "empty");
-          const cardClass = `h-24 min-w-0 overflow-hidden rounded-xl border p-2.5 text-left shadow-sm ${vehicle.inRepair ? "border-rose-400 bg-rose-100 text-rose-950" : tones[vehicle.state]}`;
+          const cardClass = `${compactAgronomistMobile
+            ? "h-[4.875rem] p-1.5 lg:h-24 lg:p-2.5"
+            : "h-24 p-2.5"} min-w-0 overflow-hidden rounded-xl border text-left shadow-sm ${vehicle.inRepair ? "border-rose-400 bg-rose-100 text-rose-950" : tones[vehicle.state]}`;
           const content = (
             <>
-              <span className={`line-clamp-2 block min-h-10 break-words text-lg font-bold leading-5 ${canChangeLastVehicle ? "pr-10" : ""}`}>
+              <span className={`${compactAgronomistMobile
+                ? "line-clamp-2 min-h-8 text-base leading-4 lg:min-h-10 lg:text-lg lg:leading-5"
+                : "line-clamp-2 min-h-10 text-lg leading-5"} block break-words font-bold ${canChangeLastVehicle ? "pr-10" : ""}`}>
                 {identity.primary}
               </span>
-              {identity.secondary ? <span className="flex h-5 min-w-0 items-center gap-1.5">
+              {identity.secondary ? <span className={`flex min-w-0 items-center gap-1.5 ${compactAgronomistMobile ? "h-4 lg:h-5" : "h-5"}`}>
                 <Truck aria-hidden size={15} className="shrink-0 opacity-60" />
-                <span className="truncate text-sm font-bold opacity-90" title={identity.secondary}>
+                <span className={`truncate font-bold opacity-90 ${compactAgronomistMobile ? "text-xs lg:text-sm" : "text-sm"}`} title={identity.secondary}>
                   {identity.secondary}
                 </span>
-              </span> : <span aria-hidden className="block h-5" />}
-              <span className="flex h-4 min-w-0 items-center gap-1 truncate text-[11px] leading-4 opacity-70">
+              </span> : <span aria-hidden className={`block ${compactAgronomistMobile ? "h-4 lg:h-5" : "h-5"}`} />}
+              <span className={`flex min-w-0 items-center gap-1 truncate opacity-70 ${compactAgronomistMobile ? "h-3 text-[10px] leading-3 lg:h-4 lg:text-[11px] lg:leading-4" : "h-4 text-[11px] leading-4"}`}>
                 {isLastVehicle ? <span className="shrink-0 font-extrabold text-rose-700">ПОСЛЕДНЯЯ ·</span> : null}
                 {!identity.hasDriver ? <span className="shrink-0 font-medium">Без водителя ·</span> : null}
                 {vehicle.inRepair ? <span className="flex shrink-0 items-center gap-1 font-semibold">

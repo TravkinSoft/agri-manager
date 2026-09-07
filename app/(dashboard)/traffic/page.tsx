@@ -89,50 +89,57 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
         <div className={managed?.managerRole === "agronomist" && live.data.analytics
           ? "grid min-w-0 items-start gap-4 lg:grid-cols-[14rem_minmax(0,1fr)]"
           : "min-w-0"}>
+          <div className={managed?.managerRole === "agronomist" && live.data.analytics
+            ? "min-w-0 lg:col-start-2 lg:row-start-1"
+            : "min-w-0"}>
+            <TrafficBoard
+              key={live.scopeKey}
+              snapshot={live.data}
+              stale={live.stale}
+              error={live.error}
+              refresh={live.refresh}
+              onAuxiliaryCommitted={live.auxiliaryCommitted}
+              onManageVehicle={canManageFleet ? setSelected : undefined}
+              compactAgronomistMobile={managed?.managerRole === "agronomist"}
+              mobileActions={canManageFleet ? <div className="flex items-center">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Меню оборота машин"
+                    disabled={!managed}
+                    className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 disabled:opacity-40"
+                  >
+                    <EllipsisVertical aria-hidden size={22} />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="max-w-[calc(100vw-2rem)]">
+                  {managed?.canCreateFleetEntities ? <DropdownMenuItem onSelect={() => setCreateOpen(true)} className="min-h-[48px] gap-2">
+                    <Plus aria-hidden size={17} /> Добавить машину или водителя
+                  </DropdownMenuItem> : null}
+                  <DropdownMenuItem onSelect={() => open("fleet")} className="min-h-[48px] gap-2">
+                    <Truck aria-hidden size={17} /> Не на линии
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => open("history")} className="min-h-[48px] gap-2">
+                    <History aria-hidden size={17} /> Последние 50 изменений
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div> : managed?.snapshot.events.length ? <button
+              type="button"
+              aria-label="Последние 50 изменений"
+              onClick={() => open("history")}
+              className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+            >
+              <History aria-hidden size={20} />
+              </button> : null}
+            />
+          </div>
           {managed?.managerRole === "agronomist" && live.data.analytics ? (
-            <TrafficAnalyticsPanel analytics={live.data.analytics} />
+            <div className="min-w-0 lg:col-start-1 lg:row-start-1">
+              <TrafficAnalyticsPanel analytics={live.data.analytics} />
+            </div>
           ) : null}
-          <TrafficBoard
-            key={live.scopeKey}
-            snapshot={live.data}
-            stale={live.stale}
-            error={live.error}
-            refresh={live.refresh}
-            onAuxiliaryCommitted={live.auxiliaryCommitted}
-            onManageVehicle={canManageFleet ? setSelected : undefined}
-            mobileActions={canManageFleet ? <div className="flex items-center">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  aria-label="Меню оборота машин"
-                  disabled={!managed}
-                  className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 disabled:opacity-40"
-                >
-                  <EllipsisVertical aria-hidden size={22} />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="max-w-[calc(100vw-2rem)]">
-                {managed?.canCreateFleetEntities ? <DropdownMenuItem onSelect={() => setCreateOpen(true)} className="min-h-[48px] gap-2">
-                  <Plus aria-hidden size={17} /> Добавить машину или водителя
-                </DropdownMenuItem> : null}
-                <DropdownMenuItem onSelect={() => open("fleet")} className="min-h-[48px] gap-2">
-                  <Truck aria-hidden size={17} /> Не на линии
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => open("history")} className="min-h-[48px] gap-2">
-                  <History aria-hidden size={17} /> Последние 50 изменений
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div> : managed?.snapshot.events.length ? <button
-            type="button"
-            aria-label="Последние 50 изменений"
-            onClick={() => open("history")}
-            className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
-          >
-            <History aria-hidden size={20} />
-            </button> : null}
-          />
         </div>
       ) : (
         <div

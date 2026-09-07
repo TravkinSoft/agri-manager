@@ -22,7 +22,7 @@ import {
   type TrafficSnapshot,
   type TrafficVehicle,
 } from "./model";
-import { calculateTrafficAnalytics } from "./analytics";
+import { calculateTrafficAnalytics, type TrafficAnalyticsEvent } from "./analytics";
 
 export class TrafficError extends Error {
   constructor(
@@ -191,6 +191,40 @@ export async function operator(request: NextRequest) {
     actorId: actor.id,
   };
 }
+
+async function readTrafficAnalyticsEvents(
+  db: ReturnType<typeof getServiceClient>,
+  companyId: string,
+  startedAt: string,
+  endedAt: string,
+): Promise<TrafficAnalyticsEvent[]> {
+  const rows: TrafficAnalyticsEvent[] = [];
+  const pageSize = 500;
+  for (let from = 0; ; from += pageSize) {
+    const result = await db
+      .from("ptc_events")
+      .select("id,vehicle_id,from_state,to_state,cycle,created_at")
+      .eq("company_id", companyId)
+      .gte("created_at", startedAt)
+      .lte("created_at", endedAt)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (result.error) throw result.error;
+    const page = (result.data ?? []) as Array<TrafficAnalyticsEvent & { id: string }>;
+    rows.push(...page.map(({ vehicle_id, from_state, to_state, cycle, created_at }) => ({
+      vehicle_id,
+      from_state,
+      to_state,
+      cycle,
+      created_at,
+    })));
+    if (page.length < pageSize) return rows;
+  }
+}
+
+const LIVE_ANALYTICS_MAX_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 export async function readSnapshot(
   companyId: string,
   role: TrafficRole,
@@ -242,18 +276,13 @@ export async function readSnapshot(
             .from("ptc_combine_shifts")
             .select("id,operator_name,opened_at,closed_at,hectares_shift,hectares_field_total")
             .eq("company_id", companyId)
-            .order("opened_at", { ascending: false })
+            .is("closed_at", null)
+            // Several combine operators may have concurrent open shifts. The
+            // manager view is company-wide, so its window must include all of them.
+            .order("opened_at", { ascending: true })
             .limit(1)
             .maybeSingle()
         : Promise.resolve({ data: null, error: null }),
-    role === "manager" && includeAnalytics
-      ? db
-          .from("ptc_events")
-          .select("vehicle_id,from_state,to_state,cycle,created_at")
-          .eq("company_id", companyId)
-          .order("created_at", { ascending: false })
-          .limit(500)
-      : Promise.resolve({ data: [], error: null }),
   ]);
   for (const result of results) if (result.error) throw result.error;
   const flow = results[0].data as {
@@ -295,6 +324,25 @@ export async function readSnapshot(
     hectaresFieldTotal: shiftRow.hectares_field_total === null ? null : Number(shiftRow.hectares_field_total),
     status: shiftRow.closed_at === null ? "open" as const : "closed" as const,
   } : null;
+  const serverTime = new Date().toISOString();
+  const rollingStartedAt = new Date(Date.parse(serverTime) - 12 * 60 * 60 * 1000).toISOString();
+  const liveWindowFloor = new Date(Date.parse(serverTime) - LIVE_ANALYTICS_MAX_WINDOW_MS).toISOString();
+  const analyticsWindowCapped = combineShift?.status === "open" &&
+    Date.parse(combineShift.openedAt) < Date.parse(liveWindowFloor);
+  const analyticsStartedAt = analyticsWindowCapped
+    ? liveWindowFloor
+    : combineShift?.openedAt ?? rollingStartedAt;
+  const analyticsShift = analyticsWindowCapped && combineShift
+    ? { ...combineShift, openedAt: analyticsStartedAt }
+    : combineShift;
+  const analyticsEventsPromise = role === "manager" && includeAnalytics
+    ? readTrafficAnalyticsEvents(
+        db,
+        companyId,
+        analyticsStartedAt,
+        combineShift?.closedAt ?? serverTime,
+      )
+    : Promise.resolve([] as TrafficAnalyticsEvent[]);
   // At most 100 working vehicles plus vehicles in the last 50 manager events.
   // Never load the whole company fleet or lose historical identities on unassignment.
   const vehicleIds = Array.from(
@@ -304,15 +352,19 @@ export async function readSnapshot(
       ...(marker ? [marker.vehicle_id] : []),
     ]),
   );
-  const fleetResult = vehicleIds.length
-    ? await db
+  const fleetResultPromise = vehicleIds.length
+    ? db
         .from("reference_vehicles")
         .select(
           "id,name,model,brand,license_plate,plate_number,type,fleet_type,import_source,inventory_number,source_raw_name,source_clean_name,source_machine_id,ptc_enabled,primary_responsible_personnel_id,transport_model:transport_model_id(category)",
         )
         .eq("company_id", companyId)
         .in("id", vehicleIds)
-    : { data: [], error: null };
+    : Promise.resolve({ data: [], error: null });
+  const [fleetResult, analyticsEvents] = await Promise.all([
+    fleetResultPromise,
+    analyticsEventsPromise,
+  ]);
   if (fleetResult.error) throw fleetResult.error;
   type FleetRow = {
     id: string;
@@ -382,7 +434,6 @@ export async function readSnapshot(
       ),
     };
   });
-  const serverTime = new Date().toISOString();
   return {
     companyId,
     role,
@@ -411,18 +462,17 @@ export async function readSnapshot(
     })() : null,
     combineShift,
     analytics: role === "manager" && includeAnalytics
-      ? calculateTrafficAnalytics(
-          (results[5].data ?? []) as Array<{
-            vehicle_id: string;
-            from_state: "empty" | "loaded" | "unloading";
-            to_state: "empty" | "loaded" | "unloading";
-            cycle: number;
-            created_at: string;
-          }>,
-          serverTime,
-          combineShift,
-          vehicles.filter((vehicle) => !vehicle.inRepair).length,
-        )
+      ? (() => {
+          const result = calculateTrafficAnalytics(
+            analyticsEvents,
+            serverTime,
+            analyticsShift,
+            vehicles.filter((vehicle) => !vehicle.inRepair).length,
+          );
+          return analyticsWindowCapped
+            ? { ...result, windowLabel: "Текущая смена · последние 24 часа" }
+            : result;
+        })()
       : null,
     events: history.filter((event) => historicalVehicleIds.has(event.vehicle_id)).map((event) => {
       const vehicle = fleet.get(event.vehicle_id);

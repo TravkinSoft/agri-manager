@@ -34,7 +34,10 @@ contains(page, "{canManageFleet && managed && live.data ? <TrafficFleetControls"
 contains(page, "if (next !== \"history\" && !canManageFleet) return;");
 contains(page, "{canManageFleet ? <div className=\"mt-5 flex flex-wrap gap-2\">");
 contains(board, 'loaded: "В пути на весовую"');
-contains(board, "h-24 min-w-0 overflow-hidden");
+contains(board, '"h-[4.875rem] p-1.5 lg:h-24 lg:p-2.5"');
+contains(board, 'data-testid="traffic-line-total"');
+contains(board, "displayVehicles.filter((vehicle) => !vehicle.inRepair).length");
+contains(page, 'compactAgronomistMobile={managed?.managerRole === "agronomist"}');
 assert.equal(board.includes("traffic-empty-explainer"), false);
 checks++;
 assert.equal(sidebar.match(/const AGRONOMIST_NAV[\s\S]*?\];/)?.[0].includes('/tickets'), false);

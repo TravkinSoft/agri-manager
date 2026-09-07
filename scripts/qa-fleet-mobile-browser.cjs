@@ -12,6 +12,7 @@ async function main() {
   const source = `
     import React,{useState,useCallback} from 'react'; import {createRoot} from 'react-dom/client';
     import {TrafficBoard} from './components/traffic/traffic-board';
+    import {TrafficAnalyticsPanel} from './components/traffic/traffic-analytics-panel';
     import {TrafficFleetControls} from './components/traffic/traffic-fleet-controls';
     const company='10000000-0000-4000-8000-000000000001';
     const fleet=Array.from({length:60},(_,i)=>({id:'car-'+i,name:'КАМАЗ',plate:'НОМЕР-'+i,driver:i===5||i===6?null:'Виктор Новоковский '+i,assigned:i<2,inRepair:i===2,repairVersion:i===2?1:0,state:i===1?'loaded':'empty'}));
@@ -21,6 +22,8 @@ async function main() {
       const [snapshot,setSnapshot]=useState({companyId:company,role:'manager',personName:'',enabled:true,fieldId:null,fieldName:null,flowRevision:new Date().toISOString(),serverTime:new Date().toISOString(),vehicles,events:[]});
       const [managed,setManaged]=useState({fleet,canManageRepairs:true,snapshot});
       const [selected,onSelected]=useState(null),[drawerOpen,onDrawerOpen]=useState(false);
+      const compactVehicles=[...Array.from({length:15},(_,i)=>({vehicle_id:'compact-empty-'+i,name:'КАМАЗ',brand:'КАМАЗ',plate:'ПУСТ-'+i,driver:'Водитель '+i,state:'empty',version:0,cycle:1,assigned:true,since:new Date().toISOString()})),{vehicle_id:'compact-loaded',name:'ЗИЛ',brand:'ЗИЛ',plate:'ГРУЗ-1',driver:'Загруженный Водитель',state:'loaded',version:0,cycle:1,assigned:true,since:new Date().toISOString()},{vehicle_id:'compact-repair',name:'МТЗ',brand:'МТЗ',plate:'РЕМ-1',driver:'Ремонт Водитель',state:'empty',version:0,cycle:1,assigned:true,inRepair:true,since:new Date().toISOString()}];
+      const compactSnapshot={...snapshot,vehicles:compactVehicles};
       const refresh=useCallback(async()=>{
         const call=window.calls.at(-1);
         if(!call||call.applied)return;
@@ -28,6 +31,7 @@ async function main() {
         if(call.url.includes('/line'))setSnapshot(s=>({...s,vehicles:call.body.assigned?[...s.vehicles,...fleet.filter(v=>call.body.vehicleIds.includes(v.id)).map(v=>({...v,vehicle_id:v.id,assigned:true,version:0,cycle:0,since:new Date().toISOString()}))]:s.vehicles.filter(v=>!call.body.vehicleIds.includes(v.vehicle_id))}));
         if(call.url.includes('/repair'))setManaged(m=>({...m,fleet:m.fleet.map(v=>v.id===call.body.vehicleId?{...v,inRepair:call.body.inRepair,repairVersion:2}:v)}));
       },[]);
+      if(new URLSearchParams(location.search).has('compact'))return <main style={{padding:12}}><h1>Оборот машин</h1><section data-testid="compact-board"><TrafficBoard snapshot={compactSnapshot} stale={false} error='' refresh={async()=>{}} compactAgronomistMobile={true}/></section><section data-testid="compact-analytics"><TrafficAnalyticsPanel analytics={{windowLabel:'Текущая смена',windowStartedAt:new Date().toISOString(),completedLoads:4,lastLoadIntervalMinutes:12,averageLoadIntervalMinutes:14,averageFieldToWeighbridgeMinutes:18,averageUnloadingMinutes:6,averageReturnToLoadMinutes:22,averageVehicleCycleMinutes:46,latestFleetRoundMinutes:38,probableDowntimeCount:1,probableDowntimeMinutes:3,currentProbableDowntimeMinutes:null}}/></section></main>;
       return <main style={{padding:12}}><h1>Оборот машин</h1><TrafficBoard snapshot={snapshot} stale={false} error='' refresh={refresh} onManageVehicle={onSelected}/>
         <TrafficFleetControls managed={managed} snapshot={snapshot} selected={selected} onSelected={onSelected} drawerOpen={drawerOpen} onDrawerOpen={onDrawerOpen} stale={false} refresh={refresh}/></main>;
     } createRoot(document.getElementById('root')).render(<App/>);
@@ -58,17 +62,19 @@ async function main() {
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
   let checks=0;
   const check=(actual,expected,label)=>{assert.deepEqual(actual,expected,label);checks++;};
+  const compactOnly=process.env.PTC_COMPACT_ONLY==='1';
   try {
     for(const [name,engine] of [['chromium',chromium],['webkit',webkit]]) {
       const browser=await engine.launch({headless:true,...(name==='chromium'?{channel:'chrome'}:{})});
       try {
-        for(const width of [320,390,412]) {
+        for(const width of compactOnly?[]:[320,390,412]) {
           const context=await browser.newContext({viewport:{width,height:844},isMobile:true,hasTouch:true});
           const page=await context.newPage(), errors=[]; page.on('pageerror',e=>errors.push(e.message));
           await page.goto('http://127.0.0.1:'+server.address().port);
           await page.getByTestId('traffic-vehicle-car-0').tap();
           await page.getByRole('button',{name:'Сменить водителя',exact:true}).waitFor();
-          await page.waitForTimeout(250);
+          await page.waitForFunction(()=>Array.from(document.querySelectorAll('button')).some(button=>
+            button.textContent?.trim()==='Сменить водителя'&&button.getBoundingClientRect().height>=48));
           check((await page.getByRole('button',{name:'Сменить водителя',exact:true}).boundingBox()).height>=48,true,'48px touch action');
           check(await page.getByRole('button',{name:'Сменить водителя',exact:true}).count(),1,'whole card opens menu');
           check(await page.getByTestId('traffic-vehicle-car-0').locator('button').count(),0,'no nested action buttons');
@@ -92,7 +98,12 @@ async function main() {
           check(await page.evaluate(()=>window.driverSave.driverPersonId),'driver-74','canonical driver selected');
           await page.getByRole('button',{name:/^Не на линии/}).tap();
           await page.getByTestId('offline-sheet').waitFor();
-          await page.waitForTimeout(300);
+          await page.waitForFunction(()=>{
+            const sheet=document.querySelector('[data-testid="offline-sheet"]');
+            if(!sheet)return false;
+            const rect=sheet.getBoundingClientRect();
+            return Math.abs(rect.bottom-innerHeight)<3;
+          });
           const sheet=await page.getByTestId('offline-sheet').boundingBox();
           check(Math.abs(sheet.y+sheet.height-844)<3,true,'sheet anchored to viewport bottom');
           check(await page.getByTestId('offline-scroll-list').evaluate(el=>el.scrollHeight>el.clientHeight),true,'offline list scrolls');
@@ -102,7 +113,9 @@ async function main() {
           check(await page.getByTestId('offline-group-without-driver').getByRole('button').count(),2,'missing driver group count');
           check(await page.getByTestId('offline-scroll-list').locator('[data-testid^="offline-vehicle-"]').count(),58,'every offline vehicle rendered once');
           check(await page.getByTestId('offline-sheet').getByText('Водитель не назначен').count(),0,'legacy missing-driver headline removed');
-          check((await page.getByTestId('offline-vehicle-car-5').innerText()).split('\n')[0],'НОМЕР-5','plate is primary without driver');
+          const missingDriverCardLines=(await page.getByTestId('offline-vehicle-car-5').innerText()).split('\n');
+          check(missingDriverCardLines[0],'КАМАЗ','brand is primary without driver');
+          check(missingDriverCardLines[1],'НОМЕР-5','plate remains visible below brand without driver');
           await page.getByRole('button',{name:/Виктор Новоковский 3 КАМАЗ · НОМЕР-3$/}).tap();
           await page.getByRole('button',{name:/Виктор Новоковский 4 КАМАЗ · НОМЕР-4$/}).tap();
           check(await page.getByRole('button',{pressed:true}).count(),2,'multi-select checkmarks');
@@ -133,9 +146,30 @@ async function main() {
           }
           await context.close();
         }
+        for(const compactWidth of [320,390,430]) {
+          const compactContext=await browser.newContext({viewport:{width:compactWidth,height:844},isMobile:true,hasTouch:true});
+          const compactPage=await compactContext.newPage(), compactErrors=[];
+          compactPage.on('pageerror',error=>compactErrors.push(error.message));
+          await compactPage.goto('http://127.0.0.1:'+server.address().port+'/?compact=1');
+          const compactBoard=await compactPage.getByTestId('compact-board').boundingBox();
+          const compactAnalytics=await compactPage.getByTestId('compact-analytics').boundingBox();
+          check(compactBoard.y<compactAnalytics.y,true,'mobile status board precedes analytics');
+          const compactCard=await compactPage.getByTestId('traffic-vehicle-compact-empty-0').boundingBox();
+          check(compactCard.height>=77&&compactCard.height<=79,true,'agronomist mobile card is about 20 percent smaller');
+          check((await compactPage.getByTestId('traffic-line-total').innerText()).replace(/\s+/g,' ').trim(),'На линии: 16 машин · без машин в ремонте','line total excludes repair');
+          await compactPage.evaluate(()=>window.scrollTo(0,700));
+          await compactPage.getByTestId('traffic-filter-loaded').tap();
+          await compactPage.waitForTimeout(100);
+          const loadedCard=await compactPage.getByTestId('traffic-vehicle-compact-loaded').boundingBox();
+          check(loadedCard.y>=0&&loadedCard.y<844,true,'tab switch returns selected status cards into view');
+          check(await compactPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'compact page has no horizontal overflow');
+          check(compactErrors,[],name+' compact browser errors');
+          if(process.env.FLEET_SCREENSHOT_DIR)await compactPage.screenshot({path:path.join(process.env.FLEET_SCREENSHOT_DIR,'agronomist-compact-'+name+'-'+compactWidth+'.png'),fullPage:true});
+          await compactContext.close();
+        }
       } finally { await browser.close(); }
     }
-    console.log('Fleet mobile DOM PASS: '+checks+' checks / Chromium + WebKit / 320,390,412; no hosted writes');
+    console.log((compactOnly?'Agronomist compact mobile DOM':'Fleet mobile DOM')+' PASS: '+checks+' checks / Chromium + WebKit / 320,390,430'+(compactOnly?'':' plus fleet 320,390,412')+'; no hosted writes');
   } finally { await new Promise(r=>server.close(r)); }
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

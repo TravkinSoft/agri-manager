@@ -6,6 +6,8 @@ import type { FleetVehicle } from "@/lib/fleet/model";
 import { subscribeVehicleDriverAssignments } from "@/lib/vehicles/driver-assignment-client";
 import { publishTrafficChanged, subscribeTrafficChanges } from "@/lib/traffic/changes";
 
+const ANALYTICS_REFRESH_MS = 15_000;
+
 function sameSnapshotContent(left: TrafficSnapshot, right: TrafficSnapshot) {
   if (
     left.companyId !== right.companyId ||
@@ -109,6 +111,11 @@ export function useTraffic(isManager: boolean) {
   const controller = useRef<AbortController | null>(null);
   const mounted = useRef(false);
   const hasManagerData = useRef(false);
+  const managerCompanyId = useRef<string | null>(null);
+  const managerRole = useRef<ManagerData["managerRole"] | null>(null);
+  const analyticsEnabled = useRef(false);
+  const lastAnalyticsReadAt = useRef(0);
+  const forceAnalyticsRead = useRef(false);
   const loggedOut = useRef(false);
   const authGeneration = useRef(0);
   const authRevision = useRef(0);
@@ -156,9 +163,13 @@ export function useTraffic(isManager: boolean) {
         );
         try {
           const compact = isManager && hasManagerData.current && !fresh;
+          const includeCompactAnalytics = compact && analyticsEnabled.current &&
+            (forceAnalyticsRead.current || Date.now() - lastAnalyticsReadAt.current >= ANALYTICS_REFRESH_MS);
           const payload = await trafficRequest(
             isManager
-              ? `/api/traffic${compact ? "?snapshot=1" : ""}`
+              ? `/api/traffic${compact
+                ? `?snapshot=1${includeCompactAnalytics ? "&analytics=1" : ""}`
+                : ""}`
               : "/api/traffic/operator",
             "GET",
             undefined,
@@ -167,30 +178,96 @@ export function useTraffic(isManager: boolean) {
           );
           if (!mounted.current || generation !== authGeneration.current || epoch !== readEpoch.current) return;
           const received = (isManager ? payload.snapshot : payload) as TrafficSnapshot;
+          const compactManagerRole = compact && typeof payload.managerRole === "string"
+            ? payload.managerRole as ManagerData["managerRole"]
+            : null;
+          const compactScopeChanged = compact && managerCompanyId.current !== null &&
+            received.companyId !== managerCompanyId.current;
+          const managerRoleChanged = !!compactManagerRole && !!managerRole.current &&
+            compactManagerRole !== managerRole.current;
+          if (compactManagerRole) {
+            managerRole.current = compactManagerRole;
+            analyticsEnabled.current = compactManagerRole === "agronomist";
+          }
+          if (received.analytics) {
+            lastAnalyticsReadAt.current = Date.now();
+            forceAnalyticsRead.current = false;
+          }
           setData((old) => {
-            const next = compact && old
-              ? { ...received, events: old.events }
+            const compactAnalytics = compactManagerRole && compactManagerRole !== "agronomist"
+              ? null
+              : includeCompactAnalytics
+                ? received.analytics ?? null
+                : old?.analytics ?? null;
+            const compactShift = compactManagerRole && compactManagerRole !== "agronomist"
+              ? null
+              : includeCompactAnalytics
+                ? received.combineShift ?? null
+                : old?.combineShift ?? null;
+            const next = compact && old && !compactScopeChanged
+              ? {
+                  ...received,
+                  events: old.events,
+                  analytics: compactAnalytics,
+                  combineShift: compactShift,
+                }
               : received;
             return old && sameSnapshotContent(old, next) ? old : next;
           });
           if (isManager) {
             if (compact)
               setManagerData((old) => {
+                if (compactScopeChanged) return null;
                 if (!old) return old;
-                const next = { ...received, events: old.snapshot.events };
-                return sameSnapshotContent(old.snapshot, next)
+                const next = {
+                  ...received,
+                  events: old.snapshot.events,
+                  analytics: compactManagerRole && compactManagerRole !== "agronomist"
+                    ? null
+                    : includeCompactAnalytics
+                      ? received.analytics ?? null
+                      : old.snapshot.analytics ?? null,
+                  combineShift: compactManagerRole && compactManagerRole !== "agronomist"
+                    ? null
+                    : includeCompactAnalytics
+                      ? received.combineShift ?? null
+                      : old.snapshot.combineShift ?? null,
+                };
+                return sameSnapshotContent(old.snapshot, next) && !managerRoleChanged
                   ? old
-                  : { ...old, snapshot: next };
+                  : {
+                      ...old,
+                      ...(compactManagerRole ? { managerRole: compactManagerRole } : {}),
+                      ...(managerRoleChanged ? {
+                        canManageFleet: false,
+                        canManageRepairs: false,
+                        canCreateFleetEntities: false,
+                        canManageUsers: false,
+                      } : {}),
+                      snapshot: next,
+                    };
               });
             else {
               setManagerData(payload);
               hasManagerData.current = true;
+              managerCompanyId.current = received.companyId ?? null;
+              managerRole.current = payload.managerRole;
+              analyticsEnabled.current = payload.managerRole === "agronomist";
             }
           }
           setNeedsLogin(false);
           loggedOut.current = false;
           setStale(!navigator.onLine);
           setError(navigator.onLine ? "" : "Нет связи. Показаны последние полученные данные");
+          if (compactScopeChanged) {
+            hasManagerData.current = false;
+            managerCompanyId.current = null;
+            managerRole.current = null;
+            analyticsEnabled.current = false;
+            lastAnalyticsReadAt.current = 0;
+            forceAnalyticsRead.current = false;
+          }
+          if (managerRoleChanged || compactScopeChanged) void refresh(true);
         } catch (caught) {
           if (!mounted.current || generation !== authGeneration.current || epoch !== readEpoch.current) return;
           const failure = caught as Error & { status?: number };
@@ -201,17 +278,30 @@ export function useTraffic(isManager: boolean) {
             void refresh(true);
             return;
           }
-          if (failure.status === 401 && !isManager) {
-            loggedOut.current = true;
-            setNeedsLogin(true);
+          if (failure.status === 401 || failure.status === 403) {
+            // The server could not return a safe replacement scope. Never keep
+            // showing a previous tenant or role after access is revoked.
+            loggedOut.current = failure.status === 401;
+            setNeedsLogin(failure.status === 401);
             setData(null);
-            setError("");
-          } else
-            setError(
-              failure.name === "AbortError"
-                ? "Сервер не ответил. Данные могут быть устаревшими"
-                : failure.message,
-            );
+            if (isManager) {
+              setManagerData(null);
+              hasManagerData.current = false;
+              managerCompanyId.current = null;
+              managerRole.current = null;
+              analyticsEnabled.current = false;
+              lastAnalyticsReadAt.current = 0;
+              forceAnalyticsRead.current = false;
+            }
+            setError(failure.status === 401 && !isManager ? "" : failure.message);
+            setStale(true);
+            return;
+          }
+          setError(
+            failure.name === "AbortError"
+              ? "Сервер не ответил. Данные могут быть устаревшими"
+              : failure.message,
+          );
           setStale(true);
         } finally {
           window.clearTimeout(timeout);
@@ -257,6 +347,9 @@ export function useTraffic(isManager: boolean) {
   }, [data?.companyId, generation, refresh]);
   useEffect(() => subscribeTrafficChanges(data?.companyId, (companyId) => {
     if (!mounted.current || generation !== authGeneration.current || companyId !== data?.companyId) return;
+    // A real committed movement changes the rhythm immediately. The following
+    // compact read refreshes aggregates once, while idle one-second polls stay cheap.
+    forceAnalyticsRead.current = true;
     readEpoch.current++;
     controller.current?.abort();
     // Epoch invalidation guarantees one quiet successor to the aborted read.
@@ -326,6 +419,11 @@ export function useTraffic(isManager: boolean) {
         setData(null);
         setManagerData(null);
         hasManagerData.current = false;
+        managerCompanyId.current = null;
+        managerRole.current = null;
+        analyticsEnabled.current = false;
+        lastAnalyticsReadAt.current = 0;
+        forceAnalyticsRead.current = false;
         setStale(true);
         loggedOut.current = event === "SIGNED_OUT";
         if (event === "SIGNED_OUT") setLoading(false);

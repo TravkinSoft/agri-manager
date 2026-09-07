@@ -39,10 +39,17 @@ export async function GET(request: NextRequest) {
     const { actor, companyId } = await manager(request);
     const db = getServiceClient();
     const canManageFleet = actor.role === "fleet_manager";
-    if (request.nextUrl.searchParams.get("snapshot") === "1")
+    if (request.nextUrl.searchParams.get("snapshot") === "1") {
+      // Vehicle states stay on the one-second operational poll. The heavier
+      // aggregate only rides an explicitly requested compact read.
+      const includeAnalytics = actor.role === "agronomist" &&
+        request.nextUrl.searchParams.get("analytics") === "1";
       return noStore({
-        snapshot: await readSnapshot(companyId, "manager", "", false, undefined, actor.role === "agronomist"),
+        snapshot: await readSnapshot(companyId, "manager", "", false, undefined, includeAnalytics),
+        // Let an already-open page revoke stale role-specific UI immediately.
+        managerRole: actor.role,
       });
+    }
     const [snapshot, fleet, people, accounts] = await Promise.all([
       readSnapshot(companyId, "manager", "", true, undefined, actor.role === "agronomist"),
       canManageFleet ? readCompanyFleet(db, companyId) : Promise.resolve([]),

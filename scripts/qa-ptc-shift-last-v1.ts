@@ -44,6 +44,19 @@ async function main() {
   equal(activeIdle.currentProbableDowntimeMinutes, 15);
   equal(activeIdle.probableDowntimeCount, 2);
   equal(activeIdle.probableDowntimeMinutes, 30);
+  const emptyShiftIdle = calculateTrafficAnalytics([], "2026-09-07T08:16:00Z", shift);
+  equal(emptyShiftIdle.completedLoads, 0);
+  equal(emptyShiftIdle.currentProbableDowntimeMinutes, 1);
+  equal(emptyShiftIdle.probableDowntimeCount, 1);
+  equal(emptyShiftIdle.probableDowntimeMinutes, 1);
+  const emptyShiftBeforeWholeMinute = calculateTrafficAnalytics([], "2026-09-07T08:15:59.999Z", shift);
+  equal(emptyShiftBeforeWholeMinute.currentProbableDowntimeMinutes, null);
+  equal(emptyShiftBeforeWholeMinute.probableDowntimeCount, 0);
+  equal(emptyShiftBeforeWholeMinute.probableDowntimeMinutes, 0);
+  const firstLoadOnly = calculateTrafficAnalytics(events.slice(0, 1), "2026-09-07T08:10:00Z", shift);
+  equal(firstLoadOnly.completedLoads, 1);
+  equal(firstLoadOnly.lastLoadIntervalMinutes, null);
+  equal(firstLoadOnly.currentProbableDowntimeMinutes, null);
 
   const db = new PGlite();
   await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
@@ -148,6 +161,33 @@ async function main() {
   assert.match(board, /event\.stopPropagation\(\)/); checks++;
   const dashboard = readFileSync("app/(dashboard)/traffic/page.tsx", "utf8");
   assert.match(dashboard, /managed\?\.managerRole === "agronomist"[\s\S]*TrafficAnalyticsPanel/); checks++;
+  const boardRender = dashboard.indexOf("<TrafficBoard", dashboard.indexOf("live.data ?"));
+  const analyticsRender = dashboard.indexOf("<TrafficAnalyticsPanel", boardRender);
+  equal(boardRender >= 0 && analyticsRender > boardRender, true);
+  assert.match(dashboard, /lg:col-start-2 lg:row-start-1/); checks++;
+  assert.match(dashboard, /compactAgronomistMobile=\{managed\?\.managerRole === "agronomist"\}/); checks++;
+  const analyticsPanel = readFileSync("components/traffic/traffic-analytics-panel.tsx", "utf8");
+  for (const label of [
+    "Между двумя последними загрузками",
+    "В среднем между загрузками",
+    "От загрузки до весовой",
+    "От весовой до конца выгрузки",
+    "От выгрузки до новой загрузки",
+    "Вероятный простой комбайна",
+  ]) { assert.match(analyticsPanel, new RegExp(label)); checks++; }
+  equal(analyticsPanel.includes(" эп."), false);
+  assert.match(analyticsPanel, /Загрузок пока нет/); checks++;
+  const server = readFileSync("lib/traffic/server.ts", "utf8");
+  assert.match(server, /role === "manager" && includeAnalytics[\s\S]*\.is\("closed_at", null\)[\s\S]*\.order\("opened_at", \{ ascending: true \}\)/); checks++;
+  assert.match(server, /const LIVE_ANALYTICS_MAX_WINDOW_MS = 24 \* 60 \* 60 \* 1000/); checks++;
+  assert.match(server, /analyticsWindowCapped[\s\S]*liveWindowFloor[\s\S]*Текущая смена · последние 24 часа/); checks++;
+  assert.match(server, /const rollingStartedAt = new Date\(Date\.parse\(serverTime\) - 12 \* 60 \* 60 \* 1000\)/); checks++;
+  assert.match(server, /readTrafficAnalyticsEvents[\s\S]*\.gte\("created_at", startedAt\)[\s\S]*\.lte\("created_at", endedAt\)[\s\S]*\.range\(from, from \+ pageSize - 1\)/); checks++;
+  equal(server.includes(".limit(500)"), false);
+  const trafficRoute = readFileSync("app/api/traffic/route.ts", "utf8");
+  assert.match(trafficRoute, /get\("analytics"\) === "1"/); checks++;
+  assert.match(trafficRoute, /actor\.role === "agronomist"[\s\S]*includeAnalytics/); checks++;
+  assert.match(trafficRoute, /managerRole: actor\.role/); checks++;
   await db.close();
   console.log(`PTC shift/last PASS: ${checks} checks; actual PostgreSQL transactions, role isolation and analytics; no hosted writes.`);
 }

@@ -90,11 +90,17 @@ export function calculateTrafficAnalytics(
     }
   }
   const closedDowntimes = loadIntervals.filter((value) => value > IDLE_THRESHOLD_MINUTES);
-  const currentGap = loads.length && shift?.status === "open"
-    ? minutesBetween(loads[loads.length - 1].created_at, serverTime)
+  const currentGapStart = loads.length
+    ? loads[loads.length - 1].created_at
+    : shift?.status === "open"
+      ? shift.openedAt
+      : null;
+  const currentGap = currentGapStart && shift?.status === "open"
+    ? minutesBetween(currentGapStart, serverTime)
     : null;
-  const currentProbableDowntimeMinutes = currentGap !== null && currentGap > IDLE_THRESHOLD_MINUTES
-    ? Math.floor(currentGap - IDLE_THRESHOLD_MINUTES)
+  const currentWholeGapMinutes = currentGap === null ? null : Math.floor(currentGap);
+  const currentProbableDowntimeMinutes = currentWholeGapMinutes !== null && currentWholeGapMinutes > IDLE_THRESHOLD_MINUTES
+    ? currentWholeGapMinutes - IDLE_THRESHOLD_MINUTES
     : null;
   return {
     windowLabel: shift

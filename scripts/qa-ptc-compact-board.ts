@@ -138,7 +138,10 @@ async function main() {
     const count = nodes(group).filter(node => node.props?.className?.includes("tabular-nums"));
     check(count.length, 1); check(count[0].props.children, expected[index].length);
   }
-  check(nodes(tree).filter(node => node.props?.className?.includes("tabular-nums")).length, 8); // Mobile selectors + desktop column headings; never visible together.
+  check(nodes(tree).filter(node => node.props?.className?.includes("tabular-nums")).length, 9); // Line total + mobile selectors + desktop column headings; never visible together.
+  const lineTotal = nodes(tree).find(node => node.props?.["data-testid"] === "traffic-line-total");
+  check(Boolean(lineTotal), true);
+  check(words(lineTotal), "На линии:3машины· без машин в ремонте");
   check(cardNodes(tree).length, vehicles.length);
   check(new Set(cardNodes(tree).map(card => card.props["data-testid"])).size, vehicles.length);
   check(cardNodes(tree).every(card => card.type === "button"), true);
