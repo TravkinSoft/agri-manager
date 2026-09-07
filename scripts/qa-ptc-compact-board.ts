@@ -192,11 +192,12 @@ async function main() {
   check(filterCounts(tree), [1, 1, 1, 1]);
   check(mobileGroups(tree).map(group => group.props["data-testid"]), ["traffic-group-empty"]);
   check(filterNodes(tree).map(filter => filter.props["aria-pressed"]), [true, false, false, false]);
+  check(filterNodes(tree).map(filter => words(filter).replace(/\d+$/, "")), ["Пустые", "С грузом", "Выгрузка", "Ремонт"]);
   check(nodes(tree).some(node => node.props?.role === "group" && node.props["aria-label"] === "Показать машины по статусу"), true);
   filterNodes(tree).forEach(filter => {
     check(filter.type, "button"); check(filter.props.type, "button");
     check(filter.props.tabIndex, undefined); // Native Tab + Enter/Space, not an incomplete ARIA tablist.
-    check(filter.props.className.includes("min-h-[48px]"), true);
+    check(filter.props.className.includes("min-h-[52px]"), true);
     check(filter.props.className.includes("focus-visible:outline"), true);
     check(groups.some(group => group.props.id === filter.props["aria-controls"]), true);
   });
@@ -487,7 +488,7 @@ async function main() {
     });
     const filters = filterNodes(filteredTree);
     filters.forEach(filter => {
-      check(stylesAt(filter, width)["min-height"], "48px");
+      check(stylesAt(filter, width)["min-height"], "52px");
       check(stylesAt(filter, width)["min-width"], "0px");
       check(stylesAt(nodes(filter).find(node => node.props?.className?.includes("break-words")), width)["overflow-wrap"], "break-word");
     });
