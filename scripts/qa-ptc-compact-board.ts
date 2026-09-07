@@ -270,10 +270,12 @@ async function main() {
     const staleConfirm = nodes(cancelledDialog).find(node => node.type === Button && words(node) === "Подтвердить");
     let prevented = 0, stopped = 0;
     cancelButton.props.onPointerDown({ preventDefault: () => prevented++, stopPropagation: () => stopped++ });
-    staleConfirm.props.onClick();
+    staleConfirm.props.onClick({ detail: 1 });
     await flush();
-    check(prevented, 1); check(stopped, 1);
+    check(prevented, 0); check(stopped, 1);
     check(cancelled.calls.length, 0);
+    check(renderToStaticMarkup(cancelled.render()).includes('role="alertdialog"'), true);
+    cancelButton.props.onClick({ preventDefault: () => prevented++, stopPropagation: () => stopped++ });
     check(renderToStaticMarkup(cancelled.render()).includes('role="alertdialog"'), false);
     cancelledCard.props.onClick();
     check(renderToStaticMarkup(cancelled.render()).includes('role="alertdialog"'), false);
@@ -284,7 +286,7 @@ async function main() {
     check(words(dialog).includes(clicked.plate!), true);
     const confirm = nodes(dialog).find(node => node.type === Button && words(node) === "Подтвердить");
     check(confirm.props.className.includes("min-h-[48px]"), true);
-    confirm.props.onClick(); confirm.props.onClick();
+    confirm.props.onClick({ detail: 1 }); confirm.props.onClick({ detail: 1 });
     const pendingTree = h.render();
     check(renderToStaticMarkup(pendingTree).includes('role="alertdialog"'), false);
     check(h.props.snapshot.vehicles.find(car => car.vehicle_id === clicked.vehicle_id)?.state, clicked.state);

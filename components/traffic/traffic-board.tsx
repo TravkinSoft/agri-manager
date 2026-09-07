@@ -54,7 +54,7 @@ const groupDots: Record<ManagerTrafficGroup, string> = {
   unloading: "bg-amber-300",
   repair: "bg-rose-400",
 };
-const MOBILE_DISMISS_GUARD_MS = 800;
+const MOBILE_DISMISS_GUARD_MS = 2000;
 export function TrafficBoard({
   snapshot,
   stale,
@@ -80,6 +80,7 @@ export function TrafficBoard({
   const mobileListRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<PendingTrafficCommand[]>([]);
   const cancelledCommandKeyRef = useRef<string | null>(null);
+  const cancelGestureKeyRef = useRef<string | null>(null);
   const cardActivationBlockedUntilRef = useRef(0);
   const mounted = useRef(true);
   const snapshotRef = useRef(snapshot);
@@ -113,6 +114,7 @@ export function TrafficBoard({
   );
   function cancelSelection(command = selected) {
     if (command) cancelledCommandKeyRef.current = command.key;
+    cancelGestureKeyRef.current = null;
     // iOS standalone PWAs may emit a delayed synthetic click after the dialog
     // has disappeared. Keep that click from reaching either the old confirm
     // handler or the vehicle card that is revealed underneath it.
@@ -120,7 +122,7 @@ export function TrafficBoard({
     flushSync(() => setSelected(null));
   }
   async function confirm(command = selected, retry = false) {
-    if (!command || cancelledCommandKeyRef.current === command.key || stale || !snapshot.enabled) return;
+    if (!command || cancelledCommandKeyRef.current === command.key || cancelGestureKeyRef.current === command.key || stale || !snapshot.enabled) return;
     const vehicleId = command.vehicle.vehicle_id;
     const existing = pendingRef.current.find(item => item.vehicle.vehicle_id === vehicleId);
     if (existing && (!retry || existing.phase !== "uncertain" || existing.key !== command.key)) return;
@@ -407,9 +409,14 @@ export function TrafficBoard({
               type="button"
               className="min-h-[48px] touch-manipulation"
               onPointerDown={(event) => {
-                event.preventDefault();
+                // Keep the dialog mounted until the browser has completed the
+                // touch gesture. Unmounting on pointerdown lets iOS retarget the
+                // remaining pointerup/click to the vehicle card underneath.
                 event.stopPropagation();
-                cancelSelection();
+                if (selected) cancelGestureKeyRef.current = selected.key;
+              }}
+              onPointerCancel={() => {
+                cancelGestureKeyRef.current = null;
               }}
               onClick={(event) => {
                 event.preventDefault();
@@ -422,6 +429,15 @@ export function TrafficBoard({
             <Button
               type="button"
               className="min-h-[48px]"
+              onPointerDown={() => {
+                // A distinct explicit press on Confirm supersedes an abandoned
+                // cancel gesture. A retargeted synthetic click has no preceding
+                // pointerdown on this button and therefore stays blocked.
+                cancelGestureKeyRef.current = null;
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") cancelGestureKeyRef.current = null;
+              }}
               onClick={() => void confirm()}
               disabled={stale || !snapshot.enabled || !!selected && pendingCommands.some(command => command.vehicle.vehicle_id === selected.vehicle.vehicle_id)}
             >

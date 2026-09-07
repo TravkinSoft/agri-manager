@@ -70,7 +70,7 @@ async function main() {
       try {
         const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true});
         await context.route('**/*',route=>new URL(route.request().url()).origin===base?route.continue():route.abort());
-        const cases=[...['empty','loaded','unloading'].flatMap(state=>['normal','paused-exit','resume','reject','uncertain','cancel','server-change'].map(mode=>({state,mode}))),
+        const cases=[...['empty','loaded','unloading'].flatMap(state=>['normal','paused-exit','resume','reject','uncertain','cancel','cancel-pointer-lifecycle','server-change'].map(mode=>({state,mode}))),
           {state:'empty',mode:'repair'},{state:'empty',mode:'keyboard'},{state:'unloading',mode:'offline'}];
         for(const {state,mode} of cases) {
           const page=await context.newPage();
@@ -94,8 +94,17 @@ async function main() {
             check(await page.getByRole('button',{name:'Подтвердить',exact:true}).isDisabled(),true,label+'/offline-blocks-write');
             await page.getByRole('button',{name:'Отмена',exact:true}).tap();
             check(await page.evaluate(()=>window.calls.length),0,label+'/no-offline-command');
-          } else if(mode==='cancel') {
-            await page.getByRole('button',{name:'Отмена',exact:true}).tap();
+          } else if(mode==='cancel'||mode==='cancel-pointer-lifecycle') {
+            if(mode==='cancel-pointer-lifecycle') {
+              const cancel=page.getByRole('button',{name:'Отмена',exact:true});
+              await cancel.dispatchEvent('pointerdown',{pointerId:1,pointerType:'touch',isPrimary:true,buttons:1});
+              check(await page.getByRole('alertdialog').count(),1,label+'/dialog-kept-through-pointerdown');
+              check(await page.evaluate(()=>window.calls.length),0,label+'/pointerdown-no-request');
+              await cancel.dispatchEvent('pointerup',{pointerId:1,pointerType:'touch',isPrimary:true,buttons:0});
+              await cancel.dispatchEvent('click',{detail:1});
+            } else {
+              await page.getByRole('button',{name:'Отмена',exact:true}).tap();
+            }
             await page.waitForTimeout(250);
             check(await page.getByRole('alertdialog').count(),0,label+'/cancel-removed');
             check(await page.evaluate(()=>window.calls.length),0,label+'/no-request');
