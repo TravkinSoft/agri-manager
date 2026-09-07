@@ -67,7 +67,7 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
         { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard, kind: "route" },
         { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout, kind: "route" },
         { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
-        { labelKey: "tickets_nav", href: "/tickets", icon: Scale, kind: "route" },
+        { labelKey: "traffic", href: "/traffic", icon: Truck, kind: "route" },
         MORE_ITEM,
       ];
     case "director":

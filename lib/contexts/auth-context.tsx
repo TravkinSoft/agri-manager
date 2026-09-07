@@ -11,6 +11,7 @@ import {
 } from '@/lib/auth/session-bootstrap';
 import { usePathname, useRouter } from 'next/navigation';
 import { normalizeRoleKey, parseCanonicalRole, type CanonicalRole } from "@/lib/auth/role-contract";
+import { readAgronomistLastRoute } from "@/lib/auth/last-route";
 
 interface Profile {
   id: string;
@@ -592,12 +593,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(null);
         throw new Error("Подтвердите email кодом из письма перед входом.");
       }
-      if (parseCanonicalRole(profileRow?.role) === "global_admin") {
+      const signedInRole = parseCanonicalRole(profileRow?.role);
+      if (signedInRole === "global_admin") {
         await clearGlobalAdminCompanyContext(accessToken);
         return { defaultPath: "/platform" };
       }
-      if (parseCanonicalRole(profileRow?.role) === "fleet_manager") {
+      if (signedInRole === "fleet_manager") {
         return { defaultPath: "/fleet" };
+      }
+      if (signedInRole === "agronomist") {
+        return { defaultPath: readAgronomistLastRoute(signedInUserId) || "/dashboard" };
       }
     }
     return { defaultPath: "/dashboard" };

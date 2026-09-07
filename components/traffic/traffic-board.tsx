@@ -34,13 +34,13 @@ const managerGroupOrder: readonly ManagerTrafficGroup[] = [
 ];
 const groupLabels: Record<ManagerTrafficGroup, string> = {
   empty: "Пустые",
-  loaded: "Загруженные",
+  loaded: "В пути на весовую",
   unloading: "На выгрузке",
   repair: "На ремонте",
 };
 const mobileGroupLabels: Record<ManagerTrafficGroup, string> = {
   empty: "Пустые",
-  loaded: "С грузом",
+  loaded: "На весовую",
   unloading: "Выгрузка",
   repair: "Ремонт",
 };
@@ -239,26 +239,25 @@ export function TrafficBoard({
           const target = nextState(snapshot.role, vehicle.state, vehicle.inRepair);
           const pendingVehicle = pendingCommands.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id);
           const identity = getFleetVehicleCardIdentity(vehicle);
-          const cardClass = `min-w-0 rounded-xl border p-2.5 text-left shadow-sm ${vehicle.inRepair ? "border-rose-400 bg-rose-100 text-rose-950" : tones[vehicle.state]}`;
+          const cardClass = `h-24 min-w-0 overflow-hidden rounded-xl border p-2.5 text-left shadow-sm ${vehicle.inRepair ? "border-rose-400 bg-rose-100 text-rose-950" : tones[vehicle.state]}`;
           const content = (
             <>
-              <span className="block break-words text-lg font-bold leading-6">
+              <span className="line-clamp-2 block min-h-10 break-words text-lg font-bold leading-5">
                 {identity.primary}
               </span>
-              {identity.secondary ? <span className="flex min-w-0 items-center gap-1.5">
+              {identity.secondary ? <span className="flex h-5 min-w-0 items-center gap-1.5">
                 <Truck aria-hidden size={15} className="shrink-0 opacity-60" />
-                <span className="truncate text-sm font-semibold opacity-90" title={identity.secondary}>
+                <span className="truncate text-sm font-bold opacity-90" title={identity.secondary}>
                   {identity.secondary}
                 </span>
-              </span> : null}
-              {!identity.hasDriver ? <span className="mt-0.5 block text-[11px] font-medium opacity-60">Без водителя</span> : null}
-              {vehicle.inRepair ? <span className="mt-1 flex items-center gap-1 text-xs font-semibold">
-                <Wrench size={12} aria-hidden /> На ремонте
-              </span> : null}
-              <span className="mt-1 flex flex-wrap items-center gap-1 text-[11px] leading-4 opacity-70">
-                {!isManager || vehicle.inRepair ? <span>{STATE_LABEL[vehicle.state]} ·</span> : null}
+              </span> : <span aria-hidden className="block h-5" />}
+              <span className="flex h-4 min-w-0 items-center gap-1 truncate text-[11px] leading-4 opacity-70">
+                {!identity.hasDriver ? <span className="shrink-0 font-medium">Без водителя ·</span> : null}
+                {vehicle.inRepair ? <span className="flex shrink-0 items-center gap-1 font-semibold">
+                  <Wrench size={11} aria-hidden /> На ремонте · {STATE_LABEL[vehicle.state]} ·
+                </span> : !isManager ? <span className="shrink-0">{STATE_LABEL[vehicle.state]} ·</span> : null}
                 <Clock3 aria-hidden size={11} />
-                {stateAge(vehicle.since, now + offset)}
+                <span className="truncate">{stateAge(vehicle.since, now + offset)}</span>
               </span>
             </>
           );
@@ -327,13 +326,6 @@ export function TrafficBoard({
           </p>
         </div>
       ) : null}
-      <p
-        data-testid="traffic-empty-explainer"
-        className={`mt-5 text-xs leading-relaxed text-slate-500 ${isManager ? "hidden lg:block" : ""}`}
-      >
-        «Пустая» — машина без груза; она может быть в пути. Это не отметка о
-        прибытии на поле.
-      </p>
       {snapshot.role === "manager" && snapshot.events.length ? (
         <details data-testid="traffic-manager-history-inline" className="mt-8 hidden border-t border-white/10 pt-4 lg:block">
           <summary className="min-h-[48px] cursor-pointer py-3 text-sm text-slate-400">

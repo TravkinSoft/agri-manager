@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "./sidebar";
@@ -14,6 +14,11 @@ import { MobileBottomNav } from "./mobile-bottom-nav";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase/client";
 import { useLanguage } from "@/lib/contexts/language-context";
+import {
+  normalizeAgronomistLastRoute,
+  readAgronomistLastRoute,
+  rememberAgronomistLastRoute,
+} from "@/lib/auth/last-route";
 
 const AssistantLauncher = dynamic(
   () => import("@/components/assistant/assistant-launcher").then((module) => module.AssistantLauncher),
@@ -43,6 +48,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { t } = useLanguage();
   const [stoppingImpersonation, setStoppingImpersonation] = useState(false);
+  const agronomistRestoreProfileRef = useRef<string | null>(null);
   const isWeatherLab = pathname === "/weather-lab" || pathname?.startsWith("/weather-lab/");
   const isWeighbridge = pathname === "/weighbridge" || pathname?.startsWith("/weighbridge/");
   const isTraffic = pathname === "/traffic" || pathname?.startsWith("/traffic/") || pathname === "/fleet";
@@ -62,6 +68,27 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       router.replace(getDefaultPathForRole(profile.role));
     }
   }, [loading, profile?.role, profile?.context_company_id, pathname, router]);
+
+  useEffect(() => {
+    if (loading || profile?.role !== "agronomist" || !profile.id || !pathname) return;
+
+    const currentRoute = normalizeAgronomistLastRoute(
+      `${pathname}${window.location.search || ""}${window.location.hash || ""}`,
+    );
+    const firstRouteForProfile = agronomistRestoreProfileRef.current !== profile.id;
+    if (firstRouteForProfile) {
+      agronomistRestoreProfileRef.current = profile.id;
+      if (pathname === "/dashboard") {
+        const previousRoute = readAgronomistLastRoute(profile.id);
+        if (previousRoute && previousRoute !== currentRoute) {
+          router.replace(previousRoute);
+          return;
+        }
+      }
+    }
+
+    if (currentRoute) rememberAgronomistLastRoute(profile.id, currentRoute);
+  }, [loading, pathname, profile?.id, profile?.role, router]);
 
   useEffect(() => {
     if (loading || !profile?.role || !pathname) return;
