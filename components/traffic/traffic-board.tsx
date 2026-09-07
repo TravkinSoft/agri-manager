@@ -197,8 +197,34 @@ export function TrafficBoard({
         (lineVehicleCount % 100 < 12 || lineVehicleCount % 100 > 14)
       ? "машины"
       : "машин";
+  const combineBreakdowns = snapshot.combineBreakdowns ?? [];
   return (
     <>
+      {combineBreakdowns.length > 0 ? (
+        <section
+          data-testid="traffic-combine-breakdown-banner"
+          role="status"
+          aria-live="polite"
+          className="mb-3 flex min-w-0 items-start gap-2 rounded-xl border border-rose-400/40 bg-rose-500/15 px-3 py-2 text-rose-100"
+        >
+          <Wrench aria-hidden size={18} className="mt-0.5 shrink-0 text-rose-300" />
+          <div className="min-w-0 text-sm">
+            <p className="font-semibold text-rose-200">
+              {combineBreakdowns.length === 1
+                ? "Поломка комбайна"
+                : `Поломка комбайнов · ${combineBreakdowns.length}`}
+            </p>
+            <ul className="mt-0.5 flex min-w-0 flex-wrap gap-x-3 gap-y-0.5">
+              {combineBreakdowns.map((status) => (
+                <li key={status.operatorUserId} className="min-w-0 break-words">
+                  <span className="font-medium text-white">{status.operatorName}</span>
+                  <span className="text-rose-200"> · {stateAge(status.changedAt, now + offset)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      ) : null}
       {snapshot.role === "receiver" && snapshot.lastVehicle ? (
         <p data-testid="traffic-last-vehicle-banner" className="mb-4 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm text-slate-100">
           <span className="font-semibold text-rose-300">Последняя:</span>{" "}

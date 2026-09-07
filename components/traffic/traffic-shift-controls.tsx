@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Clock3, EllipsisVertical, Play, Square } from "lucide-react";
+import { Clock3, EllipsisVertical, Play, Square, Wrench } from "lucide-react";
 import type { TrafficSnapshot } from "@/lib/traffic/model";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -23,6 +23,8 @@ export function TrafficShiftControls({
   const [error, setError] = useState("");
   const shift = snapshot.combineShift;
   const open = shift?.status === "open";
+  const combineStatus = snapshot.ownCombineStatus;
+  const isBroken = combineStatus?.isBroken === true;
 
   async function commit(body: Record<string, unknown>) {
     if (busy || stale || !snapshot.enabled) return;
@@ -36,6 +38,31 @@ export function TrafficShiftControls({
       if (result?.ok !== true) throw new Error("Сервер не подтвердил смену");
       await onCommitted();
       setClosing(false);
+    } catch (caught) {
+      setError((caught as Error).message);
+      void refresh(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeCombineStatus(nextBroken: boolean) {
+    if (busy || stale || !snapshot.enabled) return;
+    const prompt = nextBroken
+      ? "Сообщить о поломке комбайна?\n\nВесовая, приёмка, заведующий автопарком и агроном увидят этот статус. Смена и статусы машин не изменятся."
+      : "Комбайн снова работает?\n\nСтатус поломки исчезнет у всех участников оборота.";
+    if (window.confirm(prompt) !== true) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await trafficRequest("/api/traffic/operator/combine-breakdown", "POST", {
+        isBroken: nextBroken,
+        version: combineStatus?.version ?? 0,
+        key: crypto.randomUUID(),
+      });
+      if (result?.ok !== true || result.isBroken !== nextBroken)
+        throw new Error("Сервер не подтвердил статус комбайна");
+      await onCommitted();
     } catch (caught) {
       setError((caught as Error).message);
       void refresh(true);
@@ -61,12 +88,29 @@ export function TrafficShiftControls({
       <div data-testid="traffic-combine-shift" className="relative">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button type="button" aria-label="Меню смены комбайнёра" disabled={busy || stale || !snapshot.enabled}
+            <button type="button" aria-label="Меню комбайнёра" disabled={busy || stale || !snapshot.enabled}
               className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-xl text-slate-300 hover:bg-white/5 disabled:opacity-40">
               <EllipsisVertical aria-hidden size={22} />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuLabel className="font-normal">
+              <span className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+                <Wrench aria-hidden size={15} className={isBroken ? "text-rose-300" : "text-emerald-300"} />
+                Статус комбайна
+              </span>
+              <span className={`mt-1 block text-xs ${isBroken ? "text-rose-300" : "text-emerald-300"}`}>
+                {isBroken ? "Поломка" : "Работает"}
+              </span>
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              onSelect={() => void changeCombineStatus(!isBroken)}
+              className={`min-h-[48px] gap-2 ${isBroken ? "text-emerald-300 focus:text-emerald-200" : "text-rose-300 focus:text-rose-200"}`}
+            >
+              {isBroken ? <Play aria-hidden size={16} /> : <Wrench aria-hidden size={16} />}
+              {isBroken ? "Комбайн снова работает" : "Сообщить о поломке"}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuLabel className="font-normal">
               <span className="flex items-center gap-2 text-sm font-semibold text-slate-100">
                 <Clock3 aria-hidden size={15} className="text-amber-300" /> Смена комбайнёра

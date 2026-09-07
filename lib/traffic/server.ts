@@ -92,6 +92,13 @@ export function failed(error: unknown) {
     PTC_SHIFT_INVALID: [400, "Проверьте данные смены"],
     PTC_SHIFT_ALREADY_OPEN: [409, "Смена уже открыта"],
     PTC_SHIFT_CONFLICT: [409, "Смена уже изменилась. Обновите кабинет"],
+    PTC_COMBINE_STATUS_FORBIDDEN: [403, "Статус комбайна доступен только комбайнёру"],
+    PTC_COMBINE_STATUS_INVALID: [400, "Проверьте статус комбайна"],
+    PTC_COMBINE_STATUS_VERSION_CONFLICT: [
+      409,
+      "Статус комбайна уже изменился. Обновите кабинет",
+    ],
+    PTC_COMBINE_STATUS_NO_CHANGE: [409, "Статус комбайна уже установлен"],
   };
   const match = Object.entries(known).find(([key]) => message.includes(key));
   return match
@@ -225,6 +232,14 @@ async function readTrafficAnalyticsEvents(
 
 const LIVE_ANALYTICS_MAX_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+type CombineStatusRow = {
+  operator_user_id: string;
+  operator_name: string;
+  is_broken: boolean;
+  version: number;
+  changed_at: string;
+};
+
 export async function readSnapshot(
   companyId: string,
   role: TrafficRole,
@@ -283,6 +298,12 @@ export async function readSnapshot(
             .limit(1)
             .maybeSingle()
         : Promise.resolve({ data: null, error: null }),
+    db
+      .from("ptc_combine_operator_statuses")
+      .select("operator_user_id,operator_name,is_broken,version,changed_at")
+      .eq("company_id", companyId)
+      .order("changed_at", { ascending: false })
+      .order("operator_user_id", { ascending: true }),
   ]);
   for (const result of results) if (result.error) throw result.error;
   const flow = results[0].data as {
@@ -324,6 +345,35 @@ export async function readSnapshot(
     hectaresFieldTotal: shiftRow.hectares_field_total === null ? null : Number(shiftRow.hectares_field_total),
     status: shiftRow.closed_at === null ? "open" as const : "closed" as const,
   } : null;
+  const combineStatusRows = (results[5].data ?? []) as CombineStatusRow[];
+  const combineBreakdowns = combineStatusRows
+    .filter((status) => status.is_broken)
+    .map((status) => ({
+      operatorUserId: status.operator_user_id,
+      operatorName: status.operator_name,
+      changedAt: status.changed_at,
+      version: status.version,
+    }));
+  const ownStatusRow = role === "harvester" && actorId
+    ? combineStatusRows.find((status) => status.operator_user_id === actorId)
+    : undefined;
+  const ownCombineStatus = role === "harvester" && actorId
+    ? ownStatusRow
+      ? {
+          operatorUserId: ownStatusRow.operator_user_id,
+          operatorName: ownStatusRow.operator_name,
+          isBroken: ownStatusRow.is_broken,
+          changedAt: ownStatusRow.changed_at,
+          version: ownStatusRow.version,
+        }
+      : {
+          operatorUserId: actorId,
+          operatorName: personName,
+          isBroken: false,
+          changedAt: null,
+          version: 0,
+        }
+    : null;
   const serverTime = new Date().toISOString();
   const rollingStartedAt = new Date(Date.parse(serverTime) - 12 * 60 * 60 * 1000).toISOString();
   const liveWindowFloor = new Date(Date.parse(serverTime) - LIVE_ANALYTICS_MAX_WINDOW_MS).toISOString();
@@ -461,6 +511,8 @@ export async function readSnapshot(
       };
     })() : null,
     combineShift,
+    combineBreakdowns,
+    ownCombineStatus,
     analytics: role === "manager" && includeAnalytics
       ? (() => {
           const result = calculateTrafficAnalytics(

@@ -68,6 +68,19 @@ export interface TrafficCombineShift {
   hectaresFieldTotal: number | null;
   status: "open" | "closed";
 }
+export interface TrafficCombineBreakdown {
+  operatorUserId: string;
+  operatorName: string;
+  changedAt: string;
+  version: number;
+}
+export interface TrafficOwnCombineStatus {
+  operatorUserId: string;
+  operatorName: string;
+  isBroken: boolean;
+  changedAt: string | null;
+  version: number;
+}
 export interface TrafficAnalytics {
   windowLabel: string;
   windowStartedAt: string;
@@ -95,6 +108,8 @@ export interface TrafficSnapshot {
   vehicles: TrafficVehicle[];
   lastVehicle?: TrafficLastVehicle | null;
   combineShift?: TrafficCombineShift | null;
+  combineBreakdowns?: TrafficCombineBreakdown[];
+  ownCombineStatus?: TrafficOwnCombineStatus | null;
   analytics?: TrafficAnalytics | null;
   events: Array<{
     id: string;

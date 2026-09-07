@@ -21,6 +21,8 @@ function sameSnapshotContent(left: TrafficSnapshot, right: TrafficSnapshot) {
   return JSON.stringify(left.vehicles) === JSON.stringify(right.vehicles) &&
     JSON.stringify(left.lastVehicle ?? null) === JSON.stringify(right.lastVehicle ?? null) &&
     JSON.stringify(left.combineShift ?? null) === JSON.stringify(right.combineShift ?? null) &&
+    JSON.stringify(left.combineBreakdowns ?? []) === JSON.stringify(right.combineBreakdowns ?? []) &&
+    JSON.stringify(left.ownCombineStatus ?? null) === JSON.stringify(right.ownCombineStatus ?? null) &&
     JSON.stringify(left.analytics ?? null) === JSON.stringify(right.analytics ?? null) &&
     JSON.stringify(left.events) === JSON.stringify(right.events);
 }
