@@ -93,6 +93,10 @@ checks.push(
     assert.doesNotMatch(ordinaryEditorSource, />Репродукция \/ поколение \*<\/Label>/);
   }],
   ["ordinary variety field is hidden when no options exist", () => assert.match(pageSource, /row\.crop_id && vars\.length > 0/)],
+  ["linked row delete explains the lock instead of becoming inert", () => {
+    assert.match(pageSource, /aria-label=\{isDeleteLocked \? "Показать причину запрета удаления участка" : "Удалить участок"\}/);
+    assert.doesNotMatch(pageSource, /onClick=\{\(\) => requestRemoveRow\(index\)\}\s+disabled=\{isDeleteLocked\}/);
+  }],
   ["closed season remains read only", () => assert.match(routeSource, /Closed season is read-only/)],
   ["migration adds canonical F1 without generated hardcoded id", () => {
     assert.match(migrationSource, /insert into public\.seed_reproductions/);

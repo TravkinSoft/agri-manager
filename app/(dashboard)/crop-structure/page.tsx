@@ -2878,9 +2878,9 @@ export default function CropStructurePage() {
                     className="h-10 w-10 border border-transparent text-slate-400 hover:border-rose-500/40 hover:bg-rose-500/15 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
                     variant="ghost"
                     size="icon"
-                    title={isDeleteLocked ? "Нельзя удалить: есть операции или материалы" : "Удалить участок"}
+                    title={isDeleteLocked ? "Почему нельзя удалить участок" : "Удалить участок"}
+                    aria-label={isDeleteLocked ? "Показать причину запрета удаления участка" : "Удалить участок"}
                     onClick={() => requestRemoveRow(index)}
-                    disabled={isDeleteLocked}
                   >
                     <X className="h-4 w-4" />
                   </Button>
