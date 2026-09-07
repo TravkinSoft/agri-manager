@@ -35,6 +35,7 @@ export const ACTION_LABEL: Record<TrafficState, string> = {
 export interface TrafficVehicle {
   vehicle_id: string;
   name: string;
+  brand?: string | null;
   plate: string | null;
   driver: string | null;
   state: TrafficState;

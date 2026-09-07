@@ -271,7 +271,7 @@ export function TrafficBoard({
               </span>
               {identity.secondary ? <span className="flex min-w-0 items-center gap-1.5">
                 <Truck aria-hidden size={15} className="shrink-0 opacity-60" />
-                <span className="truncate text-xs font-medium opacity-80" title={identity.secondary}>
+                <span className="truncate text-sm font-semibold opacity-90" title={identity.secondary}>
                   {identity.secondary}
                 </span>
               </span> : null}

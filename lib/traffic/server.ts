@@ -302,6 +302,7 @@ export async function readSnapshot(
         vehicle?.name ||
         [vehicle?.brand, vehicle?.model].filter(Boolean).join(" ") ||
         "Машина",
+      brand: vehicle?.brand || null,
       plate: vehicle ? ptcVehicleDisplayPlate(vehicle) : null,
       driver: activeAssignedDriverName(
         driverAssignments.get(vehicle?.primary_responsible_personnel_id ?? ""),

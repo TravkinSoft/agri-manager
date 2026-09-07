@@ -31,7 +31,7 @@ export function TrafficFleetControls({ managed, snapshot, selected, onSelected, 
     const rows = new Map(managed.fleet.map(row => [row.id, { ...row, assigned: false }]));
     for (const vehicle of snapshot.vehicles) rows.set(vehicle.vehicle_id, {
       ...rows.get(vehicle.vehicle_id), id: vehicle.vehicle_id, name: vehicle.name, plate: vehicle.plate,
-      driver: vehicle.driver, assigned: true, state: vehicle.state, lastActivity: vehicle.since,
+      brand: vehicle.brand, driver: vehicle.driver, assigned: true, state: vehicle.state, lastActivity: vehicle.since,
       inRepair: vehicle.inRepair, repairVersion: vehicle.repairVersion,
     });
     return Array.from(rows.values());
@@ -44,7 +44,7 @@ export function TrafficFleetControls({ managed, snapshot, selected, onSelected, 
 
   useEffect(() => {
     if (!selected) return;
-    setCar({ id: selected.vehicle_id, name: selected.name, plate: selected.plate, driver: selected.driver,
+    setCar({ id: selected.vehicle_id, name: selected.name, brand: selected.brand, plate: selected.plate, driver: selected.driver,
       assigned: true, state: selected.state, inRepair: selected.inRepair, repairVersion: selected.repairVersion });
     setError(""); setPanel("actions"); onSelected(null);
   }, [selected, onSelected]);
