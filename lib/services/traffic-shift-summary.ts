@@ -1,5 +1,6 @@
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import type { TrafficClosedShiftSummary } from "@/lib/traffic/shift-summary";
+import { normalizeTrafficClosedShiftSummary } from "@/lib/traffic/shift-summary-normalize";
 
 export async function getLatestClosedTrafficShiftSummary(): Promise<TrafficClosedShiftSummary | null> {
   let headers: HeadersInit;
@@ -25,5 +26,5 @@ export async function getLatestClosedTrafficShiftSummary(): Promise<TrafficClose
     );
     throw error;
   }
-  return (payload?.summary ?? null) as TrafficClosedShiftSummary | null;
+  return normalizeTrafficClosedShiftSummary(payload?.summary);
 }

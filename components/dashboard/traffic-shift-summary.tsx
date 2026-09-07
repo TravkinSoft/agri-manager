@@ -1,16 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Clock3, Route, Tractor } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Activity, AlertTriangle, ChevronDown, CircleCheck, Clock3, Route, Tractor } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { subscribeTrafficChanges } from "@/lib/traffic/changes";
 import { getLatestClosedTrafficShiftSummary } from "@/lib/services/traffic-shift-summary";
 import type { TrafficClosedShiftSummary } from "@/lib/traffic/shift-summary";
 
 function number(value: number | null, suffix = "") {
-  return value === null
-    ? "Недостаточно данных"
-    : `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })}${suffix}`;
+  return value === null ? "—" : `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })}${suffix}`;
 }
 
 function duration(minutes: number) {
@@ -43,23 +42,58 @@ function pluralDelays(value: number) {
   return digit === 1 ? "задержка" : digit >= 2 && digit <= 4 ? "задержки" : "задержек";
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function pluralVehicles(value: number) {
+  const tail = Math.abs(value) % 100;
+  if (tail >= 11 && tail <= 14) return "машин";
+  const digit = tail % 10;
+  return digit === 1 ? "машина" : digit >= 2 && digit <= 4 ? "машины" : "машин";
+}
+
+function Metric({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-950/30 px-3 py-2">
-      <div className="text-[11px] leading-4 text-slate-500">{label}</div>
-      <div className="mt-0.5 text-sm font-semibold text-slate-100">{value}</div>
+    <div className="min-w-0 rounded-lg border border-slate-800 bg-slate-950/35 px-3 py-3">
+      <div className="text-xs leading-4 text-slate-400">{label}</div>
+      <div className="mt-1 break-words text-lg font-semibold leading-6 text-slate-100 [overflow-wrap:anywhere] sm:text-xl">{value}</div>
+      {note ? <div className="mt-1 text-[11px] leading-4 text-slate-500">{note}</div> : null}
     </div>
+  );
+}
+
+function TimingMetric({ label, value, sample }: { label: string; value: number | null; sample?: string }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-slate-800/80 bg-slate-950/20 px-3 py-2.5">
+      <div className="text-xs leading-4 text-slate-400">{label}</div>
+      <div className="mt-1 text-base font-semibold text-slate-100">{number(value, " мин")}</div>
+      {sample ? <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{sample}</div> : null}
+    </div>
+  );
+}
+
+function SummaryShell({ children }: { children: React.ReactNode }) {
+  return (
+    <Card data-testid="agronomist-closed-shift-summary" className="rounded-xl border-amber-500/25 bg-gradient-to-br from-amber-500/[0.045] via-transparent to-transparent">
+      <CardContent className="p-3 sm:p-4">{children}</CardContent>
+    </Card>
   );
 }
 
 export function TrafficShiftSummary({ companyId }: { companyId: string }) {
   const [summary, setSummary] = useState<TrafficClosedShiftSummary | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [refreshError, setRefreshError] = useState("");
+  const [timingOpen, setTimingOpen] = useState(false);
+  const [showAllVehicles, setShowAllVehicles] = useState(false);
+  const retryRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     let disposed = false;
     let running = false;
     let pending = false;
     setSummary(null);
+    setLoaded(false);
+    setRefreshError("");
+    setTimingOpen(false);
+    setShowAllVehicles(false);
 
     const refresh = async () => {
       if (disposed) return;
@@ -70,14 +104,22 @@ export function TrafficShiftSummary({ companyId }: { companyId: string }) {
       running = true;
       try {
         const next = await getLatestClosedTrafficShiftSummary();
-        if (!disposed) setSummary(next);
+        if (!disposed) {
+          setSummary(next);
+          setLoaded(true);
+          setRefreshError("");
+        }
       } catch (error) {
         const failure = error as Error & { status?: number };
         // A transient failure retains the last good result. Revoked access must
         // immediately remove protected shift information from the screen.
         if (!disposed && (failure.status === 401 || failure.status === 403)) {
           setSummary(null);
+          setRefreshError("");
+        } else if (!disposed) {
+          setRefreshError("Не удалось обновить сводку");
         }
+        if (!disposed) setLoaded(true);
         console.error("PTC shift summary refresh failed", error);
       } finally {
         running = false;
@@ -87,12 +129,16 @@ export function TrafficShiftSummary({ companyId }: { companyId: string }) {
         }
       }
     };
+    retryRef.current = () => void refresh();
     const visible = () => {
       if (document.visibilityState === "visible") void refresh();
     };
     const wake = () => void refresh();
     const unsubscribe = subscribeTrafficChanges(companyId, wake);
-    const interval = window.setInterval(visible, 60_000);
+    // Broadcast normally refreshes other devices immediately. Fifteen-second
+    // visible polling is the bounded fallback if the operator closes the PWA
+    // before its invalidation message is delivered.
+    const interval = window.setInterval(visible, 15_000);
     window.addEventListener("focus", wake);
     window.addEventListener("online", wake);
     document.addEventListener("visibilitychange", visible);
@@ -104,54 +150,125 @@ export function TrafficShiftSummary({ companyId }: { companyId: string }) {
       window.removeEventListener("focus", wake);
       window.removeEventListener("online", wake);
       document.removeEventListener("visibilitychange", visible);
+      retryRef.current = () => undefined;
     };
   }, [companyId]);
 
-  if (!summary) return null;
-  const downtime = summary.probableDowntimeCount
-    ? `${summary.probableDowntimeCount} ${pluralDelays(summary.probableDowntimeCount)} · ${summary.probableDowntimeMinutes} мин сверх порога`
-    : "Не было";
+  if (!loaded && !summary) {
+    return (
+      <SummaryShell>
+        <div aria-label="Загружается итог смены PTC" className="animate-pulse space-y-3">
+          <div className="h-5 w-56 rounded bg-slate-800" />
+          <div className="h-4 w-40 rounded bg-slate-800/70" />
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+            {[0, 1, 2, 3].map((item) => <div key={item} className="h-20 rounded-lg bg-slate-800/60" />)}
+          </div>
+        </div>
+      </SummaryShell>
+    );
+  }
+
+  if (!summary) {
+    return (
+      <SummaryShell>
+        <div className="flex min-h-28 flex-col justify-center">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-slate-100">
+            <Tractor className="h-4 w-4 text-[#E0B100]" /> PTC · Итоги последней смены
+          </h2>
+          {refreshError ? (
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-amber-200">
+              <span>{refreshError}.</span>
+              <button type="button" onClick={() => retryRef.current()} className="min-h-10 rounded-lg border border-amber-500/30 px-3 font-medium hover:bg-amber-500/10">
+                Повторить
+              </button>
+            </div>
+          ) : (
+            <div className="mt-3">
+              <p className="text-sm font-medium text-slate-200">Закрытых смен пока нет</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">После закрытия смены комбайнёром гектары, рейсы и ритм работы появятся здесь автоматически.</p>
+            </div>
+          )}
+        </div>
+      </SummaryShell>
+    );
+  }
+  const downtimeStatus = summary.loadIntervalSamples === 0
+    ? "unknown"
+    : summary.probableDowntimeCount > 0
+      ? "warning"
+      : "clear";
+  const downtime = downtimeStatus === "unknown"
+    ? "Недостаточно загрузок для оценки"
+    : downtimeStatus === "warning"
+      ? `${summary.probableDowntimeCount} ${pluralDelays(summary.probableDowntimeCount)} дольше 15 минут · ${summary.probableDowntimeMinutes} мин сверх порога`
+      : "Задержек дольше 15 минут не было";
+  const timingMetrics = (
+    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+      <TimingMetric label="Комбайн загружал машину в среднем каждые" value={summary.averageLoadIntervalMinutes} sample={`Интервалов: ${summary.loadIntervalSamples}`} />
+      <TimingMetric label="От поля до весовой в среднем" value={summary.averageFieldToWeighbridgeMinutes} sample={`Данных по рейсам: ${summary.fieldToWeighbridgeTrips} из ${summary.totalTrips}`} />
+      <TimingMetric label="От весовой до окончания выгрузки в среднем" value={summary.averageUnloadingMinutes} sample={`Данных по рейсам: ${summary.unloadingTrips} из ${summary.totalTrips}`} />
+      <TimingMetric label="От выгрузки до следующей загрузки в среднем" value={summary.averageReturnToLoadMinutes} sample={`Повторных рейсов: ${summary.returnToLoadTrips}`} />
+      <TimingMetric label="Полный круг одной машины в среднем" value={summary.averageVehicleCycleMinutes} sample={`Повторных кругов: ${summary.vehicleCycleSamples}`} />
+      <TimingMetric label="Разброс последних загрузок машин" value={summary.latestDistinctVehicleLoadSpanMinutes} sample="Между самой ранней и самой поздней из последних загрузок машин этой смены" />
+    </div>
+  );
 
   return (
-    <Card data-testid="agronomist-closed-shift-summary" className="rounded-lg border-amber-500/20">
-      <CardContent className="space-y-4 p-3 sm:p-4">
+    <SummaryShell>
+      <div className="space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h2 className="flex items-center gap-2 text-base font-semibold text-slate-100">
-              <Tractor className="h-4 w-4 text-[#E0B100]" /> Последняя закрытая смена
+              <Tractor className="h-4 w-4 text-[#E0B100]" /> PTC · Итоги последней смены
             </h2>
             <p className="mt-1 text-xs text-slate-400">
-              {summary.operatorName}{summary.fieldName ? ` · ${summary.fieldName}` : ""}
+              {summary.operatorName} · {summary.fieldName || "Поле не указано"}
             </p>
           </div>
-          <div className="text-right text-xs text-slate-500">
-            <div>{dateTime(summary.openedAt)} — {dateTime(summary.closedAt)}</div>
-            <div className="mt-1 flex items-center justify-end gap-1 text-slate-300">
+          <div className="flex flex-col items-start gap-1 sm:items-end">
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-300">
+              <CircleCheck className="h-3.5 w-3.5" /> Смена закрыта
+            </span>
+            <div className="text-xs text-slate-500">{dateTime(summary.openedAt)} — {dateTime(summary.closedAt)}</div>
+            <div className="flex items-center gap-1 text-xs text-slate-300">
               <Clock3 className="h-3.5 w-3.5" /> {duration(summary.durationMinutes)}
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
-          <Metric label="За эту смену" value={number(summary.hectaresShift, " га")} />
-          <Metric label="Итого на поле" value={number(summary.hectaresFieldTotal, " га")} />
-          <Metric label="Рейсов за смену" value={String(summary.totalTrips)} />
-          <Metric label="Машин участвовало" value={String(summary.participatingVehicles)} />
-          <Metric label="В среднем между загрузками" value={number(summary.averageLoadIntervalMinutes, " мин")} />
-          <Metric label="Круг одной машины" value={number(summary.averageVehicleCycleMinutes, " мин")} />
-          <Metric label="Круг всех машин" value={number(summary.latestFleetRoundMinutes, " мин")} />
-          <Metric label="Задержки дольше 15 минут" value={downtime} />
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+          <Metric label="Гектаров за смену" value={number(summary.hectaresShift, " га")} />
+          <Metric label="Всего на поле" value={number(summary.hectaresFieldTotal, " га")} />
+          <Metric label="Отправлено с поля" value={`${summary.totalTrips} ${pluralTrips(summary.totalTrips)}`} note="По отметкам загрузки комбайнёра" />
+          <Metric label="Работало в смене" value={`${summary.participatingVehicles} ${pluralVehicles(summary.participatingVehicles)}`} />
         </div>
+
+        <div className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs leading-5 ${downtimeStatus === "warning" ? "border-amber-500/25 bg-amber-500/[0.07] text-amber-100" : downtimeStatus === "clear" ? "border-emerald-500/20 bg-emerald-500/[0.05] text-emerald-200" : "border-slate-700 bg-slate-900/40 text-slate-300"}`}>
+          {downtimeStatus === "warning" ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <Activity className="mt-0.5 h-4 w-4 shrink-0" />}
+          <span><b>Возможные простои комбайна:</b> {downtime}.</span>
+        </div>
+
+        <div className="hidden md:block">
+          <h3 className="mb-2 text-xs font-medium text-slate-400">Время движения и разгрузки</h3>
+          {timingMetrics}
+        </div>
+        <Collapsible open={timingOpen} onOpenChange={setTimingOpen} className="md:hidden">
+          <CollapsibleTrigger className="flex min-h-11 w-full items-center justify-between rounded-lg border border-slate-800 px-3 text-left text-sm font-medium text-slate-200">
+            Время движения и разгрузки
+            <ChevronDown className={`h-4 w-4 transition-transform ${timingOpen ? "rotate-180" : ""}`} />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-2">{timingMetrics}</CollapsibleContent>
+        </Collapsible>
 
         {summary.vehicles.length ? (
           <div>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-              <span className="flex items-center gap-1.5"><Route className="h-3.5 w-3.5" /> Рейсы каждой машины</span>
-              <span>По отметкам загрузки комбайнёра</span>
+              <span className="flex items-center gap-1.5 font-medium text-slate-400"><Route className="h-3.5 w-3.5" /> Рейсы по машинам</span>
+              <span>Всего: {summary.totalTrips}</span>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {summary.vehicles.map((vehicle) => (
-                <div key={vehicle.vehicleId} className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-slate-800 px-3 py-2">
+              {summary.vehicles.map((vehicle, index) => (
+                <div key={vehicle.vehicleId} className={`${!showAllVehicles && index >= 4 ? "hidden sm:flex" : "flex"} min-w-0 items-center justify-between gap-3 rounded-lg border border-slate-800 px-3 py-2.5`}>
                   <span className="truncate text-sm text-slate-200">
                     {vehicle.brand}{vehicle.plate ? ` · ${vehicle.plate}` : " · Без номера"}
                   </span>
@@ -161,9 +278,20 @@ export function TrafficShiftSummary({ companyId }: { companyId: string }) {
                 </div>
               ))}
             </div>
+            {summary.vehicles.length > 4 ? (
+              <button type="button" onClick={() => setShowAllVehicles((value) => !value)} className="mt-2 min-h-11 w-full rounded-lg border border-slate-800 text-sm font-medium text-slate-300 sm:hidden">
+                {showAllVehicles ? "Скрыть часть машин" : `Показать все (${summary.vehicles.length})`}
+              </button>
+            ) : null}
           </div>
         ) : null}
-      </CardContent>
-    </Card>
+        {refreshError ? (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-amber-300">
+            <span>{refreshError}; показаны последние полученные данные.</span>
+            <button type="button" onClick={() => retryRef.current()} className="min-h-9 rounded-md border border-amber-500/25 px-2.5 font-medium">Повторить</button>
+          </div>
+        ) : null}
+      </div>
+    </SummaryShell>
   );
 }

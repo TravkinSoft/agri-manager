@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildTrafficClosedShiftSummary } from "../lib/traffic/shift-summary";
 import { readLatestClosedTrafficShiftSummary } from "../lib/traffic/shift-summary-server";
+import { normalizeTrafficClosedShiftSummary } from "../lib/traffic/shift-summary-normalize";
 
 let checks = 0;
 function equal(actual: unknown, expected: unknown) {
@@ -51,13 +52,70 @@ equal(summary.durationMinutes, 60);
 equal(summary.totalTrips, 4);
 equal(summary.participatingVehicles, 2);
 equal(summary.averageLoadIntervalMinutes, 15);
+equal(summary.loadIntervalSamples, 3);
+equal(summary.averageFieldToWeighbridgeMinutes, 7);
+equal(summary.fieldToWeighbridgeTrips, 2);
+equal(summary.averageUnloadingMinutes, 3);
+equal(summary.unloadingTrips, 2);
+equal(summary.averageReturnToLoadMinutes, 21);
+equal(summary.returnToLoadTrips, 2);
 equal(summary.averageVehicleCycleMinutes, 30);
+equal(summary.vehicleCycleSamples, 2);
+// The latest fleet round must contain both distinct vehicles. The previous
+// count-only formula included an extra, older load and returned 35 minutes.
 equal(summary.latestFleetRoundMinutes, 35);
+equal(summary.latestDistinctVehicleLoadSpanMinutes, 20);
 equal(summary.probableDowntimeCount, 1);
 equal(summary.probableDowntimeMinutes, 5);
 equal(summary.vehicles.map((row) => [row.vehicleId, row.trips]).sort(), [["car-1", 2], ["car-2", 2]]);
 equal(summary.fieldName, "Поле 1");
 equal("driver" in summary.vehicles[0], false);
+const rollbackCompatible = normalizeTrafficClosedShiftSummary({
+  ...summary,
+  loadIntervalSamples: undefined,
+  averageFieldToWeighbridgeMinutes: undefined,
+  fieldToWeighbridgeTrips: undefined,
+  averageUnloadingMinutes: undefined,
+  unloadingTrips: undefined,
+  averageReturnToLoadMinutes: undefined,
+  returnToLoadTrips: undefined,
+  vehicleCycleSamples: undefined,
+  latestDistinctVehicleLoadSpanMinutes: undefined,
+});
+equal(rollbackCompatible?.loadIntervalSamples, 3);
+equal(rollbackCompatible?.averageFieldToWeighbridgeMinutes, null);
+equal(rollbackCompatible?.fieldToWeighbridgeTrips, 0);
+equal(rollbackCompatible?.averageUnloadingMinutes, null);
+equal(rollbackCompatible?.unloadingTrips, 0);
+equal(rollbackCompatible?.averageReturnToLoadMinutes, null);
+equal(rollbackCompatible?.returnToLoadTrips, 0);
+equal(rollbackCompatible?.vehicleCycleSamples, 0);
+equal(rollbackCompatible?.latestDistinctVehicleLoadSpanMinutes, null);
+
+const noLoads = buildTrafficClosedShiftSummary(shift, [], [], null);
+equal(noLoads.totalTrips, 0);
+equal(noLoads.loadIntervalSamples, 0);
+equal(noLoads.averageLoadIntervalMinutes, null);
+equal(noLoads.latestDistinctVehicleLoadSpanMinutes, null);
+const oneLoad = buildTrafficClosedShiftSummary(shift, [
+  event("car-1", "empty", "loaded", 1, "2026-09-07T08:01:00.000Z"),
+], [{ id: "car-1", name: "КамАЗ", brand: "КамАЗ", plate: "1" }], null);
+equal(oneLoad.totalTrips, 1);
+equal(oneLoad.loadIntervalSamples, 0);
+equal(oneLoad.probableDowntimeCount, 0);
+equal(oneLoad.latestDistinctVehicleLoadSpanMinutes, null);
+
+// A vehicle that worked only at the start must not silently change the meaning
+// of the legacy fleet-round field used by an older installed PWA.
+const changingFleetEvents = [
+  event("car-early", "empty", "loaded", 1, "2026-09-07T08:00:00.000Z"),
+  event("car-a", "empty", "loaded", 1, "2026-09-07T08:10:00.000Z"),
+  event("car-a", "empty", "loaded", 2, "2026-09-07T08:45:00.000Z"),
+  event("car-b", "empty", "loaded", 1, "2026-09-07T08:55:00.000Z"),
+];
+const changingFleet = buildTrafficClosedShiftSummary(shift, changingFleetEvents, [], null);
+equal(changingFleet.latestFleetRoundMinutes, 55);
+equal(changingFleet.latestDistinctVehicleLoadSpanMinutes, 55);
 
 const route = readFileSync("app/api/dashboard/traffic-shift-summary/route.ts", "utf8");
 assert.match(route, /const \{ actor, companyId \} = await manager\(request\)/); checks += 1;
@@ -84,11 +142,24 @@ assert.match(server, /closedShiftSummaryCache\.get\(companyId\) === entry/); che
 assert.doesNotMatch(server, /\.from\([^)]*\)[\s\S]{0,300}?\.(?:insert|update|upsert|delete)\s*\(|\.rpc\s*\(/); checks += 1;
 
 const component = readFileSync("components/dashboard/traffic-shift-summary.tsx", "utf8");
-assert.match(component, /Последняя закрытая смена/); checks += 1;
+assert.match(component, /PTC · Итоги последней смены/); checks += 1;
+assert.match(component, /Закрытых смен пока нет/); checks += 1;
+assert.match(component, /После закрытия смены комбайнёром/); checks += 1;
+assert.match(component, /Гектаров за смену/); checks += 1;
+assert.match(component, /Всего на поле/); checks += 1;
+assert.match(component, /Отправлено с поля/); checks += 1;
 assert.match(component, /По отметкам загрузки комбайнёра/); checks += 1;
+assert.match(component, /Рейсы по машинам/); checks += 1;
+assert.match(component, /Возможные простои комбайна/); checks += 1;
+assert.match(component, /От поля до весовой в среднем/); checks += 1;
+assert.match(component, /От весовой до окончания выгрузки в среднем/); checks += 1;
+assert.match(component, /Разброс последних загрузок машин/); checks += 1;
+assert.match(component, /Недостаточно загрузок для оценки/); checks += 1;
+assert.match(component, /loadIntervalSamples === 0/); checks += 1;
+assert.match(component, /Показать все \(\$\{summary\.vehicles\.length\}\)/); checks += 1;
 assert.doesNotMatch(component, /averageTripsPerVehicle/); checks += 1;
 assert.match(component, /subscribeTrafficChanges\(companyId, wake\)/); checks += 1;
-assert.match(component, /window\.setInterval\(visible, 60_000\)/); checks += 1;
+assert.match(component, /window\.setInterval\(visible, 15_000\)/); checks += 1;
 assert.match(component, /window\.addEventListener\("focus", wake\)/); checks += 1;
 assert.match(component, /window\.addEventListener\("online", wake\)/); checks += 1;
 assert.match(component, /document\.addEventListener\("visibilitychange", visible\)/); checks += 1;
@@ -97,11 +168,16 @@ assert.match(component, /setSummary\(null\)/); checks += 1;
 assert.match(component, /failure\.status === 401 \|\| failure\.status === 403[\s\S]*setSummary\(null\)/); checks += 1;
 
 const summaryService = readFileSync("lib/services/traffic-shift-summary.ts", "utf8");
+const summaryNormalizer = readFileSync("lib/traffic/shift-summary-normalize.ts", "utf8");
 assert.match(summaryService, /\{ status: response\.status \}/); checks += 1;
 assert.match(summaryService, /startsWith\("Missing authorization token"\)[\s\S]*\{ status: 401 \}/); checks += 1;
+assert.match(summaryService, /normalizeTrafficClosedShiftSummary\(payload\?\.summary\)/); checks += 1;
+assert.match(summaryNormalizer, /loadIntervalSamples:[\s\S]*Math\.max\(0, totalTrips - 1\)/); checks += 1;
+assert.match(summaryNormalizer, /latestDistinctVehicleLoadSpanMinutes: finiteOrNull/); checks += 1;
 
 const dashboard = readFileSync("components/dashboard/harvest-dashboard.tsx", "utf8");
 assert.match(dashboard, /profile\?\.role === "agronomist" && profile\.company_id \? <TrafficShiftSummary key=\{profile\.company_id\}/); checks += 1;
+assert.ok(dashboard.indexOf("<TrafficShiftSummary") < dashboard.indexOf("<Card className=\"rounded-lg\"")); checks += 1;
 
 type FakeResult = { data: unknown; error: null };
 

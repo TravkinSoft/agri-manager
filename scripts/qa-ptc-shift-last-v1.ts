@@ -156,7 +156,7 @@ async function main() {
   const operatorPage = readFileSync("app/traffic-operator/page.tsx", "utf8");
   assert.match(operatorPage, /live\.data\.role === "harvester"[\s\S]{0,120}<TrafficShiftControls/); checks++;
   const shiftControls = readFileSync("components/traffic/traffic-shift-controls.tsx", "utf8");
-  assert.match(shiftControls, /aria-label="Меню смены комбайнёра"/); checks++;
+  assert.match(shiftControls, /aria-label="Меню комбайнёра"/); checks++;
   assert.match(board, /traffic-last-vehicle-banner/); checks++;
   assert.match(board, /event\.stopPropagation\(\)/); checks++;
   const dashboard = readFileSync("app/(dashboard)/traffic/page.tsx", "utf8");
