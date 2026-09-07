@@ -92,6 +92,7 @@ const WAREHOUSE_OPERATOR_NAV = WAREHOUSE_NAV;
 
 const WEIGHMAN_NAV: NavItem[] = [
   { labelKey: "weighbridge", href: "/weighbridge", icon: Scale },
+  { labelKey: "traffic", href: "/weighbridge/traffic", icon: Truck },
   { labelKey: "warehouses", href: "/warehouses", icon: Package },
   { labelKey: "ledger", href: "/ledger", icon: ScrollText },
 ];

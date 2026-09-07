@@ -109,14 +109,15 @@ function harness(role: model.TrafficRole, input = vehicles, options: { acceptRec
 async function main() {
   // A repair mark does not replace cargo state. It only blocks starting new loads.
   const repairVehicles = vehicles.map(vehicle => ({ ...vehicle, inRepair: true }));
-  for (const role of ["manager", "harvester", "receiver"] as const) {
+  for (const role of ["manager", "harvester", "weighman", "receiver"] as const) {
     const repairTree = harness(role, repairVehicles).render();
     const repairCards = cardNodes(repairTree);
+    check(repairCards.length, role === "manager" ? repairVehicles.length : 0);
     check(repairCards.every(card => card.props.className.includes("bg-rose-100")), true);
     check(repairCards.every(card => words(card).includes("На ремонте")), true);
-    check(repairCards.every(card => card.type === (role === "harvester" ? "article" : "button")), true);
+    check(repairCards.every(card => card.type === "button"), true);
     const repairHtml = renderToStaticMarkup(repairTree);
-    check(repairHtml.includes("На ремонте"), true);
+    check(repairHtml.includes("На ремонте"), role === "manager");
   }
   const managerVehicles = vehicles.map(vehicle => vehicle.vehicle_id === "car-3" ? { ...vehicle, inRepair: true } : vehicle);
   const manager = harness("manager", managerVehicles);
@@ -230,7 +231,7 @@ async function main() {
   nodes(refreshing.render()).find(node => node.props?.["aria-label"] === "Обновить статусы").props.onClick();
   check(refreshing.refreshCalls, [true]);
 
-  for (const role of ["harvester", "receiver"] as const) {
+  for (const role of ["harvester", "weighman", "receiver"] as const) {
     const h = harness(role);
     let operatorTree = h.render();
     const cards = cardNodes(operatorTree);
@@ -289,14 +290,17 @@ async function main() {
     check(h.props.snapshot.vehicles.find(car => car.vehicle_id === clicked.vehicle_id)?.state, clicked.state);
     check(h.commits.length, 0);
     check(h.refreshCount(), 0);
-    const pendingCard = cardNodes(pendingTree).find(card => card.props["data-testid"] === `traffic-vehicle-${clicked.vehicle_id}`)!;
-    check(pendingCard.props["aria-busy"], undefined);
     check(words(pendingTree).includes("Сохраняем…"), false);
-    check(words(pendingCard).includes(model.STATE_LABEL[model.nextState(role, clicked.state)!]), true);
-    check(pendingCard.type, role === "harvester" ? "article" : "button");
-    if (role === "harvester") check(cardNodes(pendingTree).findIndex(card => card.props["data-testid"] === `traffic-vehicle-${clicked.vehicle_id}`) > 0, true);
-    else check(pendingCard.props.disabled, true);
-    check(cardNodes(pendingTree).filter(card => card.type === "button" && card !== pendingCard).every(card => !card.props.disabled), true);
+    const pendingCard = cardNodes(pendingTree).find(card => card.props["data-testid"] === `traffic-vehicle-${clicked.vehicle_id}`);
+    if (role === "harvester") {
+      check(pendingCard?.props["aria-busy"], undefined);
+      check(words(pendingCard).includes(model.STATE_LABEL[model.nextState(role, clicked.state)!]), true);
+      check(pendingCard?.type, "article");
+      check(cardNodes(pendingTree).findIndex(card => card.props["data-testid"] === `traffic-vehicle-${clicked.vehicle_id}`) > 0, true);
+    } else {
+      check(pendingCard, undefined); // Leaves the role-specific queue immediately.
+    }
+    check(cardNodes(pendingTree).filter(card => card.type === "button").every(card => !card.props.disabled), true);
     check(h.calls.length, 1);
     check(JSON.parse(JSON.stringify(h.calls[0][2])), { vehicleId: clicked.vehicle_id, version: clicked.version, target: model.nextState(role, clicked.state), key: "50000000-0000-4000-8000-000000000001" });
     const receipt = receiptFor(clicked, model.nextState(role, clicked.state)!);
@@ -305,7 +309,10 @@ async function main() {
     check(h.commits[0], [receipt, clicked.vehicle_id, clicked.version]);
     check(h.refreshCount(), 1);
     check(h.refreshCalls[0], undefined); // Background reconciliation, not a mandatory fresh GET.
-    check(h.props.snapshot.vehicles.find(car => car.vehicle_id === clicked.vehicle_id)?.state, receipt.vehicle?.state);
+    check(
+      h.props.snapshot.vehicles.find(car => car.vehicle_id === clicked.vehicle_id)?.state,
+      role === "harvester" ? receipt.vehicle?.state : undefined,
+    );
     check(words(h.render()).includes("Сохраняем…"), false);
 
     for (const gate of ["stale", "disabled"] as const) {
@@ -329,7 +336,8 @@ async function main() {
   check(unloading.props.snapshot.vehicles.length, 1); // Canonical source is untouched.
   unloading.requests[0].resolve(receiptFor(vehicles[2], "empty")); await flush();
   check(unloading.props.snapshot.vehicles.length, 0);
-  check(renderToStaticMarkup(harness("receiver", []).render()).includes("Пока нет загруженных машин"), true);
+  check(renderToStaticMarkup(harness("receiver", []).render()).includes("Пока нет машин на выгрузке"), true);
+  check(renderToStaticMarkup(harness("weighman", []).render()).includes("Пока нет загруженных машин"), true);
 
   // A replay may return a newer current state, not the target requested by this click.
   const replay = harness("harvester", [vehicles[1]], { deferRefresh: true });
@@ -399,10 +407,10 @@ async function main() {
   check(parallel.props.snapshot.vehicles.every(vehicle => vehicle.state === "loaded"), true);
 
   // An old GET cannot visually undo an in-flight intent; a newer canonical row wins.
-  const racing = harness("receiver", [vehicles[0]]);
+  const racing = harness("weighman", [vehicles[0]]);
   sendCar(racing, "car-0");
   racing.props.snapshot = { ...racing.props.snapshot, vehicles: [{ ...vehicles[0] }] };
-  check(words(cardNodes(racing.render())[0]).includes("На выгрузке"), true);
+  check(cardNodes(racing.render()).length, 0);
   racing.props.snapshot = model.applyTrafficCommit(racing.props.snapshot, receiptFor(vehicles[0], "empty", vehicles[0].version + 2));
   check(cardNodes(racing.render()).length, 0);
   racing.requests[0].resolve(receiptFor(vehicles[0], "unloading")); await flush();

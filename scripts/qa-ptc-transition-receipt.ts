@@ -74,7 +74,7 @@ function setup(options: Options = {}) {
         if (table === "profiles") {
           if (options.profileGate) await options.profileGate;
           if (options.profileError) return { data: null, error: new Error("profile read") };
-          rows = [{ id: actorId, company_id: options.profileCompany ?? companyId,
+          rows = [{ id: actorId, full_name: "Весовщик 1", company_id: options.profileCompany ?? companyId,
             role, status: options.profileStatus ?? "active" }];
         } else if (table === "company_people") {
           if (options.personError) return { data: null, error: new Error("person read") };
@@ -195,7 +195,7 @@ async function main() {
     [{ profileStatus: "inactive" }, 403], [{ profileStatus: "pending" }, 403],
     [{ profileCompany: foreignId }, 403], [{ people: [] }, 403],
     [{ profileError: true }, 500], [{ personError: true }, 500],
-    ...["global_admin", "company_admin", "agronomist", "weighman", "brigadier"].map(role => [{ role }, 403]),
+    ...["global_admin", "company_admin", "agronomist", "brigadier"].map(role => [{ role }, 403]),
   ] as Array<[Options, number]>) {
     h = setup(options); response = await h.api.POST(h.request());
     check(response.status, status); check(h.rpcCalls.length, 0);
@@ -214,6 +214,11 @@ async function main() {
     response = await h.api.POST(h.request({ ...input, target }));
     check(response.status, 200); check((await response.json()).vehicle.state, target);
   }
+  h = setup({ role: "weighman", people: [], current: { ...state, state: "unloading" } });
+  response = await h.api.POST(h.request({ ...input, target: "unloading" }));
+  check(response.status, 200); check((await response.json()).vehicle.state, "unloading");
+  h = setup({ role: "weighman", people: [] }); response = await h.api.GET(h.request());
+  check(response.status, 200); check((await response.json()).args, [companyId, "weighman", "Весовщик 1"]);
   for (const [rpcError, status] of [
     [{ code: "23505", message: "duplicate" }, 409],
     [{ message: "PTC_VERSION_CONFLICT" }, 409], [{ message: "PTC_KEY_CONFLICT" }, 409],

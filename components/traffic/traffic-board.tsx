@@ -337,14 +337,18 @@ export function TrafficBoard({
         <div className="py-16 text-center">
           <Truck size={38} className="mx-auto mb-4 text-slate-600" />
           <h2 className="font-medium text-slate-200">
-            {snapshot.role === "receiver"
+            {snapshot.role === "weighman"
               ? "Пока нет загруженных машин"
-              : "Машины ещё не назначены"}
+              : snapshot.role === "receiver"
+                ? "Пока нет машин на выгрузке"
+                : "Машины ещё не назначены"}
           </h2>
           <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500">
-            {snapshot.role === "receiver"
-              ? "Машина появится здесь, когда комбайнёр подтвердит загрузку."
-              : "Агроном добавляет машины через «Выбрать машины»."}
+            {snapshot.role === "weighman"
+              ? "Машина появится здесь сразу после подтверждения комбайнёра."
+              : snapshot.role === "receiver"
+                ? "Машина появится здесь сразу после подтверждения весовщика."
+                : "Агроном добавляет машины через «Выбрать машины»."}
           </p>
         </div>
       ) : null}

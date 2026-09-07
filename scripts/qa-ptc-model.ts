@@ -19,10 +19,10 @@ async function main() {
   };
   const permitted = {
     "harvester:empty": "loaded",
-    "receiver:loaded": "unloading",
+    "weighman:loaded": "unloading",
     "receiver:unloading": "empty",
   };
-  for (const role of ["manager", "harvester", "receiver"] as TrafficRole[])
+  for (const role of ["manager", "harvester", "weighman", "receiver"] as TrafficRole[])
     for (const state of ["empty", "loaded", "unloading"] as TrafficState[])
       check(
         nextState(role, state),
@@ -45,7 +45,11 @@ async function main() {
   );
   check(
     visibleVehicles(vehicles, "receiver").map((v) => v.state),
-    ["loaded", "unloading"],
+    ["unloading"],
+  );
+  check(
+    visibleVehicles(vehicles, "weighman").map((v) => v.state),
+    ["loaded"],
   );
   check(
     visibleVehicles(
@@ -73,7 +77,6 @@ async function main() {
   for (const role of ["agronomist", "company_admin", "global_admin"] as const)
     check(canAccessPath(role, "/traffic"), true);
   for (const role of [
-    "weighman",
     "warehouse",
     "warehouse_operator",
     "specialist",
@@ -82,12 +85,12 @@ async function main() {
   ] as const)
     check(canAccessPath(role, "/traffic"), false);
   check(operatorRole("mechanic_operator"), "harvester");
+  check(operatorRole("weighman"), "weighman");
   check(operatorRole("vegetable_brigadier"), "receiver");
   for (const role of [
     "agronomist",
     "global_admin",
     "company_admin",
-    "weighman",
     "brigadier",
     "harvester",
     "receiver",
@@ -99,6 +102,8 @@ async function main() {
     check(canAccessPath(role, "/traffic"), false);
     check(canAccessPath(role, "/weighbridge"), false);
   }
+  check(canAccessPath("weighman", "/weighbridge/traffic"), true);
+  check(canAccessPath("weighman", "/traffic-operator"), false);
   const server = readFileSync("lib/traffic/server.ts", "utf8"),
     operator = readFileSync("app/api/traffic/operator/route.ts", "utf8"),
     hook = readFileSync("components/traffic/use-traffic.ts", "utf8");

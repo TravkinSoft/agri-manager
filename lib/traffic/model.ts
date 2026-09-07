@@ -1,9 +1,10 @@
 export type TrafficState = "empty" | "loaded" | "unloading";
-export type TrafficRole = "harvester" | "receiver" | "manager";
+export type TrafficRole = "harvester" | "weighman" | "receiver" | "manager";
 export function operatorRole(
   profileRole: string,
 ): Exclude<TrafficRole, "manager"> | null {
   if (profileRole === "mechanic_operator") return "harvester";
+  if (profileRole === "weighman") return "weighman";
   if (profileRole === "vegetable_brigadier") return "receiver";
   return null;
 }
@@ -14,6 +15,7 @@ export const STATE_LABEL: Record<TrafficState, string> = {
 };
 export const ROLE_LABEL: Record<TrafficRole, string> = {
   harvester: "Комбайнёр",
+  weighman: "Весовщик",
   receiver: "Приёмка картофеля",
   manager: "Оборот машин",
 };
@@ -23,7 +25,7 @@ export function nextState(
   inRepair = false,
 ): TrafficState | null {
   if (role === "harvester" && state === "empty" && !inRepair) return "loaded";
-  if (role === "receiver" && state === "loaded") return "unloading";
+  if (role === "weighman" && state === "loaded") return "unloading";
   if (role === "receiver" && state === "unloading") return "empty";
   return null;
 }
@@ -97,7 +99,11 @@ export function visibleVehicles(
 ): TrafficVehicle[] {
   const rank = { empty: 0, loaded: 1, unloading: 2 };
   return vehicles
-    .filter((v) => v.assigned && (role !== "receiver" || v.state !== "empty"))
+    .filter((v) =>
+      v.assigned &&
+      (role === "manager" || !v.inRepair) &&
+      (role !== "weighman" || v.state === "loaded") &&
+      (role !== "receiver" || v.state === "unloading"))
     .sort(
       (a, b) =>
         Number(!!a.inRepair) - Number(!!b.inRepair) ||

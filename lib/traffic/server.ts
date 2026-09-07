@@ -127,7 +127,7 @@ export async function operator(request: NextRequest) {
   const [profileResult, personResult] = await Promise.all([
     db
       .from("profiles")
-      .select("id,role,status,company_id")
+      .select("id,full_name,role,status,company_id")
       .eq("id", actor.id)
       .eq("company_id", companyId)
       .maybeSingle(),
@@ -146,12 +146,12 @@ export async function operator(request: NextRequest) {
     profile?.status === "active" ? operatorRole(String(profile.role)) : null;
   if (!role)
     throw new TrafficError(
-      "Кабинет доступен только механизатору и бригадиру овощной бригады с активным аккаунтом",
+      "Кабинет доступен только комбайнёру, весовщику и бригадиру приёмки с активным аккаунтом",
       403,
     );
   const { data: people, error: personError } = personResult;
   if (personError) throw personError;
-  if (people?.length !== 1)
+  if (role !== "weighman" && people?.length !== 1)
     throw new TrafficError(
       "Администратор должен связать аккаунт с одним действующим сотрудником Вашей компании",
       403,
@@ -159,7 +159,9 @@ export async function operator(request: NextRequest) {
   return {
     companyId,
     role,
-    personName: String(people[0].full_name),
+    personName: role === "weighman"
+      ? String(profile?.full_name || "Весовщик")
+      : String(people?.[0]?.full_name || ""),
     actorId: actor.id,
   };
 }

@@ -22,7 +22,7 @@ async function main() {
     window.calls=[];
     const params=new URLSearchParams(location.search);
     const state=params.get('state')||'unloading';
-    const role=state==='empty'?'harvester':'receiver';
+    const role=state==='empty'?'harvester':state==='loaded'?'weighman':'receiver';
     const car={vehicle_id:'60000000-0000-4000-8000-000000000001',name:'ZIL 130-76',plate:'LOCAL-829',driver:'Local driver',state,version:1,cycle:1,assigned:true,since:new Date().toISOString()};
     function App(){
       const [snapshot,setSnapshot]=useState({role,companyId:'local-only',personName:'Local operator',enabled:true,fieldName:null,fieldId:null,serverTime:new Date().toISOString(),vehicles:[car,{...car,vehicle_id:'60000000-0000-4000-8000-000000000002',plate:'LOCAL-309'}],events:[]});
@@ -124,8 +124,8 @@ async function main() {
               await page.waitForTimeout(1050);
             }
             if(mode!=='reject') {
-              if(state==='unloading') check(await card.count(),0,label+'/received-car-removed');
-              else check(await card.innerText().then(text=>text.includes(state==='empty'?'Загружена':'На выгрузке')),true,label+'/target-state-visible');
+              if(state!=='empty') check(await card.count(),0,label+'/role-queue-card-removed');
+              else check(await card.innerText().then(text=>text.includes('Загружена')),true,label+'/target-state-visible');
             }
           }
           check(errors,[],label+'/no-browser-errors');

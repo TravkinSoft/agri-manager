@@ -2,12 +2,13 @@
 
 ## Current contract
 
-`/traffic` is the agronomist/company-admin/global-admin observer and configuration page. `/traffic-operator` uses the normal Supabase email/password account and verified main Auth session. No independent PTC password, cookie, role picker or session fallback remains.
+`/traffic` is the agronomist/company-admin/global-admin observer and configuration page. `/traffic-operator` serves the field and receiving operators, while `/weighbridge/traffic` is the minimal weighman queue inside the normal weighbridge cabinet. All use the verified main Auth session. No independent PTC password, cookie, role picker or session fallback remains.
 
 Canonical account roles (defined by the central auth/invitation work):
 
 - `mechanic_operator` (Механизатор) → cabinet «Комбайнёр», only `empty → loaded`.
-- `vegetable_brigadier` (Бригадир овощной) → cabinet «Приёмка картофеля», only `loaded → unloading → empty`.
+- `weighman` (Весовщик) → weighbridge queue, only `loaded → unloading`.
+- `vegetable_brigadier` (Бригадир овощной) → cabinet «Приёмка картофеля», only `unloading → empty`.
 
 Each transition is manually confirmed with the exact vehicle plate. There are no imports, links, writes or automatic transitions involving weighing, gross/tare, tickets, stock, ledger, GPS or AI. Empty means without cargo, not proof of arrival at the field.
 
@@ -15,7 +16,7 @@ Each transition is manually confirmed with the exact vehicle plate. There are no
 
 An administrator invites the employee through the normal «Пользователи» page, selects the appropriate role and binds the account to one existing active employee in the company. The employee follows the email invitation, sets their normal TravkinFlow password and signs in. Password recovery uses the existing normal recovery flow. The PTC access panel is read-only guidance and account/link status; agronomists cannot mint credentials or roles.
 
-Authoritative identity is `profiles.id = auth.users.id`; `company_people.user_id` references that profile. The operator API calls `getServerActorFromSession(ignoreImpersonation:true,skipCache:true)`, rejects legacy profile/Auth aliases, then rechecks exact active profile role, company and exactly one active/nondeleted same-company employee link. Admin/observer roles cannot operate by bypassing the cabinet. The client sends the shared Authorization header for every PTC read/write. Missing session becomes login state, not a retry loop. Account changes abort old reads and discard old account snapshots; logout uses normal Supabase local-session sign-out.
+Authoritative identity is `profiles.id = auth.users.id`; `company_people.user_id` references the field and receiving operators. The operator API calls `getServerActorFromSession(ignoreImpersonation:true,skipCache:true)`, rejects legacy profile/Auth aliases, then rechecks the exact active role and company. The mechanic and vegetable brigadier still require exactly one active/nondeleted same-company employee link; the existing weighman account is attributed by its active profile name. Admin/observer roles cannot operate by bypassing the cabinet. The client sends the shared Authorization header for every PTC read/write. Missing session becomes login state, not a retry loop. Account changes abort old reads and discard old account snapshots; logout uses normal Supabase local-session sign-out.
 
 ## Vehicle selection
 

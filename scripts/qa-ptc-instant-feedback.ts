@@ -7,7 +7,11 @@ import { nextState, type TrafficRole, type TrafficSnapshot, type TrafficState } 
 
 let checks = 0;
 const check = (actual: unknown, expected: unknown) => { assert.deepEqual(actual, expected); checks++; };
-for (const role of ["harvester", "receiver", "manager"] as TrafficRole[]) {
+const visibleForRole = (role: TrafficRole, state: TrafficState) =>
+  role === "manager" || role === "harvester" ||
+  (role === "weighman" && state === "loaded") ||
+  (role === "receiver" && state === "unloading");
+for (const role of ["harvester", "weighman", "receiver", "manager"] as TrafficRole[]) {
   for (const state of ["empty", "loaded", "unloading"] as TrafficState[]) {
     const snapshot: TrafficSnapshot = {
       companyId: "company-a", role, personName: "QA", enabled: true, fieldName: null, fieldId: null,
@@ -19,7 +23,7 @@ for (const role of ["harvester", "receiver", "manager"] as TrafficRole[]) {
     const original = JSON.stringify(snapshot);
     const projected = optimisticTrafficVehicles(snapshot, [command]);
     const expectedState = nextState(role, state) ? target : state;
-    check(projected.length, role === "receiver" && expectedState === "empty" ? 0 : 1);
+    check(projected.length, visibleForRole(role, expectedState) ? 1 : 0);
     if (projected.length) {
       check(projected[0].state, expectedState); check(projected[0].version, 8); check(projected[0].cycle, 2);
       check(projected[0].driver, "Original driver");
@@ -28,8 +32,8 @@ for (const role of ["harvester", "receiver", "manager"] as TrafficRole[]) {
     check(trafficCommandObserved(snapshot, command), false);
     const newer = { ...snapshot, vehicles: snapshot.vehicles.map(vehicle => ({ ...vehicle, version: 9 })) };
     check(trafficCommandObserved(newer, command), true);
-    check(optimisticTrafficVehicles(newer, [command])[0]?.state ?? "hidden", role === "receiver" && state === "empty" ? "hidden" : state);
-    check(optimisticTrafficVehicles(snapshot, [{ ...command, phase: "uncertain" }])[0]?.state ?? "hidden", role === "receiver" && state === "empty" ? "hidden" : state);
+    check(optimisticTrafficVehicles(newer, [command])[0]?.state ?? "hidden", visibleForRole(role, state) ? state : "hidden");
+    check(optimisticTrafficVehicles(snapshot, [{ ...command, phase: "uncertain" }])[0]?.state ?? "hidden", visibleForRole(role, state) ? state : "hidden");
   }
 }
 const receipt = { eventId: "60000000-0000-4000-8000-000000000001", serverTime: "2026-09-04T16:00:00Z", replayed: false, refreshRequired: true, vehicle: null };
