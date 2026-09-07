@@ -27,8 +27,6 @@ function words(node: any): string {
   return node?.props ? words(node.props.children) : "";
 }
 const cardNodes = (tree: any) => nodes(tree).filter(node => node.props?.["data-testid"]?.startsWith("traffic-vehicle-"));
-const wrapper = ({ children }: any) => React.createElement("div", null, children);
-const Dialog = ({ open, children }: any) => open ? React.createElement("div", { role: "alertdialog" }, children) : null;
 const Button = ({ children, ...props }: any) => React.createElement("button", props, children);
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 function deferred<T>() {
@@ -46,13 +44,18 @@ function receiptFor(vehicle: model.TrafficVehicle, state: model.TrafficState, ve
   return { eventId: "60000000-0000-4000-8000-000000000001", replayed: false, serverTime: "2026-09-04T10:09:00Z", refreshRequired: false,
     vehicle: { vehicle_id: vehicle.vehicle_id, state, version, cycle: vehicle.cycle, assigned: true, since: "2026-09-04T10:09:00Z" } };
 }
-function harness(role: model.TrafficRole, input = vehicles, options: { acceptReceipt?: boolean; deferRefresh?: boolean } = {}) {
+function harness(role: model.TrafficRole, input = vehicles, options: {
+  acceptReceipt?: boolean;
+  deferRefresh?: boolean;
+  confirm?: boolean;
+} = {}) {
   const snapshot: model.TrafficSnapshot = {
     role, companyId: "company-a", personName: "", enabled: true, fieldId: null, fieldName: null, serverTime: "2026-09-04T10:08:00Z",
     vehicles: model.visibleVehicles(input, role), events: [],
   };
   const state: any[] = [], refs: any[] = [], calls: any[] = [], commits: any[] = [], managedVehicles: string[] = [];
   const requests: ReturnType<typeof deferred<model.TrafficCommit>>[] = [];
+  const confirmPrompts: string[] = [];
   const refreshCalls: Array<boolean | undefined> = [];
   const refreshGate = deferred<void>();
   const props = { snapshot, stale: false, error: "", onManageVehicle: role === "manager"
@@ -89,12 +92,17 @@ function harness(role: model.TrafficRole, input = vehicles, options: { acceptRec
     "./use-traffic": { trafficRequest: (...args: any[]) => {
       calls.push(args); const request = deferred<model.TrafficCommit>(); requests.push(request); return request.promise;
     } },
-    "@/components/ui/alert-dialog": { AlertDialog: Dialog, AlertDialogContent: wrapper, AlertDialogHeader: wrapper, AlertDialogTitle: wrapper,
-      AlertDialogDescription: wrapper, AlertDialogFooter: wrapper, AlertDialogCancel: Button },
     "@/components/ui/button": { Button },
   };
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
-    { module: loaded, exports: loaded.exports, window: { setInterval: () => 1, clearInterval: () => undefined },
+    { module: loaded, exports: loaded.exports, window: {
+        setInterval: () => 1,
+        clearInterval: () => undefined,
+        confirm: (message: string) => {
+          confirmPrompts.push(message);
+          return options.confirm !== false;
+        },
+      },
       crypto: { randomUUID: () => `50000000-0000-4000-8000-${String(++keyCounter).padStart(12, "0")}` }, require: (name: string) => dependencies[name] ?? localRequire(name) });
   const render = () => {
     cursor = 0; refCursor = 0; effectCursor = 0;
@@ -102,7 +110,7 @@ function harness(role: model.TrafficRole, input = vehicles, options: { acceptRec
     effects.splice(0).forEach(effect => effect());
     return tree;
   };
-  return { render, props, calls, requests, commits, refreshCalls, refreshGate, managedVehicles, refreshCount: () => refreshCalls.length,
+  return { render, props, calls, requests, commits, refreshCalls, refreshGate, managedVehicles, confirmPrompts, refreshCount: () => refreshCalls.length,
     unmount: () => effectSlots.forEach(effect => effect.cleanup?.()) };
 }
 
@@ -259,36 +267,22 @@ async function main() {
     const actionable = cards.find(card => card.type === "button")!;
     const clicked = vehicles.find(car => `traffic-vehicle-${car.vehicle_id}` === actionable.props["data-testid"])!;
 
-    // P0 mobile regression: cancelling must invalidate even a late iOS click
-    // retained by the previously mounted confirmation button.
-    const cancelled = harness(role);
+    // P0 mobile regression: native cancellation must have no application-side
+    // request path for any operator role.
+    const cancelled = harness(role, vehicles, { confirm: false });
     const cancelledCard = cardNodes(cancelled.render()).find(card => card.type === "button")!;
     cancelledCard.props.onClick();
-    const cancelledTree = cancelled.render();
-    const cancelledDialog = nodes(cancelledTree).find(node => node.type === Dialog);
-    const cancelButton = nodes(cancelledDialog).find(node => node.type === Button && words(node) === "Отмена");
-    const staleConfirm = nodes(cancelledDialog).find(node => node.type === Button && words(node) === "Подтвердить");
-    let prevented = 0, stopped = 0;
-    cancelButton.props.onPointerDown({ preventDefault: () => prevented++, stopPropagation: () => stopped++ });
-    staleConfirm.props.onClick({ detail: 1 });
     await flush();
-    check(prevented, 0); check(stopped, 1);
     check(cancelled.calls.length, 0);
-    check(renderToStaticMarkup(cancelled.render()).includes('role="alertdialog"'), true);
-    cancelButton.props.onClick({ preventDefault: () => prevented++, stopPropagation: () => stopped++ });
-    check(renderToStaticMarkup(cancelled.render()).includes('role="alertdialog"'), false);
-    cancelledCard.props.onClick();
-    check(renderToStaticMarkup(cancelled.render()).includes('role="alertdialog"'), false);
+    check(cancelled.requests.length, 0);
+    check(cancelled.confirmPrompts.length, 1);
+    check(cancelled.confirmPrompts[0].includes(clicked.plate!), true);
+    check(cancelled.props.snapshot.vehicles.find(car => car.vehicle_id === clicked.vehicle_id)?.state, clicked.state);
 
     actionable.props.onClick(); operatorTree = h.render();
-    check(renderToStaticMarkup(operatorTree).includes(`role="alertdialog"`), true);
-    const dialog = nodes(operatorTree).find(node => node.type === Dialog);
-    check(words(dialog).includes(clicked.plate!), true);
-    const confirm = nodes(dialog).find(node => node.type === Button && words(node) === "Подтвердить");
-    check(confirm.props.className.includes("min-h-[48px]"), true);
-    confirm.props.onClick({ detail: 1 }); confirm.props.onClick({ detail: 1 });
+    check(h.confirmPrompts.length, 1);
+    check(h.confirmPrompts[0].includes(clicked.plate!), true);
     const pendingTree = h.render();
-    check(renderToStaticMarkup(pendingTree).includes('role="alertdialog"'), false);
     check(h.props.snapshot.vehicles.find(car => car.vehicle_id === clicked.vehicle_id)?.state, clicked.state);
     check(h.commits.length, 0);
     check(h.refreshCount(), 0);
@@ -319,20 +313,15 @@ async function main() {
 
     for (const gate of ["stale", "disabled"] as const) {
       const blocked = harness(role);
-      const candidate = cardNodes(blocked.render()).find(card => card.type === "button")!;
-      candidate.props.onClick();
       if (gate === "stale") blocked.props.stale = true; else blocked.props.snapshot.enabled = false;
       const blockedTree = blocked.render();
       check(cardNodes(blockedTree).filter(card => card.type === "button").every(card => card.props.disabled), true);
-      const blockedConfirm = nodes(blockedTree).find(node => node.type === Button && words(node) === "Подтвердить");
-      check(blockedConfirm.props.disabled, true);
-      blockedConfirm.props.onClick(); await flush(); check(blocked.calls.length, 0);
+      check(blocked.calls.length, 0);
+      check(blocked.confirmPrompts.length, 0);
     }
   }
   const unloading = harness("receiver", vehicles.filter(vehicle => vehicle.state === "unloading"));
   cardNodes(unloading.render())[0].props.onClick();
-  const unloadConfirm = nodes(unloading.render()).find(node => node.type === Button && words(node) === "Подтвердить");
-  unloadConfirm.props.onClick();
   check(unloading.calls.length, 1); check(unloading.calls[0][2].target, "empty"); check(unloading.calls[0][2].vehicleId, "car-2");
   check(cardNodes(unloading.render()).length, 0); // Disappears before any network response.
   check(unloading.props.snapshot.vehicles.length, 1); // Canonical source is untouched.
@@ -344,7 +333,6 @@ async function main() {
   // A replay may return a newer current state, not the target requested by this click.
   const replay = harness("harvester", [vehicles[1]], { deferRefresh: true });
   cardNodes(replay.render())[0].props.onClick();
-  nodes(replay.render()).find(node => node.type === Button && words(node) === "Подтвердить").props.onClick();
   const currentReceipt = { ...receiptFor(vehicles[1], "empty", vehicles[1].version + 3), replayed: true };
   replay.requests[0].resolve(currentReceipt); await flush();
   const replayTree = replay.render();
@@ -352,17 +340,14 @@ async function main() {
   check(replay.props.snapshot.vehicles[0].version, vehicles[1].version + 3);
   check(cardNodes(replayTree)[0].props.disabled, false); // GET below is deliberately still unresolved.
   check(cardNodes(replayTree)[0].props["aria-busy"], undefined);
-  check(renderToStaticMarkup(replayTree).includes('role="alertdialog"'), false);
   check(replay.refreshCount(), 1);
   replay.refreshGate.resolve(); await flush();
 
   // An uncertain response rolls back the local display and keeps the SAME retry key.
   const failure = harness("harvester", [vehicles[1]]);
   cardNodes(failure.render())[0].props.onClick();
-  nodes(failure.render()).find(node => node.type === Button && words(node) === "Подтвердить").props.onClick();
   failure.requests[0].reject(Object.assign(new Error("HTTP 503: try again"), { status: 503 })); await flush();
   const failedTree = failure.render();
-  check(renderToStaticMarkup(failedTree).includes('role="alertdialog"'), false);
   check(words(failedTree).includes("HTTP 503"), true);
   check(failure.props.snapshot.vehicles[0].state, vehicles[1].state);
   check(failure.commits.length, 0);
@@ -379,7 +364,6 @@ async function main() {
   // A committed receipt without a row needs canonical reconciliation, no spinner.
   const fallback = harness("harvester", [vehicles[1]], { acceptReceipt: false, deferRefresh: true });
   cardNodes(fallback.render())[0].props.onClick();
-  nodes(fallback.render()).find(node => node.type === Button && words(node) === "Подтвердить").props.onClick();
   fallback.requests[0].resolve({ ...receiptFor(vehicles[1], "loaded"), vehicle: null, refreshRequired: true }); await flush();
   check(fallback.props.snapshot.vehicles[0].state, "empty");
   check(cardNodes(fallback.render())[0].type, "article");
@@ -396,7 +380,6 @@ async function main() {
   const parallel = harness("harvester", [vehicles[1], vehicles[3]]);
   const sendCar = (h: ReturnType<typeof harness>, id: string) => {
     cardNodes(h.render()).find(card => card.props["data-testid"] === `traffic-vehicle-${id}`)!.props.onClick();
-    nodes(h.render()).find(node => node.type === Button && words(node) === "Подтвердить").props.onClick();
   };
   sendCar(parallel, "car-1");
   check(cardNodes(parallel.render()).find(card => card.props["data-testid"] === "traffic-vehicle-car-3")!.props.disabled, false);
@@ -425,7 +408,6 @@ async function main() {
   check(cardNodes(rejected.render()).length, 1);
   check(cardNodes(rejected.render())[0].props.disabled, false);
   check(words(rejected.render()).includes("QA-2: Статус изменён"), true);
-  check(renderToStaticMarkup(rejected.render()).includes('role="alertdialog"'), false);
 
   // The sender can lose its response after the server commits. A new snapshot settles it.
   const lost = harness("harvester", [vehicles[1]]);
@@ -451,12 +433,6 @@ async function main() {
   check(words(malformed.render()).includes("Нет корректного подтверждения"), true);
   check(cardNodes(malformed.render())[0].props.disabled, true);
 
-  const changedWhileConfirming = harness("harvester", [vehicles[1]]);
-  cardNodes(changedWhileConfirming.render())[0].props.onClick();
-  changedWhileConfirming.props.snapshot = model.applyTrafficCommit(changedWhileConfirming.props.snapshot, receiptFor(vehicles[1], "loaded"));
-  nodes(changedWhileConfirming.render()).find(node => node.type === Button && words(node) === "Подтвердить").props.onClick(); await flush();
-  check(changedWhileConfirming.calls.length, 0);
-  check(words(changedWhileConfirming.render()).includes("Статус машины уже изменился"), true);
   for (const page of ["app/traffic-operator/page.tsx", "app/(dashboard)/traffic/page.tsx"]) {
     check(readFileSync(page, "utf8").includes("key={live.scopeKey}"), true);
   }

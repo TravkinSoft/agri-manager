@@ -1,5 +1,5 @@
-// Real React/Radix DOM regression; only the traffic transport and driver picker
-// are replaced. This never authenticates or contacts a business-data endpoint.
+// Real React DOM regression for the browser-native confirmation boundary. Only
+// the traffic transport is replaced; no business-data endpoint is contacted.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -55,7 +55,7 @@ async function main() {
     }}]
   });
   const config = req(path.join(root,'tailwind.config.ts')).default;
-  config.content=[path.join(root,'components/traffic/traffic-board.tsx'),path.join(root,'components/ui/alert-dialog.tsx'),path.join(root,'components/ui/button.tsx')];
+  config.content=[path.join(root,'components/traffic/traffic-board.tsx')];
   const css=(await postcss([tailwind(config)]).process(fs.readFileSync(path.join(root,'app/globals.css'),'utf8'),{from:undefined})).css;
   const html='<!doctype html><html class="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><style>'+css+'</style></head><body><div id="root"></div><script>'+bundle.outputFiles[0].text+'</script></body></html>';
   const server=http.createServer((request,response)=>{response.setHeader('Content-Type','text/html; charset=utf-8');response.end(html);});
@@ -70,59 +70,51 @@ async function main() {
       try {
         const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true});
         await context.route('**/*',route=>new URL(route.request().url()).origin===base?route.continue():route.abort());
-        const cases=[...['empty','loaded','unloading'].flatMap(state=>['normal','paused-exit','resume','reject','uncertain','cancel','cancel-pointer-lifecycle','server-change'].map(mode=>({state,mode}))),
-          {state:'empty',mode:'repair'},{state:'empty',mode:'keyboard'},{state:'unloading',mode:'offline'}];
+        const cases=[
+          ...['empty','loaded','unloading'].flatMap(state=>['accept','cancel','cancel-repeat'].map(mode=>({state,mode}))),
+          {state:'empty',mode:'keyboard'},
+          {state:'empty',mode:'reject'},
+          {state:'empty',mode:'uncertain'},
+          {state:'unloading',mode:'offline'},
+        ];
         for(const {state,mode} of cases) {
           const page=await context.newPage();
-          const errors=[];page.on('pageerror',error=>errors.push(error.message));
+          const errors=[];
+          let nativeConfirmations=0;
+          page.on('pageerror',error=>errors.push(error.message));
+          page.on('dialog',dialog=>{
+            nativeConfirmations++;
+            if(mode==='cancel'||mode==='cancel-repeat') void dialog.dismiss();
+            else void dialog.accept();
+          });
           await page.goto(base+'/?state='+state+'&mode='+mode);
           const card=page.getByTestId('traffic-vehicle-60000000-0000-4000-8000-000000000001');
-          await card.tap();
-          await page.getByRole('alertdialog').waitFor({state:'visible'});
-          if(mode==='paused-exit') await page.addStyleTag({content:'[data-state="closed"] { animation-duration:3600s !important; animation-play-state:paused !important; }'});
-          if(mode==='resume') await page.evaluate(()=>{window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));window.dispatchEvent(new Event('focus'));document.dispatchEvent(new Event('visibilitychange'));});
           const label=name+'/'+state+'/'+mode;
-          if(mode==='server-change'||mode==='repair') {
-            await page.evaluate(mode=>window.updateCar(mode==='repair'?{inRepair:true}:{state:'empty',version:2}),mode);
-            await page.waitForTimeout(100);
-            check(await page.getByRole('alertdialog').count(),0,label+'/obsolete-dialog-removed');
-            check(await page.evaluate(()=>window.calls.length),0,label+'/no-stale-command');
-            check(await page.getByRole('alert').count(),1,label+'/explained-change');
-          } else if(mode==='offline') {
+          if(mode==='offline') {
             await page.evaluate(()=>window.setStale(true));
-            await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(button=>button.textContent.trim()==='Подтвердить'&&button.disabled));
-            check(await page.getByRole('button',{name:'Подтвердить',exact:true}).isDisabled(),true,label+'/offline-blocks-write');
-            await page.getByRole('button',{name:'Отмена',exact:true}).tap();
+            check(await card.isDisabled(),true,label+'/offline-blocks-card');
+            check(nativeConfirmations,0,label+'/no-confirmation');
             check(await page.evaluate(()=>window.calls.length),0,label+'/no-offline-command');
-          } else if(mode==='cancel'||mode==='cancel-pointer-lifecycle') {
-            if(mode==='cancel-pointer-lifecycle') {
-              const cancel=page.getByRole('button',{name:'Отмена',exact:true});
-              await cancel.dispatchEvent('pointerdown',{pointerId:1,pointerType:'touch',isPrimary:true,buttons:1});
-              check(await page.getByRole('alertdialog').count(),1,label+'/dialog-kept-through-pointerdown');
-              check(await page.evaluate(()=>window.calls.length),0,label+'/pointerdown-no-request');
-              await cancel.dispatchEvent('pointerup',{pointerId:1,pointerType:'touch',isPrimary:true,buttons:0});
-              await cancel.dispatchEvent('click',{detail:1});
-            } else {
-              await page.getByRole('button',{name:'Отмена',exact:true}).tap();
-            }
-            await page.waitForTimeout(250);
-            check(await page.getByRole('alertdialog').count(),0,label+'/cancel-removed');
+          } else if(mode==='cancel'||mode==='cancel-repeat') {
+            const attempts=mode==='cancel-repeat'?3:1;
+            for(let attempt=0;attempt<attempts;attempt++) await card.tap();
+            await page.waitForTimeout(150);
+            check(nativeConfirmations,attempts,label+'/native-cancel-count');
             check(await page.evaluate(()=>window.calls.length),0,label+'/no-request');
+            check(await card.count(),1,label+'/card-remains');
+            check(await card.isEnabled(),true,label+'/card-remains-enabled');
           } else {
-            // Keep the original DOM element: a rapid duplicate must never issue
-            // another command, even before React has removed its click target.
-            if(mode==='normal') await page.getByRole('button',{name:'Подтвердить',exact:true}).evaluate(button=>{button.click();button.click();});
-            else if(mode==='keyboard') await page.getByRole('button',{name:'Подтвердить',exact:true}).press('Enter');
-            else await page.getByRole('button',{name:'Подтвердить',exact:true}).tap();
+            if(mode==='keyboard') await card.press('Enter');
+            else await card.tap();
+            await page.waitForFunction(()=>window.calls.length===1);
             const calls=await page.evaluate(()=>window.calls);
+            check(nativeConfirmations,1,label+'/one-native-confirmation');
             check(calls.length,1,label+'/single-command');
-            check(calls[0]?.dialogCount,0,label+'/dialog-gone-before-transport');
-            check(calls[0]?.overlayCount,0,label+'/overlay-gone-before-transport');
+            check(calls[0]?.dialogCount,0,label+'/no-app-dialog');
+            check(calls[0]?.overlayCount,0,label+'/no-app-overlay');
             check(calls[0]?.pointerEvents==='none',false,label+'/page-unlocked-before-transport');
-            check(await page.getByRole('alertdialog').count(),0,label+'/dialog-unmounted');
             check(await page.getByTestId('traffic-vehicle-60000000-0000-4000-8000-000000000002').isEnabled(),true,label+'/other-car-enabled');
             await page.waitForTimeout(1050);
-            check(await page.getByRole('alertdialog').count(),0,label+'/dialog-stays-gone');
             if(mode==='reject') {
               check(await card.isEnabled(),true,label+'/known-failure-restores-car');
               check(await page.getByRole('alert').count(),1,label+'/visible-error');

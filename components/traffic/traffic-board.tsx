@@ -17,16 +17,6 @@ import {
   type TrafficCommit,
   type TrafficVehicle,
 } from "@/lib/traffic/model";
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogCancel,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
 import { getFleetVehicleCardIdentity } from "@/lib/fleet/model";
 import { trafficRequest } from "./use-traffic";
 import { isTrafficAcknowledgement, optimisticTrafficVehicles, trafficCommandObserved, type PendingTrafficCommand, type TrafficCommand } from "@/lib/traffic/optimistic";
@@ -54,7 +44,6 @@ const groupDots: Record<ManagerTrafficGroup, string> = {
   unloading: "bg-amber-300",
   repair: "bg-rose-400",
 };
-const MOBILE_DISMISS_GUARD_MS = 2000;
 export function TrafficBoard({
   snapshot,
   stale,
@@ -73,15 +62,11 @@ export function TrafficBoard({
   onManageVehicle?: (vehicle: TrafficVehicle) => void;
 }) {
   const [now, setNow] = useState(Date.now());
-  const [selected, setSelected] = useState<TrafficCommand | null>(null);
   const [actionError, setActionError] = useState("");
   const [pendingCommands, setPendingCommands] = useState<PendingTrafficCommand[]>([]);
   const [mobileState, setMobileState] = useState<ManagerTrafficGroup>("empty");
   const mobileListRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<PendingTrafficCommand[]>([]);
-  const cancelledCommandKeyRef = useRef<string | null>(null);
-  const cancelGestureKeyRef = useRef<string | null>(null);
-  const cardActivationBlockedUntilRef = useRef(0);
   const mounted = useRef(true);
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
@@ -98,49 +83,27 @@ export function TrafficBoard({
     const resolved = pendingRef.current.filter(command => command.phase !== "sending" && trafficCommandObserved(snapshot, command));
     if (resolved.length) updatePending(commands => commands.filter(command => !resolved.includes(command)));
   }, [snapshot]);
-  useEffect(() => {
-    if (!selected) return;
-    const current = snapshot.vehicles.find(vehicle => vehicle.vehicle_id === selected.vehicle.vehicle_id);
-    if (!snapshot.enabled || !current || !current.assigned ||
-      current.version !== selected.vehicle.version || current.state !== selected.vehicle.state ||
-      nextState(snapshot.role, current.state, current.inRepair) !== selected.target) {
-      setSelected(null);
-      setActionError("Статус машины уже изменился. Проверьте актуальную карточку.");
-    }
-  }, [snapshot, selected]);
   const offset = useMemo(
     () => Date.parse(snapshot.serverTime) - Date.now(),
     [snapshot.serverTime],
   );
-  function cancelSelection(command = selected) {
-    if (command) cancelledCommandKeyRef.current = command.key;
-    cancelGestureKeyRef.current = null;
-    // iOS standalone PWAs may emit a delayed synthetic click after the dialog
-    // has disappeared. Keep that click from reaching either the old confirm
-    // handler or the vehicle card that is revealed underneath it.
-    cardActivationBlockedUntilRef.current = Date.now() + MOBILE_DISMISS_GUARD_MS;
-    flushSync(() => setSelected(null));
-  }
-  async function confirm(command = selected, retry = false) {
-    if (!command || cancelledCommandKeyRef.current === command.key || cancelGestureKeyRef.current === command.key || stale || !snapshot.enabled) return;
+  async function confirm(command: TrafficCommand, retry = false) {
+    if (stale || !snapshot.enabled) return;
     const vehicleId = command.vehicle.vehicle_id;
     const existing = pendingRef.current.find(item => item.vehicle.vehicle_id === vehicleId);
     if (existing && (!retry || existing.phase !== "uncertain" || existing.key !== command.key)) return;
     const current = snapshotRef.current.vehicles.find(vehicle => vehicle.vehicle_id === vehicleId);
     if (!retry && (!current || current.version !== command.vehicle.version || current.state !== command.vehicle.state ||
       nextState(snapshot.role, current.state, current.inRepair) !== command.target)) {
-      setSelected(null);
       setActionError("Статус машины уже изменился. Проверьте актуальную карточку.");
       return;
     }
-    // Commit the modal removal, scroll/pointer unlock and optimistic card BEFORE
-    // entering auth/transport. PWA resume must not leave a queued dialog close.
-    // This is only a user-event boundary, never a render/effect or polling path.
+    // Commit the optimistic card before entering auth/transport. This is only
+    // a user-event boundary, never a render/effect or polling path.
     flushSync(() => {
       updatePending(commands => [...commands.filter(item => item.vehicle.vehicle_id !== vehicleId), {
         ...command, phase: "sending", since: new Date(Date.now() + offset).toISOString(),
       }]);
-      setSelected(null);
       setActionError("");
     });
     try {
@@ -301,9 +264,13 @@ export function TrafficBoard({
               aria-label={`${ACTION_LABEL[target]}: ${vehicle.name}, ${vehicle.plate || "без номера"}`}
               disabled={pendingVehicle || stale || !snapshot.enabled}
               onClick={() => {
-                if (Date.now() < cardActivationBlockedUntilRef.current) return;
                 if (pendingRef.current.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id)) return;
-                setSelected({ vehicle, target, key: crypto.randomUUID() });
+                const command = { vehicle, target, key: crypto.randomUUID() } satisfies TrafficCommand;
+                const approved = window.confirm(
+                  `${ACTION_LABEL[target]}\n\n${vehicle.name} · ${vehicle.plate || "Без номера"}\n\nПодтвердите только фактически выполненное действие.`,
+                );
+                if (approved !== true) return;
+                void confirm(command);
               }}
               className={`${cardClass} min-h-[48px] w-full cursor-pointer active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 disabled:cursor-not-allowed ${stale || !snapshot.enabled ? "opacity-50" : ""}`}
             >
@@ -383,69 +350,6 @@ export function TrafficBoard({
           </div>
         </details>
       ) : null}
-      {selected ? <AlertDialog
-        open={!!selected}
-        onOpenChange={(open) => {
-          if (!open) cancelSelection();
-        }}
-      >
-        <AlertDialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-sm overflow-y-auto rounded-2xl p-4 data-[state=closed]:hidden sm:p-6">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {selected ? ACTION_LABEL[selected.target] : "Подтверждение"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              <span className="block break-words text-base font-semibold text-slate-100">
-                {selected?.vehicle.name} ·{" "}
-                {selected?.vehicle.plate || "Без номера"}
-              </span>
-              <span className="mt-2 block">
-                Подтвердите только фактически выполненное действие.
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              type="button"
-              className="min-h-[48px] touch-manipulation"
-              onPointerDown={(event) => {
-                // Keep the dialog mounted until the browser has completed the
-                // touch gesture. Unmounting on pointerdown lets iOS retarget the
-                // remaining pointerup/click to the vehicle card underneath.
-                event.stopPropagation();
-                if (selected) cancelGestureKeyRef.current = selected.key;
-              }}
-              onPointerCancel={() => {
-                cancelGestureKeyRef.current = null;
-              }}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                cancelSelection();
-              }}
-            >
-              Отмена
-            </AlertDialogCancel>
-            <Button
-              type="button"
-              className="min-h-[48px]"
-              onPointerDown={() => {
-                // A distinct explicit press on Confirm supersedes an abandoned
-                // cancel gesture. A retargeted synthetic click has no preceding
-                // pointerdown on this button and therefore stays blocked.
-                cancelGestureKeyRef.current = null;
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") cancelGestureKeyRef.current = null;
-              }}
-              onClick={() => void confirm()}
-              disabled={stale || !snapshot.enabled || !!selected && pendingCommands.some(command => command.vehicle.vehicle_id === selected.vehicle.vehicle_id)}
-            >
-              Подтвердить
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog> : null}
     </>
   );
 }
