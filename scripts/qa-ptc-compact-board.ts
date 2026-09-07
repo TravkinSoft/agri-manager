@@ -171,7 +171,7 @@ async function main() {
   check(managerHtml.includes("<button><button"), false);
   const managerText = managerHtml.replace(/<[^>]*>/g, "");
   check((managerText.match(/Пустые/g) ?? []).length, 2);
-  check((managerText.match(/Загруженные/g) ?? []).length, 1);
+  check((managerText.match(/В пути на весовую/g) ?? []).length, 1);
   check((managerText.match(/На выгрузке/g) ?? []).length, 1);
   check((managerText.match(/На ремонте/g) ?? []).length >= 2, true);
   check(managerHtml.includes("lg:grid-cols-4"), true);
@@ -192,7 +192,7 @@ async function main() {
   check(filterCounts(tree), [1, 1, 1, 1]);
   check(mobileGroups(tree).map(group => group.props["data-testid"]), ["traffic-group-empty"]);
   check(filterNodes(tree).map(filter => filter.props["aria-pressed"]), [true, false, false, false]);
-  check(filterNodes(tree).map(filter => words(filter).replace(/\d+$/, "")), ["Пустые", "С грузом", "Выгрузка", "Ремонт"]);
+  check(filterNodes(tree).map(filter => words(filter).replace(/\d+$/, "")), ["Пустые", "На весовую", "Выгрузка", "Ремонт"]);
   check(nodes(tree).some(node => node.props?.role === "group" && node.props["aria-label"] === "Показать машины по статусу"), true);
   filterNodes(tree).forEach(filter => {
     check(filter.type, "button"); check(filter.props.type, "button");
@@ -495,7 +495,7 @@ async function main() {
     const filterGrid = nodes(toolbar).find(node => node.props?.role === "group");
     check(stylesAt(filterGrid, width)["grid-template-columns"], "repeat(4, minmax(0, 1fr))");
     const explainer = nodes(filteredTree).find(node => node.props?.["data-testid"] === "traffic-empty-explainer");
-    check(stylesAt(explainer, width).display, desktop ? "block" : "none");
+    check(explainer, undefined);
     const inlineHistory = nodes(filteredTree).find(node => node.props?.["data-testid"] === "traffic-manager-history-inline");
     check(stylesAt(inlineHistory, width).display, desktop ? "block" : "none");
   }
