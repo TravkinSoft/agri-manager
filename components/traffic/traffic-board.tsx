@@ -24,9 +24,9 @@ import {
   AlertDialogTitle,
   AlertDialogDescription,
   AlertDialogFooter,
+  AlertDialogAction,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
 import { getFleetVehicleCardIdentity } from "@/lib/fleet/model";
 import { trafficRequest } from "./use-traffic";
 import { isTrafficAcknowledgement, optimisticTrafficVehicles, trafficCommandObserved, type PendingTrafficCommand, type TrafficCommand } from "@/lib/traffic/optimistic";
@@ -47,6 +47,12 @@ const groupLabels: Record<ManagerTrafficGroup, string> = {
   loaded: "Загруженные",
   unloading: "На выгрузке",
   repair: "На ремонте",
+};
+const mobileGroupLabels: Record<ManagerTrafficGroup, string> = {
+  empty: "Пустые",
+  loaded: "С грузом",
+  unloading: "Выгрузка",
+  repair: "Ремонт",
 };
 const groupDots: Record<ManagerTrafficGroup, string> = {
   empty: "bg-[#ffffff]",
@@ -220,9 +226,9 @@ export function TrafficBoard({
                     setMobileState(state);
                     mobileListRef.current?.scrollTo({ top: 0 });
                   }}
-                  className={`flex min-h-[48px] min-w-0 flex-col items-center justify-center rounded-lg border px-1 py-1 text-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${mobileState === state ? "border-slate-400 bg-slate-700 text-white" : "border-transparent text-slate-300"}`}
+                  className={`grid min-h-[52px] min-w-0 grid-rows-[1rem_1.25rem] content-center items-center justify-items-center rounded-lg border px-0.5 py-1 text-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${mobileState === state ? "border-slate-400 bg-slate-700 text-white" : "border-transparent text-slate-300"}`}
                 >
-                  <span className="w-full break-words text-[11px] leading-4">{groupLabels[state]}</span>
+                  <span className="w-full whitespace-nowrap text-[10px] font-medium leading-4">{mobileGroupLabels[state]}</span>
                   <span className="flex items-center gap-1.5 text-lg font-semibold leading-5 tabular-nums">
                     <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${groupDots[state]}`} />
                     {vehicles.length}
@@ -390,14 +396,17 @@ export function TrafficBoard({
             <AlertDialogCancel className="min-h-[48px]">
               Отмена
             </AlertDialogCancel>
-            <Button
+            <AlertDialogAction
               type="button"
-              className="min-h-[48px]"
-              onClick={() => void confirm()}
+              className="min-h-[48px] touch-manipulation"
+              onClick={() => {
+                const command = selected;
+                if (command) void confirm(command);
+              }}
               disabled={stale || !snapshot.enabled || !!selected && pendingCommands.some(command => command.vehicle.vehicle_id === selected.vehicle.vehicle_id)}
             >
               Подтвердить
-            </Button>
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog> : null}

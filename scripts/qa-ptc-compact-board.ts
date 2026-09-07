@@ -13,6 +13,7 @@ import * as optimistic from "../lib/traffic/optimistic";
 
 const localRequire = createRequire(import.meta.url);
 const source = readFileSync("components/traffic/traffic-board.tsx", "utf8");
+const managerPageSource = readFileSync("app/(dashboard)/traffic/page.tsx", "utf8");
 let checks = 0;
 function check(actual: unknown, expected: unknown) { assert.deepEqual(actual, expected); checks++; }
 function isAtRule(node: PostcssNode): node is AtRule { return node.type === "atrule"; }
@@ -90,7 +91,7 @@ function harness(role: model.TrafficRole, input = vehicles, options: { acceptRec
       calls.push(args); const request = deferred<model.TrafficCommit>(); requests.push(request); return request.promise;
     } },
     "@/components/ui/alert-dialog": { AlertDialog: Dialog, AlertDialogContent: wrapper, AlertDialogHeader: wrapper, AlertDialogTitle: wrapper,
-      AlertDialogDescription: wrapper, AlertDialogFooter: wrapper, AlertDialogCancel: Button },
+      AlertDialogDescription: wrapper, AlertDialogFooter: wrapper, AlertDialogAction: Button, AlertDialogCancel: Button },
     "@/components/ui/button": { Button },
   };
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
@@ -107,6 +108,11 @@ function harness(role: model.TrafficRole, input = vehicles, options: { acceptRec
 }
 
 async function main() {
+  check(source.includes("<AlertDialogAction"), true);
+  check(source.includes("touch-manipulation"), true);
+  check(managerPageSource.includes("Доступ сотрудников"), false);
+  check(managerPageSource.includes('aria-label="Меню оборота машин"'), true);
+  check(managerPageSource.includes("Добавить машину или водителя"), true);
   // A repair mark does not replace cargo state. It only blocks starting new loads.
   const repairVehicles = vehicles.map(vehicle => ({ ...vehicle, inRepair: true }));
   for (const role of ["manager", "harvester", "receiver"] as const) {
@@ -166,8 +172,10 @@ async function main() {
   check(managerHtml.includes("<button><button"), false);
   const managerText = managerHtml.replace(/<[^>]*>/g, "");
   check((managerText.match(/Пустые/g) ?? []).length, 2);
-  check((managerText.match(/Загруженные/g) ?? []).length, 2);
-  check((managerText.match(/На выгрузке/g) ?? []).length, 2);
+  check((managerText.match(/Загруженные/g) ?? []).length, 1);
+  check((managerText.match(/С грузом/g) ?? []).length, 1);
+  check((managerText.match(/На выгрузке/g) ?? []).length, 1);
+  check((managerText.match(/Выгрузка/g) ?? []).length, 1);
   check((managerText.match(/На ремонте/g) ?? []).length >= 2, true);
   check(managerHtml.includes("lg:grid-cols-4"), true);
   check(managerHtml.includes("grid-cols-4") && !managerHtml.includes('class="grid grid-cols-4'), true);
@@ -191,7 +199,7 @@ async function main() {
   filterNodes(tree).forEach(filter => {
     check(filter.type, "button"); check(filter.props.type, "button");
     check(filter.props.tabIndex, undefined); // Native Tab + Enter/Space, not an incomplete ARIA tablist.
-    check(filter.props.className.includes("min-h-[48px]"), true);
+    check(filter.props.className.includes("min-h-[52px]"), true);
     check(filter.props.className.includes("focus-visible:outline"), true);
     check(groups.some(group => group.props.id === filter.props["aria-controls"]), true);
   });
@@ -485,9 +493,10 @@ async function main() {
     });
     const filters = filterNodes(filteredTree);
     filters.forEach(filter => {
-      check(stylesAt(filter, width)["min-height"], "48px");
+      check(stylesAt(filter, width)["min-height"], "52px");
       check(stylesAt(filter, width)["min-width"], "0px");
-      check(stylesAt(nodes(filter).find(node => node.props?.className?.includes("break-words")), width)["overflow-wrap"], "break-word");
+      const label = nodes(filter).find(node => node.props?.className?.includes("whitespace-nowrap"));
+      check(stylesAt(label, width)["white-space"], "nowrap");
     });
     const filterGrid = nodes(toolbar).find(node => node.props?.role === "group");
     check(stylesAt(filterGrid, width)["grid-template-columns"], "repeat(4, minmax(0, 1fr))");
