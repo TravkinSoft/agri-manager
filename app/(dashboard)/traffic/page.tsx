@@ -5,6 +5,7 @@ import { FleetEntityCreator } from "@/components/traffic/fleet-entity-creator";
 import type { TrafficVehicle } from "@/lib/traffic/model";
 import { EllipsisVertical, History, Truck, Settings2, Loader2, Plus } from "lucide-react";
 import { TrafficBoard } from "@/components/traffic/traffic-board";
+import { TrafficAnalyticsPanel } from "@/components/traffic/traffic-analytics-panel";
 import { useTraffic } from "@/components/traffic/use-traffic";
 import { trafficEventSummary } from "@/lib/traffic/model";
 import {
@@ -85,14 +86,21 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
           <Loader2 className="animate-spin" /> Получаем статусы…
         </div>
       ) : live.data ? (
-        <TrafficBoard
-          key={live.scopeKey}
-          snapshot={live.data}
-          stale={live.stale}
-          error={live.error}
-          refresh={live.refresh}
-          onManageVehicle={canManageFleet ? setSelected : undefined}
-          mobileActions={canManageFleet ? <div className="flex items-center">
+        <div className={managed?.managerRole === "agronomist" && live.data.analytics
+          ? "grid min-w-0 items-start gap-4 lg:grid-cols-[14rem_minmax(0,1fr)]"
+          : "min-w-0"}>
+          {managed?.managerRole === "agronomist" && live.data.analytics ? (
+            <TrafficAnalyticsPanel analytics={live.data.analytics} />
+          ) : null}
+          <TrafficBoard
+            key={live.scopeKey}
+            snapshot={live.data}
+            stale={live.stale}
+            error={live.error}
+            refresh={live.refresh}
+            onAuxiliaryCommitted={live.auxiliaryCommitted}
+            onManageVehicle={canManageFleet ? setSelected : undefined}
+            mobileActions={canManageFleet ? <div className="flex items-center">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -123,8 +131,9 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
             className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
           >
             <History aria-hidden size={20} />
-          </button> : null}
-        />
+            </button> : null}
+          />
+        </div>
       ) : (
         <div
           role="alert"

@@ -41,10 +41,10 @@ export async function GET(request: NextRequest) {
     const canManageFleet = actor.role === "fleet_manager";
     if (request.nextUrl.searchParams.get("snapshot") === "1")
       return noStore({
-        snapshot: await readSnapshot(companyId, "manager", "", false),
+        snapshot: await readSnapshot(companyId, "manager", "", false, undefined, actor.role === "agronomist"),
       });
     const [snapshot, fleet, people, accounts] = await Promise.all([
-      readSnapshot(companyId, "manager", ""),
+      readSnapshot(companyId, "manager", "", true, undefined, actor.role === "agronomist"),
       canManageFleet ? readCompanyFleet(db, companyId) : Promise.resolve([]),
       canManageFleet ? allRows((from, to) =>
         db
@@ -80,6 +80,7 @@ export async function GET(request: NextRequest) {
       canManageRepairs: canManageFleet,
       canCreateFleetEntities: canManageFleet,
       canManageUsers: false,
+      managerRole: actor.role,
     });
   } catch (error) {
     return failed(error);

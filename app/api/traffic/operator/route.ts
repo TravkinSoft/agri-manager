@@ -33,9 +33,13 @@ const vehicleState = z.object({
 export async function GET(request: NextRequest) {
   try {
     const actor = await operator(request);
-    return noStore(
-      await readSnapshot(actor.companyId, actor.role, actor.personName),
-    );
+    return noStore(await readSnapshot(
+      actor.companyId,
+      actor.role,
+      actor.personName,
+      false,
+      actor.actorId,
+    ));
   } catch (error) {
     return failed(error);
   }

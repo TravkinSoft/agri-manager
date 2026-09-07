@@ -9,6 +9,7 @@ import {
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { activeAssignedDriverName, vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
 import { readVehicleRepairs } from "@/lib/fleet/repairs-server";
+import { getFleetVehicleBrand } from "@/lib/fleet/model";
 import {
   isPtcEligibleReferenceVehicle,
   isStructurallyPtcReferenceVehicle,
@@ -21,6 +22,7 @@ import {
   type TrafficSnapshot,
   type TrafficVehicle,
 } from "./model";
+import { calculateTrafficAnalytics } from "./analytics";
 
 export class TrafficError extends Error {
   constructor(
@@ -82,6 +84,14 @@ export function failed(error: unknown) {
     ],
     PTC_INELIGIBLE_VEHICLE: [409, "Эта техника не входит в картофельный оборот"],
     PTC_INACTIVE_VEHICLE: [409, "Выберите действующие машины компании"],
+    PTC_LAST_VEHICLE_FORBIDDEN: [403, "Метка последней машины доступна только комбайнёру"],
+    PTC_LAST_VEHICLE_INVALID: [400, "Проверьте выбранную машину"],
+    PTC_LAST_VEHICLE_UNAVAILABLE: [409, "Последней можно отметить только пустую машину на линии"],
+    PTC_LAST_VEHICLE_CONFLICT: [409, "Метка уже изменилась. Обновите список"],
+    PTC_SHIFT_FORBIDDEN: [403, "Смена доступна только комбайнёру"],
+    PTC_SHIFT_INVALID: [400, "Проверьте данные смены"],
+    PTC_SHIFT_ALREADY_OPEN: [409, "Смена уже открыта"],
+    PTC_SHIFT_CONFLICT: [409, "Смена уже изменилась. Обновите кабинет"],
   };
   const match = Object.entries(known).find(([key]) => message.includes(key));
   return match
@@ -186,6 +196,8 @@ export async function readSnapshot(
   role: TrafficRole,
   personName: string,
   includeEvents = role === "manager",
+  actorId?: string,
+  includeAnalytics = false,
 ): Promise<TrafficSnapshot> {
   const db = getServiceClient();
   const results = await Promise.all([
@@ -209,6 +221,39 @@ export async function readSnapshot(
           .order("created_at", { ascending: false })
           .limit(50)
       : Promise.resolve({ data: [], error: null }),
+    role === "weighman"
+      ? Promise.resolve({ data: null, error: null })
+      : db
+          .from("ptc_last_vehicle_markers")
+          .select("vehicle_id,marked_at,version")
+          .eq("company_id", companyId)
+          .maybeSingle(),
+    role === "harvester" && actorId
+      ? db
+          .from("ptc_combine_shifts")
+          .select("id,operator_name,opened_at,closed_at,hectares_shift,hectares_field_total")
+          .eq("company_id", companyId)
+          .eq("operator_user_id", actorId)
+          .order("opened_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      : role === "manager" && includeAnalytics
+        ? db
+            .from("ptc_combine_shifts")
+            .select("id,operator_name,opened_at,closed_at,hectares_shift,hectares_field_total")
+            .eq("company_id", companyId)
+            .order("opened_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+    role === "manager" && includeAnalytics
+      ? db
+          .from("ptc_events")
+          .select("vehicle_id,from_state,to_state,cycle,created_at")
+          .eq("company_id", companyId)
+          .order("created_at", { ascending: false })
+          .limit(500)
+      : Promise.resolve({ data: [], error: null }),
   ]);
   for (const result of results) if (result.error) throw result.error;
   const flow = results[0].data as {
@@ -228,12 +273,35 @@ export async function readSnapshot(
       "field_name" | "vehicle_name" | "vehicle_plate" | "vehicle_brand" | "vehicle_driver"
     >
   >;
+  const marker = results[3].data as {
+    vehicle_id: string;
+    marked_at: string;
+    version: number;
+  } | null;
+  const shiftRow = results[4].data as {
+    id: string;
+    operator_name: string;
+    opened_at: string;
+    closed_at: string | null;
+    hectares_shift: number | string | null;
+    hectares_field_total: number | string | null;
+  } | null;
+  const combineShift = shiftRow ? {
+    id: shiftRow.id,
+    operatorName: shiftRow.operator_name,
+    openedAt: shiftRow.opened_at,
+    closedAt: shiftRow.closed_at,
+    hectaresShift: shiftRow.hectares_shift === null ? null : Number(shiftRow.hectares_shift),
+    hectaresFieldTotal: shiftRow.hectares_field_total === null ? null : Number(shiftRow.hectares_field_total),
+    status: shiftRow.closed_at === null ? "open" as const : "closed" as const,
+  } : null;
   // At most 100 working vehicles plus vehicles in the last 50 manager events.
   // Never load the whole company fleet or lose historical identities on unassignment.
   const vehicleIds = Array.from(
     new Set([
       ...states.map((s) => s.vehicle_id),
       ...history.map((e) => e.vehicle_id),
+      ...(marker ? [marker.vehicle_id] : []),
     ]),
   );
   const fleetResult = vehicleIds.length
@@ -314,6 +382,7 @@ export async function readSnapshot(
       ),
     };
   });
+  const serverTime = new Date().toISOString();
   return {
     companyId,
     role,
@@ -323,8 +392,38 @@ export async function readSnapshot(
     flowRevision: flow?.updated_at ?? null,
     // Legacy IDs stay intact; PTC no longer reads or displays field information.
     fieldName: null,
-    serverTime: new Date().toISOString(),
+    serverTime,
     vehicles: visibleVehicles(vehicles, role),
+    lastVehicle: marker ? (() => {
+      const current = vehicles.find((vehicle) => vehicle.vehicle_id === marker.vehicle_id);
+      if (!current) return null;
+      const source = fleet.get(marker.vehicle_id);
+      return {
+        vehicleId: marker.vehicle_id,
+        driver: current.driver,
+        brand: source
+          ? getFleetVehicleBrand({ name: source.name || "", brand: source.brand })
+          : current.brand || current.name,
+        plate: current.plate,
+        markedAt: marker.marked_at,
+        version: marker.version,
+      };
+    })() : null,
+    combineShift,
+    analytics: role === "manager" && includeAnalytics
+      ? calculateTrafficAnalytics(
+          (results[5].data ?? []) as Array<{
+            vehicle_id: string;
+            from_state: "empty" | "loaded" | "unloading";
+            to_state: "empty" | "loaded" | "unloading";
+            cycle: number;
+            created_at: string;
+          }>,
+          serverTime,
+          combineShift,
+          vehicles.filter((vehicle) => !vehicle.inRepair).length,
+        )
+      : null,
     events: history.filter((event) => historicalVehicleIds.has(event.vehicle_id)).map((event) => {
       const vehicle = fleet.get(event.vehicle_id);
       return {

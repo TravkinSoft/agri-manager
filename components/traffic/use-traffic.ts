@@ -17,6 +17,9 @@ function sameSnapshotContent(left: TrafficSnapshot, right: TrafficSnapshot) {
     left.fieldName !== right.fieldName
   ) return false;
   return JSON.stringify(left.vehicles) === JSON.stringify(right.vehicles) &&
+    JSON.stringify(left.lastVehicle ?? null) === JSON.stringify(right.lastVehicle ?? null) &&
+    JSON.stringify(left.combineShift ?? null) === JSON.stringify(right.combineShift ?? null) &&
+    JSON.stringify(left.analytics ?? null) === JSON.stringify(right.analytics ?? null) &&
     JSON.stringify(left.events) === JSON.stringify(right.events);
 }
 export interface ManagerData {
@@ -28,6 +31,7 @@ export interface ManagerData {
   fields: Array<{ id: string; name: string }>;
   canManageUsers: boolean;
   canCreateFleetEntities: boolean;
+  managerRole: "agronomist" | "fleet_manager" | "company_admin" | "global_admin";
   accounts: Array<{
     id: string;
     full_name: string;
@@ -244,6 +248,13 @@ export function useTraffic(isManager: boolean) {
     publishTrafficChanged(data?.companyId);
     return true;
   }, [generation, data?.companyId]);
+  const auxiliaryCommitted = useCallback(async () => {
+    if (!mounted.current || generation !== authGeneration.current) return;
+    readEpoch.current++;
+    controller.current?.abort();
+    publishTrafficChanged(data?.companyId);
+    await refresh(true);
+  }, [data?.companyId, generation, refresh]);
   useEffect(() => subscribeTrafficChanges(data?.companyId, (companyId) => {
     if (!mounted.current || generation !== authGeneration.current || companyId !== data?.companyId) return;
     readEpoch.current++;
@@ -353,5 +364,5 @@ export function useTraffic(isManager: boolean) {
     };
   }, [refresh, isManager]);
   const scopeKey = `${generation}:${data?.companyId ?? ""}:${data?.role ?? ""}:${data?.personName ?? ""}`;
-  return { data, managerData, error, stale, needsLogin, loading, refresh, applyCommitted, scopeKey };
+  return { data, managerData, error, stale, needsLogin, loading, refresh, applyCommitted, auxiliaryCommitted, scopeKey };
 }

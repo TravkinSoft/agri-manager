@@ -86,7 +86,7 @@ function harness(role: model.TrafficRole, input = vehicles, options: {
       },
       useRef: (initial: unknown) => { const i = refCursor++; return refs[i] ?? (refs[i] = { current: initial }); },
     },
-    "lucide-react": Object.fromEntries(["Truck", "Clock3", "Loader2", "RefreshCw", "WifiOff", "Wrench"].map(key => [key, () => null])),
+    "lucide-react": Object.fromEntries(["Truck", "Clock3", "Loader2", "RefreshCw", "WifiOff", "Wrench", "EllipsisVertical"].map(key => [key, () => null])),
     "@/lib/traffic/model": model,
     "@/lib/traffic/optimistic": optimistic,
     "./use-traffic": { trafficRequest: (...args: any[]) => {

@@ -6,6 +6,7 @@ import {
   Clock3,
   WifiOff,
   Wrench,
+  EllipsisVertical,
 } from "lucide-react";
 import {
   ACTION_LABEL,
@@ -57,6 +58,7 @@ export function TrafficBoard({
   error,
   refresh,
   onCommitted,
+  onAuxiliaryCommitted,
   mobileActions,
   onManageVehicle,
 }: {
@@ -65,12 +67,14 @@ export function TrafficBoard({
   error: string;
   refresh: (fresh?: boolean) => Promise<void>;
   onCommitted?: (receipt: TrafficCommit, vehicleId: string, expectedVersion: number) => boolean;
+  onAuxiliaryCommitted?: () => Promise<void>;
   mobileActions?: ReactNode;
   onManageVehicle?: (vehicle: TrafficVehicle) => void;
 }) {
   const [now, setNow] = useState(Date.now());
   const [actionError, setActionError] = useState("");
   const [pendingCommands, setPendingCommands] = useState<PendingTrafficCommand[]>([]);
+  const [lastVehicleBusy, setLastVehicleBusy] = useState<string | null>(null);
   const [mobileState, setMobileState] = useState<ManagerTrafficGroup>("empty");
   const mobileListRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<PendingTrafficCommand[]>([]);
@@ -146,6 +150,31 @@ export function TrafficBoard({
       void refresh(true);
     }
   }
+  async function changeLastVehicle(vehicle: TrafficVehicle, action: "mark" | "clear") {
+    if (stale || !snapshot.enabled || lastVehicleBusy) return;
+    const current = snapshot.lastVehicle;
+    const prompt = action === "clear"
+      ? `Убрать метку «Последняя» с машины ${vehicle.driver || vehicle.name} · ${vehicle.plate || "Без номера"}?`
+      : `${current && current.vehicleId !== vehicle.vehicle_id ? "Перенести" : "Поставить"} метку «Последняя» на машину ${vehicle.driver || vehicle.name} · ${vehicle.plate || "Без номера"}?`;
+    if (window.confirm(prompt) !== true) return;
+    setLastVehicleBusy(vehicle.vehicle_id);
+    setActionError("");
+    try {
+      const result = await trafficRequest("/api/traffic/operator/last-vehicle", "POST", {
+        action,
+        vehicleId: vehicle.vehicle_id,
+        key: crypto.randomUUID(),
+      });
+      if (result?.ok !== true) throw new Error("Сервер не подтвердил метку");
+      if (onAuxiliaryCommitted) await onAuxiliaryCommitted();
+      else await refresh(true);
+    } catch (caught) {
+      setActionError((caught as Error).message);
+      void refresh(true);
+    } finally {
+      if (mounted.current) setLastVehicleBusy(null);
+    }
+  }
   const isManager = snapshot.role === "manager";
   const displayVehicles = optimisticTrafficVehicles(snapshot, pendingCommands);
   const groups = isManager
@@ -159,6 +188,12 @@ export function TrafficBoard({
     : [{ state: null, vehicles: displayVehicles }];
   return (
     <>
+      {snapshot.role === "receiver" && snapshot.lastVehicle ? (
+        <p data-testid="traffic-last-vehicle-banner" className="mb-4 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm text-slate-100">
+          <span className="font-semibold text-rose-300">Последняя:</span>{" "}
+          {[snapshot.lastVehicle.driver || "Водитель не назначен", snapshot.lastVehicle.brand, snapshot.lastVehicle.plate || "Без номера"].join(" · ")}
+        </p>
+      ) : null}
       {actionError ? <p role="alert" className="mb-3 text-sm text-rose-300">{actionError}</p> : null}
       {pendingCommands.filter(command => command.phase === "uncertain").map(command => (
         <div key={command.key} role="alert" className="mb-3 text-sm text-rose-300">
@@ -240,10 +275,13 @@ export function TrafficBoard({
           const target = nextState(snapshot.role, vehicle.state, vehicle.inRepair);
           const pendingVehicle = pendingCommands.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id);
           const identity = getFleetVehicleCardIdentity(vehicle);
+          const isLastVehicle = snapshot.lastVehicle?.vehicleId === vehicle.vehicle_id;
+          const canChangeLastVehicle = snapshot.role === "harvester" && !vehicle.inRepair &&
+            (isLastVehicle || vehicle.state === "empty");
           const cardClass = `h-24 min-w-0 overflow-hidden rounded-xl border p-2.5 text-left shadow-sm ${vehicle.inRepair ? "border-rose-400 bg-rose-100 text-rose-950" : tones[vehicle.state]}`;
           const content = (
             <>
-              <span className="line-clamp-2 block min-h-10 break-words text-lg font-bold leading-5">
+              <span className={`line-clamp-2 block min-h-10 break-words text-lg font-bold leading-5 ${canChangeLastVehicle ? "pr-10" : ""}`}>
                 {identity.primary}
               </span>
               {identity.secondary ? <span className="flex h-5 min-w-0 items-center gap-1.5">
@@ -253,6 +291,7 @@ export function TrafficBoard({
                 </span>
               </span> : <span aria-hidden className="block h-5" />}
               <span className="flex h-4 min-w-0 items-center gap-1 truncate text-[11px] leading-4 opacity-70">
+                {isLastVehicle ? <span className="shrink-0 font-extrabold text-rose-700">ПОСЛЕДНЯЯ ·</span> : null}
                 {!identity.hasDriver ? <span className="shrink-0 font-medium">Без водителя ·</span> : null}
                 {vehicle.inRepair ? <span className="flex shrink-0 items-center gap-1 font-semibold">
                   <Wrench size={11} aria-hidden /> На ремонте · {STATE_LABEL[vehicle.state]} ·
@@ -262,9 +301,8 @@ export function TrafficBoard({
               </span>
             </>
           );
-          return target ? (
+          const card = target ? (
             <button
-              key={vehicle.vehicle_id}
               type="button"
               data-testid={`traffic-vehicle-${vehicle.vehicle_id}`}
               aria-label={`${ACTION_LABEL[target]}: ${vehicle.name}, ${vehicle.plate || "без номера"}`}
@@ -283,7 +321,7 @@ export function TrafficBoard({
               {content}
             </button>
           ) : isManager && onManageVehicle ? (
-            <button key={vehicle.vehicle_id} type="button"
+            <button type="button"
               data-testid={`traffic-vehicle-${vehicle.vehicle_id}`}
               aria-label={`Управление машиной: ${vehicle.driver || vehicle.name}, ${vehicle.plate || "без номера"}`}
               onClick={() => onManageVehicle(vehicle)}
@@ -292,12 +330,31 @@ export function TrafficBoard({
             </button>
           ) : (
             <article
-              key={vehicle.vehicle_id}
               data-testid={`traffic-vehicle-${vehicle.vehicle_id}`}
-              className={cardClass}
+              className={`${cardClass} w-full`}
             >
               {content}
             </article>
+          );
+          return (
+            <div key={vehicle.vehicle_id} className="relative min-w-0">
+              {card}
+              {canChangeLastVehicle ? (
+                <button
+                  type="button"
+                  aria-label={isLastVehicle ? "Убрать метку последней машины" : "Отметить машину последней"}
+                  disabled={stale || !snapshot.enabled || lastVehicleBusy !== null}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void changeLastVehicle(vehicle, isLastVehicle ? "clear" : "mark");
+                  }}
+                  className="absolute right-0 top-0 flex min-h-[48px] min-w-[48px] items-center justify-center rounded-tr-xl text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-amber-500 disabled:opacity-40"
+                >
+                  <EllipsisVertical aria-hidden size={20} />
+                </button>
+              ) : null}
+            </div>
           );
         })}
             </div>

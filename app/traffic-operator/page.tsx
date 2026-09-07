@@ -8,6 +8,7 @@ import { trafficRequest, useTraffic } from "@/components/traffic/use-traffic";
 import { TrafficPwa } from "@/components/traffic/install-traffic-app";
 import { TrafficFleetControls } from "@/components/traffic/traffic-fleet-controls";
 import { FleetEntityCreator } from "@/components/traffic/fleet-entity-creator";
+import { TrafficShiftControls } from "@/components/traffic/traffic-shift-controls";
 import { supabase } from "@/lib/supabase/client";
 
 type CabinetMode = "checking" | "operator" | "manager" | "error";
@@ -123,14 +124,19 @@ function TrafficOperatorCabinet({ onAuthenticated }: { onAuthenticated: () => Pr
             ) : null}
           </div>
           {live.data ? (
-            <button
-              onClick={() => void logout()}
-              disabled={busy}
-              type="button"
-              className="flex min-h-[48px] items-center gap-2 rounded-xl px-3 text-sm text-slate-400 hover:bg-white/5"
-            >
-              <LogOut size={16} /> Выйти
-            </button>
+            <div className="flex items-center gap-1">
+              {live.data.role === "harvester" ? (
+                <TrafficShiftControls snapshot={live.data} stale={live.stale} refresh={live.refresh} onCommitted={live.auxiliaryCommitted} />
+              ) : null}
+              <button
+                onClick={() => void logout()}
+                disabled={busy}
+                type="button"
+                className="flex min-h-[48px] items-center gap-2 rounded-xl px-3 text-sm text-slate-400 hover:bg-white/5"
+              >
+                <LogOut size={16} /> Выйти
+              </button>
+            </div>
           ) : (
             <Truck className="text-amber-300" size={28} />
           )}
@@ -199,6 +205,7 @@ function TrafficOperatorCabinet({ onAuthenticated }: { onAuthenticated: () => Pr
             error={live.error}
             refresh={live.refresh}
             onCommitted={live.applyCommitted}
+            onAuxiliaryCommitted={live.auxiliaryCommitted}
           />
         ) : (
           <div role="alert" className="py-10 text-amber-200">

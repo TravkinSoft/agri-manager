@@ -51,6 +51,38 @@ export interface TrafficVehicle {
   repairVersion?: number;
   repairChangedAt?: string | null;
 }
+export interface TrafficLastVehicle {
+  vehicleId: string;
+  driver: string | null;
+  brand: string;
+  plate: string | null;
+  markedAt: string;
+  version: number;
+}
+export interface TrafficCombineShift {
+  id: string;
+  operatorName: string;
+  openedAt: string;
+  closedAt: string | null;
+  hectaresShift: number | null;
+  hectaresFieldTotal: number | null;
+  status: "open" | "closed";
+}
+export interface TrafficAnalytics {
+  windowLabel: string;
+  windowStartedAt: string;
+  completedLoads: number;
+  lastLoadIntervalMinutes: number | null;
+  averageLoadIntervalMinutes: number | null;
+  averageFieldToWeighbridgeMinutes: number | null;
+  averageUnloadingMinutes: number | null;
+  averageReturnToLoadMinutes: number | null;
+  averageVehicleCycleMinutes: number | null;
+  latestFleetRoundMinutes: number | null;
+  probableDowntimeCount: number;
+  probableDowntimeMinutes: number;
+  currentProbableDowntimeMinutes: number | null;
+}
 export interface TrafficSnapshot {
   companyId?: string;
   role: TrafficRole;
@@ -61,6 +93,9 @@ export interface TrafficSnapshot {
   flowRevision?: string | null;
   serverTime: string;
   vehicles: TrafficVehicle[];
+  lastVehicle?: TrafficLastVehicle | null;
+  combineShift?: TrafficCombineShift | null;
+  analytics?: TrafficAnalytics | null;
   events: Array<{
     id: string;
     vehicle_id: string;
