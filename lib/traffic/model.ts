@@ -1,3 +1,5 @@
+import { getFleetVehicleBrand } from "@/lib/fleet/model";
+
 export type TrafficState = "empty" | "loaded" | "unloading";
 export type TrafficRole = "harvester" | "weighman" | "receiver" | "manager";
 export function operatorRole(
@@ -69,7 +71,24 @@ export interface TrafficSnapshot {
     field_name: string | null;
     vehicle_name: string;
     vehicle_plate: string | null;
+    vehicle_brand?: string | null;
+    vehicle_driver?: string | null;
   }>;
+}
+
+export function trafficEventSummary(event: TrafficSnapshot["events"][number]): string {
+  const driver = event.vehicle_driver?.trim() || "Водитель не назначен";
+  const brand = getFleetVehicleBrand({
+    name: event.vehicle_name,
+    brand: event.vehicle_brand || null,
+  });
+  const plate = event.vehicle_plate?.trim() || "Без номера";
+  return [
+    driver,
+    brand,
+    plate,
+    `${STATE_LABEL[event.from_state]} → ${STATE_LABEL[event.to_state]}`,
+  ].join(" · ");
 }
 export interface TrafficCommit {
   eventId: string;

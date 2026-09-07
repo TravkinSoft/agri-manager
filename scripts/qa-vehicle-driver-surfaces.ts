@@ -78,9 +78,13 @@ async function main() {
   check(snapshot.vehicles[0].cycle, 3);
   check(snapshot.vehicles.length, 1);
   check(snapshot.events.map((event: { id: string }) => event.id), ["visible-event", "retained-event"]);
+  check(snapshot.events[0].vehicle_driver, person.full_name);
+  check(snapshot.events[0].vehicle_brand, null);
+  check(model.trafficEventSummary({ ...snapshot.events[0], vehicle_brand: "KAMAZ" }), "Текущий водитель · КамАЗ · QA-207 · Пустая → Загружена");
+  check(model.trafficEventSummary({ ...snapshot.events[1], vehicle_driver: null }), "Водитель не назначен · ЗИЛ · T-804 BN · Пустая → Загружена");
   check(queries.some(q => q.table === "reference_specialists" && q.columns.includes("person:person_id")), true);
   fixture.reference_specialists = [{ ...specialist, person: { ...person, status: "inactive" } }];
-  check((await moduleScope.exports.readSnapshot(companyId, "receiver", "Бригадир")).vehicles[0].driver, null);
+  check((await moduleScope.exports.readSnapshot(companyId, "manager", "Агроном", false)).vehicles[0].driver, null);
   const references = readFileSync("app/(dashboard)/references/page.tsx", "utf8");
   check(references.includes('"Водитель",'), true);
   check(references.includes("vehicleAllowsMachineOperator(row)"), true);

@@ -12,6 +12,7 @@ import {
   nextState,
   STATE_LABEL,
   stateAge,
+  trafficEventSummary,
   type TrafficSnapshot,
   type TrafficState,
   type TrafficCommit,
@@ -335,9 +336,7 @@ export function TrafficBoard({
             {snapshot.events.map((event) => (
               <div key={event.id} className="break-words py-3 text-sm">
                 <p className="text-slate-300">
-                  {event.vehicle_plate || event.vehicle_name} ·{" "}
-                  {STATE_LABEL[event.from_state]} →{" "}
-                  {STATE_LABEL[event.to_state]}
+                  {trafficEventSummary(event)}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
                   {event.actor_name} ·{" "}

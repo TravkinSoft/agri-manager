@@ -225,7 +225,7 @@ export async function readSnapshot(
   const history = (results[2].data ?? []) as Array<
     Omit<
       TrafficSnapshot["events"][number],
-      "field_name" | "vehicle_name" | "vehicle_plate"
+      "field_name" | "vehicle_name" | "vehicle_plate" | "vehicle_brand" | "vehicle_driver"
     >
   >;
   // At most 100 working vehicles plus vehicles in the last 50 manager events.
@@ -274,7 +274,7 @@ export async function readSnapshot(
     fleetRows.filter(isStructurallyPtcReferenceVehicle).map((vehicle) => vehicle.id),
   );
   const repairsPromise = readVehicleRepairs(db, companyId, Array.from(eligibleVehicleIds));
-  const driverIds = eligibleFleetRows.flatMap((v) =>
+  const driverIds = fleetRows.filter(isStructurallyPtcReferenceVehicle).flatMap((v) =>
     v.primary_responsible_personnel_id
       ? [v.primary_responsible_personnel_id]
       : [],
@@ -324,13 +324,20 @@ export async function readSnapshot(
     fieldName: null,
     serverTime: new Date().toISOString(),
     vehicles: visibleVehicles(vehicles, role),
-    events: history.filter((event) => historicalVehicleIds.has(event.vehicle_id)).map((event) => ({
-      ...event,
-      field_name: null,
-      vehicle_name: fleet.get(event.vehicle_id)?.name || "Машина",
-      vehicle_plate: fleet.has(event.vehicle_id)
-        ? ptcVehicleDisplayPlate(fleet.get(event.vehicle_id)!)
-        : null,
-    })),
+    events: history.filter((event) => historicalVehicleIds.has(event.vehicle_id)).map((event) => {
+      const vehicle = fleet.get(event.vehicle_id);
+      return {
+        ...event,
+        field_name: null,
+        vehicle_name: vehicle?.name || "Машина",
+        vehicle_plate: vehicle ? ptcVehicleDisplayPlate(vehicle) : null,
+        vehicle_brand: vehicle?.brand || null,
+        vehicle_driver: activeAssignedDriverName(
+          driverAssignments.get(vehicle?.primary_responsible_personnel_id ?? ""),
+          companyId,
+          vehicleAllowsMachineOperator(vehicle),
+        ),
+      };
+    }),
   };
 }

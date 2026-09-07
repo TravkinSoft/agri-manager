@@ -6,7 +6,7 @@ import type { TrafficVehicle } from "@/lib/traffic/model";
 import { EllipsisVertical, History, Truck, Settings2, Loader2, Plus } from "lucide-react";
 import { TrafficBoard } from "@/components/traffic/traffic-board";
 import { useTraffic } from "@/components/traffic/use-traffic";
-import { STATE_LABEL } from "@/lib/traffic/model";
+import { trafficEventSummary } from "@/lib/traffic/model";
 import {
   Dialog,
   DialogContent,
@@ -172,8 +172,7 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
                 {managed.snapshot.events.map((event) => (
                   <div key={event.id} className="break-words py-3 text-sm">
                     <p className="text-slate-200">
-                      {event.vehicle_plate || event.vehicle_name} ·{" "}
-                      {STATE_LABEL[event.from_state]} → {STATE_LABEL[event.to_state]}
+                      {trafficEventSummary(event)}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
                       {event.actor_name} · {new Date(event.created_at).toLocaleString("ru-RU")}

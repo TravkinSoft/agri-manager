@@ -211,9 +211,10 @@ async function main() {
   manager.props.snapshot = {
     ...manager.props.snapshot,
     vehicles: manager.props.snapshot.vehicles.map(vehicle => vehicle.vehicle_id === "car-1" ? { ...vehicle, state: "loaded" } : vehicle),
-    events: [{ id: "event-1", vehicle_id: "car-1", from_state: "empty", to_state: "loaded", created_at: "2026-09-04T10:00:00Z", actor_name: "Operator", field_id: null, field_name: null, vehicle_name: "Truck", vehicle_plate: "QA-1" }],
+    events: [{ id: "event-1", vehicle_id: "car-1", from_state: "empty", to_state: "loaded", created_at: "2026-09-04T10:00:00Z", actor_name: "Operator", field_id: null, field_name: null, vehicle_name: "Truck", vehicle_plate: "QA-1", vehicle_brand: "Truck", vehicle_driver: "Existing Driver" }],
   };
   filteredTree = manager.render();
+  check(words(filteredTree).includes("Existing Driver · Truck · QA-1 · Пустая → Загружена"), true);
   check(filterCounts(filteredTree), [0, 2, 1, 1]);
   check(filterNodes(filteredTree).map(filter => filter.props["aria-pressed"]), [false, true, false, false]);
   check(cardNodes(mobileGroups(filteredTree)).length, 2);
