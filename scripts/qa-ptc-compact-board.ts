@@ -257,6 +257,26 @@ async function main() {
     }
     const actionable = cards.find(card => card.type === "button")!;
     const clicked = vehicles.find(car => `traffic-vehicle-${car.vehicle_id}` === actionable.props["data-testid"])!;
+
+    // P0 mobile regression: cancelling must invalidate even a late iOS click
+    // retained by the previously mounted confirmation button.
+    const cancelled = harness(role);
+    const cancelledCard = cardNodes(cancelled.render()).find(card => card.type === "button")!;
+    cancelledCard.props.onClick();
+    const cancelledTree = cancelled.render();
+    const cancelledDialog = nodes(cancelledTree).find(node => node.type === Dialog);
+    const cancelButton = nodes(cancelledDialog).find(node => node.type === Button && words(node) === "Отмена");
+    const staleConfirm = nodes(cancelledDialog).find(node => node.type === Button && words(node) === "Подтвердить");
+    let prevented = 0, stopped = 0;
+    cancelButton.props.onPointerDown({ preventDefault: () => prevented++, stopPropagation: () => stopped++ });
+    staleConfirm.props.onClick();
+    await flush();
+    check(prevented, 1); check(stopped, 1);
+    check(cancelled.calls.length, 0);
+    check(renderToStaticMarkup(cancelled.render()).includes('role="alertdialog"'), false);
+    cancelledCard.props.onClick();
+    check(renderToStaticMarkup(cancelled.render()).includes('role="alertdialog"'), false);
+
     actionable.props.onClick(); operatorTree = h.render();
     check(renderToStaticMarkup(operatorTree).includes(`role="alertdialog"`), true);
     const dialog = nodes(operatorTree).find(node => node.type === Dialog);

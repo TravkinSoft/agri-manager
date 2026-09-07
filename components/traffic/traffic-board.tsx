@@ -54,6 +54,7 @@ const groupDots: Record<ManagerTrafficGroup, string> = {
   unloading: "bg-amber-300",
   repair: "bg-rose-400",
 };
+const MOBILE_DISMISS_GUARD_MS = 800;
 export function TrafficBoard({
   snapshot,
   stale,
@@ -78,6 +79,8 @@ export function TrafficBoard({
   const [mobileState, setMobileState] = useState<ManagerTrafficGroup>("empty");
   const mobileListRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<PendingTrafficCommand[]>([]);
+  const cancelledCommandKeyRef = useRef<string | null>(null);
+  const cardActivationBlockedUntilRef = useRef(0);
   const mounted = useRef(true);
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
@@ -108,8 +111,16 @@ export function TrafficBoard({
     () => Date.parse(snapshot.serverTime) - Date.now(),
     [snapshot.serverTime],
   );
+  function cancelSelection(command = selected) {
+    if (command) cancelledCommandKeyRef.current = command.key;
+    // iOS standalone PWAs may emit a delayed synthetic click after the dialog
+    // has disappeared. Keep that click from reaching either the old confirm
+    // handler or the vehicle card that is revealed underneath it.
+    cardActivationBlockedUntilRef.current = Date.now() + MOBILE_DISMISS_GUARD_MS;
+    flushSync(() => setSelected(null));
+  }
   async function confirm(command = selected, retry = false) {
-    if (!command || stale || !snapshot.enabled) return;
+    if (!command || cancelledCommandKeyRef.current === command.key || stale || !snapshot.enabled) return;
     const vehicleId = command.vehicle.vehicle_id;
     const existing = pendingRef.current.find(item => item.vehicle.vehicle_id === vehicleId);
     if (existing && (!retry || existing.phase !== "uncertain" || existing.key !== command.key)) return;
@@ -288,6 +299,7 @@ export function TrafficBoard({
               aria-label={`${ACTION_LABEL[target]}: ${vehicle.name}, ${vehicle.plate || "без номера"}`}
               disabled={pendingVehicle || stale || !snapshot.enabled}
               onClick={() => {
+                if (Date.now() < cardActivationBlockedUntilRef.current) return;
                 if (pendingRef.current.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id)) return;
                 setSelected({ vehicle, target, key: crypto.randomUUID() });
               }}
@@ -368,7 +380,7 @@ export function TrafficBoard({
       {selected ? <AlertDialog
         open={!!selected}
         onOpenChange={(open) => {
-          if (!open) setSelected(null);
+          if (!open) cancelSelection();
         }}
       >
         <AlertDialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-sm overflow-y-auto rounded-2xl p-4 data-[state=closed]:hidden sm:p-6">
@@ -387,7 +399,20 @@ export function TrafficBoard({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="min-h-[48px]">
+            <AlertDialogCancel
+              type="button"
+              className="min-h-[48px] touch-manipulation"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                cancelSelection();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                cancelSelection();
+              }}
+            >
               Отмена
             </AlertDialogCancel>
             <Button
