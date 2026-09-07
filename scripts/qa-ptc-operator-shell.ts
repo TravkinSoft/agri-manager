@@ -32,20 +32,32 @@ function nodes(node: any): any[] {
   if (Array.isArray(node)) return node.flatMap(nodes);
   return [node, ...nodes(node.props?.children)];
 }
+function materialize(node: any): any {
+  let current = node;
+  while (current && typeof current.type === "function") current = current.type(current.props);
+  return current;
+}
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 const TrafficBoard = () => null;
 const TrafficPwa = () => null;
 function page(live: Record<string, unknown>) {
   const pageModule = load(pageSource, {
-    react: { ...React, useState: (initial: unknown) => [initial, () => undefined] },
-    "lucide-react": { Truck: () => null, LogOut: () => null, Loader2: () => null },
+    react: {
+      ...React,
+      useState: (initial: unknown) => [initial === "checking" ? "operator" : initial, () => undefined],
+      useCallback: (callback: unknown) => callback,
+      useEffect: () => undefined,
+    },
+    "lucide-react": { Truck: () => null, LogOut: () => null, Loader2: () => null, Plus: () => null, Settings2: () => null },
     "@/lib/traffic/model": { ROLE_LABEL: { harvester: "Комбайнёр", receiver: "Приёмка картофеля" } },
     "@/components/traffic/traffic-board": { TrafficBoard },
-    "@/components/traffic/use-traffic": { useTraffic: () => live },
+    "@/components/traffic/use-traffic": { useTraffic: () => live, trafficRequest: async () => ({}) },
     "@/components/traffic/install-traffic-app": { TrafficPwa },
+    "@/components/traffic/traffic-fleet-controls": { TrafficFleetControls: () => null },
+    "@/components/traffic/fleet-entity-creator": { FleetEntityCreator: () => null },
     "@/lib/supabase/client": { supabase: {} },
   });
-  return pageModule.default();
+  return materialize(pageModule.default());
 }
 
 async function main() {
@@ -63,6 +75,10 @@ async function main() {
   const root = readFileSync("app/layout.tsx", "utf8");
   check(/minimumScale|maximumScale|userScalable/.test(root), false);
   check(root.includes("manifest: '/manifest.webmanifest'"), true);
+  check(pageSource.includes('trafficRequest("/api/traffic?snapshot=1"'), true);
+  check(/failure\.status === 401 \|\| failure\.status === 403/.test(pageSource), true);
+  check(/mode === "manager"[\s\S]*<TrafficManagerPwa/.test(pageSource), true);
+  check(/<TrafficFleetControls[\s\S]*<FleetEntityCreator/.test(pageSource), true);
 
   const applyCommitted = () => undefined;
   const scenarios = [

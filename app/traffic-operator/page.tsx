@@ -1,12 +1,70 @@
 "use client";
-import { useState, type FormEvent } from "react";
-import { Truck, LogOut, Loader2 } from "lucide-react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Truck, LogOut, Loader2, Plus, Settings2 } from "lucide-react";
 import { ROLE_LABEL } from "@/lib/traffic/model";
+import type { TrafficVehicle } from "@/lib/traffic/model";
 import { TrafficBoard } from "@/components/traffic/traffic-board";
-import { useTraffic } from "@/components/traffic/use-traffic";
+import { trafficRequest, useTraffic } from "@/components/traffic/use-traffic";
 import { TrafficPwa } from "@/components/traffic/install-traffic-app";
+import { TrafficFleetControls } from "@/components/traffic/traffic-fleet-controls";
+import { FleetEntityCreator } from "@/components/traffic/fleet-entity-creator";
 import { supabase } from "@/lib/supabase/client";
+
+type CabinetMode = "checking" | "operator" | "manager" | "error";
+
 export default function TrafficOperatorPage() {
+  const [mode, setMode] = useState<CabinetMode>("checking");
+  const [gateError, setGateError] = useState("");
+
+  const detectCabinet = useCallback(async (): Promise<CabinetMode> => {
+    setGateError("");
+    const { data } = await supabase.auth.getSession();
+    if (!data.session) {
+      setMode("operator");
+      return "operator";
+    }
+    try {
+      await trafficRequest("/api/traffic?snapshot=1", "GET", undefined, true);
+      setMode("manager");
+      return "manager";
+    } catch (caught) {
+      const failure = caught as Error & { status?: number };
+      if (failure.status === 401 || failure.status === 403) {
+        setMode("operator");
+        return "operator";
+      }
+      setGateError(failure.message || "Не удалось определить рабочий кабинет");
+      setMode("error");
+      return "error";
+    }
+  }, []);
+
+  useEffect(() => {
+    void detectCabinet();
+  }, [detectCabinet]);
+
+  if (mode === "manager") {
+    return <TrafficManagerPwa onSignedOut={() => setMode("operator")} />;
+  }
+  if (mode === "checking") {
+    return <TrafficPwaShell><div role="status" className="flex justify-center py-20"><Loader2 className="animate-spin" /><span className="sr-only">Определяем кабинет</span></div></TrafficPwaShell>;
+  }
+  if (mode === "error") {
+    return <TrafficPwaShell><div role="alert" className="py-10 text-amber-200">{gateError}<button type="button" onClick={() => { setMode("checking"); void detectCabinet(); }} className="mt-3 block min-h-[48px] underline">Повторить</button></div></TrafficPwaShell>;
+  }
+  return <TrafficOperatorCabinet onAuthenticated={detectCabinet} />;
+}
+
+function TrafficPwaShell({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="min-h-[100dvh] touch-pan-y bg-[#0c1118] px-4 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] text-slate-100 sm:px-6">
+      <TrafficPwa />
+      <div className="mx-auto max-w-5xl">{children}</div>
+    </main>
+  );
+}
+
+function TrafficOperatorCabinet({ onAuthenticated }: { onAuthenticated: () => Promise<CabinetMode> }) {
   const live = useTraffic(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -25,7 +83,7 @@ export default function TrafficOperatorPage() {
         throw new Error(
           "Не удалось войти. Проверьте приглашённую почту, пароль и подтверждение аккаунта.",
         );
-      await live.refresh(true);
+      if ((await onAuthenticated()) === "operator") await live.refresh(true);
     } catch (caught) {
       setError((caught as Error).message);
     } finally {
@@ -168,5 +226,72 @@ export default function TrafficOperatorPage() {
         ) : null}
       </div>
     </main>
+  );
+}
+
+function TrafficManagerPwa({ onSignedOut }: { onSignedOut: () => void }) {
+  const live = useTraffic(true);
+  const [selected, setSelected] = useState<TrafficVehicle | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const managed = live.managerData;
+  const companyId = live.data?.companyId;
+
+  async function logout() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await supabase.auth.signOut({ scope: "local" });
+      onSignedOut();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <TrafficPwaShell>
+      <header className="mb-5 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold tracking-[0.2em] text-amber-300">TRAVKINFLOW</p>
+          <h1 className="mt-2 text-2xl font-semibold">Оборот машин</h1>
+        </div>
+        <button type="button" onClick={() => void logout()} disabled={busy} className="flex min-h-[48px] items-center gap-2 rounded-xl px-3 text-sm text-slate-400 hover:bg-white/5 disabled:opacity-50">
+          <LogOut size={16} /> Выйти
+        </button>
+      </header>
+      {live.loading || (!live.data && !live.error) ? (
+        <div role="status" className="flex justify-center py-20"><Loader2 className="animate-spin" /><span className="sr-only">Загрузка кабинета</span></div>
+      ) : live.data ? (
+        <TrafficBoard
+          key={live.scopeKey}
+          snapshot={live.data}
+          stale={live.stale}
+          error={live.error}
+          refresh={live.refresh}
+          onManageVehicle={managed?.canManageRepairs ? setSelected : undefined}
+          mobileActions={managed?.canManageRepairs ? (
+            <div className="flex items-center">
+              {managed.canCreateFleetEntities ? (
+                <button type="button" aria-label="Добавить машину или водителя" onClick={() => setCreateOpen(true)} className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg text-amber-300">
+                  <Plus aria-hidden size={22} />
+                </button>
+              ) : null}
+              <button type="button" aria-label="Машины не на линии" onClick={() => setDrawerOpen(true)} className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg text-slate-200">
+                <Settings2 aria-hidden size={20} />
+              </button>
+            </div>
+          ) : undefined}
+        />
+      ) : (
+        <div role="alert" className="py-10 text-amber-200">{live.error}<button type="button" onClick={() => void live.refresh(true)} className="mt-3 block min-h-[48px] underline">Повторить</button></div>
+      )}
+      {managed && live.data ? (
+        <TrafficFleetControls managed={managed} snapshot={live.data} selected={selected} onSelected={setSelected} drawerOpen={drawerOpen} onDrawerOpen={setDrawerOpen} stale={live.stale} refresh={live.refresh} />
+      ) : null}
+      {managed?.canCreateFleetEntities && companyId ? (
+        <FleetEntityCreator open={createOpen} companyId={companyId} onOpenChange={setCreateOpen} onCreated={() => live.refresh(true)} />
+      ) : null}
+    </TrafficPwaShell>
   );
 }
