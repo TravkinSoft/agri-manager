@@ -36,6 +36,7 @@ export async function readCompanyFleet(db: ReturnType<typeof getServiceClient>, 
     const states = new Map((traffic.data ?? []).map(row => [String(row.vehicle_id), row]));
     vehicles.push(...rows.map(row => ({
       id: String(row.id), name: row.name || [row.brand, row.model].filter(Boolean).join(" ") || "Машина",
+      brand: row.brand || null,
       plate: ptcVehicleDisplayPlate(row),
       driver: activeAssignedDriverName(
         driverAssignments.get(String(row.primary_responsible_personnel_id ?? "")),

@@ -31,7 +31,7 @@ async function main() {
   equal(operatorRole("fleet_manager"), null);
   equal(isTrafficOperatorRole("fleet_manager"), true);
   const fleet = [
-    { id: "one", name: "КАМАЗ", plate: "984 AE 15", driver: "Иванов Иван" },
+    { id: "one", name: "KAMAZ 45142-011", brand: "KAMAZ", plate: "984 AE 15", driver: "Иванов Иван" },
     { id: "two", name: "ЗИЛ", plate: "T-309 BK", driver: null },
   ];
   equal(filterFleet(fleet, "984ae15", false).map(v => v.id), ["one"]);
@@ -39,20 +39,27 @@ async function main() {
   equal(filterFleet(fleet, "", true).map(v => v.id), ["two"]);
   equal(filterFleet(fleet, "несуществующая", false), []);
   equal(getFleetVehicleCardIdentity(fleet[0]), {
-    primary: "Иванов Иван", secondary: "КАМАЗ · 984 AE 15", hasDriver: true,
+    primary: "Иванов Иван", secondary: "КамАЗ · 984 AE 15", hasDriver: true,
   });
   equal(getFleetVehicleCardIdentity(fleet[1]), {
-    primary: "T-309 BK", secondary: "ЗИЛ", hasDriver: false,
+    primary: "ЗИЛ", secondary: "T-309 BK", hasDriver: false,
   });
   equal(getFleetVehicleCardIdentity({ name: " Трактор ", plate: " ", driver: " " }), {
     primary: "Трактор", secondary: null, hasDriver: false,
   });
+  equal(getFleetVehicleCardIdentity({ name: "МТЗ 075", plate: "T 075 ALB", driver: "Теребол Айбол" }), {
+    primary: "Теребол Айбол", secondary: "МТЗ · T 075 ALB", hasDriver: true,
+  });
+
+  const referencesPage = fs.readFileSync("app/(dashboard)/references/page.tsx", "utf8");
+  equal(referencesPage.includes('model: null,'), true);
+  equal(referencesPage.includes('String(x.model || "").trim(),'), true);
 
   // Execute the real GET handler with fault-injected identity/DB boundaries.
   let role = "fleet_manager";
   const rows = Array.from({ length: 251 }, (_, i) => ({
     id: String(i), company_id: company, is_active: true, archived: false,
-    name: "КАМАЗ", license_plate: String(i), primary_responsible_personnel_id: "driver",
+    name: "КАМАЗ 45142", brand: "KAMAZ", license_plate: String(i), primary_responsible_personnel_id: "driver",
     type: "truck", fleet_type: "truck", ptc_enabled: true,
   }));
   const person = { full_name: "Иван", company_id: company, status: "active", role_type: "driver", deleted_at: null };
@@ -110,6 +117,7 @@ async function main() {
   equal(payload.companyId, company);
   equal(payload.vehicles.length, 251);
   equal(payload.vehicles[0].driver, "Иван");
+  equal(payload.vehicles[0].brand, "KAMAZ");
   equal(queries, 8);
   equal(payload.vehicles[0].inRepair, true);
   equal(payload.vehicles[0].repairVersion, 3);

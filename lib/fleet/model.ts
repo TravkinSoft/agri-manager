@@ -1,6 +1,7 @@
 export interface FleetVehicle {
   id: string;
   name: string;
+  brand?: string | null;
   plate: string | null;
   driver: string | null;
   inRepair?: boolean;
@@ -30,15 +31,35 @@ export interface FleetVehicleCardIdentity {
   hasDriver: boolean;
 }
 
+const BRAND_LABELS: Array<[RegExp, string]> = [
+  [/(?:^|\s)(?:KAMAZ|КАМАЗ)(?:\s|$)/iu, "КамАЗ"],
+  [/(?:^|\s)(?:ZIL|ЗИЛ)(?:\s|$)/iu, "ЗИЛ"],
+  [/(?:^|\s)(?:GAZ|ГАЗ)(?:\s|$)/iu, "ГАЗ"],
+  [/(?:^|\s)(?:MAZ|МАЗ)(?:\s|$)/iu, "МАЗ"],
+  [/(?:^|\s)(?:NEFAZ|НЕФАЗ)(?:\s|$)/iu, "НЕФАЗ"],
+  [/(?:^|\s)(?:UAZ|УАЗ)(?:\s|$)/iu, "УАЗ"],
+  [/(?:^|\s)МТЗ(?:\s|$)/iu, "МТЗ"],
+  [/(?:^|\s)HOWO(?:\s|$)/iu, "HOWO"],
+  [/(?:^|\s)SHACMAN(?:\s|$)/iu, "SHACMAN"],
+];
+
+export function getFleetVehicleBrand(
+  vehicle: Pick<FleetVehicle, "name" | "brand">,
+): string {
+  const source = `${vehicle.brand?.trim() || ""} ${vehicle.name.trim()}`.trim();
+  for (const [pattern, label] of BRAND_LABELS) if (pattern.test(source)) return label;
+  return vehicle.brand?.trim() || vehicle.name.trim().split(/\s+/)[0] || "Машина";
+}
+
 export function getFleetVehicleCardIdentity(
-  vehicle: Pick<FleetVehicle, "name" | "plate" | "driver">,
+  vehicle: Pick<FleetVehicle, "name" | "brand" | "plate" | "driver">,
 ): FleetVehicleCardIdentity {
   const driver = vehicle.driver?.trim() || null;
-  const name = vehicle.name.trim() || "Машина";
+  const brand = getFleetVehicleBrand(vehicle);
   const plate = vehicle.plate?.trim() || null;
   return {
-    primary: driver ?? plate ?? name,
-    secondary: driver ? [name, plate].filter(Boolean).join(" · ") : plate ? name : null,
+    primary: driver ?? brand,
+    secondary: driver ? [brand, plate].filter(Boolean).join(" · ") : plate,
     hasDriver: !!driver,
   };
 }
@@ -61,6 +82,6 @@ export function applyFleetRepair(snapshot: FleetSnapshot, receipt: FleetRepairRe
 export function filterFleet(vehicles: FleetVehicle[], search: string, unassigned: boolean) {
   const query = search.trim().toLocaleLowerCase().replace(/\s+/g, "");
   return vehicles.filter(vehicle => (!unassigned || !vehicle.driver) &&
-    (!query || [vehicle.name, vehicle.plate, vehicle.driver].some(value =>
+    (!query || [vehicle.name, vehicle.brand, vehicle.plate, vehicle.driver].some(value =>
       value?.toLocaleLowerCase().replace(/\s+/g, "").includes(query))));
 }
