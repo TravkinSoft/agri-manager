@@ -91,6 +91,7 @@ function harness(role: model.TrafficRole, input = vehicles, options: {
   confirm?: boolean;
   canManage?: boolean;
   fleet?: FleetVehicle[];
+  featureFlag?: string | null;
 } = {}) {
   const snapshot: model.TrafficSnapshot = {
     role, companyId: "company-a", personName: "", enabled: true, fieldId: null, fieldName: null, serverTime: "2026-09-04T10:08:00Z",
@@ -150,6 +151,7 @@ function harness(role: model.TrafficRole, input = vehicles, options: {
     } },
     "@/components/ui/button": { Button },
   };
+  const featureFlag = options.featureFlag === undefined ? "1" : options.featureFlag;
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
     { module: loaded, exports: loaded.exports, document: {
         visibilityState: "visible",
@@ -165,7 +167,9 @@ function harness(role: model.TrafficRole, input = vehicles, options: {
           return options.confirm !== false;
         },
       },
-      crypto: { randomUUID: () => `50000000-0000-4000-8000-${String(++keyCounter).padStart(12, "0")}` }, require: (name: string) => dependencies[name] ?? localRequire(name) });
+      crypto: { randomUUID: () => `50000000-0000-4000-8000-${String(++keyCounter).padStart(12, "0")}` },
+      process: { env: featureFlag === null ? {} : { NEXT_PUBLIC_PTC_BOARD_V2: featureFlag } },
+      require: (name: string) => dependencies[name] ?? localRequire(name) });
   const render = () => {
     cursor = 0; refCursor = 0; effectCursor = 0;
     const tree = loaded.exports.TrafficBoard(props);
@@ -183,7 +187,7 @@ async function main() {
     const repairTree = harness(role, repairVehicles).render();
     const repairCards = cardNodes(repairTree);
     check(repairCards.length, role === "manager" ? repairVehicles.length : 0);
-    check(repairCards.every(card => card.props.className.includes("bg-rose-100")), true);
+    check(repairCards.every(card => card.props.className.includes("bg-rose-950/80")), true);
     check(repairCards.every(card => words(card).includes("На ремонте")), true);
     check(repairCards.every(card => card.type === "button"), true);
     const repairHtml = renderToStaticMarkup(repairTree);
@@ -226,21 +230,55 @@ async function main() {
   cardNodes(groups[3])[1].props.onClick();
   cardNodes(groups[4])[0].props.onClick();
   check(manager.managedVehicles, ["car-5", "car-4"]); // Repair and reserve cards are managed directly from the board.
-  const colors = ["bg-[#ffffff]", "bg-emerald-100", "bg-amber-100", "bg-rose-100"];
+
+  for (const featureFlag of ["0", "true", null] as const) {
+    const legacyManager = harness("manager", managerVehicles, { fleet: managerFleet, featureFlag });
+    const legacyTree = legacyManager.render();
+    const legacyLists = nodes(legacyTree).find(node => node.props?.["data-testid"] === "traffic-manager-lists");
+    const legacyHeadings = nodes(legacyTree).filter(node => node.type === "h2");
+    check(legacyLists.props.className.includes("tf2-traffic-lanes"), false);
+    check(legacyLists.props.className.includes("lg:overflow-visible"), true);
+    check(legacyHeadings.every(node => !node.props.className.includes("lg:sticky")), true);
+    check(cardNodes(legacyTree).some(card => card.props.className.includes("bg-[#ffffff]")), true);
+    check(cardNodes(legacyTree).every(card => !card.props.className.includes("tf2-traffic-card")), true);
+
+    const legacySwipe = harness("harvester", [vehicles[1]], { featureFlag });
+    const belowLegacyThreshold = cardNodes(legacySwipe.render())[0];
+    performSwipe(belowLegacyThreshold, { width: 200, dx: 83 });
+    check(legacySwipe.calls.length, 0);
+    const exactLegacyThreshold = harness("harvester", [vehicles[1]], { featureFlag });
+    performSwipe(cardNodes(exactLegacyThreshold.render())[0], { width: 200, dx: 84 });
+    check(exactLegacyThreshold.calls.length, 1);
+  }
+
+  const movingManager = harness("manager", [vehicles[1]]);
+  movingManager.render();
+  movingManager.props.snapshot = model.applyTrafficCommit(
+    movingManager.props.snapshot,
+    receiptFor(vehicles[1], "loaded"),
+  );
+  const movingTree = movingManager.render();
+  const movingSlot = nodes(movingTree).find(node => node.props?.["data-traffic-card-id"] === "car-1");
+  check(movingSlot.props["data-traffic-card-group"], "loaded");
+  check(movingSlot.props["data-transitioning"], "true");
+  const settledSlot = nodes(movingManager.render()).find(node => node.props?.["data-traffic-card-id"] === "car-1");
+  check(settledSlot.props["data-transitioning"], undefined);
+  const colors = ["bg-slate-800/95", "bg-emerald-950/80", "bg-amber-950/75", "bg-rose-950/80"];
   groups.slice(0, 4).forEach((group, index) => check(cardNodes(group).every(card => card.props.className.split(" ").includes(colors[index])), true));
   check(cardNodes(groups[4]).every(card => !colors.some(color => card.props.className.split(" ").includes(color))), true);
   const globalCss = readFileSync("app/globals.css", "utf8");
-  // The dashboard shell deliberately remaps .bg-white with !important. PTC cards and
-  // the category dot must use an explicit white utility outside that selector.
+  // The dashboard shell deliberately remaps .bg-white with !important. The empty
+  // category dot uses an explicit white utility while cards stay in the dark shell.
   const whiteNodes = [...cardNodes(groups[0]), ...nodes(groups[0]).filter(node => node.type === "span" && node.props?.["aria-hidden"])];
   check(whiteNodes.length, 2);
-  for (const node of whiteNodes) {
-    const classes = node.props.className.split(/\s+/);
-    check(classes.includes("bg-white"), false);
-    check(classes.includes("bg-[#ffffff]"), true);
-  }
+  check(whiteNodes.every(node => !node.props.className.split(/\s+/).includes("bg-white")), true);
+  check(whiteNodes.filter(node => node.props.className.split(/\s+/).includes("bg-[#ffffff]")).length, 1);
   check(globalCss.includes(".travkin-shell .bg-white"), true);
   check(globalCss.includes(".travkin-shell .bg-\\[\\#ffffff\\]"), false);
+  check(globalCss.includes("@keyframes tf2-traffic-card-settle"), true);
+  check(/prefers-reduced-motion:\s*reduce[\s\S]*\.tf2-traffic-card-slot\[data-transitioning="true"\][\s\S]*animation:\s*none\s*!important/.test(globalCss), true);
+  check(/\.tf2-shell,\s*\.tf2-portal-panel\s*\{[\s\S]*--tf2-surface-strong/.test(globalCss), true);
+  check(/prefers-reduced-motion:\s*reduce[\s\S]*\.tf2-portal-panel,\s*\.tf2-portal-panel \*/.test(globalCss), true);
   check(cardNodes(tree).every(card => card.props.className.includes("p-2.5")), true);
   const managerHtml = renderToStaticMarkup(tree);
   check((managerHtml.match(/data-driver-assignment=/g) ?? []).length, 0);
@@ -350,17 +388,18 @@ async function main() {
   const swipedTree = swiped.render();
   const swipedCard = cardNodes(swipedTree)[0];
   check(swipedCard.props["data-swipe-action"], "loaded");
+  check(swipedCard.props["aria-keyshortcuts"], "ArrowRight Enter Space");
   check(swipedCard.props.className.includes("touch-pan-y"), true);
   check(nodes(swipedTree).some(node => node.props?.["data-testid"] === "traffic-swipe-track-car-1"), true);
-  const completedPointer = performSwipe(swipedCard, { dx: 90 });
+  const completedPointer = performSwipe(swipedCard, { dx: 120 });
   swipedCard.props.onPointerUp(completedPointer); // duplicate delivery is inert
   await flush();
   check(swiped.calls.length, 1);
   check(swiped.confirmPrompts.length, 0);
   check(swiped.calls[0][2].target, "loaded");
   for (const boundary of [
-    { width: 200, below: 83, exact: 84 },
-    { width: 600, below: 131, exact: 132 },
+    { width: 200, below: 103, exact: 104 },
+    { width: 600, below: 159, exact: 160 },
   ]) {
     const below = harness("harvester", [vehicles[1]]);
     performSwipe(cardNodes(below.render())[0], { width: boundary.width, dx: boundary.below });
@@ -410,7 +449,7 @@ async function main() {
         check(card.props.onClick, undefined);
         check(card.props.tabIndex, undefined);
       }
-      check(card.props.className.includes({ empty: "bg-[#ffffff]", loaded: "bg-emerald-100", unloading: "bg-amber-100" }[vehicle.state]), true);
+      check(card.props.className.includes({ empty: "bg-slate-800/95", loaded: "bg-emerald-950/80", unloading: "bg-amber-950/75" }[vehicle.state]), true);
     }
     const actionable = cards.find(card => card.type === "button")!;
     const clicked = vehicles.find(car => `traffic-vehicle-${car.vehicle_id}` === actionable.props["data-testid"])!;
@@ -586,9 +625,18 @@ async function main() {
     check(readFileSync(page, "utf8").includes("key={live.scopeKey}"), true);
   }
   const pageSource = readFileSync("app/(dashboard)/traffic/page.tsx", "utf8");
+  const operatorPageSource = readFileSync("app/traffic-operator/page.tsx", "utf8");
+  const envExample = readFileSync(".env.example", "utf8");
+  check((source.match(/process\.env\.NEXT_PUBLIC_PTC_BOARD_V2 === "1"/g) ?? []).length, 1);
+  check((pageSource.match(/process\.env\.NEXT_PUBLIC_PTC_BOARD_V2 === "1"/g) ?? []).length, 1);
+  check((operatorPageSource.match(/process\.env\.NEXT_PUBLIC_PTC_BOARD_V2 === "1"/g) ?? []).length, 1);
+  check(envExample.includes("NEXT_PUBLIC_PTC_BOARD_V2=0"), true);
+  check(pageSource.includes("tf2-shell"), true);
+  check(pageSource.includes("tf2-portal-panel tf2-panel"), true);
+  check(pageSource.includes("Живая линия · загрузка, весовая и приёмка"), true);
   const css = (await postcss([tailwindcss({ ...config, content: [{ raw: `${source}\n${pageSource}`, extension: "tsx" }] })]).process("@tailwind utilities;", { from: undefined })).css;
   for (const expression of [/min-height:\s*48px/, /padding:\s*0\.625rem/, /@media \(min-width: 1024px\)/, /grid-template-columns:\s*repeat\(5, minmax\(0, 1fr\)\)/,
-    /\.bg-emerald-100\s*\{/, /\.bg-amber-100\s*\{/]) { assert.match(css, expression); checks++; }
+    /position:\s*sticky/, /overflow-y:\s*auto/]) { assert.match(css, expression); checks++; }
   check(source.includes("grayscale"), false);
   check(source.includes("Проверяем актуальность"), false);
   const compiled = postcss.parse(css);
@@ -625,7 +673,8 @@ async function main() {
     check(stylesAt(board, width)["max-height"], desktop ? "none" : "max(12rem,calc(100dvh - 14rem))");
     const lists = nodes(filteredTree).find(node => node.props?.["data-testid"] === "traffic-manager-lists");
     check(stylesAt(lists, width)["min-height"], "0px");
-    check(stylesAt(lists, width)["overflow-y"] ?? stylesAt(lists, width).overflow, desktop ? "visible" : "auto");
+    check(stylesAt(lists, width)["overflow-y"] ?? stylesAt(lists, width).overflow, "auto");
+    check(stylesAt(lists, width)["max-height"], desktop ? "min(46rem,calc(100dvh - 13rem))" : undefined);
     check(nodes(lists).includes(toolbar), false); // Selector/menu never scroll away with the cards.
     const renderedGroups = nodes(filteredTree).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-"));
     check(renderedGroups.filter(group => stylesAt(group, width).display !== "none").length, desktop ? 5 : 1);
@@ -633,6 +682,8 @@ async function main() {
       check(stylesAt(group, width)["min-width"], "0px");
       const heading = nodes(group).find(node => node.type === "h2");
       check(stylesAt(heading, width).display, desktop ? "flex" : "none");
+      check(stylesAt(heading, width).position, desktop ? "sticky" : undefined);
+      check(stylesAt(heading, width).top, desktop ? "0px" : undefined);
     });
     const filters = filterNodes(filteredTree);
     filters.forEach(filter => {

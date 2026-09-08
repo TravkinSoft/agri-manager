@@ -23,15 +23,26 @@ async function main() {
     window.pointerEvidence=[];
     for(const type of ['pointerdown','pointermove','pointerup','pointercancel']) document.addEventListener(type,event=>window.pointerEvidence.push({type,isTrusted:event.isTrusted,pointerType:event.pointerType}),true);
     const params=new URLSearchParams(location.search);
+    const manager=params.get('manager')==='1';
     const state=params.get('state')||'unloading';
-    const role=state==='empty'?'harvester':state==='loaded'?'weighman':'receiver';
+    const role=manager?'manager':state==='empty'?'harvester':state==='loaded'?'weighman':'receiver';
     const car={vehicle_id:'60000000-0000-4000-8000-000000000001',name:'ZIL 130-76',plate:'LOCAL-829',driver:'Local driver',state,version:1,cycle:1,assigned:true,since:new Date().toISOString()};
+    const cars=manager?Array.from({length:36},(_,index)=>({
+      ...car,
+      vehicle_id:'manager-'+index,
+      name:'Vehicle '+index,
+      plate:'QA-'+String(index).padStart(2,'0'),
+      state:index<12?'empty':index<20?'loaded':'unloading',
+      assigned:index<32,
+      inRepair:index>=27&&index<32,
+    })):[car,{...car,vehicle_id:'60000000-0000-4000-8000-000000000002',plate:'LOCAL-309'}];
     function App(){
-      const [snapshot,setSnapshot]=useState({role,companyId:'local-only',personName:'Local operator',enabled:true,fieldName:null,fieldId:null,serverTime:new Date().toISOString(),vehicles:[car,{...car,vehicle_id:'60000000-0000-4000-8000-000000000002',plate:'LOCAL-309'}],events:[]});
+      const [snapshot,setSnapshot]=useState({role,companyId:'local-only',personName:'Local operator',enabled:true,fieldName:null,fieldId:null,serverTime:new Date().toISOString(),vehicles:cars,events:[]});
       const [stale,setStale]=useState(false);
       window.setStale=setStale;
-      window.updateCar=(patch)=>setSnapshot(s=>({...s,vehicles:s.vehicles.map(v=>v.vehicle_id===car.vehicle_id?{...v,...patch}:v)}));
-      return <main style={{padding:20}}><h1>Local DOM regression</h1><div style={{height:220}}/><TrafficBoard snapshot={snapshot} stale={stale} error='' refresh={async()=>{}} onCommitted={(receipt)=>{setSnapshot(s=>applyTrafficCommit(s,receipt));return true;}}/><div style={{height:1200}}/></main>;
+      window.updateCar=(patch)=>setSnapshot(s=>({...s,vehicles:s.vehicles.map(v=>v.vehicle_id===(manager?'manager-0':car.vehicle_id)?{...v,...patch}:v)}));
+      window.updateSecondCar=(patch)=>setSnapshot(s=>({...s,vehicles:s.vehicles.map(v=>v.vehicle_id==='manager-1'?{...v,...patch}:v)}));
+      return <main className="tf2-shell" style={{padding:20}}><h1>Local DOM regression</h1>{manager?null:<div style={{height:220}}/>}<TrafficBoard snapshot={snapshot} stale={stale} error='' refresh={async()=>{}} fleet={manager?cars.map(v=>({...v,id:v.vehicle_id})):undefined} onCommitted={(receipt)=>{setSnapshot(s=>applyTrafficCommit(s,receipt));return true;}}/>{manager?null:<div style={{height:1200}}/>}</main>;
     }
     createRoot(document.getElementById('root')).render(<App/>);
   `;
@@ -48,7 +59,10 @@ async function main() {
   `;
   const bundle = await esbuild.build({
     stdin:{contents:source,resolveDir:root,loader:'tsx'},bundle:true,write:false,format:'iife',platform:'browser',jsx:'automatic',
-    define:{'process.env.NODE_ENV':'"production"'},
+    define:{
+      'process.env.NODE_ENV':'"production"',
+      'process.env.NEXT_PUBLIC_PTC_BOARD_V2':'"1"',
+    },
     plugins:[{name:'local-transport-only',setup(build){
       build.onResolve({filter:/^\.\/use-traffic$/},()=>({path:'transport',namespace:'test'}));
       build.onResolve({filter:/^@\/components\/vehicles\/vehicle-driver-assignment$/},()=>({path:'picker',namespace:'test'}));
@@ -119,11 +133,13 @@ async function main() {
             else void dialog.accept();
           });
           await page.goto(base+'/?state='+state+'&mode='+mode);
+          await page.waitForFunction(()=>typeof window.setStale==='function');
           const card=page.getByTestId('traffic-vehicle-60000000-0000-4000-8000-000000000001');
           const label=name+'/'+state+'/'+mode;
           const harvester=state==='empty';
           if(mode==='offline') {
             await page.evaluate(()=>window.setStale(true));
+            await page.waitForFunction(()=>document.querySelector('[data-testid="traffic-vehicle-60000000-0000-4000-8000-000000000001"]')?.disabled===true);
             check(await card.isDisabled(),true,label+'/offline-blocks-card');
             check(nativeConfirmations,0,label+'/no-confirmation');
             check(await page.evaluate(()=>window.calls.length),0,label+'/no-offline-command');
@@ -153,7 +169,7 @@ async function main() {
             if(mode==='keyboard') await card.press('ArrowRight');
             else if(mode==='enter') await card.press('Enter');
             else if(mode==='space') await card.press(' ');
-            else if(harvester) await swipe(card,{dx:140,beforeRelease:mode==='accept'?async()=>{
+            else if(harvester) await swipe(card,{dx:180,beforeRelease:mode==='accept'?async()=>{
               await page.waitForFunction(()=>document.querySelector('[data-swipe-action="loaded"]')?.getAttribute('data-swipe-ready')==='true');
               check(await page.evaluate(()=>window.calls.length),0,label+'/commit-only-on-release');
               check(await card.getAttribute('data-swipe-ready'),'true',label+'/threshold-visible');
@@ -195,7 +211,7 @@ async function main() {
           await page.setViewportSize({width,height:844});
           await page.goto(base+'/?state=empty&mode=accept');
           const card=page.getByTestId('traffic-vehicle-60000000-0000-4000-8000-000000000001');
-          await swipe(card,{dx:140});
+          await swipe(card,{dx:180});
           await page.waitForFunction(()=>window.calls.length===1);
           check(await page.evaluate(()=>window.calls.length),1,name+'/'+width+'/single-command');
           check(await page.evaluate(()=>window.calls[0].body.target),'loaded',name+'/'+width+'/loaded-target');
@@ -208,7 +224,7 @@ async function main() {
           page.on('pageerror',error=>errors.push(error.message));
           await page.goto(base+'/?state=empty&mode=accept');
           const card=page.getByTestId('traffic-vehicle-60000000-0000-4000-8000-000000000001');
-          await trustedMouseSwipe(page,card,140);
+          await trustedMouseSwipe(page,card,180);
           await page.waitForFunction(()=>window.calls.length===1);
           const trusted=await page.evaluate(()=>window.pointerEvidence.filter(event=>event.pointerType==='mouse'));
           check(trusted.some(event=>event.type==='pointerdown'&&event.isTrusted),true,name+'/trusted-mouse/down');
@@ -242,7 +258,7 @@ async function main() {
           const horizontalCard=horizontalPage.getByTestId('traffic-vehicle-60000000-0000-4000-8000-000000000001');
           const horizontalBox=await horizontalCard.boundingBox();
           const horizontalCdp=await context.newCDPSession(horizontalPage);
-          await trustedChromiumTouch(horizontalCdp,{x:horizontalBox.x+24,y:horizontalBox.y+horizontalBox.height/2},140,2);
+          await trustedChromiumTouch(horizontalCdp,{x:horizontalBox.x+24,y:horizontalBox.y+horizontalBox.height/2},180,2);
           await horizontalPage.waitForFunction(()=>window.calls.length===1);
           const horizontalEvidence=await horizontalPage.evaluate(()=>window.pointerEvidence.filter(event=>event.pointerType==='touch'));
           check(horizontalEvidence.some(event=>event.isTrusted&&event.type==='pointerup'),true,'chromium/trusted-touch/horizontal-up');
@@ -250,6 +266,48 @@ async function main() {
           check(await horizontalPage.evaluate(()=>scrollY),0,'chromium/trusted-touch/horizontal-no-scroll');
           check(horizontalErrors,[],'chromium/trusted-touch/horizontal-no-browser-errors');
           await horizontalPage.close();
+        }
+        {
+          const desktopPage=await context.newPage();
+          const desktopErrors=[];
+          desktopPage.on('pageerror',error=>desktopErrors.push(error.message));
+          await desktopPage.setViewportSize({width:1440,height:900});
+          await desktopPage.goto(base+'/?manager=1');
+          const lists=desktopPage.getByTestId('traffic-manager-lists');
+          const metrics=await lists.evaluate(node=>({
+            overflowY:getComputedStyle(node).overflowY,
+            clientHeight:node.clientHeight,
+            scrollHeight:node.scrollHeight,
+          }));
+          check(metrics.overflowY,'auto',name+'/desktop/board-scroll');
+          check(metrics.scrollHeight>metrics.clientHeight,true,name+'/desktop/board-overflow');
+          const headings=desktopPage.locator('[data-testid^="traffic-group-"] h2');
+          check(await headings.count(),5,name+'/desktop/five-lane-headings');
+          check(await headings.evaluateAll(nodes=>nodes.every(node=>getComputedStyle(node).position==='sticky')),true,name+'/desktop/sticky-headings');
+          await lists.evaluate(node=>{node.scrollTop=420;node.dispatchEvent(new Event('scroll'));});
+          await desktopPage.waitForTimeout(50);
+          const stickyGeometry=await desktopPage.evaluate(()=>{
+            const list=document.querySelector('[data-testid="traffic-manager-lists"]');
+            const top=list.getBoundingClientRect().top;
+            return Array.from(document.querySelectorAll('[data-testid^="traffic-group-"] h2')).map(node=>Math.abs(node.getBoundingClientRect().top-top));
+          });
+          check(stickyGeometry.every(delta=>delta<2),true,name+'/desktop/headings-remain-visible');
+          await desktopPage.evaluate(()=>window.updateCar({state:'loaded',version:2}));
+          await desktopPage.waitForFunction(()=>document.querySelector('[data-traffic-card-id="manager-0"]')?.getAttribute('data-traffic-card-group')==='loaded');
+          const moved=desktopPage.locator('[data-traffic-card-id="manager-0"]');
+          await moved.waitFor({state:'visible'});
+          check(await moved.getAttribute('data-traffic-card-group'),'loaded',name+'/desktop/card-moved-lane');
+          check(await moved.getAttribute('data-transitioning'),'true',name+'/desktop/card-settle-state');
+          check(await moved.evaluate(node=>getComputedStyle(node).animationName),'tf2-traffic-card-settle',name+'/desktop/card-settle-motion');
+          await desktopPage.emulateMedia({reducedMotion:'reduce'});
+          await desktopPage.evaluate(()=>window.updateSecondCar({state:'loaded',version:2}));
+          await desktopPage.waitForFunction(()=>document.querySelector('[data-traffic-card-id="manager-1"]')?.getAttribute('data-traffic-card-group')==='loaded');
+          const reduced=desktopPage.locator('[data-traffic-card-id="manager-1"]');
+          await reduced.waitFor({state:'visible'});
+          check(await reduced.getAttribute('data-transitioning'),'true',name+'/desktop/reduced-state-observed');
+          check(await reduced.evaluate(node=>getComputedStyle(node).animationName),'none',name+'/desktop/reduced-motion-none');
+          check(desktopErrors,[],name+'/desktop/no-browser-errors');
+          await desktopPage.close();
         }
         await context.close();
       } finally {await browser.close();}

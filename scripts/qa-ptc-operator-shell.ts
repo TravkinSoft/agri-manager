@@ -40,7 +40,7 @@ function materialize(node: any): any {
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 const TrafficBoard = () => null;
 const TrafficPwa = () => null;
-function page(live: Record<string, unknown>) {
+function page(live: Record<string, unknown>, featureFlag: string | null = "1") {
   const pageModule = load(pageSource, {
     react: {
       ...React,
@@ -57,6 +57,8 @@ function page(live: Record<string, unknown>) {
     "@/components/traffic/fleet-entity-creator": { FleetEntityCreator: () => null },
     "@/components/traffic/traffic-shift-controls": { TrafficShiftControls: () => null },
     "@/lib/supabase/client": { supabase: {} },
+  }, {
+    process: { env: featureFlag === null ? {} : { NEXT_PUBLIC_PTC_BOARD_V2: featureFlag } },
   });
   return materialize(pageModule.default());
 }
@@ -83,6 +85,7 @@ async function main() {
   check(pageSource.includes("fleet={managed?.fleet}"), true);
   check(/onManageVehicle=\{managed\?\.canManageFleet \? setSelected : undefined\}/.test(pageSource), true);
   check(/Settings2|Машины не на линии|drawerOpen|onDrawerOpen/.test(pageSource), false);
+  check((pageSource.match(/process\.env\.NEXT_PUBLIC_PTC_BOARD_V2 === "1"/g) ?? []).length, 1);
 
   const applyCommitted = () => undefined;
   const scenarios = [
@@ -95,6 +98,8 @@ async function main() {
   for (const scenario of scenarios) {
     const tree = page({ ...scenario, stale: false, error: "", refresh: async () => undefined, applyCommitted });
     check(tree.type, "main");
+    check(tree.props.className.split(/\s+/).includes("tf2-shell"), true);
+    check(tree.props.className.split(/\s+/).includes("tf2-traffic-shell"), true);
     check(tree.props.className.split(/\s+/).includes("touch-pan-y"), true);
     check(tree.props.className.split(/\s+/).includes("min-h-[100dvh]"), true);
     check(/(?:^|\s)(?:h-screen|h-\[100dvh\]|overflow-hidden|overflow-y-hidden)(?:\s|$)/.test(tree.props.className), false);
@@ -111,6 +116,20 @@ async function main() {
       check(board.props.fleet, undefined); // Operator cabinets never receive the manager fleet payload.
       check(board.props.onManageVehicle, undefined);
     }
+  }
+
+  for (const featureFlag of ["0", "true", null] as const) {
+    const legacyTree = page({ loading: false, needsLogin: true, data: null, stale: false, error: "", refresh: async () => undefined }, featureFlag);
+    const legacyClasses = legacyTree.props.className.split(/\s+/);
+    check(legacyClasses.includes("tf2-shell"), false);
+    check(legacyClasses.includes("tf2-traffic-shell"), false);
+    check(legacyClasses.includes("bg-[#0c1118]"), true);
+    const legacyContainer = nodes(legacyTree).find(node => node.type === "div" && node.props?.className === "mx-auto max-w-5xl");
+    check(Boolean(legacyContainer), true);
+    const legacyForm = nodes(legacyTree).find(node => node.type === "form");
+    check(legacyForm.props.className.includes("max-w-sm"), true);
+    check(legacyForm.props.className.includes("tf2-panel"), false);
+    check(renderToStaticMarkup(legacyTree).includes("Единый аккаунт TravkinFlow"), false);
   }
 
   // Mount the actual headless effect with controlled browser APIs: no network or browser writes.

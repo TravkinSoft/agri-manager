@@ -70,7 +70,8 @@
 }
 
 @layer components {
-  .tf2-shell {
+  .tf2-shell,
+  .tf2-portal-panel {
     --tf2-surface: rgba(10, 15, 24, 0.86);
     --tf2-surface-strong: rgba(12, 18, 29, 0.95);
     --tf2-line: rgba(231, 211, 143, 0.13);
@@ -104,6 +105,42 @@
 
   .tf2-control:active {
     transform: translateY(1px);
+  }
+
+  .tf2-traffic-shell {
+    background:
+      radial-gradient(900px 520px at 12% -8%, rgba(224, 177, 0, 0.11), transparent 56%),
+      radial-gradient(760px 460px at 102% 8%, rgba(15, 118, 110, 0.08), transparent 58%),
+      #0b1017;
+  }
+
+  .tf2-traffic-lanes {
+    scrollbar-gutter: stable;
+  }
+
+  @keyframes tf2-traffic-card-settle {
+    from {
+      opacity: 0.58;
+      transform: translate3d(-12px, 0, 0) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  .tf2-traffic-card-slot[data-transitioning="true"] {
+    animation: tf2-traffic-card-settle 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .tf2-traffic-card[data-command-phase="sending"],
+  .tf2-traffic-card[data-command-phase="reconciling"] {
+    border-color: rgba(52, 211, 153, 0.72);
+    box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.18), 0 10px 28px rgba(2, 6, 12, 0.32);
+  }
+
+  .tf2-traffic-card[data-command-phase="uncertain"] {
+    border-color: rgba(251, 191, 36, 0.72);
   }
 
   .travkin-card {
@@ -199,6 +236,20 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .tf2-portal-panel,
+  .tf2-portal-panel *,
+  .tf2-portal-panel *::before,
+  .tf2-portal-panel *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .tf2-traffic-card-slot[data-transitioning="true"] {
+    animation: none !important;
   }
 }
 

@@ -22,6 +22,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+const PTC_BOARD_V2 = process.env.NEXT_PUBLIC_PTC_BOARD_V2 === "1";
 export default function TrafficPage() {
   const live = useTraffic(true);
   return <TrafficManager key={live.scopeKey} live={live} />;
@@ -41,36 +42,66 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
     void live.refresh(true).finally(() => setHistoryLoading(false));
   }
   return (
-    <div className="mx-auto w-full min-w-0 max-w-6xl touch-pan-y pt-1 lg:px-6 lg:pb-28 lg:pt-5">
+    <div className={PTC_BOARD_V2
+      ? "tf2-shell mx-auto w-full min-w-0 max-w-[1500px] touch-pan-y pt-1 lg:px-6 lg:pb-10 lg:pt-5"
+      : "mx-auto w-full min-w-0 max-w-6xl touch-pan-y pt-1 lg:px-6 lg:pb-28 lg:pt-5"}>
       <h1 className="sr-only lg:hidden">Оборот машин</h1>
-      <header className="mb-6 hidden lg:block">
-        <div className="flex items-center gap-3">
-          <Truck className="shrink-0 text-amber-300" size={27} />
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-100">
-              Оборот машин
-            </h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Картофель · загрузка и приёмка
-            </p>
+      {PTC_BOARD_V2 ? (
+        <header className="mb-5 hidden items-end justify-between gap-4 border-b border-white/[0.07] pb-4 lg:flex">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-300/10 text-amber-300">
+              <Truck aria-hidden size={24} />
+            </span>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-300/80">Полевые операции</p>
+              <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-slate-100">
+                Оборот машин
+              </h1>
+              <p className="mt-1 text-sm text-slate-500">
+                Живая линия · загрузка, весовая и приёмка
+              </p>
+            </div>
           </div>
-        </div>
-        {canManageFleet && managed?.canCreateFleetEntities ? <div className="mt-5 flex flex-wrap gap-2">
-          {managed?.canCreateFleetEntities ? <button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            className="flex min-h-[48px] items-center gap-2 rounded-xl bg-amber-300 px-4 text-sm font-semibold text-slate-950"
-          >
-            <Plus size={17} /> Добавить
-          </button> : null}
-        </div> : null}
-      </header>
+          {canManageFleet && managed?.canCreateFleetEntities ? (
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="tf2-control flex min-h-[48px] items-center gap-2 rounded-xl bg-amber-300 px-4 text-sm font-semibold text-slate-950 hover:bg-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+            >
+              <Plus aria-hidden size={17} /> Добавить
+            </button>
+          ) : null}
+        </header>
+      ) : (
+        <header className="mb-6 hidden lg:block">
+          <div className="flex items-center gap-3">
+            <Truck className="shrink-0 text-amber-300" size={27} />
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-100">
+                Оборот машин
+              </h1>
+              <p className="mt-1 text-sm text-slate-500">
+                Картофель · загрузка и приёмка
+              </p>
+            </div>
+          </div>
+          {canManageFleet && managed?.canCreateFleetEntities ? <div className="mt-5 flex flex-wrap gap-2">
+            {managed?.canCreateFleetEntities ? <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="flex min-h-[48px] items-center gap-2 rounded-xl bg-amber-300 px-4 text-sm font-semibold text-slate-950"
+            >
+              <Plus size={17} /> Добавить
+            </button> : null}
+          </div> : null}
+        </header>
+      )}
       {live.loading || (!live.data && !live.error) ? (
         <div
           role="status"
           className="flex items-center justify-center gap-2 py-16 text-slate-400"
         >
-          <Loader2 className="animate-spin" /> Получаем статусы…
+          <Loader2 className={PTC_BOARD_V2 ? "animate-spin motion-reduce:animate-none" : "animate-spin"} aria-hidden={PTC_BOARD_V2 || undefined} /> Получаем статусы…
         </div>
       ) : live.data ? (
         <div className={managed?.managerRole === "agronomist" && live.data.analytics
@@ -161,7 +192,7 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
       >
         <DialogContent
           hideCloseButton
-          className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl p-4 sm:p-6"
+          className={`${PTC_BOARD_V2 ? "tf2-portal-panel tf2-panel " : ""}max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl p-4 sm:p-6`}
         >
           <DialogHeader>
             <DialogTitle>Последние 50 изменений</DialogTitle>

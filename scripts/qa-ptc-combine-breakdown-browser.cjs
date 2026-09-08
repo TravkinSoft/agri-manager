@@ -93,7 +93,10 @@ async function main() {
     format: "iife",
     platform: "browser",
     jsx: "automatic",
-    define: { "process.env.NODE_ENV": '"production"' },
+    define: {
+      "process.env.NODE_ENV": '"production"',
+      "process.env.NEXT_PUBLIC_PTC_BOARD_V2": '"1"',
+    },
     plugins: [{
       name: "local-traffic-transport",
       setup(build) {

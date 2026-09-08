@@ -30,11 +30,18 @@ import {
 import { getFleetVehicleCardIdentity, type FleetVehicle } from "@/lib/fleet/model";
 import { trafficRequest } from "./use-traffic";
 import { isTrafficAcknowledgement, optimisticTrafficVehicles, trafficCommandObserved, type PendingTrafficCommand, type TrafficCommand } from "@/lib/traffic/optimistic";
-const tones: Record<TrafficState, string> = {
+const PTC_BOARD_V2 = process.env.NEXT_PUBLIC_PTC_BOARD_V2 === "1";
+const legacyTones: Record<TrafficState, string> = {
   empty: "border-slate-300 bg-[#ffffff] text-slate-950",
   loaded: "border-emerald-300 bg-emerald-100 text-emerald-950",
   unloading: "border-amber-300 bg-amber-100 text-amber-950",
 };
+const v2Tones: Record<TrafficState, string> = {
+  empty: "border-slate-500/55 bg-slate-800/95 text-slate-100",
+  loaded: "border-emerald-400/50 bg-emerald-950/80 text-emerald-100",
+  unloading: "border-amber-300/55 bg-amber-950/75 text-amber-100",
+};
+const tones = PTC_BOARD_V2 ? v2Tones : legacyTones;
 type ManagerTrafficGroup = TrafficState | "repair" | "offline";
 const managerGroupOrder: readonly ManagerTrafficGroup[] = [
   "empty",
@@ -66,6 +73,9 @@ const groupDots: Record<ManagerTrafficGroup, string> = {
 };
 const HARVESTER_SWIPE_SLOP_PX = 12;
 const HARVESTER_SWIPE_DIRECTION_RATIO = 1.4;
+const HARVESTER_SWIPE_MIN_PX = 104;
+const HARVESTER_SWIPE_MAX_PX = 160;
+const HARVESTER_SWIPE_WIDTH_RATIO = 0.4;
 type HarvesterSwipeGesture = {
   pointerId: number;
   vehicle: TrafficVehicle;
@@ -83,7 +93,16 @@ type HarvesterSwipeVisual = {
   dragging: boolean;
 };
 function harvesterSwipeThreshold(cardWidth: number): number {
-  return Math.min(132, Math.max(84, cardWidth * 0.3));
+  if (!PTC_BOARD_V2) return Math.min(132, Math.max(84, cardWidth * 0.3));
+  return Math.min(
+    HARVESTER_SWIPE_MAX_PX,
+    Math.max(HARVESTER_SWIPE_MIN_PX, cardWidth * HARVESTER_SWIPE_WIDTH_RATIO),
+  );
+}
+function managerGroupForVehicle(vehicle: TrafficVehicle): ManagerTrafficGroup {
+  if (vehicle.inRepair) return "repair";
+  if (!vehicle.assigned) return "offline";
+  return vehicle.state;
 }
 export function TrafficBoard({
   snapshot,
@@ -116,6 +135,7 @@ export function TrafficBoard({
   const mobileListRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<PendingTrafficCommand[]>([]);
   const harvesterSwipeRef = useRef<HarvesterSwipeGesture | null>(null);
+  const previousManagerGroupsRef = useRef<Map<string, ManagerTrafficGroup> | null>(null);
   const [harvesterSwipe, setHarvesterSwipe] = useState<HarvesterSwipeVisual | null>(null);
   const mounted = useRef(true);
   const snapshotRef = useRef(snapshot);
@@ -277,7 +297,12 @@ export function TrafficBoard({
       return;
     }
     event.preventDefault();
-    active.distance = Math.min(active.threshold + 32, Math.max(0, dx));
+    const positiveDistance = Math.max(0, dx);
+    active.distance = PTC_BOARD_V2
+      ? positiveDistance <= active.threshold
+        ? positiveDistance
+        : Math.min(active.threshold + 24, active.threshold + (positiveDistance - active.threshold) * 0.24)
+      : Math.min(active.threshold + 32, positiveDistance);
     setHarvesterSwipe({
       vehicleId: active.vehicle.vehicle_id,
       distance: active.distance,
@@ -371,14 +396,35 @@ export function TrafficBoard({
   const groups = isManager
     ? managerGroupOrder.map((state) => ({
         state,
-        vehicles: managerVehicles.filter((vehicle) =>
-          state === "repair"
+        vehicles: managerVehicles.filter((vehicle) => PTC_BOARD_V2
+          ? managerGroupForVehicle(vehicle) === state
+          : state === "repair"
             ? !!vehicle.inRepair
             : state === "offline"
               ? !vehicle.assigned && !vehicle.inRepair
               : vehicle.assigned && !vehicle.inRepair && vehicle.state === state),
       }))
     : [{ state: null, vehicles: displayVehicles }];
+  const managerGroupsByVehicle = useMemo(() => {
+    const value = new Map<string, ManagerTrafficGroup>();
+    if (PTC_BOARD_V2 && isManager) {
+      for (const vehicle of managerVehicles) {
+        value.set(vehicle.vehicle_id, managerGroupForVehicle(vehicle));
+      }
+    }
+    return value;
+  }, [isManager, managerVehicles]);
+  const movedManagerVehicleIds = new Set<string>();
+  const previousManagerGroups = previousManagerGroupsRef.current;
+  if (PTC_BOARD_V2 && previousManagerGroups) {
+    managerGroupsByVehicle.forEach((group, vehicleId) => {
+      const previousGroup = previousManagerGroups.get(vehicleId);
+      if (previousGroup && previousGroup !== group) movedManagerVehicleIds.add(vehicleId);
+    });
+  }
+  useEffect(() => {
+    previousManagerGroupsRef.current = managerGroupsByVehicle;
+  }, [managerGroupsByVehicle]);
   const lineVehicleCount = isManager
     ? managerVehicles.filter((vehicle) => vehicle.assigned && !vehicle.inRepair).length
     : 0;
@@ -452,8 +498,12 @@ export function TrafficBoard({
         data-testid={isManager ? "traffic-manager-board" : undefined}
         className={isManager
           ? compactAgronomistMobile
-            ? "min-w-0 lg:block lg:max-h-none"
-            : "flex max-h-[max(12rem,calc(100dvh-14rem))] min-w-0 flex-col lg:max-h-none lg:block"
+            ? PTC_BOARD_V2
+              ? "min-w-0 lg:block lg:min-h-0"
+              : "min-w-0 lg:block lg:max-h-none"
+            : PTC_BOARD_V2
+              ? "flex max-h-[max(12rem,calc(100dvh-14rem))] min-w-0 flex-col lg:block lg:max-h-none lg:min-h-0"
+              : "flex max-h-[max(12rem,calc(100dvh-14rem))] min-w-0 flex-col lg:max-h-none lg:block"
           : ""}
       >
         {isManager ? (
@@ -501,9 +551,13 @@ export function TrafficBoard({
         ) : null}
       <div ref={mobileListRef} data-testid={isManager ? "traffic-manager-lists" : undefined}
         className={isManager
-          ? compactAgronomistMobile
-            ? "grid min-h-0 scroll-mt-16 items-start gap-3 lg:grid-cols-5 lg:gap-3"
-            : "grid min-h-0 items-start gap-4 overflow-y-auto overscroll-contain lg:grid-cols-5 lg:overflow-visible lg:overscroll-auto"
+            ? compactAgronomistMobile
+              ? PTC_BOARD_V2
+                ? "tf2-traffic-lanes travkin-scrollbar grid min-h-0 scroll-mt-16 items-start gap-3 lg:max-h-[min(46rem,calc(100dvh-13rem))] lg:grid-cols-5 lg:items-stretch lg:gap-3 lg:overflow-y-auto lg:overscroll-contain lg:pr-1"
+                : "grid min-h-0 scroll-mt-16 items-start gap-3 lg:grid-cols-5 lg:gap-3"
+              : PTC_BOARD_V2
+                ? "tf2-traffic-lanes travkin-scrollbar grid min-h-0 items-start gap-4 overflow-y-auto overscroll-contain lg:max-h-[min(46rem,calc(100dvh-13rem))] lg:grid-cols-5 lg:items-stretch lg:gap-3 lg:pr-1"
+                : "grid min-h-0 items-start gap-4 overflow-y-auto overscroll-contain lg:grid-cols-5 lg:overflow-visible lg:overscroll-auto"
           : ""}>
         {groups.map((group) => (
           <section
@@ -511,13 +565,15 @@ export function TrafficBoard({
             id={group.state ? `traffic-list-${group.state}` : undefined}
             data-testid={group.state ? `traffic-group-${group.state}` : "traffic-operator-list"}
             aria-label={group.state ? groupLabels[group.state] : "Машины"}
-            className={`min-w-0 ${group.state && group.state !== mobileState ? "hidden lg:block" : ""}`}
+            className={`${PTC_BOARD_V2 ? "min-w-0 lg:self-stretch lg:rounded-2xl lg:bg-white/[0.018] lg:p-2" : "min-w-0"} ${group.state && group.state !== mobileState ? "hidden lg:block" : ""}`}
           >
             {group.state ? (
-              <h2 className="mb-3 hidden items-center gap-2 text-sm font-medium text-slate-200 lg:flex">
+              <h2 className={PTC_BOARD_V2
+                ? "mb-3 hidden items-center gap-2 border-b border-white/[0.08] bg-[#0c1118]/95 py-2 text-sm font-medium text-slate-200 backdrop-blur-md lg:sticky lg:top-0 lg:z-10 lg:flex"
+                : "mb-3 hidden items-center gap-2 text-sm font-medium text-slate-200 lg:flex"}>
                 <span aria-hidden className={`h-2.5 w-2.5 rounded-full ${groupDots[group.state]}`} />
                 {groupLabels[group.state]}
-                <span className="ml-auto text-xl font-semibold tabular-nums text-white">
+                <span aria-live={PTC_BOARD_V2 ? "polite" : undefined} aria-atomic={PTC_BOARD_V2 ? "true" : undefined} className="ml-auto text-xl font-semibold tabular-nums text-white">
                   {group.vehicles.length}
                 </span>
               </h2>
@@ -528,17 +584,26 @@ export function TrafficBoard({
         {group.vehicles.map((vehicle) => {
           const target = nextState(snapshot.role, vehicle.state, vehicle.inRepair);
           const usesHarvesterSwipe = snapshot.role === "harvester" && target === "loaded";
-          const pendingVehicle = pendingCommands.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id);
+          const pendingCommand = PTC_BOARD_V2
+            ? pendingCommands.find(command => command.vehicle.vehicle_id === vehicle.vehicle_id)
+            : undefined;
+          const pendingVehicle = PTC_BOARD_V2
+            ? !!pendingCommand
+            : pendingCommands.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id);
           const identity = getFleetVehicleCardIdentity(vehicle);
           const isLastVehicle = snapshot.lastVehicle?.vehicleId === vehicle.vehicle_id;
           const canChangeLastVehicle = snapshot.role === "harvester" && !vehicle.inRepair &&
             (isLastVehicle || vehicle.state === "empty");
-          const cardClass = `${compactAgronomistMobile
+          const cardClass = `${PTC_BOARD_V2 ? "tf2-traffic-card " : ""}${compactAgronomistMobile
             ? "h-[4.875rem] p-1.5 lg:h-24 lg:p-2.5"
-            : "h-24 p-2.5"} min-w-0 overflow-hidden rounded-xl border text-left shadow-sm ${vehicle.inRepair
-              ? "border-rose-400 bg-rose-100 text-rose-950"
+            : "h-24 p-2.5"} min-w-0 overflow-hidden rounded-xl border text-left ${PTC_BOARD_V2 ? "shadow-[0_8px_22px_rgba(2,6,12,0.24)]" : "shadow-sm"} ${vehicle.inRepair
+              ? PTC_BOARD_V2
+                ? "border-rose-400/55 bg-rose-950/80 text-rose-100"
+                : "border-rose-400 bg-rose-100 text-rose-950"
               : !vehicle.assigned
-                ? "border-sky-300 bg-sky-100 text-sky-950"
+                ? PTC_BOARD_V2
+                  ? "border-sky-400/45 bg-sky-950/75 text-sky-100"
+                  : "border-sky-300 bg-sky-100 text-sky-950"
                 : tones[vehicle.state]}`;
           const content = (
             <>
@@ -554,12 +619,12 @@ export function TrafficBoard({
                 </span>
               </span> : <span aria-hidden className={`block ${compactAgronomistMobile ? "h-4 lg:h-5" : "h-5"}`} />}
               <span className={`flex min-w-0 items-center gap-1 truncate opacity-70 ${compactAgronomistMobile ? "h-3 text-[10px] leading-3 lg:h-4 lg:text-[11px] lg:leading-4" : "h-4 text-[11px] leading-4"}`}>
-                {isLastVehicle ? <span className="shrink-0 font-extrabold text-rose-700">ПОСЛЕДНЯЯ ·</span> : null}
+                {isLastVehicle ? <span className={`shrink-0 font-extrabold ${PTC_BOARD_V2 ? "text-rose-300" : "text-rose-700"}`}>ПОСЛЕДНЯЯ ·</span> : null}
                 {!identity.hasDriver ? <span className="shrink-0 font-medium">Без водителя ·</span> : null}
                 {vehicle.inRepair ? <span className="flex shrink-0 items-center gap-1 font-semibold">
                   <Wrench size={11} aria-hidden /> На ремонте · {STATE_LABEL[vehicle.state]} ·
                 </span> : !vehicle.assigned ? <span className="shrink-0 font-semibold">Не на линии ·</span>
-                  : usesHarvesterSwipe ? <span className="shrink-0 font-semibold text-emerald-800">Свайп вправо → ·</span>
+                  : usesHarvesterSwipe ? <span className={`shrink-0 font-semibold ${PTC_BOARD_V2 ? "text-emerald-300" : "text-emerald-800"}`}>Свайп вправо → ·</span>
                     : !isManager ? <span className="shrink-0">{STATE_LABEL[vehicle.state]} ·</span> : null}
                 <Clock3 aria-hidden size={11} />
                 <span className="truncate">{stateAge(vehicle.since, now + offset)}</span>
@@ -577,9 +642,12 @@ export function TrafficBoard({
               data-testid={`traffic-vehicle-${vehicle.vehicle_id}`}
               data-swipe-action={usesHarvesterSwipe ? "loaded" : undefined}
               data-swipe-ready={usesHarvesterSwipe ? String(swipeReady) : undefined}
+              data-command-phase={PTC_BOARD_V2 ? pendingCommand?.phase : undefined}
               aria-label={usesHarvesterSwipe
                 ? `Смахните вправо, чтобы отметить загруженной: ${vehicle.name}, ${vehicle.plate || "без номера"}. С клавиатуры или программой экранного доступа активируйте карточку.`
                 : `${ACTION_LABEL[target]}: ${vehicle.name}, ${vehicle.plate || "без номера"}`}
+              aria-keyshortcuts={PTC_BOARD_V2 && usesHarvesterSwipe ? "ArrowRight Enter Space" : undefined}
+              aria-busy={PTC_BOARD_V2 ? pendingVehicle || undefined : undefined}
               disabled={pendingVehicle || stale || !snapshot.enabled}
               onClick={usesHarvesterSwipe ? event => {
                 // A physical tap has detail > 0 and is intentionally inert.
@@ -603,8 +671,10 @@ export function TrafficBoard({
                 transitionDuration: swipeVisual?.dragging ? "0ms" : undefined,
               } : undefined}
               className={`${cardClass} min-h-[48px] w-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 disabled:cursor-not-allowed ${usesHarvesterSwipe
-                ? `relative z-10 touch-pan-y select-none cursor-grab transition-transform duration-200 ease-out motion-reduce:transition-none ${swipeVisual?.dragging ? "cursor-grabbing" : ""}`
-                : "cursor-pointer active:scale-[0.98]"} ${stale || !snapshot.enabled ? "opacity-50" : ""}`}
+                ? `relative z-10 touch-pan-y select-none cursor-grab transition-transform ${PTC_BOARD_V2 ? "duration-150 motion-reduce:transition-none" : "duration-200"} ease-out ${swipeVisual?.dragging ? "cursor-grabbing" : ""}`
+                : PTC_BOARD_V2
+                  ? "cursor-pointer motion-safe:transition motion-safe:duration-150 motion-safe:hover:-translate-y-0.5 motion-safe:active:scale-[0.98] motion-reduce:transform-none"
+                  : "cursor-pointer active:scale-[0.98]"} ${stale || !snapshot.enabled ? "opacity-50" : ""}`}
             >
               {content}
             </button>
@@ -613,7 +683,7 @@ export function TrafficBoard({
               data-testid={`traffic-vehicle-${vehicle.vehicle_id}`}
               aria-label={`Управление машиной: ${vehicle.driver || vehicle.name}, ${vehicle.plate || "без номера"}`}
               onClick={() => onManageVehicle(vehicle)}
-              className={`${cardClass} w-full cursor-pointer active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300`}>
+              className={`${cardClass} w-full cursor-pointer ${PTC_BOARD_V2 ? "motion-safe:transition motion-safe:duration-150 motion-safe:hover:-translate-y-0.5 motion-safe:active:scale-[0.98] motion-reduce:transform-none" : "active:scale-[0.98]"} focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300`}>
               {content}
             </button>
           ) : (
@@ -625,12 +695,18 @@ export function TrafficBoard({
             </article>
           );
           return (
-            <div key={vehicle.vehicle_id} className={`relative min-w-0 ${usesHarvesterSwipe ? "overflow-hidden rounded-xl bg-emerald-600" : ""}`}>
+            <div
+              key={vehicle.vehicle_id}
+              data-traffic-card-id={PTC_BOARD_V2 ? vehicle.vehicle_id : undefined}
+              data-traffic-card-group={PTC_BOARD_V2 ? group.state ?? undefined : undefined}
+              data-transitioning={PTC_BOARD_V2 && movedManagerVehicleIds.has(vehicle.vehicle_id) ? "true" : undefined}
+              className={`${PTC_BOARD_V2 ? "tf2-traffic-card-slot " : ""}relative min-w-0 ${usesHarvesterSwipe ? `overflow-hidden rounded-xl ${PTC_BOARD_V2 ? "bg-emerald-700" : "bg-emerald-600"}` : ""}`}
+            >
               {usesHarvesterSwipe ? (
                 <div
                   aria-hidden
                   data-testid={`traffic-swipe-track-${vehicle.vehicle_id}`}
-                  className={`pointer-events-none absolute inset-0 flex items-center px-4 text-sm font-extrabold text-white transition-colors ${swipeReady ? "bg-emerald-500" : "bg-emerald-700"}`}
+                  className={`pointer-events-none absolute inset-0 flex items-center px-4 text-sm font-extrabold text-white transition-colors ${PTC_BOARD_V2 ? "duration-150 motion-reduce:transition-none " : ""}${swipeReady ? "bg-emerald-500" : "bg-emerald-700"}`}
                 >
                   {swipeReady ? "✓ Отпустите — загружена" : "→ Проведите вправо"}
                 </div>
@@ -646,7 +722,7 @@ export function TrafficBoard({
                     event.stopPropagation();
                     void changeLastVehicle(vehicle, isLastVehicle ? "clear" : "mark");
                   }}
-                  className="absolute right-0 top-0 z-20 flex min-h-[48px] min-w-[48px] items-center justify-center rounded-tr-xl text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-amber-500 disabled:opacity-40"
+                  className={`absolute right-0 top-0 z-20 flex min-h-[48px] min-w-[48px] items-center justify-center rounded-tr-xl ${PTC_BOARD_V2 ? "text-slate-300 hover:text-white" : "text-slate-700"} focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-amber-500 disabled:opacity-40`}
                 >
                   <EllipsisVertical aria-hidden size={20} />
                 </button>
@@ -656,7 +732,7 @@ export function TrafficBoard({
         })}
             </div>
             {group.state && !group.vehicles.length ? (
-              <p className="py-3 text-xs text-slate-500">Нет машин</p>
+              <p className={`${PTC_BOARD_V2 ? "px-1 " : ""}py-3 text-xs text-slate-500`}>Нет машин</p>
             ) : null}
           </section>
         ))}
