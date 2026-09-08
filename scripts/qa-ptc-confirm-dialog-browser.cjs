@@ -1,5 +1,5 @@
-// Real React DOM regression for the browser-native confirmation boundary. Only
-// the traffic transport is replaced; no business-data endpoint is contacted.
+// Real React DOM regression for harvester swipe and the remaining native
+// confirmation boundaries. Only transport is replaced; Product is never called.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -20,6 +20,8 @@ async function main() {
     import {TrafficBoard} from './components/traffic/traffic-board';
     import {applyTrafficCommit} from './lib/traffic/model';
     window.calls=[];
+    window.pointerEvidence=[];
+    for(const type of ['pointerdown','pointermove','pointerup','pointercancel']) document.addEventListener(type,event=>window.pointerEvidence.push({type,isTrusted:event.isTrusted,pointerType:event.pointerType}),true);
     const params=new URLSearchParams(location.search);
     const state=params.get('state')||'unloading';
     const role=state==='empty'?'harvester':state==='loaded'?'weighman':'receiver';
@@ -29,7 +31,7 @@ async function main() {
       const [stale,setStale]=useState(false);
       window.setStale=setStale;
       window.updateCar=(patch)=>setSnapshot(s=>({...s,vehicles:s.vehicles.map(v=>v.vehicle_id===car.vehicle_id?{...v,...patch}:v)}));
-      return <main style={{padding:20}}><h1>Local DOM regression</h1><TrafficBoard snapshot={snapshot} stale={stale} error='' refresh={async()=>{}} onCommitted={(receipt)=>{setSnapshot(s=>applyTrafficCommit(s,receipt));return true;}}/></main>;
+      return <main style={{padding:20}}><h1>Local DOM regression</h1><div style={{height:220}}/><TrafficBoard snapshot={snapshot} stale={stale} error='' refresh={async()=>{}} onCommitted={(receipt)=>{setSnapshot(s=>applyTrafficCommit(s,receipt));return true;}}/><div style={{height:1200}}/></main>;
     }
     createRoot(document.getElementById('root')).render(<App/>);
   `;
@@ -64,6 +66,38 @@ async function main() {
   let checks=0;
   const failures=[];
   function check(actual,expected,label){checks++;try{assert.deepEqual(actual,expected,label);}catch(error){failures.push({label,actual,expected});}}
+  async function pointer(card,type,{pointerId=7,x,y,isPrimary=true,buttons=1}={}){
+    await card.dispatchEvent(type,{pointerId,pointerType:'touch',isPrimary,button:0,buttons,clientX:x,clientY:y});
+  }
+  async function swipe(card,{dx,dy=0,cancel=false,secondPointer=false,beforeRelease}={}){
+    const box=await card.boundingBox();
+    if(!box)throw new Error('Swipe card has no bounding box');
+    const start={x:box.x+24,y:box.y+box.height/2};
+    const finish={x:start.x+dx,y:start.y+dy};
+    await pointer(card,'pointerdown',{...start});
+    if(secondPointer)await pointer(card,'pointerdown',{pointerId:8,x:start.x+4,y:start.y+4,isPrimary:false});
+    await pointer(card,'pointermove',{...finish});
+    if(beforeRelease)await beforeRelease();
+    await pointer(card,cancel?'pointercancel':'pointerup',{...finish,buttons:0});
+    return {start,finish};
+  }
+  async function trustedMouseSwipe(page,card,dx,dy=0){
+    const box=await card.boundingBox();
+    if(!box)throw new Error('Trusted swipe card has no bounding box');
+    const start={x:box.x+24,y:box.y+box.height/2};
+    await page.mouse.move(start.x,start.y);
+    await page.mouse.down();
+    for(let step=1;step<=6;step++)await page.mouse.move(start.x+dx*step/6,start.y+dy*step/6);
+    await page.mouse.up();
+  }
+  async function trustedChromiumTouch(cdp,start,dx,dy){
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:start.x,y:start.y,id:1}]});
+    for(let step=1;step<=8;step++){
+      await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:start.x+dx*step/8,y:start.y+dy*step/8,id:1}]});
+      await new Promise(resolve=>setTimeout(resolve,18));
+    }
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  }
   try {
     for(const [name,engine] of [['chromium',chromium],['webkit',webkit]]) {
       const browser=await engine.launch({headless:true,...(name==='chromium'?{channel:'chrome'}:{})});
@@ -71,11 +105,8 @@ async function main() {
         const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true});
         await context.route('**/*',route=>new URL(route.request().url()).origin===base?route.continue():route.abort());
         const cases=[
-          ...['empty','loaded','unloading'].flatMap(state=>['accept','cancel','cancel-repeat'].map(mode=>({state,mode}))),
-          {state:'empty',mode:'keyboard'},
-          {state:'empty',mode:'reject'},
-          {state:'empty',mode:'uncertain'},
-          {state:'unloading',mode:'offline'},
+          ...['tap','short','left','vertical','diagonal','pointer-cancel','multitouch','blur','accept','keyboard','enter','space','reject','uncertain','offline'].map(mode=>({state:'empty',mode})),
+          ...['loaded','unloading'].flatMap(state=>['accept','cancel','cancel-repeat'].map(mode=>({state,mode}))),
         ];
         for(const {state,mode} of cases) {
           const page=await context.newPage();
@@ -90,11 +121,26 @@ async function main() {
           await page.goto(base+'/?state='+state+'&mode='+mode);
           const card=page.getByTestId('traffic-vehicle-60000000-0000-4000-8000-000000000001');
           const label=name+'/'+state+'/'+mode;
+          const harvester=state==='empty';
           if(mode==='offline') {
             await page.evaluate(()=>window.setStale(true));
             check(await card.isDisabled(),true,label+'/offline-blocks-card');
             check(nativeConfirmations,0,label+'/no-confirmation');
             check(await page.evaluate(()=>window.calls.length),0,label+'/no-offline-command');
+          } else if(harvester&&['tap','short','left','vertical','diagonal','pointer-cancel','multitouch','blur'].includes(mode)) {
+            if(mode==='tap')await card.tap();
+            else await swipe(card,{
+              dx:mode==='short'?70:mode==='left'?-130:mode==='vertical'?6:mode==='diagonal'?110:130,
+              dy:mode==='vertical'?140:mode==='diagonal'?90:0,
+              cancel:mode==='pointer-cancel',
+              secondPointer:mode==='multitouch',
+              beforeRelease:mode==='blur'?()=>page.evaluate(()=>window.dispatchEvent(new Event('blur'))):undefined,
+            });
+            await page.waitForTimeout(80);
+            check(nativeConfirmations,0,label+'/no-confirmation');
+            check(await page.evaluate(()=>window.calls.length),0,label+'/no-command');
+            check(await card.getAttribute('data-swipe-action'),'loaded',label+'/still-swipe-action');
+            check(await card.getAttribute('data-swipe-ready'),'false',label+'/gesture-reset');
           } else if(mode==='cancel'||mode==='cancel-repeat') {
             const attempts=mode==='cancel-repeat'?3:1;
             for(let attempt=0;attempt<attempts;attempt++) await card.tap();
@@ -104,11 +150,21 @@ async function main() {
             check(await card.count(),1,label+'/card-remains');
             check(await card.isEnabled(),true,label+'/card-remains-enabled');
           } else {
-            if(mode==='keyboard') await card.press('Enter');
+            if(mode==='keyboard') await card.press('ArrowRight');
+            else if(mode==='enter') await card.press('Enter');
+            else if(mode==='space') await card.press(' ');
+            else if(harvester) await swipe(card,{dx:140,beforeRelease:mode==='accept'?async()=>{
+              await page.waitForFunction(()=>document.querySelector('[data-swipe-action="loaded"]')?.getAttribute('data-swipe-ready')==='true');
+              check(await page.evaluate(()=>window.calls.length),0,label+'/commit-only-on-release');
+              check(await card.getAttribute('data-swipe-ready'),'true',label+'/threshold-visible');
+              check((await page.getByTestId('traffic-swipe-track-60000000-0000-4000-8000-000000000001').innerText()).includes('Отпустите'),true,label+'/release-copy-visible');
+              check(await card.evaluate(node=>getComputedStyle(node).touchAction),'pan-y',label+'/vertical-pan-native');
+              check(await card.evaluate(node=>getComputedStyle(node).transform!=='none'),true,label+'/card-translates');
+            }:undefined});
             else await card.tap();
             await page.waitForFunction(()=>window.calls.length===1);
             const calls=await page.evaluate(()=>window.calls);
-            check(nativeConfirmations,1,label+'/one-native-confirmation');
+            check(nativeConfirmations,harvester?0:1,label+'/confirmation-contract');
             check(calls.length,1,label+'/single-command');
             check(calls[0]?.dialogCount,0,label+'/no-app-dialog');
             check(calls[0]?.overlayCount,0,label+'/no-app-overlay');
@@ -131,6 +187,69 @@ async function main() {
           }
           check(errors,[],label+'/no-browser-errors');
           await page.close();
+        }
+        for(const width of [320,430]) {
+          const page=await context.newPage();
+          const errors=[];
+          page.on('pageerror',error=>errors.push(error.message));
+          await page.setViewportSize({width,height:844});
+          await page.goto(base+'/?state=empty&mode=accept');
+          const card=page.getByTestId('traffic-vehicle-60000000-0000-4000-8000-000000000001');
+          await swipe(card,{dx:140});
+          await page.waitForFunction(()=>window.calls.length===1);
+          check(await page.evaluate(()=>window.calls.length),1,name+'/'+width+'/single-command');
+          check(await page.evaluate(()=>window.calls[0].body.target),'loaded',name+'/'+width+'/loaded-target');
+          check(errors,[],name+'/'+width+'/no-browser-errors');
+          await page.close();
+        }
+        {
+          const page=await context.newPage();
+          const errors=[];
+          page.on('pageerror',error=>errors.push(error.message));
+          await page.goto(base+'/?state=empty&mode=accept');
+          const card=page.getByTestId('traffic-vehicle-60000000-0000-4000-8000-000000000001');
+          await trustedMouseSwipe(page,card,140);
+          await page.waitForFunction(()=>window.calls.length===1);
+          const trusted=await page.evaluate(()=>window.pointerEvidence.filter(event=>event.pointerType==='mouse'));
+          check(trusted.some(event=>event.type==='pointerdown'&&event.isTrusted),true,name+'/trusted-mouse/down');
+          check(trusted.some(event=>event.type==='pointermove'&&event.isTrusted),true,name+'/trusted-mouse/move');
+          check(trusted.some(event=>event.type==='pointerup'&&event.isTrusted),true,name+'/trusted-mouse/up');
+          check(await page.evaluate(()=>window.calls.length),1,name+'/trusted-mouse/single-command');
+          check(errors,[],name+'/trusted-mouse/no-browser-errors');
+          await page.close();
+        }
+        if(name==='chromium') {
+          const verticalPage=await context.newPage();
+          const verticalErrors=[];
+          verticalPage.on('pageerror',error=>verticalErrors.push(error.message));
+          await verticalPage.goto(base+'/?state=empty&mode=accept');
+          const verticalCard=verticalPage.getByTestId('traffic-vehicle-60000000-0000-4000-8000-000000000001');
+          const verticalBox=await verticalCard.boundingBox();
+          const verticalCdp=await context.newCDPSession(verticalPage);
+          await trustedChromiumTouch(verticalCdp,{x:verticalBox.x+24,y:verticalBox.y+verticalBox.height/2},6,-170);
+          await verticalPage.waitForTimeout(120);
+          const verticalEvidence=await verticalPage.evaluate(()=>window.pointerEvidence.filter(event=>event.pointerType==='touch'));
+          check(await verticalPage.evaluate(()=>scrollY>0),true,'chromium/trusted-touch/vertical-scroll');
+          check(await verticalPage.evaluate(()=>window.calls.length),0,'chromium/trusted-touch/vertical-no-command');
+          check(verticalEvidence.some(event=>event.isTrusted&&event.type==='pointercancel'),true,'chromium/trusted-touch/native-pointercancel');
+          check(verticalErrors,[],'chromium/trusted-touch/vertical-no-browser-errors');
+          await verticalPage.close();
+
+          const horizontalPage=await context.newPage();
+          const horizontalErrors=[];
+          horizontalPage.on('pageerror',error=>horizontalErrors.push(error.message));
+          await horizontalPage.goto(base+'/?state=empty&mode=accept');
+          const horizontalCard=horizontalPage.getByTestId('traffic-vehicle-60000000-0000-4000-8000-000000000001');
+          const horizontalBox=await horizontalCard.boundingBox();
+          const horizontalCdp=await context.newCDPSession(horizontalPage);
+          await trustedChromiumTouch(horizontalCdp,{x:horizontalBox.x+24,y:horizontalBox.y+horizontalBox.height/2},140,2);
+          await horizontalPage.waitForFunction(()=>window.calls.length===1);
+          const horizontalEvidence=await horizontalPage.evaluate(()=>window.pointerEvidence.filter(event=>event.pointerType==='touch'));
+          check(horizontalEvidence.some(event=>event.isTrusted&&event.type==='pointerup'),true,'chromium/trusted-touch/horizontal-up');
+          check(await horizontalPage.evaluate(()=>window.calls.length),1,'chromium/trusted-touch/horizontal-single-command');
+          check(await horizontalPage.evaluate(()=>scrollY),0,'chromium/trusted-touch/horizontal-no-scroll');
+          check(horizontalErrors,[],'chromium/trusted-touch/horizontal-no-browser-errors');
+          await horizontalPage.close();
         }
         await context.close();
       } finally {await browser.close();}

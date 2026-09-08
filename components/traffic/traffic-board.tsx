@@ -1,5 +1,13 @@
 "use client";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import { flushSync } from "react-dom";
 import {
   Truck,
@@ -56,6 +64,27 @@ const groupDots: Record<ManagerTrafficGroup, string> = {
   repair: "bg-rose-400",
   offline: "bg-sky-400",
 };
+const HARVESTER_SWIPE_SLOP_PX = 12;
+const HARVESTER_SWIPE_DIRECTION_RATIO = 1.4;
+type HarvesterSwipeGesture = {
+  pointerId: number;
+  vehicle: TrafficVehicle;
+  target: TrafficState;
+  startX: number;
+  startY: number;
+  threshold: number;
+  distance: number;
+  axis: "pending" | "horizontal" | "blocked";
+};
+type HarvesterSwipeVisual = {
+  vehicleId: string;
+  distance: number;
+  threshold: number;
+  dragging: boolean;
+};
+function harvesterSwipeThreshold(cardWidth: number): number {
+  return Math.min(132, Math.max(84, cardWidth * 0.3));
+}
 export function TrafficBoard({
   snapshot,
   stale,
@@ -86,6 +115,8 @@ export function TrafficBoard({
   const [mobileState, setMobileState] = useState<ManagerTrafficGroup>("empty");
   const mobileListRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<PendingTrafficCommand[]>([]);
+  const harvesterSwipeRef = useRef<HarvesterSwipeGesture | null>(null);
+  const [harvesterSwipe, setHarvesterSwipe] = useState<HarvesterSwipeVisual | null>(null);
   const mounted = useRef(true);
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
@@ -96,7 +127,33 @@ export function TrafficBoard({
   useEffect(() => {
     mounted.current = true;
     const tick = window.setInterval(() => setNow(Date.now()), 15000);
-    return () => { mounted.current = false; window.clearInterval(tick); };
+    return () => {
+      mounted.current = false;
+      harvesterSwipeRef.current = null;
+      window.clearInterval(tick);
+    };
+  }, []);
+  useEffect(() => {
+    const abortSwipe = () => {
+      if (!harvesterSwipeRef.current) return;
+      harvesterSwipeRef.current = null;
+      setHarvesterSwipe(null);
+    };
+    const abortOnSecondPointer = (event: PointerEvent) => {
+      const active = harvesterSwipeRef.current;
+      if (active && event.pointerId !== active.pointerId) abortSwipe();
+    };
+    const abortWhenHidden = () => {
+      if (document.visibilityState === "hidden") abortSwipe();
+    };
+    window.addEventListener("pointerdown", abortOnSecondPointer, true);
+    window.addEventListener("blur", abortSwipe);
+    document.addEventListener("visibilitychange", abortWhenHidden);
+    return () => {
+      window.removeEventListener("pointerdown", abortOnSecondPointer, true);
+      window.removeEventListener("blur", abortSwipe);
+      document.removeEventListener("visibilitychange", abortWhenHidden);
+    };
   }, []);
   useEffect(() => {
     const resolved = pendingRef.current.filter(command => command.phase !== "sending" && trafficCommandObserved(snapshot, command));
@@ -157,6 +214,109 @@ export function TrafficBoard({
       }
       void refresh(true);
     }
+  }
+  function submitTransition(vehicle: TrafficVehicle, target: TrafficState) {
+    if (pendingRef.current.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id)) return;
+    void confirm({ vehicle, target, key: crypto.randomUUID() });
+  }
+  function beginHarvesterSwipe(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    vehicle: TrafficVehicle,
+    target: TrafficState,
+  ) {
+    if (stale || !snapshot.enabled || pendingRef.current.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id)) return;
+    if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) {
+      if (harvesterSwipeRef.current) {
+        harvesterSwipeRef.current = null;
+        setHarvesterSwipe(null);
+      }
+      return;
+    }
+    if (harvesterSwipeRef.current) {
+      harvesterSwipeRef.current = null;
+      setHarvesterSwipe(null);
+      return;
+    }
+    const threshold = harvesterSwipeThreshold(event.currentTarget.getBoundingClientRect().width);
+    harvesterSwipeRef.current = {
+      pointerId: event.pointerId,
+      vehicle,
+      target,
+      startX: event.clientX,
+      startY: event.clientY,
+      threshold,
+      distance: 0,
+      axis: "pending",
+    };
+    setHarvesterSwipe({ vehicleId: vehicle.vehicle_id, distance: 0, threshold, dragging: true });
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Touch pointers are implicitly captured. Synthetic QA events may not be.
+    }
+  }
+  function moveHarvesterSwipe(event: ReactPointerEvent<HTMLButtonElement>) {
+    const active = harvesterSwipeRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    const dx = event.clientX - active.startX;
+    const dy = event.clientY - active.startY;
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+    if (active.axis === "pending" && Math.max(absX, absY) >= HARVESTER_SWIPE_SLOP_PX) {
+      if (dx >= HARVESTER_SWIPE_SLOP_PX && absX >= absY * HARVESTER_SWIPE_DIRECTION_RATIO) {
+        active.axis = "horizontal";
+      } else if (dx <= -HARVESTER_SWIPE_SLOP_PX || absY > absX) {
+        active.axis = "blocked";
+      }
+    }
+    if (active.axis !== "horizontal") {
+      if (active.distance !== 0) {
+        active.distance = 0;
+        setHarvesterSwipe({ vehicleId: active.vehicle.vehicle_id, distance: 0, threshold: active.threshold, dragging: false });
+      }
+      return;
+    }
+    event.preventDefault();
+    active.distance = Math.min(active.threshold + 32, Math.max(0, dx));
+    setHarvesterSwipe({
+      vehicleId: active.vehicle.vehicle_id,
+      distance: active.distance,
+      threshold: active.threshold,
+      dragging: true,
+    });
+  }
+  function finishHarvesterSwipe(event: ReactPointerEvent<HTMLButtonElement>) {
+    const active = harvesterSwipeRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    const dx = event.clientX - active.startX;
+    const dy = Math.abs(event.clientY - active.startY);
+    const shouldCommit = active.axis === "horizontal" &&
+      dx >= active.threshold && dx >= dy * HARVESTER_SWIPE_DIRECTION_RATIO;
+    harvesterSwipeRef.current = null;
+    setHarvesterSwipe(null);
+    try {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    } catch {
+      // The browser may already have released capture on pointerup.
+    }
+    if (shouldCommit) submitTransition(active.vehicle, active.target);
+  }
+  function cancelHarvesterSwipe(event: ReactPointerEvent<HTMLButtonElement>) {
+    const active = harvesterSwipeRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    harvesterSwipeRef.current = null;
+    setHarvesterSwipe(null);
+  }
+  function handleHarvesterSwipeKey(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    vehicle: TrafficVehicle,
+    target: TrafficState,
+  ) {
+    if (event.key !== "ArrowRight" || event.repeat) return;
+    event.preventDefault();
+    submitTransition(vehicle, target);
   }
   async function changeLastVehicle(vehicle: TrafficVehicle, action: "mark" | "clear") {
     if (stale || !snapshot.enabled || lastVehicleBusy) return;
@@ -367,6 +527,7 @@ export function TrafficBoard({
               : "grid gap-2 sm:grid-cols-2 xl:grid-cols-3"}>
         {group.vehicles.map((vehicle) => {
           const target = nextState(snapshot.role, vehicle.state, vehicle.inRepair);
+          const usesHarvesterSwipe = snapshot.role === "harvester" && target === "loaded";
           const pendingVehicle = pendingCommands.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id);
           const identity = getFleetVehicleCardIdentity(vehicle);
           const isLastVehicle = snapshot.lastVehicle?.vehicleId === vehicle.vehicle_id;
@@ -398,28 +559,52 @@ export function TrafficBoard({
                 {vehicle.inRepair ? <span className="flex shrink-0 items-center gap-1 font-semibold">
                   <Wrench size={11} aria-hidden /> На ремонте · {STATE_LABEL[vehicle.state]} ·
                 </span> : !vehicle.assigned ? <span className="shrink-0 font-semibold">Не на линии ·</span>
-                  : !isManager ? <span className="shrink-0">{STATE_LABEL[vehicle.state]} ·</span> : null}
+                  : usesHarvesterSwipe ? <span className="shrink-0 font-semibold text-emerald-800">Свайп вправо → ·</span>
+                    : !isManager ? <span className="shrink-0">{STATE_LABEL[vehicle.state]} ·</span> : null}
                 <Clock3 aria-hidden size={11} />
                 <span className="truncate">{stateAge(vehicle.since, now + offset)}</span>
               </span>
             </>
           );
+          const swipeVisual = usesHarvesterSwipe && harvesterSwipe?.vehicleId === vehicle.vehicle_id
+            ? harvesterSwipe
+            : null;
+          const swipeDistance = swipeVisual?.distance ?? 0;
+          const swipeReady = !!swipeVisual && swipeVisual.distance >= swipeVisual.threshold;
           const card = target ? (
             <button
               type="button"
               data-testid={`traffic-vehicle-${vehicle.vehicle_id}`}
-              aria-label={`${ACTION_LABEL[target]}: ${vehicle.name}, ${vehicle.plate || "без номера"}`}
+              data-swipe-action={usesHarvesterSwipe ? "loaded" : undefined}
+              data-swipe-ready={usesHarvesterSwipe ? String(swipeReady) : undefined}
+              aria-label={usesHarvesterSwipe
+                ? `Смахните вправо, чтобы отметить загруженной: ${vehicle.name}, ${vehicle.plate || "без номера"}. С клавиатуры или программой экранного доступа активируйте карточку.`
+                : `${ACTION_LABEL[target]}: ${vehicle.name}, ${vehicle.plate || "без номера"}`}
               disabled={pendingVehicle || stale || !snapshot.enabled}
-              onClick={() => {
-                if (pendingRef.current.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id)) return;
-                const command = { vehicle, target, key: crypto.randomUUID() } satisfies TrafficCommand;
+              onClick={usesHarvesterSwipe ? event => {
+                // A physical tap has detail > 0 and is intentionally inert.
+                // Keyboard and assistive technology synthesize detail === 0.
+                if (event.detail === 0) submitTransition(vehicle, target);
+              } : () => {
                 const approved = window.confirm(
                   `${ACTION_LABEL[target]}\n\n${vehicle.name} · ${vehicle.plate || "Без номера"}\n\nПодтвердите только фактически выполненное действие.`,
                 );
-                if (approved !== true) return;
-                void confirm(command);
+                if (approved === true) submitTransition(vehicle, target);
               }}
-              className={`${cardClass} min-h-[48px] w-full cursor-pointer active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 disabled:cursor-not-allowed ${stale || !snapshot.enabled ? "opacity-50" : ""}`}
+              onPointerDown={usesHarvesterSwipe ? event => beginHarvesterSwipe(event, vehicle, target) : undefined}
+              onPointerMove={usesHarvesterSwipe ? moveHarvesterSwipe : undefined}
+              onPointerUp={usesHarvesterSwipe ? finishHarvesterSwipe : undefined}
+              onPointerCancel={usesHarvesterSwipe ? cancelHarvesterSwipe : undefined}
+              onLostPointerCapture={usesHarvesterSwipe ? cancelHarvesterSwipe : undefined}
+              onKeyDown={usesHarvesterSwipe ? event => handleHarvesterSwipeKey(event, vehicle, target) : undefined}
+              onDragStart={usesHarvesterSwipe ? event => event.preventDefault() : undefined}
+              style={usesHarvesterSwipe ? {
+                transform: `translate3d(${swipeDistance}px, 0, 0)`,
+                transitionDuration: swipeVisual?.dragging ? "0ms" : undefined,
+              } : undefined}
+              className={`${cardClass} min-h-[48px] w-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 disabled:cursor-not-allowed ${usesHarvesterSwipe
+                ? `relative z-10 touch-pan-y select-none cursor-grab transition-transform duration-200 ease-out motion-reduce:transition-none ${swipeVisual?.dragging ? "cursor-grabbing" : ""}`
+                : "cursor-pointer active:scale-[0.98]"} ${stale || !snapshot.enabled ? "opacity-50" : ""}`}
             >
               {content}
             </button>
@@ -440,7 +625,16 @@ export function TrafficBoard({
             </article>
           );
           return (
-            <div key={vehicle.vehicle_id} className="relative min-w-0">
+            <div key={vehicle.vehicle_id} className={`relative min-w-0 ${usesHarvesterSwipe ? "overflow-hidden rounded-xl bg-emerald-600" : ""}`}>
+              {usesHarvesterSwipe ? (
+                <div
+                  aria-hidden
+                  data-testid={`traffic-swipe-track-${vehicle.vehicle_id}`}
+                  className={`pointer-events-none absolute inset-0 flex items-center px-4 text-sm font-extrabold text-white transition-colors ${swipeReady ? "bg-emerald-500" : "bg-emerald-700"}`}
+                >
+                  {swipeReady ? "✓ Отпустите — загружена" : "→ Проведите вправо"}
+                </div>
+              ) : null}
               {card}
               {canChangeLastVehicle ? (
                 <button
@@ -452,7 +646,7 @@ export function TrafficBoard({
                     event.stopPropagation();
                     void changeLastVehicle(vehicle, isLastVehicle ? "clear" : "mark");
                   }}
-                  className="absolute right-0 top-0 flex min-h-[48px] min-w-[48px] items-center justify-center rounded-tr-xl text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-amber-500 disabled:opacity-40"
+                  className="absolute right-0 top-0 z-20 flex min-h-[48px] min-w-[48px] items-center justify-center rounded-tr-xl text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-amber-500 disabled:opacity-40"
                 >
                   <EllipsisVertical aria-hidden size={20} />
                 </button>

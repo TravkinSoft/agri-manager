@@ -36,6 +36,46 @@ function deferred<T>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
+function activateCard(card: any) {
+  if (card.props["data-swipe-action"]) {
+    card.props.onKeyDown({ key: "ArrowRight", repeat: false, preventDefault: () => undefined });
+  } else {
+    card.props.onClick();
+  }
+}
+function performSwipe(card: any, options: {
+  dx: number;
+  dy?: number;
+  width?: number;
+  cancel?: boolean;
+  secondPointer?: boolean;
+}): any {
+  const captured = new Set<number>();
+  const currentTarget = {
+    getBoundingClientRect: () => ({ width: options.width ?? 300 }),
+    setPointerCapture: (pointerId: number) => captured.add(pointerId),
+    hasPointerCapture: (pointerId: number) => captured.has(pointerId),
+    releasePointerCapture: (pointerId: number) => captured.delete(pointerId),
+  };
+  const event = (pointerId: number, x: number, y: number, isPrimary = true) => ({
+    pointerId,
+    pointerType: "touch",
+    isPrimary,
+    button: 0,
+    clientX: x,
+    clientY: y,
+    currentTarget,
+    preventDefault: () => undefined,
+  });
+  const start = event(7, 20, 20);
+  const finish = event(7, 20 + options.dx, 20 + (options.dy ?? 0));
+  card.props.onPointerDown(start);
+  if (options.secondPointer) card.props.onPointerDown(event(8, 25, 25, false));
+  card.props.onPointerMove(finish);
+  if (options.cancel) card.props.onPointerCancel(finish);
+  else card.props.onPointerUp(finish);
+  return finish;
+}
 const vehicles: model.TrafficVehicle[] = ["loaded", "empty", "unloading", "empty"].map((state, index) => ({
   vehicle_id: `car-${index}`, name: `Truck ${index}`, plate: `QA-${index}`, driver: index === 1 ? "Existing Driver" : null,
   state: state as model.TrafficState, version: index + 5, cycle: index + 1, assigned: true, since: "2026-09-04T10:00:00Z",
@@ -111,9 +151,15 @@ function harness(role: model.TrafficRole, input = vehicles, options: {
     "@/components/ui/button": { Button },
   };
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
-    { module: loaded, exports: loaded.exports, window: {
+    { module: loaded, exports: loaded.exports, document: {
+        visibilityState: "visible",
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      }, window: {
         setInterval: () => 1,
         clearInterval: () => undefined,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
         confirm: (message: string) => {
           confirmPrompts.push(message);
           return options.confirm !== false;
@@ -279,6 +325,59 @@ async function main() {
   nodes(refreshing.render()).find(node => node.props?.["aria-label"] === "Обновить статусы").props.onClick();
   check(refreshing.refreshCalls, [true]);
 
+  // The harvester's empty card is swipe-only. Tap and ambiguous gestures can
+  // never reach the mocked transport; a deliberate right release does once.
+  for (const gesture of [
+    { dx: 0, label: "tap" },
+    { dx: 89, label: "short" },
+    { dx: -120, label: "left" },
+    { dx: 8, dy: 120, label: "vertical" },
+    { dx: 100, dy: 90, label: "diagonal" },
+    { dx: 120, cancel: true, label: "cancel" },
+    { dx: 120, secondPointer: true, label: "multitouch" },
+  ]) {
+    const candidate = harness("harvester", [vehicles[1]]);
+    const candidateCard = cardNodes(candidate.render())[0];
+    check(typeof candidateCard.props.onClick, "function");
+    candidateCard.props.onClick({ detail: 1 });
+    performSwipe(candidateCard, gesture);
+    await flush();
+    check(candidate.calls.length, 0);
+    check(candidate.confirmPrompts.length, 0);
+    check(candidate.props.snapshot.vehicles[0].state, "empty");
+  }
+  const swiped = harness("harvester", [vehicles[1]]);
+  const swipedTree = swiped.render();
+  const swipedCard = cardNodes(swipedTree)[0];
+  check(swipedCard.props["data-swipe-action"], "loaded");
+  check(swipedCard.props.className.includes("touch-pan-y"), true);
+  check(nodes(swipedTree).some(node => node.props?.["data-testid"] === "traffic-swipe-track-car-1"), true);
+  const completedPointer = performSwipe(swipedCard, { dx: 90 });
+  swipedCard.props.onPointerUp(completedPointer); // duplicate delivery is inert
+  await flush();
+  check(swiped.calls.length, 1);
+  check(swiped.confirmPrompts.length, 0);
+  check(swiped.calls[0][2].target, "loaded");
+  for (const boundary of [
+    { width: 200, below: 83, exact: 84 },
+    { width: 600, below: 131, exact: 132 },
+  ]) {
+    const below = harness("harvester", [vehicles[1]]);
+    performSwipe(cardNodes(below.render())[0], { width: boundary.width, dx: boundary.below });
+    await flush();
+    check(below.calls.length, 0);
+    const exact = harness("harvester", [vehicles[1]]);
+    performSwipe(cardNodes(exact.render())[0], { width: boundary.width, dx: boundary.exact });
+    await flush();
+    check(exact.calls.length, 1);
+  }
+  const accessible = harness("harvester", [vehicles[1]]);
+  cardNodes(accessible.render())[0].props.onClick({ detail: 0 });
+  await flush();
+  check(accessible.calls.length, 1);
+  check(accessible.confirmPrompts.length, 0);
+  check(accessible.calls[0][2].target, "loaded");
+
   for (const role of ["harvester", "weighman", "receiver"] as const) {
     const h = harness(role);
     let operatorTree = h.render();
@@ -296,6 +395,15 @@ async function main() {
         check(nodes(card).slice(1).some(node => node.props?.className?.includes("min-h-[48px]")), false);
         check(words(card).includes(model.ACTION_LABEL[target]), false); // The card itself is the only action.
         check(nodes(card).filter(node => node.type === "button").length, 1); // No nested buttons.
+        if (role === "harvester") {
+          check(card.props["data-swipe-action"], "loaded");
+          check(typeof card.props.onClick, "function");
+          check(typeof card.props.onPointerDown, "function");
+          check(words(card).includes("Свайп вправо"), true);
+        } else {
+          check(card.props["data-swipe-action"], undefined);
+          check(card.props.onPointerDown, undefined);
+        }
       } else {
         check(card.props.className.split(/\s+/).includes("grayscale"), false);
         check(card.props.className.split(/\s+/).some((name: string) => name.startsWith("opacity-")), false);
@@ -307,21 +415,22 @@ async function main() {
     const actionable = cards.find(card => card.type === "button")!;
     const clicked = vehicles.find(car => `traffic-vehicle-${car.vehicle_id}` === actionable.props["data-testid"])!;
 
-    // P0 mobile regression: native cancellation must have no application-side
-    // request path for any operator role.
+    // A physical tap is inert for the harvester; native Cancel remains unable
+    // to reach the request path for the weighman and receiver.
     const cancelled = harness(role, vehicles, { confirm: false });
     const cancelledCard = cardNodes(cancelled.render()).find(card => card.type === "button")!;
-    cancelledCard.props.onClick();
+    if (role === "harvester") cancelledCard.props.onClick({ detail: 1 });
+    else cancelledCard.props.onClick();
     await flush();
     check(cancelled.calls.length, 0);
     check(cancelled.requests.length, 0);
-    check(cancelled.confirmPrompts.length, 1);
-    check(cancelled.confirmPrompts[0].includes(clicked.plate!), true);
+    check(cancelled.confirmPrompts.length, role === "harvester" ? 0 : 1);
+    if (role !== "harvester") check(cancelled.confirmPrompts[0].includes(clicked.plate!), true);
     check(cancelled.props.snapshot.vehicles.find(car => car.vehicle_id === clicked.vehicle_id)?.state, clicked.state);
 
-    actionable.props.onClick(); operatorTree = h.render();
-    check(h.confirmPrompts.length, 1);
-    check(h.confirmPrompts[0].includes(clicked.plate!), true);
+    activateCard(actionable); operatorTree = h.render();
+    check(h.confirmPrompts.length, role === "harvester" ? 0 : 1);
+    if (role !== "harvester") check(h.confirmPrompts[0].includes(clicked.plate!), true);
     const pendingTree = h.render();
     check(h.props.snapshot.vehicles.find(car => car.vehicle_id === clicked.vehicle_id)?.state, clicked.state);
     check(h.commits.length, 0);
@@ -372,7 +481,7 @@ async function main() {
 
   // A replay may return a newer current state, not the target requested by this click.
   const replay = harness("harvester", [vehicles[1]], { deferRefresh: true });
-  cardNodes(replay.render())[0].props.onClick();
+  activateCard(cardNodes(replay.render())[0]);
   const currentReceipt = { ...receiptFor(vehicles[1], "empty", vehicles[1].version + 3), replayed: true };
   replay.requests[0].resolve(currentReceipt); await flush();
   const replayTree = replay.render();
@@ -385,7 +494,7 @@ async function main() {
 
   // An uncertain response rolls back the local display and keeps the SAME retry key.
   const failure = harness("harvester", [vehicles[1]]);
-  cardNodes(failure.render())[0].props.onClick();
+  activateCard(cardNodes(failure.render())[0]);
   failure.requests[0].reject(Object.assign(new Error("HTTP 503: try again"), { status: 503 })); await flush();
   const failedTree = failure.render();
   check(words(failedTree).includes("HTTP 503"), true);
@@ -393,7 +502,7 @@ async function main() {
   check(failure.commits.length, 0);
   check(failure.refreshCalls, [true]);
   check(cardNodes(failedTree)[0].props.disabled, true);
-  check(words(cardNodes(failedTree)[0]).includes("Пустая"), true);
+  check(words(cardNodes(failedTree)[0]).includes("Свайп вправо"), true);
   const retry = nodes(failedTree).find(node => node.type === "button" && words(node) === "Повторить отправку");
   retry.props.onClick(); retry.props.onClick();
   check(failure.calls.length, 2);
@@ -403,7 +512,7 @@ async function main() {
 
   // A committed receipt without a row needs canonical reconciliation, no spinner.
   const fallback = harness("harvester", [vehicles[1]], { acceptReceipt: false, deferRefresh: true });
-  cardNodes(fallback.render())[0].props.onClick();
+  activateCard(cardNodes(fallback.render())[0]);
   fallback.requests[0].resolve({ ...receiptFor(vehicles[1], "loaded"), vehicle: null, refreshRequired: true }); await flush();
   check(fallback.props.snapshot.vehicles[0].state, "empty");
   check(cardNodes(fallback.render())[0].type, "article");
@@ -419,7 +528,7 @@ async function main() {
   // Another vehicle remains actionable; out-of-order responses do not lose either intent.
   const parallel = harness("harvester", [vehicles[1], vehicles[3]]);
   const sendCar = (h: ReturnType<typeof harness>, id: string) => {
-    cardNodes(h.render()).find(card => card.props["data-testid"] === `traffic-vehicle-${id}`)!.props.onClick();
+    activateCard(cardNodes(h.render()).find(card => card.props["data-testid"] === `traffic-vehicle-${id}`)!);
   };
   sendCar(parallel, "car-1");
   check(cardNodes(parallel.render()).find(card => card.props["data-testid"] === "traffic-vehicle-car-3")!.props.disabled, false);
@@ -469,7 +578,7 @@ async function main() {
   sendCar(malformed, "car-1");
   malformed.requests[0].resolve({ ...receiptFor(vehicles[1], "loaded"), eventId: "invalid" }); await flush();
   check(malformed.commits.length, 0);
-  check(words(cardNodes(malformed.render())[0]).includes("Пустая"), true);
+  check(words(cardNodes(malformed.render())[0]).includes("Свайп вправо"), true);
   check(words(malformed.render()).includes("Нет корректного подтверждения"), true);
   check(cardNodes(malformed.render())[0].props.disabled, true);
 
