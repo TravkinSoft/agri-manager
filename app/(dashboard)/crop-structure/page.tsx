@@ -25,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { OperationFormDialog } from "@/components/operations/operation-form-dialog";
 import { SpecialistOperationPlan } from "@/components/operations/specialist-operation-plan";
 import { CatalogIdentityCombobox } from "@/components/crop-structure/catalog-identity-combobox";
+import { FieldHarvestLive } from "@/components/crop-structure/field-harvest-live";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
@@ -216,6 +217,7 @@ const CROP_STRUCTURE_VIEW_KEY = "travkinflow.cropStructure.viewMode";
 const FIELD_FIRST_CREATE_ENABLED =
   process.env.NEXT_PUBLIC_OPERATIONS_FIELD_FIRST_CREATE !== "0" &&
   process.env.OPERATIONS_FIELD_FIRST_CREATE !== "0";
+const FIELD_HARVEST_LIVE_ENABLED = process.env.NEXT_PUBLIC_FIELD_HARVEST_LIVE_V2 !== "0";
 
 const stageDefs: Array<{ key: StageKey; label: string; operations: string[] }> = [
   { key: "prep", label: "Подготовка", operations: ["preparation", "tillage", "cultivation", "plowing", "other"] },
@@ -2356,6 +2358,17 @@ export default function CropStructurePage() {
               <div className="mt-1 text-lg font-semibold text-white">{fmtHa(planned)}</div>
             </div>
           </div>
+          {FIELD_HARVEST_LIVE_ENABLED && activeCompanyId && seasonId ? (
+            <div className="mt-3">
+              <FieldHarvestLive
+                companyId={activeCompanyId}
+                seasonId={seasonId}
+                fieldId={selectedField.id}
+                allocationId={selectedItem?.allocation.id || null}
+                allocationLabel={selectedItem?.title || null}
+              />
+            </div>
+          ) : null}
         </div>
 
         {selectedItem ? (
