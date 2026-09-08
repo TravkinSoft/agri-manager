@@ -46,14 +46,38 @@ export function countColdWarehousePositions(
   return harvestLots.size + materialPositions.size;
 }
 
-export function warehousePositionCountLabel(count: number): string {
+function pluralRu(count: number, one: string, few: string, many: string): string {
+  const mod100 = count % 100;
+  const mod10 = count % 10;
+  if (mod100 >= 11 && mod100 <= 14) return many;
+  if (mod10 === 1) return one;
+  if (mod10 >= 2 && mod10 <= 4) return few;
+  return many;
+}
+
+export function warehousePositionCountLabel(count: number, harvestLotCount?: number | null): string {
   const normalized = Math.max(0, Math.trunc(Number(count) || 0));
-  const mod100 = normalized % 100;
-  const mod10 = normalized % 10;
-  const noun = mod100 >= 11 && mod100 <= 14
-    ? "групп"
-    : mod10 === 1 ? "группа" : mod10 >= 2 && mod10 <= 4 ? "группы" : "групп";
-  return `${normalized} ${noun} остатков`;
+  const neutral = `${normalized} ${pluralRu(normalized, "позиция", "позиции", "позиций")}`;
+  if (harvestLotCount == null) return neutral;
+
+  const rawHarvestLots = Number(harvestLotCount);
+  if (!Number.isInteger(rawHarvestLots) || rawHarvestLots < 0 || rawHarvestLots > normalized) return neutral;
+  if (normalized === 0) return neutral;
+
+  const materialPositions = normalized - rawHarvestLots;
+  const parts: string[] = [];
+  if (rawHarvestLots > 0) {
+    parts.push(`${rawHarvestLots} ${pluralRu(rawHarvestLots, "партия", "партии", "партий")}`);
+  }
+  if (materialPositions > 0) {
+    parts.push(`${materialPositions} ${pluralRu(
+      materialPositions,
+      "позиция материала",
+      "позиции материалов",
+      "позиций материалов",
+    )}`);
+  }
+  return parts.join(" · ") || neutral;
 }
 
 export function countVisibleWarehousePositions(

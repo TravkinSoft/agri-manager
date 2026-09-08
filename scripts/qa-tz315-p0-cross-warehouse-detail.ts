@@ -156,13 +156,13 @@ assert.equal(countColdWarehousePositions(
   ["rapeseed-lot", "potato-lot", "wheat-likamero-lot", "wheat-lamis-lot"],
   [{ product_id: "seed", batch_class: "seed", uom: "kg", material_quantity: 250 }],
 ), 5, "a real non-harvest material row remains an additional clickable position");
-assert.equal(warehousePositionCountLabel(1), "1 группа остатков");
-assert.equal(warehousePositionCountLabel(2), "2 группы остатков");
-assert.equal(warehousePositionCountLabel(4), "4 группы остатков");
-assert.equal(warehousePositionCountLabel(5), "5 групп остатков");
-assert.equal(warehousePositionCountLabel(11), "11 групп остатков");
-assert.equal(warehousePositionCountLabel(21), "21 группа остатков");
-assert.match(page, /warehousePositionCountLabel\(selectedSummary\.positionCount\)/);
+assert.equal(warehousePositionCountLabel(1), "1 позиция");
+assert.equal(warehousePositionCountLabel(2), "2 позиции");
+assert.equal(warehousePositionCountLabel(4), "4 позиции");
+assert.equal(warehousePositionCountLabel(5), "5 позиций");
+assert.equal(warehousePositionCountLabel(11), "11 позиций");
+assert.equal(warehousePositionCountLabel(21), "21 позиция");
+assert.match(page, /warehousePositionCountLabel\(selectedSummary\.positionCount, selectedSummary\.harvestLotCount\)/);
 
 const dialog = readFileSync(path.join(root, "components/warehouses/harvest-batch-dialog.tsx"), "utf8");
 assert.match(dialog, /<details key=/);

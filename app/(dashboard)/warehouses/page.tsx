@@ -65,9 +65,9 @@ import {
 } from "@/lib/warehouse/warehouse-scope";
 
 function formatDate(value?: string | null): string {
-  if (!value) return "Движений пока нет";
+  if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Движений пока нет" : date.toLocaleString("ru-RU");
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("ru-RU");
 }
 
 function quantity(value: number): string {
@@ -95,7 +95,7 @@ type Summary = {
   stock: InventoryBalance[];
   batches: HarvestBatchSummary[];
   positionCount: number;
-  harvestLotCount: number;
+  harvestLotCount: number | null;
   harvestWeightKg: number;
   totalWeightKg: number;
   seedWeightKg: number;
@@ -470,7 +470,11 @@ export default function WarehousesPage() {
       positionCount: detailsLoaded
         ? countVisibleWarehousePositions(batches, stock)
         : serverSummary?.position_count || 0,
-      harvestLotCount: serverSummary?.harvest_lot_count || 0,
+      harvestLotCount: detailsLoaded
+        ? batches.length
+        : serverSummary?.harvest_lot_count == null
+          ? null
+          : Number(serverSummary.harvest_lot_count),
       harvestWeightKg: serverSummary?.harvest_weight_kg || 0,
       totalWeightKg: serverSummary?.total_weight_kg ?? 0,
       seedWeightKg: serverSummary?.seed_weight_kg || 0,
@@ -549,7 +553,7 @@ export default function WarehousesPage() {
     return <Alert variant="destructive"><AlertDescription>Доступ к складам запрещён для текущей роли.</AlertDescription></Alert>;
   }
 
-  const renderWarehouseCard = ({ warehouse, positionCount, totalWeightKg, lastMovementAt, summaryLoaded }: Summary) => {
+  const renderWarehouseCard = ({ warehouse, positionCount, harvestLotCount, totalWeightKg, summaryLoaded }: Summary) => {
     const invalidStock = summaryLoaded && (!Number.isFinite(totalWeightKg) || totalWeightKg < -0.000001);
     const empty = summaryLoaded && !invalidStock && Math.abs(totalWeightKg) <= 0.000001 && positionCount === 0;
     const placeType = normalizeStoragePlaceType(warehouse.place_type);
@@ -557,6 +561,7 @@ export default function WarehousesPage() {
     const fillPercent = warehouseCapacityPercent(totalWeightKg, capacity);
     const fillBarPercent = fillPercent == null ? 0 : Math.min(100, fillPercent);
     const capacityExceeded = fillPercent != null && fillPercent > 100;
+    const positionLabel = warehousePositionCountLabel(positionCount, harvestLotCount);
     return (
       <article
         key={warehouse.id}
@@ -570,10 +575,10 @@ export default function WarehousesPage() {
             openWarehouse(warehouse.id);
           }
         }}
-        className="group relative min-h-[124px] min-w-0 cursor-pointer rounded-lg border border-slate-700/55 bg-gradient-to-br from-[#172131] to-[#101722] p-3 shadow-[0_3px_10px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.035)] transition-colors hover:border-yellow-500/45 hover:from-[#1b293b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 2xl:min-h-[164px]"
+        className="group relative flex h-full min-h-[148px] min-w-0 cursor-pointer flex-col rounded-xl border border-slate-800/90 bg-[#141a23] p-4 transition-[border-color,background-color] duration-150 ease-out hover:border-slate-600/90 hover:bg-[#171e29] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 motion-reduce:transition-none"
       >
         <div className="flex items-start gap-2.5">
-          <ObjectVisual placeType={placeType} className="h-9 w-9 shrink-0" />
+          <ObjectVisual placeType={placeType} className="h-9 w-9 shrink-0 border-0 bg-transparent" />
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
@@ -587,17 +592,16 @@ export default function WarehousesPage() {
           </div>
         </div>
         {!summaryLoaded ? (
-          <div className="mt-3 h-16 animate-pulse rounded-md bg-slate-900" aria-label="Загрузка остатка" />
+          <div className="mt-4 h-14 rounded-md bg-slate-900 motion-safe:animate-pulse" aria-label="Загрузка остатка" />
         ) : (
-          <div className="mt-3 space-y-2">
+          <div className="mt-4 flex flex-1 flex-col justify-end gap-3">
             <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
-              <strong className={`text-xl font-semibold tabular-nums ${invalidStock ? "text-rose-300" : empty ? "text-slate-400" : "text-emerald-300"}`}>
-                {invalidStock ? "Проверить остаток" : empty ? "Свободно" : totalWeightKg === 0 ? "Есть материалы" : formatMass(totalWeightKg)}
+              <strong className={`text-xl font-semibold tabular-nums ${invalidStock ? "text-rose-300" : empty ? "text-slate-300" : "text-emerald-300"}`}>
+                {invalidStock ? "Проверить остаток" : empty ? "0 кг" : totalWeightKg === 0 ? "Есть материалы" : formatMass(totalWeightKg)}
               </strong>
-              {!empty ? <span className="text-xs text-slate-400">{warehousePositionCountLabel(positionCount)}</span> : null}
+              <span className="max-w-[60%] text-right text-xs leading-4 text-slate-400">{positionLabel}</span>
             </div>
             {invalidStock ? <div role="alert" className="text-xs text-rose-300">Отрицательный или некорректный остаток: {String(totalWeightKg)} кг</div> : null}
-            <div className="truncate text-xs text-slate-500" title={formatDate(lastMovementAt)}>{lastMovementAt ? `Движение: ${formatDate(lastMovementAt)}` : "Движений пока нет"}</div>
             {fillPercent != null && !invalidStock && !empty ? (
               <div>
                 <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500">
@@ -675,7 +679,7 @@ export default function WarehousesPage() {
       ) : activeSummaries.length === 0 ? (
         <div className="border-y border-slate-800 py-12 text-center text-sm text-slate-400">Активные склады не найдены.</div>
       ) : (
-        <div className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+        <div className="grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {activeSummaries.map(renderWarehouseCard)}
         </div>
       )}
@@ -683,7 +687,7 @@ export default function WarehousesPage() {
       {canManageWarehouses && archivedSummaries.length > 0 ? (
         <section className="space-y-3 border-t border-slate-800 pt-5">
           <h2 className="text-base font-semibold text-slate-300">Архивные склады</h2>
-          <div className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+          <div className="grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {archivedSummaries.map(renderWarehouseCard)}
           </div>
         </section>
@@ -703,7 +707,7 @@ export default function WarehousesPage() {
                     <DialogDescription className="mt-1">
                       {normalizeStoragePlaceType(selectedSummary.warehouse.place_type) === "WAREHOUSE"
                         ? warehouseTypeLabel(selectedSummary.warehouse.warehouse_type)
-                        : storagePlaceTypeLabel(selectedSummary.warehouse.place_type)} · {warehousePositionCountLabel(selectedSummary.positionCount)} · последнее движение {formatDate(selectedSummary.lastMovementAt)}
+                        : storagePlaceTypeLabel(selectedSummary.warehouse.place_type)} · {warehousePositionCountLabel(selectedSummary.positionCount, selectedSummary.harvestLotCount)} · последнее движение {formatDate(selectedSummary.lastMovementAt)}
                     </DialogDescription>
                     </div>
                   </div>

@@ -49,12 +49,12 @@ assert.doesNotMatch(route, /position_count:\s*materialPositions\.get/);
 assert.match(page, /detailsLoaded[\s\S]*countVisibleWarehousePositions\(batches, stock\)[\s\S]*serverSummary\?\.position_count/);
 
 const expectedLabels: Array<[number, string]> = [
-  [1, "1 группа остатков"],
-  [2, "2 группы остатков"],
-  [4, "4 группы остатков"],
-  [5, "5 групп остатков"],
-  [11, "11 групп остатков"],
-  [21, "21 группа остатков"],
+  [1, "1 позиция"],
+  [2, "2 позиции"],
+  [4, "4 позиции"],
+  [5, "5 позиций"],
+  [11, "11 позиций"],
+  [21, "21 позиция"],
 ];
 for (const [count, expected] of expectedLabels) {
   assert.equal(warehousePositionCountLabel(count), expected);
