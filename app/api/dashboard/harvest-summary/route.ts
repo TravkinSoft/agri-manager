@@ -14,6 +14,7 @@ import {
   resolveHarvestLotTicketLineage,
 } from "@/lib/weighbridge/harvest-lot-lineage";
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
+import { getServiceClient } from "@/lib/supabase/service";
 
 const DASHBOARD_ROLES = ["global_admin", "company_admin", "agronomist", "director"] as const;
 const PERIOD_PRESETS = new Set<HarvestPeriodPreset>(["current_day", "previous_day", "current_shift", "last_24_hours", "season", "custom"]);
@@ -197,8 +198,12 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
   }) as WeighbridgeTicket[];
 }
 
-async function loadWarehouseRows(supabase: any, companyId: string): Promise<HarvestBatchSummary[]> {
-  const { data: stocks, error: stockError } = await supabase
+async function loadWarehouseRows(
+  supabase: any,
+  harvestStockSupabase: any,
+  companyId: string
+): Promise<HarvestBatchSummary[]> {
+  const { data: stocks, error: stockError } = await harvestStockSupabase
     .from("v_harvest_lot_stock_v2")
     .select("harvest_lot_id,warehouse_id,trip_count,current_weight_kg")
     .eq("company_id", companyId);
@@ -263,7 +268,7 @@ export async function GET(request: NextRequest) {
     const section = String(request.nextUrl.searchParams.get("section") || "summary");
     const filters = readFilters(request);
     if (section === "warehouses") {
-      const rows = buildWarehouseHarvestRows(await loadWarehouseRows(supabase, companyId), filters);
+      const rows = buildWarehouseHarvestRows(await loadWarehouseRows(supabase, getServiceClient(), companyId), filters);
       return NextResponse.json({ rows, source: "v_harvest_lot_stock_v2" });
     }
 
@@ -286,11 +291,11 @@ export async function GET(request: NextRequest) {
     });
 
     if (section === "filters") {
-      const warehouseRows = buildWarehouseHarvestRows(await loadWarehouseRows(supabase, companyId));
+      const warehouseRows = buildWarehouseHarvestRows(await loadWarehouseRows(supabase, getServiceClient(), companyId));
       return NextResponse.json({ options: buildHarvestFilterOptions(tickets, warehouseRows), operationalDayStartHour: period.operationalDayStartHour });
     }
 
-    const warehouseRows = buildWarehouseHarvestRows(await loadWarehouseRows(supabase, companyId), filters);
+    const warehouseRows = buildWarehouseHarvestRows(await loadWarehouseRows(supabase, getServiceClient(), companyId), filters);
     const summary = buildHarvestOverview(tickets, { period, filters, warehouseRows });
     return NextResponse.json({ ...summary, source: "effective finalized harvest_incoming tickets" });
   } catch (error) {

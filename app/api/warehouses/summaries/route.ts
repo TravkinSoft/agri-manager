@@ -74,9 +74,13 @@ export async function GET(request: NextRequest) {
       .filter((row) => !rowHasQaDataMarker(row as unknown as Record<string, unknown>, ["name", "description", "warehouse_type"]));
     const warehouseIds = visibleWarehouses.map((warehouse) => String(warehouse.id));
     if (!warehouseIds.length) return NextResponse.json({ summaries: [] });
+    // The actor and company scope are already verified. Restrict this privileged
+    // reader to the aggregate stock view and keep every query company-scoped;
+    // otherwise security-invoker RLS expansion can hit the statement timeout.
+    const harvestStockSupabase = getServiceClient();
 
     if (processingCardsScope) {
-      const harvestLotsResult = await supabase
+      const harvestLotsResult = await harvestStockSupabase
         .from("v_harvest_lot_stock_v2")
         .select("harvest_lot_id,warehouse_id,current_weight_kg")
         .eq("company_id", companyId)
@@ -118,7 +122,7 @@ export async function GET(request: NextRequest) {
         .select("warehouse_id,product_id,quantity,uom,batch_class")
         .eq("company_id", companyId)
         .in("warehouse_id", warehouseIds),
-      supabase
+      harvestStockSupabase
         .from("v_harvest_lot_stock_v2")
         .select("harvest_lot_id,warehouse_id,current_weight_kg")
         .eq("company_id", companyId)

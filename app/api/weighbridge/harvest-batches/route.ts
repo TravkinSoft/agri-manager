@@ -18,6 +18,7 @@ import {
 } from "@/lib/weighbridge/harvest-lot-lineage";
 import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
+import { getServiceClient } from "@/lib/supabase/service";
 import {
   collapseOperationDocuments,
   selectActiveWarehouseOperationEntries,
@@ -118,12 +119,13 @@ function processingLabel(value: unknown): string {
 
 async function loadAggregateHarvestLotSummaries(
   supabase: any,
+  harvestStockSupabase: any,
   companyId: string,
   warehouseId: string | null,
   lotId: string | null
 ) {
   const stockRows = await readHarvestStockWithRetry<any>(() => {
-    let stockQuery = supabase
+    let stockQuery = harvestStockSupabase
       .from(HARVEST_STOCK_VIEW)
       .select("harvest_lot_id,warehouse_id,trip_count,current_weight_kg,batch_class,physical_state")
       .eq("company_id", companyId)
@@ -271,7 +273,13 @@ async function loadAggregateHarvestLotSummaries(
   });
 }
 
-async function loadAggregateHarvestLots(supabase: any, companyId: string, warehouseId: string | null, lotId: string | null) {
+async function loadAggregateHarvestLots(
+  supabase: any,
+  harvestStockSupabase: any,
+  companyId: string,
+  warehouseId: string | null,
+  lotId: string | null
+) {
   let lotsQuery = supabase
     .from("harvest_lots")
     .select("id,lot_code,season_id,source_field_id,crop_id,variety_id,reproduction_id,composition_hash,identity_kind,review_state,review_reasons,status,created_at")
@@ -297,7 +305,7 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
       .in("harvest_lot_id", chunk)
       .order("inventory_batch_id", { ascending: true })),
     loadInChunks<any>(lotIds, (chunk) => {
-      let query = supabase
+      let query = harvestStockSupabase
         .from(HARVEST_STOCK_VIEW)
         .select("harvest_lot_id,warehouse_id,trip_count,current_weight_kg,batch_class,physical_state")
         .eq("company_id", companyId)
@@ -1099,9 +1107,14 @@ export async function GET(request: NextRequest) {
     const lotId = String(request.nextUrl.searchParams.get("lotId") || "").trim() || null;
     const aggregateLots = request.nextUrl.searchParams.get("view") === "lots";
     if (aggregateLots) {
+      // Access and company context are verified above. Use the server-only client
+      // only for this explicitly company-scoped aggregate view: evaluating all
+      // base-table RLS policies through the view can exceed the DB statement
+      // timeout even when the underlying aggregate itself takes only milliseconds.
+      const harvestStockSupabase = getServiceClient();
       const lots = request.nextUrl.searchParams.get("detail") === "summary"
-        ? await loadAggregateHarvestLotSummaries(supabase, companyId, warehouseId, lotId)
-        : await loadAggregateHarvestLots(supabase, companyId, warehouseId, lotId);
+        ? await loadAggregateHarvestLotSummaries(supabase, harvestStockSupabase, companyId, warehouseId, lotId)
+        : await loadAggregateHarvestLots(supabase, harvestStockSupabase, companyId, warehouseId, lotId);
       if (lots !== null) return NextResponse.json({ batches: lots });
     }
 

@@ -8,6 +8,8 @@ const ticketsRoute = read("app/api/weighbridge/tickets/route.ts");
 const finalizeRoute = read("app/api/weighbridge/tickets/[id]/finalize/route.ts");
 const resourcesRoute = read("app/api/weighbridge/resources/route.ts");
 const operatorSessionRoute = read("app/api/weighbridge/operator-session/route.ts");
+const warehouseSummariesRoute = read("app/api/warehouses/summaries/route.ts");
+const harvestDashboardRoute = read("app/api/dashboard/harvest-summary/route.ts");
 const migration = read("supabase/migrations/20260908123000_p0_weighbridge_session_and_stock_stability.sql");
 
 let passed = 0;
@@ -57,6 +59,15 @@ check("server summary reads positive aggregate stock by warehouse", () => {
   assert.match(batchesRoute, /\.gt\("current_weight_kg", 0\.0001\)/);
   assert.match(batchesRoute, /HARVEST_STOCK_READ_ATTEMPTS = 2/);
   assert.match(batchesRoute, /trace_id: traceId/);
+});
+
+check("authenticated routes isolate the privileged stock read behind verified company scope", () => {
+  assert.match(batchesRoute, /resolveWeighbridgeSession[\s\S]*?const harvestStockSupabase = getServiceClient\(\)/);
+  assert.match(batchesRoute, /harvestStockSupabase[\s\S]*?\.from\(HARVEST_STOCK_VIEW\)[\s\S]*?\.eq\("company_id", companyId\)/);
+  assert.match(warehouseSummariesRoute, /assertActorAccess[\s\S]*?const harvestStockSupabase = getServiceClient\(\)/);
+  assert.match(warehouseSummariesRoute, /harvestStockSupabase[\s\S]*?\.from\("v_harvest_lot_stock_v2"\)[\s\S]*?\.eq\("company_id", companyId\)/);
+  assert.match(harvestDashboardRoute, /resolveWeighbridgeSession[\s\S]*?loadWarehouseRows\(supabase, getServiceClient\(\), companyId\)/);
+  assert.match(harvestDashboardRoute, /harvestStockSupabase[\s\S]*?\.from\("v_harvest_lot_stock_v2"\)[\s\S]*?\.eq\("company_id", companyId\)/);
 });
 
 check("soil ticket binds the selected aggregate lot and warehouse", () => {
