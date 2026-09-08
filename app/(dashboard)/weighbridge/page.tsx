@@ -64,6 +64,7 @@ import {
   type WeighbridgeTransportPickerData,
 } from "@/lib/weighbridge/transport-pairing";
 import { resolveTransportIdentity, transportPickerOptionLabel } from "@/lib/weighbridge/transport";
+import { buildHarvestLotOptionLabel } from "@/lib/weighbridge/harvest-lot-option-label";
 import {
   UNIVERSAL_WORKSPACE_MAX_TABS,
   UNIVERSAL_WORKSPACE_SCHEMA_VERSION,
@@ -5430,11 +5431,11 @@ export default function WeighbridgeOperationsPage() {
 	                        {harvestBatchOptionsStatus === "loading" || harvestBatchOptionsStatus === "idle" ? <SelectItem value="__loading" disabled>Загружаем партии урожая...</SelectItem> : null}
 	                        {harvestBatchOptionsStatus === "error" ? <SelectItem value="__error" disabled>Не удалось загрузить партии урожая</SelectItem> : null}
 	                        {harvestBatchOptionsStatus === "ready" && availableHarvestBatches.length === 0 ? <SelectItem value="__empty" disabled>На складе нет партий с положительным остатком</SelectItem> : null}
-	                        {availableHarvestBatches.map((batch) => (
+                        {availableHarvestBatches.map((batch) => (
                           <SelectItem key={`${batch.id}:${batch.warehouseId}`} value={batch.id}>
-                            {batch.batchCode} · {[batch.cropName, batch.varietyName, batch.reproductionName].filter(Boolean).join(" / ")} · {batch.fieldName ? `${batch.fieldName} · ` : ""}остаток {batch.cleanMassKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг
+                            {buildHarvestLotOptionLabel(batch)}
                           </SelectItem>
-	                        ))}
+                        ))}
 	                      </SelectContent>
 	                    </Select>
 	                    {form.warehouseFromId && harvestBatchOptionsStatus === "loading" ? (

@@ -61,6 +61,19 @@ check("server summary reads positive aggregate stock by warehouse", () => {
   assert.match(batchesRoute, /trace_id: traceId/);
 });
 
+check("soil lot labels use ticket field names without exposing technical lot codes", () => {
+  assert.match(batchesRoute, /\.select\("harvest_lot_id,inventory_batch_id,source_ticket_id"\)/);
+  assert.match(batchesRoute, /\.select\("id,product_id,display_name,source_ticket_id,source_field_id"\)/);
+  assert.match(batchesRoute, /\.in\("id", chunk\)\)\.catch\(\(\) => \[\]\)/);
+  assert.match(batchesRoute, /fieldsResult\.error \? \[\] : fieldsResult\.data \|\| \[\]/);
+  assert.match(batchesRoute, /sourceTicketsById[\s\S]*?summarizeAggregateHarvestLotFields[\s\S]*?fieldName: fieldOrigin\.fieldName/);
+  const pickerStart = page.indexOf("availableHarvestBatches.map((batch)");
+  const pickerEnd = page.indexOf("</SelectContent>", pickerStart);
+  const picker = pickerStart >= 0 && pickerEnd > pickerStart ? page.slice(pickerStart, pickerEnd) : "";
+  assert.match(picker, /buildHarvestLotOptionLabel\(batch\)/);
+  assert.doesNotMatch(picker, /batch\.batchCode/);
+});
+
 check("authenticated routes isolate the privileged stock read behind verified company scope", () => {
   assert.match(batchesRoute, /resolveWeighbridgeSession[\s\S]*?const harvestStockSupabase = getServiceClient\(\)/);
   assert.match(batchesRoute, /harvestStockSupabase[\s\S]*?\.from\(HARVEST_STOCK_VIEW\)[\s\S]*?\.eq\("company_id", companyId\)/);

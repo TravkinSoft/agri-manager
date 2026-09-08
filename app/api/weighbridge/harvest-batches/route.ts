@@ -17,6 +17,7 @@ import {
   resolveHarvestTicketIdsByBatch,
 } from "@/lib/weighbridge/harvest-lot-lineage";
 import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
+import { summarizeAggregateHarvestLotFields } from "@/lib/weighbridge/harvest-lot-option-label";
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { getServiceClient } from "@/lib/supabase/service";
 import {
@@ -146,7 +147,7 @@ async function loadAggregateHarvestLotSummaries(
       .in("id", lotIds),
     supabase
       .from("harvest_lot_batches")
-      .select("harvest_lot_id,inventory_batch_id")
+      .select("harvest_lot_id,inventory_batch_id,source_ticket_id")
       .eq("company_id", companyId)
       .in("harvest_lot_id", lotIds),
   ]);
@@ -158,9 +159,9 @@ async function loadAggregateHarvestLotSummaries(
   const varietyIds = ids(lots.map((row) => row.variety_id));
   const reproductionIds = ids(lots.map((row) => row.reproduction_id));
   const warehouseIds = ids(stockRows.map((row) => row.warehouse_id));
-  const [batchesResult, cropsResult, varietiesResult, reproductionsResult, warehousesResult] = await Promise.all([
+  const [batchesResult, cropsResult, varietiesResult, reproductionsResult, warehousesResult, fieldsResult] = await Promise.all([
     batchIds.length
-      ? supabase.from("inventory_batches").select("id,product_id,display_name").eq("company_id", companyId).in("id", batchIds)
+      ? supabase.from("inventory_batches").select("id,product_id,display_name,source_ticket_id,source_field_id").eq("company_id", companyId).in("id", batchIds)
       : Promise.resolve({ data: [], error: null }),
     cropIds.length
       ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug,category_id,category,crop_category,subcategory,crop_subcategory").in("id", cropIds)
@@ -174,14 +175,28 @@ async function loadAggregateHarvestLotSummaries(
     warehouseIds.length
       ? supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en").eq("company_id", companyId).in("id", warehouseIds)
       : Promise.resolve({ data: [], error: null }),
+    supabase.from("fields").select("id,name").eq("company_id", companyId),
   ]);
   const firstError = [batchesResult, cropsResult, varietiesResult, reproductionsResult, warehousesResult]
     .map((result: any) => result.error).find(Boolean);
   if (firstError) throw firstError;
+  const sourceTicketIds = ids([
+    ...links.map((row) => row.source_ticket_id),
+    ...(batchesResult.data || []).map((row: any) => row.source_ticket_id),
+  ]);
   const categoryIds = ids((cropsResult.data || []).map((crop: any) => crop.category_id));
-  const categoriesResult = categoryIds.length
-    ? await supabase.from("crop_categories").select("id,slug,name_ru").in("id", categoryIds)
-    : { data: [], error: null };
+  const [categoriesResult, sourceTickets] = await Promise.all([
+    categoryIds.length
+      ? supabase.from("crop_categories").select("id,slug,name_ru").in("id", categoryIds)
+      : Promise.resolve({ data: [], error: null }),
+    sourceTicketIds.length
+      ? loadInChunks<any>(sourceTicketIds, (chunk) => supabase
+          .from("tickets")
+          .select("id,field_id")
+          .eq("company_id", companyId)
+          .in("id", chunk)).catch(() => [])
+      : Promise.resolve([]),
+  ]);
   if (categoriesResult.error) throw categoriesResult.error;
 
   const byId = (rows: any[]) => new Map(rows.map((row) => [String(row.id), row]));
@@ -191,10 +206,22 @@ async function loadAggregateHarvestLotSummaries(
   const reproductionsById = byId(reproductionsResult.data || []);
   const warehousesById = byId(warehousesResult.data || []);
   const categoriesById = byId(categoriesResult.data || []);
+  const fieldsById = byId(fieldsResult.error ? [] : fieldsResult.data || []);
+  const sourceTicketsById = byId(sourceTickets);
 
   return lots.flatMap((lot) => {
     const memberLinks = links.filter((link) => String(link.harvest_lot_id) === String(lot.id));
     const memberBatches = memberLinks.map((link) => batchesById.get(String(link.inventory_batch_id))).filter(Boolean);
+    const memberFieldIds = ids([
+      lot.source_field_id,
+      ...memberBatches.map((batch) => batch.source_field_id),
+      ...memberLinks.map((link) => sourceTicketsById.get(String(link.source_ticket_id || ""))?.field_id),
+      ...memberBatches.map((batch) => sourceTicketsById.get(String(batch.source_ticket_id || ""))?.field_id),
+    ]);
+    const fieldOrigin = summarizeAggregateHarvestLotFields(memberFieldIds.map((fieldId) => ({
+      fieldId,
+      fieldName: localizedName(fieldsById.get(fieldId), "ru", ["name"]),
+    })));
     const crop = cropsById.get(String(lot.crop_id || ""));
     const category = categoriesById.get(String(crop?.category_id || ""));
     const variety = varietiesById.get(String(lot.variety_id || ""));
@@ -244,10 +271,10 @@ async function loadAggregateHarvestLotSummaries(
           varietyName: brandName(variety) || "",
           reproductionId: lot.reproduction_id ? String(lot.reproduction_id) : null,
           reproductionName: localizedName(reproduction, "ru", ["name", "code"]) || "",
-          fieldId: null,
-          fieldName: "",
+          fieldId: fieldOrigin.fieldId,
+          fieldName: fieldOrigin.fieldName,
           operationLineId: null,
-          cropStructureLabel: "",
+          cropStructureLabel: fieldOrigin.fieldName ? `${fieldOrigin.fieldCount > 1 ? "Поля" : "Поле"}: ${fieldOrigin.fieldName}` : "",
           seasonLabel: "",
           operationName: "Приёмка урожая",
           firstReceivedAt: lot.created_at || null,
