@@ -93,6 +93,21 @@ type SecondaryCatalogStatus = {
   error: string;
 };
 
+type TicketClosePhase = "idle" | "closing" | "reconciling" | "retry";
+type TicketCloseState = {
+  ticketId: string | null;
+  ticketNo: string;
+  phase: TicketClosePhase;
+  message: string;
+};
+
+const EMPTY_TICKET_CLOSE_STATE: TicketCloseState = {
+  ticketId: null,
+  ticketNo: "",
+  phase: "idle",
+  message: "",
+};
+
 type HistoryAdminVoidTarget = Readonly<{
   id: string;
   ticketNumber: string;
@@ -929,6 +944,7 @@ export default function WeighbridgeOperationsPage() {
   const finalizeTicketIdempotencyRef = useRef<{ ticketId: string; key: string } | null>(null);
   const finalizingRef = useRef(false);
   const [finalizing, setFinalizing] = useState(false);
+  const [ticketCloseState, setTicketCloseState] = useState<TicketCloseState>(EMPTY_TICKET_CLOSE_STATE);
   const [voiding, setVoiding] = useState(false);
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [processingItems, setProcessingItems] = useState<BatchTransformationRow[]>([]);
@@ -2543,6 +2559,13 @@ export default function WeighbridgeOperationsPage() {
   }, [activeTicket?.id]);
 
   useEffect(() => {
+    setTicketCloseState((current) => {
+      if (current.phase === "idle" || current.ticketId === activeTicket?.id) return current;
+      return EMPTY_TICKET_CLOSE_STATE;
+    });
+  }, [activeTicket?.id]);
+
+  useEffect(() => {
     if (!form.vehicleId) {
       setSuggestedFieldId(null);
       return;
@@ -3489,8 +3512,16 @@ export default function WeighbridgeOperationsPage() {
     [activeTickets]
   );
   const visibleActiveTickets = useMemo(
-    () => pendingOpenTicket ? [...activeTickets, pendingOpenTicket] : activeTickets,
-    [activeTickets, pendingOpenTicket]
+    () => {
+      const pendingCloseTicketId = ticketCloseState.phase === "closing" || ticketCloseState.phase === "reconciling"
+        ? ticketCloseState.ticketId
+        : null;
+      const rows = pendingCloseTicketId
+        ? activeTickets.filter((ticket) => ticket.id !== pendingCloseTicketId)
+        : activeTickets;
+      return pendingOpenTicket ? [...rows, pendingOpenTicket] : rows;
+    },
+    [activeTickets, pendingOpenTicket, ticketCloseState.phase, ticketCloseState.ticketId]
   );
   const harvestWarehouses = useMemo(
     () => warehouses
@@ -4658,6 +4689,7 @@ export default function WeighbridgeOperationsPage() {
 
   const closeTicket = async () => {
     if (!activeTicket || !profile?.id || !canOperate || finalizing || finalizingRef.current) return;
+    const closingTicket = activeTicket;
     const isDirectSupplierTicket = activeTicket.op_type === "supplier_receipt" && String((activeTicket as any).receipt_mode || "") === "direct";
     const isDirectTransferTicket = activeTicket.op_type === "warehouse_transfer" && activeTicket.weigh_method === "manual_override_with_reason";
     const isDirectFieldIssueTicket = activeTicket.op_type === "issue_to_field" && activeTicket.weigh_method === "manual_override_with_reason";
@@ -4695,15 +4727,75 @@ export default function WeighbridgeOperationsPage() {
       return;
     }
 
+    const currentFinalizeKey = finalizeTicketIdempotencyRef.current?.ticketId === closingTicket.id
+      ? finalizeTicketIdempotencyRef.current.key
+      : crypto.randomUUID();
+    finalizeTicketIdempotencyRef.current = { ticketId: closingTicket.id, key: currentFinalizeKey };
+    const isCanonicallyClosed = (ticket: WeighbridgeTicket | null | undefined) => Boolean(
+      ticket && (
+        ticket.status === "finalized"
+        || ticket.status === "voided"
+        || ticket.is_finalized
+        || ticket.is_voided
+      )
+    );
+    const finishCanonicalClose = async (
+      canonicalTicket: WeighbridgeTicket,
+      options: { recoveredAfterError?: boolean } = {}
+    ) => {
+      const linkedProcessingId = canonicalTicket.linked_processing_id || closingTicket.linked_processing_id || null;
+      notifyWeighbridgeDataChanged();
+      let lastMainOutputMarkError: any = null;
+      if (closingLastMainOutput && closingTicket.op_type === "warehouse_transfer" && linkedProcessingId) {
+        try {
+          await performProcessingAction(linkedProcessingId, profile.id, {
+            action: "mark_last_main",
+            ticket_id: closingTicket.id,
+            idempotency_key: crypto.randomUUID(),
+          });
+        } catch (error: any) {
+          lastMainOutputMarkError = error;
+        } finally {
+          notifyWeighbridgeDataChanged();
+        }
+      }
+      if (lastMainOutputMarkError) {
+        const traceId = String(lastMainOutputMarkError?.payload?.trace_id || "").trim();
+        const description = `${lastMainOutputMarkError?.message || "Не удалось отметить последний рейс"}${traceId ? `\nTrace ID: ${traceId}` : ""}`;
+        toast({ title: "Талон закрыт, последний рейс не отмечен", description, variant: "destructive" });
+      } else if (options.recoveredAfterError) {
+        toast({
+          title: "Талон закрыт",
+          description: "Ответ прервался, но каноническое состояние проверено: движение зафиксировано.",
+        });
+      } else {
+        toast({ title: "Талон закрыт", description: "Движение зафиксировано и сверено" });
+      }
+      setTickets((current) => [canonicalTicket, ...current.filter((ticket) => ticket.id !== closingTicket.id)]);
+      setActiveTicket(null);
+      adjustActiveHarvestTicketCount(closingTicket, -1);
+      releaseTransportAssignment(closingTicket, true);
+      setClosingTare("");
+      setClosingMoisture("");
+      setClosingLastMainOutput(false);
+      setTicketCloseState(EMPTY_TICKET_CLOSE_STATE);
+      finalizeTicketIdempotencyRef.current = null;
+      window.setTimeout(() => {
+        void refreshLiveData({ source: "local", table: "tickets" });
+      }, 500);
+    };
+
+    setTicketCloseState({
+      ticketId: closingTicket.id,
+      ticketNo: closingTicket.ticket_no,
+      phase: "closing",
+      message: "Записываем движение. Остатки изменятся только после сверки с сервером.",
+    });
     setFinalizing(true);
     try {
       let finalizeResponse: Record<string, any> | null = null;
       if (isAtomicHarvestClosure || isAtomicTransferClosure) {
-        const currentFinalizeKey = finalizeTicketIdempotencyRef.current?.ticketId === activeTicket.id
-          ? finalizeTicketIdempotencyRef.current.key
-          : crypto.randomUUID();
-        finalizeTicketIdempotencyRef.current = { ticketId: activeTicket.id, key: currentFinalizeKey };
-        const finalizeAtomicTicket = async (confirmTareVariance: boolean) => finalizeTicket(activeTicket.id, profile.id, {
+        const finalizeAtomicTicket = async (confirmTareVariance: boolean) => finalizeTicket(closingTicket.id, profile.id, {
           tare_weight_kg: t,
           moisture_percent: moisture,
           confirm_tare_variance: confirmTareVariance,
@@ -4721,75 +4813,78 @@ export default function WeighbridgeOperationsPage() {
             description: `Предыдущая тара: ${previous}. Текущая: ${current}. Подтвердить отклонение?`,
             actionLabel: "Подтвердить",
           });
-          if (!confirmed) return;
+          if (!confirmed) {
+            finalizeTicketIdempotencyRef.current = null;
+            setTicketCloseState(EMPTY_TICKET_CLOSE_STATE);
+            return;
+          }
+          setTicketCloseState({
+            ticketId: closingTicket.id,
+            ticketNo: closingTicket.ticket_no,
+            phase: "closing",
+            message: "Подтверждение принято. Завершаем атомарную запись.",
+          });
           finalizeResponse = await finalizeAtomicTicket(true);
         }
       } else {
-        await patchTicketWithTareConfirmation(activeTicket.id, {
+        await patchTicketWithTareConfirmation(closingTicket.id, {
           tare_weight_kg: isDirectQuantityTicket ? 0 : toNum(closingTare) ?? undefined,
           moisture_percent: moisture,
           status: "ready_to_close",
         });
-        finalizeResponse = await finalizeTicket(activeTicket.id, profile.id);
+        finalizeResponse = await finalizeTicket(closingTicket.id, profile.id, {
+          tare_weight_kg: t,
+          moisture_percent: moisture,
+          idempotency_key: currentFinalizeKey,
+        });
       }
-      const finalizedTicket = (finalizeResponse?.ticket || null) as WeighbridgeTicket | null;
-      const linkedProcessingId = finalizedTicket?.linked_processing_id || activeTicket.linked_processing_id || null;
-      notifyWeighbridgeDataChanged();
-      let lastMainOutputMarkError: any = null;
-      if (closingLastMainOutput && activeTicket.op_type === "warehouse_transfer" && linkedProcessingId) {
-        try {
-          await performProcessingAction(linkedProcessingId, profile.id, {
-            action: "mark_last_main",
-            ticket_id: activeTicket.id,
-            idempotency_key: crypto.randomUUID(),
-          });
-        } catch (error: any) {
-          lastMainOutputMarkError = error;
-        } finally {
-          notifyWeighbridgeDataChanged();
-        }
+      setTicketCloseState({
+        ticketId: closingTicket.id,
+        ticketNo: closingTicket.ticket_no,
+        phase: "reconciling",
+        message: "Запись принята. Сверяем талон и складское движение.",
+      });
+      const responseTicket = (finalizeResponse?.ticket || null) as WeighbridgeTicket | null;
+      let canonicalTicket: WeighbridgeTicket | null = null;
+      try {
+        const canonical = await getTicketDetails(closingTicket.id, profile.id);
+        canonicalTicket = (canonical?.ticket || null) as WeighbridgeTicket | null;
+      } catch (reconciliationError) {
+        if (!isCanonicallyClosed(responseTicket)) throw reconciliationError;
+        canonicalTicket = responseTicket;
       }
-      if (lastMainOutputMarkError) {
-        const traceId = String(lastMainOutputMarkError?.payload?.trace_id || "").trim();
-        const description = `${lastMainOutputMarkError?.message || "Не удалось отметить последний рейс"}${traceId ? `\nTrace ID: ${traceId}` : ""}`;
-        toast({ title: "Талон закрыт, последний рейс не отмечен", description, variant: "destructive" });
-      } else {
-        toast({ title: "Талон закрыт", description: "Движение зафиксировано" });
+      if (!isCanonicallyClosed(canonicalTicket)) {
+        throw new Error("Сервер пока не подтвердил закрытие талона.");
       }
-      setActiveTicket(null);
-      adjustActiveHarvestTicketCount(activeTicket, -1);
-      releaseTransportAssignment(activeTicket, true);
-      setTickets((current) => current.filter((ticket) => ticket.id !== activeTicket.id));
-      setClosingTare("");
-      setClosingMoisture("");
-      setClosingLastMainOutput(false);
-      finalizeTicketIdempotencyRef.current = null;
-      window.setTimeout(() => {
-        void refreshLiveData({ source: "realtime", table: "tickets" });
-      }, 1_500);
+      await finishCanonicalClose(canonicalTicket as WeighbridgeTicket);
     } catch (e: any) {
-      const message = String(e?.message || "");
-      if (message.toLowerCase().includes("read-only") || message.toLowerCase().includes("already finalized")) {
-        try {
-          if (!isHarvestClosure) await finalizeTicket(activeTicket.id, profile.id);
-        } catch {
-          // If the ticket is already finalized, refresh is still the safest UI state.
+      setTicketCloseState({
+        ticketId: closingTicket.id,
+        ticketNo: closingTicket.ticket_no,
+        phase: "reconciling",
+        message: "Ответ неоднозначен. Проверяем фактический статус без повторной записи.",
+      });
+      try {
+        const canonical = await getTicketDetails(closingTicket.id, profile.id);
+        const canonicalTicket = (canonical?.ticket || null) as WeighbridgeTicket | null;
+        if (isCanonicallyClosed(canonicalTicket)) {
+          await finishCanonicalClose(canonicalTicket as WeighbridgeTicket, { recoveredAfterError: true });
+          return;
         }
-        toast({ title: "Талон уже закрыт", description: "Обновляю список талонов и остатки.", variant: "default" });
-        setActiveTicket(null);
-        adjustActiveHarvestTicketCount(activeTicket, -1);
-        releaseTransportAssignment(activeTicket, true);
-        setTickets((current) => current.filter((ticket) => ticket.id !== activeTicket.id));
-        setClosingTare("");
-        setClosingMoisture("");
-        finalizeTicketIdempotencyRef.current = null;
-        notifyWeighbridgeDataChanged();
-        void refreshLiveData({ source: "local", table: "tickets" });
-        return;
+      } catch {
+        // The original card remains in memory and the same idempotency key is
+        // retained for a safe explicit retry when connectivity returns.
       }
       const traceId = String(e?.payload?.trace_id || "").trim();
-      const description = `${e?.message || "Не удалось закрыть талон"}${traceId ? `\nTrace ID: ${traceId}` : ""}`;
-      toast({ title: "Ошибка закрытия", description, variant: "destructive" });
+      const technicalMessage = `${e?.message || "Не удалось подтвердить закрытие"}${traceId ? `\nTrace ID: ${traceId}` : ""}`;
+      const retryMessage = "Карточка восстановлена. Повтор использует тот же ключ и не создаст второе движение.";
+      setTicketCloseState({
+        ticketId: closingTicket.id,
+        ticketNo: closingTicket.ticket_no,
+        phase: "retry",
+        message: `${retryMessage} ${technicalMessage}`,
+      });
+      toast({ title: "Закрытие не подтверждено", description: `${retryMessage}\n${technicalMessage}`, variant: "destructive" });
     } finally {
       finalizingRef.current = false;
       setFinalizing(false);
@@ -5162,6 +5257,8 @@ export default function WeighbridgeOperationsPage() {
     : `${value.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} %`;
   const terminalPanelClass = "rounded-md border border-slate-800/80 bg-[#101724]/95 shadow-[0_12px_36px_rgba(2,6,23,0.22)]";
   const formSectionClass = "space-y-3 border-t border-slate-800/70 pt-4 first:border-t-0 first:pt-0";
+  const ticketClosePending = ticketCloseState.phase === "closing" || ticketCloseState.phase === "reconciling";
+  const ticketCloseRetry = ticketCloseState.phase === "retry" && ticketCloseState.ticketId === activeTicket?.id;
   const segmentClass = (active: boolean) =>
     active
       ? "h-9 border-yellow-500/70 bg-yellow-500/15 text-yellow-100 hover:bg-yellow-500/20"
@@ -5967,9 +6064,30 @@ export default function WeighbridgeOperationsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="max-h-[clamp(190px,36vh,420px)] space-y-2 overflow-y-auto px-3 py-3 travkin-scrollbar">
+            {ticketCloseState.phase !== "idle" ? (
+              <div
+                role="status"
+                aria-live="polite"
+                className={ticketCloseRetry
+                  ? "rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2.5"
+                  : "rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5"}
+              >
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-50">
+                  {ticketClosePending ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-emerald-300" /> : <Info className="h-4 w-4 shrink-0 text-amber-300" />}
+                  <span>
+                    {ticketCloseState.phase === "closing"
+                      ? `Закрываем ${ticketCloseState.ticketNo}`
+                      : ticketCloseState.phase === "reconciling"
+                        ? `Сверяем ${ticketCloseState.ticketNo}`
+                        : `Нужен повтор для ${ticketCloseState.ticketNo}`}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs leading-5 text-slate-300">{ticketCloseState.message}</p>
+              </div>
+            ) : null}
             {ticketsLoading ? <div className="text-sm text-slate-400">Загрузка очереди...</div> : visibleActiveTickets.length === 0 ? (
               <div className="flex min-h-28 items-center justify-center rounded-md border border-dashed border-slate-800 px-3 text-center text-sm text-slate-500">
-                Открытых талонов нет
+                {ticketClosePending ? "Других открытых талонов нет" : "Открытых талонов нет"}
               </div>
             ) : [...visibleActiveTickets].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()).map((t) => {
               const isPending = t.id.startsWith("pending-");
@@ -6184,7 +6302,16 @@ export default function WeighbridgeOperationsPage() {
         </Card>
       ) : null}
 
-      <Sheet open={Boolean(activeTicket)} onOpenChange={(open) => !open && setActiveTicket(null)}>
+      <Sheet
+        open={Boolean(activeTicket) && !ticketClosePending}
+        onOpenChange={(open) => {
+          if (!open && !ticketClosePending) {
+            setActiveTicket(null);
+            setTicketCloseState(EMPTY_TICKET_CLOSE_STATE);
+            finalizeTicketIdempotencyRef.current = null;
+          }
+        }}
+      >
         <SheetContent side="right" className="w-full overflow-y-auto bg-slate-950 text-slate-100 sm:max-w-[540px] lg:overflow-hidden">
           {activeTicket ? (
             <div className="flex min-h-0 flex-col gap-2 lg:h-full">
@@ -6215,7 +6342,7 @@ export default function WeighbridgeOperationsPage() {
                   tareValue: closingTare,
                   moistureValue: closingMoisture,
                   physicalNetKg: pure,
-                  disabled: finalizing,
+                  disabled: finalizing || ticketClosePending || ticketCloseRetry,
                   tareError: closingTareValidation && !closingTareValidation.ok
                     ? closingTareValidation.message
                     : pure != null && pure <= 0 ? "Тара должна быть меньше брутто." : "",
@@ -6228,6 +6355,21 @@ export default function WeighbridgeOperationsPage() {
 
               {canOperate ? (
                 <div className="flex shrink-0 flex-col items-center gap-3 pt-1">
+                  {ticketCloseRetry ? (
+                    <div role="alert" className="w-full max-w-sm rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-50">
+                      <p>{ticketCloseState.message}</p>
+                      <button
+                        type="button"
+                        className="mt-1.5 font-semibold text-amber-200 underline underline-offset-2 hover:text-amber-100"
+                        onClick={() => {
+                          finalizeTicketIdempotencyRef.current = null;
+                          setTicketCloseState(EMPTY_TICKET_CLOSE_STATE);
+                        }}
+                      >
+                        Изменить данные перед новой попыткой
+                      </button>
+                    </div>
+                  ) : null}
                   {activeTicket.op_type === "warehouse_transfer" && activeTicket.linked_processing_id ? (
                     <label className="flex w-full max-w-sm cursor-pointer items-center gap-2 rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-200">
                       <input
@@ -6235,14 +6377,14 @@ export default function WeighbridgeOperationsPage() {
                         className="h-4 w-4 accent-yellow-500"
                         checked={closingLastMainOutput}
                         onChange={(event) => setClosingLastMainOutput(event.target.checked)}
-                        disabled={finalizing}
+                        disabled={finalizing || ticketClosePending || ticketCloseRetry}
                       />
                       Последний рейс основной продукции
                     </label>
                   ) : null}
-                  <Button className="w-full max-w-sm bg-emerald-600 font-semibold hover:bg-emerald-700" onClick={closeTicket} disabled={finalizing || !closingTare || Boolean(closingTareValidation && !closingTareValidation.ok) || (pure != null && pure <= 0)}>
+                  <Button className="w-full max-w-sm bg-emerald-600 font-semibold hover:bg-emerald-700" onClick={closeTicket} disabled={finalizing || ticketClosePending || !closingTare || Boolean(closingTareValidation && !closingTareValidation.ok) || (pure != null && pure <= 0)}>
                     {finalizing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-                    {finalizing ? "Закрытие..." : "Закрыть талон"}
+                    {finalizing ? "Закрытие..." : ticketCloseRetry ? "Повторить закрытие безопасно" : "Закрыть талон"}
                   </Button>
                 </div>
               ) : null}
