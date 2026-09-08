@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeftRight,
   Filter,
@@ -64,11 +64,39 @@ export function UniversalWorkspaceTabs({
   onLimit: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const tabButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const atLimit = tabs.length >= UNIVERSAL_WORKSPACE_MAX_TABS;
 
+  useEffect(() => {
+    const selected = tabButtonRefs.current.get(selectedId);
+    if (!selected) return;
+    selected.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+  }, [selectedId, tabs.length]);
+
+  const moveKeyboardFocus = (currentId: string, key: string) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(key) || tabs.length === 0) return false;
+    const currentIndex = Math.max(0, tabs.findIndex((tab) => tab.id === currentId));
+    const nextIndex = key === "Home"
+      ? 0
+      : key === "End"
+        ? tabs.length - 1
+        : key === "ArrowLeft"
+          ? (currentIndex - 1 + tabs.length) % tabs.length
+          : (currentIndex + 1) % tabs.length;
+    const next = tabs[nextIndex];
+    if (!next) return false;
+    onSelect(next.id);
+    tabButtonRefs.current.get(next.id)?.focus();
+    return true;
+  };
+
   return (
-    <section aria-label="Рабочие вкладки Весовой" aria-busy={disabled} className={`flex min-w-0 items-start gap-1.5 border-b border-slate-800/80 pb-2 ${disabled ? "opacity-60" : ""}`}>
-      <div className="grid min-w-0 flex-1 grid-cols-2 gap-1.5 overflow-hidden md:grid-cols-3 xl:grid-cols-6">
+    <section aria-label="Рабочие вкладки Весовой" aria-busy={disabled} className={`flex min-w-0 items-center gap-1.5 rounded-lg bg-slate-950/40 p-1.5 ${disabled ? "opacity-60" : ""}`}>
+      <div role="tablist" aria-label="Открытые задачи Весовой" className="travkin-scrollbar flex min-w-0 flex-1 gap-1 overflow-x-auto overflow-y-hidden">
         {tabs.map((tab) => {
           const selected = selectedId === tab.id;
           const Icon = operationIcon(tab.operationType);
@@ -76,17 +104,27 @@ export function UniversalWorkspaceTabs({
             <div
               key={tab.id}
               className={selected
-                ? "flex h-11 min-w-0 items-center rounded-md border border-slate-600 bg-slate-800/90 text-slate-50 shadow-[inset_3px_0_0_rgba(250,204,21,0.9)]"
-                : "flex h-11 min-w-0 items-center rounded-md border border-transparent bg-slate-950/45 text-slate-200 hover:border-slate-700 hover:bg-slate-900"}
+                ? "flex h-11 min-w-[11rem] max-w-[18rem] shrink-0 items-center rounded-md bg-slate-800/90 text-slate-50 shadow-[inset_0_-2px_0_rgba(250,204,21,0.9)] transition-colors duration-150 motion-reduce:transition-none"
+                : "flex h-11 min-w-[11rem] max-w-[18rem] shrink-0 items-center rounded-md bg-transparent text-slate-300 transition-colors duration-150 hover:bg-slate-900/90 hover:text-slate-50 motion-reduce:transition-none"}
               title={tab.fullLabel}
             >
               <button
                 type="button"
+                role="tab"
+                id={`weighbridge-workspace-tab-${tab.id}`}
+                aria-controls="weighbridge-workspace-panel"
                 disabled={disabled}
+                tabIndex={selected ? 0 : -1}
+                ref={(node) => {
+                  if (node) tabButtonRefs.current.set(tab.id, node);
+                  else tabButtonRefs.current.delete(tab.id);
+                }}
                 className="flex h-full min-w-0 flex-1 items-center gap-1.5 px-2 text-left"
                 onClick={() => onSelect(tab.id)}
-                aria-pressed={selected}
-                aria-label={tab.fullLabel}
+                onKeyDown={(event) => {
+                  if (moveKeyboardFocus(tab.id, event.key)) event.preventDefault();
+                }}
+                aria-selected={selected}
               >
                 <Icon className={selected ? "h-3.5 w-3.5 shrink-0 text-yellow-300" : "h-3.5 w-3.5 shrink-0 text-slate-500"} />
                 <span className="min-w-0 flex-1 space-y-0.5">
@@ -107,7 +145,7 @@ export function UniversalWorkspaceTabs({
                 disabled={disabled}
                 variant="ghost"
                 size="icon"
-                className="h-8 w-7 shrink-0 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+                className="h-8 w-7 shrink-0 text-slate-500 hover:bg-slate-700/70 hover:text-slate-100"
                 aria-label={`Закрыть вкладку: ${tab.fullLabel}`}
                 title="Закрыть вкладку"
                 onClick={() => onRemove(tab.id)}
@@ -132,7 +170,7 @@ export function UniversalWorkspaceTabs({
             type="button"
             disabled={disabled}
             size="icon"
-            className="h-9 w-9 shrink-0 bg-yellow-400 text-slate-950 hover:bg-yellow-300"
+            className="h-9 w-9 shrink-0 bg-yellow-400 text-slate-950 shadow-none hover:bg-yellow-300"
             aria-label="Добавить вкладку"
             title="Добавить вкладку"
           >

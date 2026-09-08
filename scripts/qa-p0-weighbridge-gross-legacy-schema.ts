@@ -100,8 +100,8 @@ assert.match(route, /: \{\}\),/);
 
 assert.doesNotMatch(page, /Требуется внимание|intakeStatusLabel/);
 assert.match(page, /aria-label="Режим весовой"/);
-assert.match(page, /role="tablist"/);
-assert.match(page, /overflow-x-auto/);
+assert.match(page, /Сменить операцию/);
+assert.match(page, /activeWeighbridgeMode\.steps\.map/);
 assert.match(page, /WEIGHBRIDGE_MODES\.map/);
 for (const label of [
   "Урожай с поля",

@@ -24,10 +24,11 @@ function check(name: string, run: () => void) {
 check("page title removed from primary flow", () => assert.doesNotMatch(page, />Весовые талоны</));
 check("large shift blocker removed", () => assert.doesNotMatch(page, /Действия весовой заблокированы: сначала откройте смену/));
 check("large reception blocker removed", () => assert.doesNotMatch(page, /Место приёмки урожая не настроено\. Обратитесь/));
-check("compact mode bar replaces the attention control", () => {
+check("one current-operation header replaces the crowded mode rail", () => {
   assert.doesNotMatch(page, /intakeStatusLabel|Требуется внимание/);
   assert.match(page, /aria-label="Режим весовой"/);
-  assert.match(page, /overflow-x-auto overflow-y-hidden/);
+  assert.match(page, /Сменить операцию/);
+  assert.match(page, /Этапы текущей операции/);
 });
 check("secondary actions share one menu", () => assert.match(page, /aria-label="Дополнительные действия"/));
 check("inventory moved into secondary menu", () => assert.match(page, /DropdownMenuItem asChild>[\s\S]*\/warehouses\/inventory/));
@@ -36,7 +37,10 @@ check("statistics are collapsible below intake", () => {
   assert.match(page, /<details[\s\S]*className=\{`\$\{terminalPanelClass\} group`\}[\s\S]*Статистика/);
   assert.match(page, /onToggle=\{\(event\) => setStatisticsOpen\(event\.currentTarget\.open\)\}/);
 });
-check("harvest target is one searchable field in the intake form", () => assert.match(activeHarvestTabs, /aria-label="Поле или участок"/));
+check("harvest target is one searchable field in the intake form", () => {
+  assert.match(activeHarvestTabs, /ariaLabel = "Поле или участок"/);
+  assert.match(activeHarvestTabs, /aria-label=\{ariaLabel\}/);
+});
 check("reception is selected once in the intake form", () => {
   assert.match(page, /Место приёмки \*/);
   assert.doesNotMatch(page, /<ActiveHarvestContextEditor/);
@@ -56,7 +60,7 @@ check("picker list scroll is bounded", () => assert.match(combobox, /max-h-60 tr
 check("field picker keyboard selection supports arrows and enter", () => assert.match(activeHarvestTabs, /ArrowDown[\s\S]*ArrowUp[\s\S]*Enter/));
 check("gross grid is compact", () => assert.match(page, /md:grid-cols-\[1fr_170px_220px\]/));
 check("primary CTA says open ticket", () => assert.match(page, /"Открыть талон"/));
-check("optional moisture is available in the gross flow", () => assert.match(page, /Влажность, % \(необязательно\)/));
+check("optional moisture is available in the gross flow", () => assert.match(page, /<CompactField label="Влажность, %">[\s\S]*harvestMoisture/));
 check("new ticket UI has no trailer selector", () => assert.doesNotMatch(page, /form\.trailerId|Прицеп \(необязательно\)/));
 check("legacy trailer remains visible", () => assert.match(ticketPaper, /trailer_name_snapshot[\s\S]*label="Прицеп"/));
 check("open ticket shows awaiting tare", () => assert.match(page, /Ждёт тару/));
@@ -82,7 +86,7 @@ check("workspace persistence is scoped by company season and workstation", () =>
   assert.match(page, /universalWorkspaceStorageKey\([\s\S]{0,250}profile\?\.company_id,[\s\S]{0,250}activeHarvestSeasonId \|\| activeHarvestSeasonYear,[\s\S]{0,250}workstationId/);
   assert.doesNotMatch(page, /weighbridgeFastRepeatStorageKey|fastRepeatPersistKey/);
 });
-check("gross remains manual connector-compatible input", () => assert.match(page, /Брутто \/ вес \(кг\) \*/));
+check("gross remains manual connector-compatible input", () => assert.match(page, /<CompactField label="Брутто \/ вес \(кг\)" required/));
 check("whole kilogram weights omit zero decimals", () => assert.equal(formatWeightKg("8500.000"), "8 500 кг"));
 check("weight thousands use readable spaces", () => assert.equal(formatWeightKg(12600), "12 600 кг"));
 check("real weight fractions remain visible", () => assert.equal(formatWeightKg(8500.125), "8 500,125 кг"));

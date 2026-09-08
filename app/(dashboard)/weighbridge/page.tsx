@@ -2,7 +2,7 @@
 
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, ClipboardList, Clock3, FileDown, Info, Loader2, LockKeyhole, MoreHorizontal, Pencil, Scale, Trash2, UserRound } from "lucide-react";
+import { CheckCircle2, ChevronDown, ClipboardList, Clock3, FileDown, Info, Loader2, LockKeyhole, MoreHorizontal, Pencil, Scale, Trash2, UserRound } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -543,14 +543,19 @@ const OPERATION_GROUP: Partial<Record<OperationType, MovementGroup>> = {
   impurity_removal: "impurities",
 };
 
-const WEIGHBRIDGE_MODES: Array<{ type: OperationType; label: string }> = [
-  { type: "harvest_incoming", label: "Урожай с поля" },
-  { type: "supplier_receipt", label: "От контрагента" },
-  { type: "issue_to_field", label: "Выдача в поле" },
-  { type: "transfer_between_warehouses", label: "Перемещение" },
-  { type: "shipment_outbound", label: "Отгрузка" },
-  { type: "disposal_writeoff", label: "Списание" },
-  { type: "impurity_removal", label: "Примеси" },
+const WEIGHBRIDGE_MODES: Array<{
+  type: OperationType;
+  label: string;
+  description: string;
+  steps: [string, string, string];
+}> = [
+  { type: "harvest_incoming", label: "Урожай с поля", description: "Фактический рейс с поля на место приёмки", steps: ["Поле и культура", "Транспорт", "Брутто и тара"] },
+  { type: "supplier_receipt", label: "От контрагента", description: "Приёмка закупленного материала или продукции", steps: ["Поставщик", "Номенклатура", "Вес или количество"] },
+  { type: "issue_to_field", label: "Выдача в поле", description: "Материалы со склада на конкретную операцию", steps: ["Поле и операция", "Остаток", "Транспорт или выдача"] },
+  { type: "transfer_between_warehouses", label: "Перемещение", description: "Внутренний маршрут между объектами хранения", steps: ["Маршрут", "Партия", "Транспорт или количество"] },
+  { type: "shipment_outbound", label: "Отгрузка", description: "Выбытие продукции контрагенту", steps: ["Получатель", "Партия", "Транспорт и вес"] },
+  { type: "disposal_writeoff", label: "Списание", description: "Документированное выбытие со склада", steps: ["Источник", "Остаток", "Причина и количество"] },
+  { type: "impurity_removal", label: "Примеси", description: "Вывоз примесей из принятой партии урожая", steps: ["Склад", "Партия урожая", "Транспорт и вес"] },
 ];
 
 const movementGroupForOperation = (operationType: OperationType): MovementGroup =>
@@ -5255,7 +5260,8 @@ export default function WeighbridgeOperationsPage() {
   const formatMoisture = (value: number | null) => value == null
     ? "—"
     : `${value.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} %`;
-  const terminalPanelClass = "rounded-md border border-slate-800/80 bg-[#101724]/95 shadow-[0_12px_36px_rgba(2,6,23,0.22)]";
+  const activeWeighbridgeMode = WEIGHBRIDGE_MODES.find((mode) => mode.type === form.operationType) || WEIGHBRIDGE_MODES[0];
+  const terminalPanelClass = "rounded-xl border-0 bg-[#101724]/90 shadow-[0_18px_55px_rgba(2,6,23,0.22)]";
   const formSectionClass = "space-y-3 border-t border-slate-800/70 pt-4 first:border-t-0 first:pt-0";
   const ticketClosePending = ticketCloseState.phase === "closing" || ticketCloseState.phase === "reconciling";
   const ticketCloseRetry = ticketCloseState.phase === "retry" && ticketCloseState.ticketId === activeTicket?.id;
@@ -5291,81 +5297,100 @@ export default function WeighbridgeOperationsPage() {
       aria-hidden={operatorGateBlocked ? true : undefined}
       className={`mx-auto max-w-[1680px] space-y-2 px-2 pb-4 sm:px-3 ${operatorGateBlocked ? "pointer-events-none select-none blur-sm opacity-35" : ""}`}
     >
-      <div className="flex h-10 min-w-0 items-center gap-2">
-        <div
-          role="tablist"
-          aria-label="Режим весовой"
-          className="travkin-scrollbar flex h-10 min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden rounded-md border border-slate-800 bg-slate-950/70 p-1"
-        >
-          {WEIGHBRIDGE_MODES.map((mode) => {
-            const active = form.operationType === mode.type;
-            return (
-              <button
-                key={mode.type}
+      <header aria-label="Режим весовой" className="rounded-xl bg-[linear-gradient(135deg,rgba(30,41,59,0.92),rgba(15,23,36,0.92))] px-4 py-3 shadow-[0_18px_55px_rgba(2,6,23,0.2)]">
+        <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-yellow-300">
+              <Scale className="h-3.5 w-3.5" />Весовая
+            </div>
+            <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h1 className="text-xl font-bold tracking-tight text-slate-50">{activeWeighbridgeMode.label}</h1>
+              <p className="text-sm text-slate-400">{activeWeighbridgeMode.description}</p>
+            </div>
+            <ol className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400" aria-label="Этапы текущей операции">
+              {activeWeighbridgeMode.steps.map((step, index) => (
+                <li key={step} className="flex items-center gap-2">
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-[10px] font-bold text-slate-300">{index + 1}</span>
+                  <span>{step}</span>
+                  {index < activeWeighbridgeMode.steps.length - 1 ? <span className="text-slate-700" aria-hidden="true">→</span> : null}
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" disabled={!workspaceReady} className="h-9 border-slate-700 bg-slate-950/60 text-slate-100 hover:bg-slate-900">
+                  Сменить операцию<ChevronDown className="ml-2 h-4 w-4 text-slate-400" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-[min(22rem,calc(100vw-2rem))] border-slate-700 bg-slate-950 p-1 text-slate-100">
+                {WEIGHBRIDGE_MODES.map((mode) => {
+                  const active = mode.type === form.operationType;
+                  return (
+                    <DropdownMenuItem
+                      key={mode.type}
+                      className="items-start rounded-md px-3 py-2.5 focus:bg-slate-800"
+                      onSelect={() => void selectOperation(mode.type)}
+                    >
+                      <span className="min-w-0">
+                        <span className={active ? "block text-sm font-semibold text-yellow-300" : "block text-sm font-semibold text-slate-100"}>{mode.label}</span>
+                        <span className="mt-0.5 block text-xs leading-4 text-slate-500">{mode.description}</span>
+                      </span>
+                      {active ? <span className="ml-auto shrink-0 text-[10px] font-semibold uppercase text-yellow-300">Сейчас</span> : null}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {canUseOperatorSession ? (
+              <Button
                 type="button"
-                role="tab"
-                aria-selected={active}
-                aria-disabled={!workspaceReady}
-                disabled={!workspaceReady}
-                className={
-                  !workspaceReady
-                    ? "h-8 shrink-0 cursor-wait whitespace-nowrap rounded px-3 text-xs font-medium text-slate-500"
-                    : active
-                    ? "h-8 shrink-0 whitespace-nowrap rounded px-3 text-xs font-semibold text-slate-950 bg-yellow-400"
-                    : "h-8 shrink-0 whitespace-nowrap rounded px-3 text-xs font-medium text-slate-300 hover:bg-slate-900 hover:text-slate-50"
-                }
-                onClick={() => void selectOperation(mode.type)}
+                variant="outline"
+                className={operatorState.unlocked
+                  ? "h-9 max-w-[210px] shrink-0 border-emerald-500/35 bg-emerald-500/10 px-3 text-xs text-emerald-100"
+                  : "h-9 shrink-0 border-amber-500/35 bg-amber-500/10 px-3 text-xs text-amber-100"}
+                onClick={openShiftAction}
               >
-                {mode.label}
-              </button>
-            );
-          })}
+                {operatorState.unlocked ? <UserRound className="mr-1.5 h-3.5 w-3.5" /> : <LockKeyhole className="mr-1.5 h-3.5 w-3.5" />}
+                <span className="truncate">{operatorState.operator?.name || "Введите PIN"}</span>
+              </Button>
+            ) : null}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" className="h-9 w-9 border-slate-700 bg-slate-950/60 text-slate-100" aria-label="Дополнительные действия">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuItem onClick={() => setShiftDialogOpen(true)}>
+                  <Info className="mr-2 h-4 w-4" />Информация о смене
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => historyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+                  <Clock3 className="mr-2 h-4 w-4" />История талонов
+                </DropdownMenuItem>
+                {canUseInventory ? (
+                  <DropdownMenuItem asChild>
+                    <Link href="/warehouses/inventory"><ClipboardList className="mr-2 h-4 w-4" />Инвентаризация</Link>
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuSeparator />
+                {activeShift ? (
+                  <DropdownMenuItem onClick={() => setShiftDialogOpen(true)}>Закрыть смену</DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem onClick={openShiftAction}>Открыть смену</DropdownMenuItem>
+                )}
+                {operatorState.unlocked ? (
+                  <DropdownMenuItem onClick={() => void lockOperatorAction()}>
+                    <LockKeyhole className="mr-2 h-4 w-4" />Заблокировать терминал
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
-        {canUseOperatorSession ? (
-          <Button
-            type="button"
-            variant="outline"
-            className={operatorState.unlocked
-              ? "h-8 max-w-[210px] shrink-0 border-emerald-500/40 bg-emerald-500/10 px-2 text-xs text-emerald-100"
-              : "h-8 shrink-0 border-amber-500/40 bg-amber-500/10 px-2 text-xs text-amber-100"}
-            onClick={openShiftAction}
-          >
-            {operatorState.unlocked ? <UserRound className="mr-1 h-3.5 w-3.5" /> : <LockKeyhole className="mr-1 h-3.5 w-3.5" />}
-            <span className="truncate">{operatorState.operator?.name || "Введите PIN"}</span>
-          </Button>
-        ) : null}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="icon" className="h-8 w-8 border-slate-700 bg-slate-950 text-slate-100" aria-label="Дополнительные действия">
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64">
-            <DropdownMenuItem onClick={() => setShiftDialogOpen(true)}>
-              <Info className="mr-2 h-4 w-4" />Информация о смене
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => historyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-              <Clock3 className="mr-2 h-4 w-4" />История талонов
-            </DropdownMenuItem>
-            {canUseInventory ? (
-              <DropdownMenuItem asChild>
-                <Link href="/warehouses/inventory"><ClipboardList className="mr-2 h-4 w-4" />Инвентаризация</Link>
-              </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuSeparator />
-            {activeShift ? (
-              <DropdownMenuItem onClick={() => setShiftDialogOpen(true)}>Закрыть смену</DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem onClick={openShiftAction}>Открыть смену</DropdownMenuItem>
-            )}
-            {operatorState.unlocked ? (
-              <DropdownMenuItem onClick={() => void lockOperatorAction()}>
-                <LockKeyhole className="mr-2 h-4 w-4" />Заблокировать терминал
-              </DropdownMenuItem>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+      </header>
 
       <UniversalWorkspaceTabs
         tabs={workspaceTabs}
@@ -5378,8 +5403,13 @@ export default function WeighbridgeOperationsPage() {
       />
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <Card className={`${terminalPanelClass} overflow-hidden xl:col-start-1`}>
-          <CardHeader className="border-b border-slate-800/80 px-4 py-3">
+        <Card
+          id="weighbridge-workspace-panel"
+          role="tabpanel"
+          aria-labelledby={`weighbridge-workspace-tab-${selectedWorkspaceId}`}
+          className={`${terminalPanelClass} overflow-hidden xl:col-start-1`}
+        >
+          <CardHeader className="px-4 pb-2 pt-4">
             <CardTitle className="flex flex-col gap-3 text-base text-slate-50 md:flex-row md:items-center md:justify-between">
               <span className="flex items-center gap-2">
                 <Scale className="h-4 w-4 text-yellow-400" />
@@ -5391,7 +5421,7 @@ export default function WeighbridgeOperationsPage() {
               </span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 p-4">
+          <CardContent className="space-y-4 px-4 pb-4 pt-2">
             {coreResourceErrors.length > 0 ? (
               <div className="space-y-1 rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-100" role="status">
                 {coreResourceErrors.map((issue) => (
@@ -6055,7 +6085,7 @@ export default function WeighbridgeOperationsPage() {
 
         <aside className="space-y-3 xl:sticky xl:top-16 xl:col-start-2 xl:row-start-1 xl:self-start" aria-label="Открытые талоны и партии на объектах">
         <Card className={terminalPanelClass}>
-          <CardHeader className="border-b border-slate-800/80 px-4 py-3">
+          <CardHeader className="px-4 pb-2 pt-4">
             <CardTitle className="flex items-center justify-between gap-2 text-base text-slate-50">
               <span className="flex items-center gap-2">
                 <Clock3 className="h-4 w-4 text-yellow-400" />Открытые талоны
@@ -6063,7 +6093,7 @@ export default function WeighbridgeOperationsPage() {
               <Badge className="border border-slate-700 bg-slate-950 text-slate-200">{visibleActiveTickets.length}</Badge>
             </CardTitle>
           </CardHeader>
-          <CardContent className="max-h-[clamp(190px,36vh,420px)] space-y-2 overflow-y-auto px-3 py-3 travkin-scrollbar">
+          <CardContent className="max-h-[clamp(190px,36vh,420px)] space-y-2 overflow-y-auto px-3 pb-3 pt-1 travkin-scrollbar">
             {ticketCloseState.phase !== "idle" ? (
               <div
                 role="status"
@@ -6086,7 +6116,7 @@ export default function WeighbridgeOperationsPage() {
               </div>
             ) : null}
             {ticketsLoading ? <div className="text-sm text-slate-400">Загрузка очереди...</div> : visibleActiveTickets.length === 0 ? (
-              <div className="flex min-h-28 items-center justify-center rounded-md border border-dashed border-slate-800 px-3 text-center text-sm text-slate-500">
+              <div className="flex min-h-24 items-center justify-center rounded-md bg-slate-950/35 px-3 text-center text-sm text-slate-500">
                 {ticketClosePending ? "Других открытых талонов нет" : "Открытых талонов нет"}
               </div>
             ) : [...visibleActiveTickets].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()).map((t) => {
@@ -6169,7 +6199,7 @@ export default function WeighbridgeOperationsPage() {
           <span>Статистика</span>
           <span className="text-xs font-normal text-slate-500">Сегодня и текущее поле</span>
         </summary>
-        <div className="grid gap-4 border-t border-slate-800 px-4 py-3 lg:grid-cols-2">
+        <div className="grid gap-4 px-4 pb-4 pt-1 lg:grid-cols-2">
           <section aria-label="Сводка за сегодня">
             <div className="text-xs font-semibold uppercase text-slate-500">Сегодня</div>
             <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -6223,7 +6253,7 @@ export default function WeighbridgeOperationsPage() {
 
       <div ref={historyRef}>
         <Card className={terminalPanelClass}>
-          <CardHeader className="flex flex-col items-stretch justify-between gap-3 space-y-0 border-b border-slate-800/80 px-4 py-3 sm:flex-row sm:items-center">
+          <CardHeader className="flex flex-col items-stretch justify-between gap-3 space-y-0 px-4 pb-2 pt-4 sm:flex-row sm:items-center">
             <div>
               <CardTitle className="text-xl text-slate-50">Журнал талонов</CardTitle>
               <div className="mt-1 text-xs text-slate-500">Закрытые и аннулированные документы</div>
@@ -6237,9 +6267,9 @@ export default function WeighbridgeOperationsPage() {
               </Select>
             </div>
           </CardHeader>
-          <CardContent className="space-y-2 px-3 py-3 sm:px-4">
+          <CardContent className="space-y-2 px-3 pb-4 pt-1 sm:px-4">
             {ticketsLoading ? <div className="text-sm text-slate-400">Загрузка журнала...</div> : null}
-            {!ticketsLoading && historyTickets.length === 0 ? <div className="rounded-lg border border-dashed border-slate-800 p-6 text-center text-sm text-slate-500">Закрытых талонов пока нет</div> : null}
+            {!ticketsLoading && historyTickets.length === 0 ? <div className="rounded-lg bg-slate-950/35 p-6 text-center text-sm text-slate-500">Закрытых талонов пока нет</div> : null}
             {!ticketsLoading && historyTickets.map((t) => {
               const vehicleName = vehicles.find((v) => v.id === t.vehicle_id)?.name || "Транспорт";
               const driverName = driverNameForId(t.driver_id) || "Без водителя";

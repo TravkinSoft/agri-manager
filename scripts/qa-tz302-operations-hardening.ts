@@ -71,8 +71,9 @@ async function main() {
     assert.match(weighbridge, /CompactField/);
   });
 
-  await check("workspace tabs preserve one-row desktop layout and lightweight state", () => {
-    assert.match(workspaces, /xl:grid-cols-6/);
+  await check("workspace tabs preserve one-row scroll layout and lightweight state", () => {
+    assert.match(workspaces, /role="tablist"/);
+    assert.match(workspaces, /overflow-x-auto overflow-y-hidden/);
     assert.match(workspaces, /dirty/);
     assert.match(workspaces, /truncate/);
   });

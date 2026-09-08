@@ -99,14 +99,14 @@ check("recent choices are groups inside normal selects", () => {
   assert.doesNotMatch(page, /Недавние связки/);
 });
 
-check("vehicle fills only an empty driver", () => {
-  assert.match(transportSelects, /let nextDriverId = driverId;[\s\S]*if \(!nextDriverId\)/);
-  assert.match(transportSelects, /latestDriverByVehicle\[nextVehicleId\]/);
+check("vehicle resolves a compatible preferred driver", () => {
+  assert.match(transportSelects, /let nextDriverId = driverId;[\s\S]*if \(!nextDriverId \|\| nextVehicleId !== vehicleId\)/);
+  assert.match(transportSelects, /preferredDriverForVehicle/);
 });
 
 check("driver fills only an empty vehicle", () => {
   assert.match(transportSelects, /let nextVehicleId = vehicleId;[\s\S]*if \(!nextVehicleId\)/);
-  assert.match(transportSelects, /latestVehicleByDriver\[nextDriverId\]/);
+  assert.match(transportSelects, /preferredVehicleForDriver/);
 });
 
 check("manual vehicle override cannot be reverted by autofill", () => {
@@ -234,12 +234,11 @@ check("universal tabs are visible for the base form and additional forms", () =>
   assert.doesNotMatch(tabs, /const showTabs|if \(!showTabs\)/);
 });
 
-check("six tabs use a responsive grid without horizontal page overflow", () => {
-  assert.match(tabs, /grid-cols-2/);
-  assert.match(tabs, /md:grid-cols-3/);
-  assert.match(tabs, /xl:grid-cols-6/);
-  assert.match(tabs, /min-w-0/);
-  assert.doesNotMatch(tabs, /overflow-x-auto|overflow-x-scroll|whitespace-nowrap/);
+check("workspace tasks use one bounded horizontal rail", () => {
+  assert.match(tabs, /role="tablist"/);
+  assert.match(tabs, /overflow-x-auto overflow-y-hidden/);
+  assert.match(tabs, /shrink-0/);
+  assert.doesNotMatch(tabs, /grid-cols-2|md:grid-cols-3|xl:grid-cols-6/);
 });
 
 check("tab labels are exactly two truncated lines with tooltip", () => {

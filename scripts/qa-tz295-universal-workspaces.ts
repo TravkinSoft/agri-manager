@@ -135,12 +135,11 @@ check("only active workspace mounts the heavy form and shared cache stays 1x", (
   assert.match(page, /transportPickerRequestCache = new Map/);
 });
 
-check("six tabs stay in one row on desktop and wrap only below desktop", () => {
-  assert.match(tabs, /grid-cols-2/);
-  assert.match(tabs, /md:grid-cols-3/);
-  assert.match(tabs, /xl:grid-cols-6/);
-  assert.doesNotMatch(tabs, /min-\[1680px\]:grid-cols-6/);
-  assert.doesNotMatch(tabs, /overflow-x-auto|overflow-x-scroll|whitespace-nowrap/);
+check("workspace tasks stay in one responsive scroll rail", () => {
+  assert.match(tabs, /role="tablist"/);
+  assert.match(tabs, /overflow-x-auto overflow-y-hidden/);
+  assert.match(tabs, /min-w-\[11rem\]/);
+  assert.doesNotMatch(tabs, /grid-cols-2|md:grid-cols-3|xl:grid-cols-6/);
 });
 
 check("closing the last workspace creates a default harvest workspace", () => {
