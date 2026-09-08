@@ -198,6 +198,7 @@ export default function FieldDetailsPage() {
             .eq("field_id", fieldId)
             .eq("op_type", "harvest_incoming")
             .eq("is_finalized", true)
+            .eq("is_voided", false)
             .order("finalized_at", { ascending: false })
             .limit(500),
           supabase

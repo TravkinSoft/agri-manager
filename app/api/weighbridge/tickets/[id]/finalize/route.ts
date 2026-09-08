@@ -17,7 +17,7 @@ function correctionLotErrorResponse(message: string) {
 }
 
 function isCorrectionLotError(message: string) {
-  return /aggregate (harvest )?lot|batch identity|batch lineage|physical batch|line identity|warehouse-local batch|company stock/i.test(message);
+  return /harvest correction|aggregate (harvest )?lot|batch identity|batch lineage|physical batch|line identity|warehouse-local batch|company stock/i.test(message);
 }
 
 function transferStockErrorResponse(message: string) {
@@ -99,6 +99,63 @@ async function syncHarvestBatchMoisture(
   }
 }
 
+async function loadCommittedCorrectionTicket(
+  supabase: SupabaseClient,
+  companyId: string,
+  ticketId: string,
+  fallbackTicket: Record<string, any>
+) {
+  let ticket: Record<string, any> = {
+    ...fallbackTicket,
+    is_finalized: true,
+    status: "finalized",
+  };
+  let refreshRequired = false;
+  let traceId: string | null = null;
+
+  try {
+    const { data: canonicalTicket, error: canonicalTicketError } = await supabase
+      .from("tickets")
+      .select("*, lines:ticket_lines(*)")
+      .eq("id", ticketId)
+      .eq("company_id", companyId)
+      .maybeSingle();
+    if (canonicalTicketError || !canonicalTicket?.id) {
+      throw canonicalTicketError || new Error("Finalized correction ticket was not returned");
+    }
+    ticket = canonicalTicket as Record<string, any>;
+  } catch (error) {
+    traceId = randomUUID();
+    refreshRequired = true;
+    console.error("weighbridge_correction_committed_reload_failed", {
+      traceId,
+      ticketId,
+      companyId,
+      message: error instanceof Error ? error.message : "Unknown finalized-ticket reload error",
+    });
+  }
+
+  if (!refreshRequired) {
+    try {
+      const [attributedTicket] = await enrichTicketOperatorAttribution(
+        supabase,
+        companyId,
+        [ticket]
+      );
+      ticket = (attributedTicket || ticket) as Record<string, any>;
+    } catch (error) {
+      console.error("weighbridge_correction_committed_attribution_failed", {
+        traceId: randomUUID(),
+        ticketId,
+        companyId,
+        message: error instanceof Error ? error.message : "Unknown attribution error",
+      });
+    }
+  }
+
+  return { ticket, refreshRequired, traceId };
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -130,6 +187,7 @@ export async function POST(
     if (ticketBeforeError || !ticketBefore?.id) {
       return NextResponse.json({ error: ticketBeforeError?.message || "Ticket not found" }, { status: 404 });
     }
+    const isCorrectionFinalize = Boolean(ticketBefore.correction_of_ticket_id);
     const operatorSession = ticketBefore.weigh_method === "manual_override_with_reason"
       ? null
       : await requireWeighbridgeOperatorSession(request, { companyId, supabase });
@@ -269,6 +327,24 @@ export async function POST(
 
     let harvestClosureState: Awaited<ReturnType<typeof loadHarvestClosureState>> | null = null;
     if (ticketBefore.is_finalized || ticketBefore.status === "finalized") {
+      if (isCorrectionFinalize) {
+        const committed = await loadCommittedCorrectionTicket(
+          supabase,
+          companyId,
+          id,
+          ticketBefore as Record<string, any>
+        );
+        timing.validationMs = Date.now() - dbStartedAt;
+        timing.totalMs = Date.now() - startedAt;
+        return NextResponse.json({
+          ticket: committed.ticket,
+          committed: true,
+          idempotent_replay: true,
+          refresh_required: committed.refreshRequired,
+          ...(committed.traceId ? { trace_id: committed.traceId } : {}),
+          debug: timing,
+        });
+      }
       if (ticketBefore.op_type === "harvest_incoming") {
         harvestClosureState = await loadHarvestClosureState(supabase, companyId, id);
         await syncHarvestBatchMoisture(supabase, companyId, id, harvestClosureState.lines as any);
@@ -293,12 +369,12 @@ export async function POST(
     timing.validationMs = Date.now() - dbStartedAt;
 
     const rpcStartedAt = Date.now();
-    const finalizeRpc = ticketBefore.correction_of_ticket_id
+    const finalizeRpc = isCorrectionFinalize
       ? "finalize_weighbridge_ticket_correction_v1"
       : ticketBefore.op_type === "weighbridge_impurities"
         ? "finalize_weighbridge_impurity_ticket_for_session_v1"
         : "finalize_weighbridge_ticket_for_session_v1";
-    const finalizeArgs = ticketBefore.correction_of_ticket_id
+    const finalizeArgs = isCorrectionFinalize
       ? {
           p_ticket_id: id,
           p_operator_person_id: operatorSession?.operator.id || null,
@@ -309,12 +385,56 @@ export async function POST(
     timing.rpcMs = Date.now() - rpcStartedAt;
 
     if (finalizeError) {
-      if (ticketBefore.correction_of_ticket_id && isCorrectionLotError(finalizeError.message)) {
+      if (isCorrectionFinalize && isCorrectionLotError(finalizeError.message)) {
         return correctionLotErrorResponse(finalizeError.message);
       }
       return NextResponse.json({ error: weighbridgeUserError(finalizeError.message) }, { status: 400 });
     }
     const dbAfterRpcStartedAt = Date.now();
+
+    // The correction RPC commits the document and every accounting object in
+    // one database transaction. From this point a display/activity failure
+    // must never be reported to the operator as a failed correction and must
+    // never run the legacy vehicle/request trailing writes.
+    if (isCorrectionFinalize) {
+      const committed = await loadCommittedCorrectionTicket(
+        supabase,
+        companyId,
+        id,
+        ticketBefore as Record<string, any>
+      );
+      if (operatorSession) {
+        try {
+          await recordWeighbridgeOperatorActivity(
+            request,
+            { companyId, supabase },
+            "tare_finalize"
+          );
+        } catch (error) {
+          console.error("weighbridge_correction_committed_activity_failed", {
+            traceId: randomUUID(),
+            ticketId: id,
+            companyId,
+            message: error instanceof Error ? error.message : "Unknown activity error",
+          });
+        }
+      }
+      timing.dbMs = Date.now() - dbAfterRpcStartedAt;
+      timing.totalMs = Date.now() - startedAt;
+      const response = NextResponse.json({
+        ticket: committed.ticket,
+        committed: true,
+        idempotent_replay: false,
+        refresh_required: committed.refreshRequired,
+        ...(committed.traceId ? { trace_id: committed.traceId } : {}),
+        debug: timing,
+      });
+      response.headers.set(
+        "Server-Timing",
+        `auth;dur=${timing.authMs}, validation;dur=${timing.validationMs}, finalize_rpc;dur=${timing.rpcMs}, db;dur=${timing.dbMs}, total;dur=${timing.totalMs}`
+      );
+      return response;
+    }
     try {
       await Promise.all([
         operatorSession?.operator.id

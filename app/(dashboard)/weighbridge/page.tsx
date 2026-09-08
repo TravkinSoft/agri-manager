@@ -93,6 +93,13 @@ type SecondaryCatalogStatus = {
   error: string;
 };
 
+type HistoryAdminVoidTarget = Readonly<{
+  id: string;
+  ticketNumber: string;
+  vehicleDisplay: string;
+  netWeightKg: number | null;
+}>;
+
 const notifyWeighbridgeDataChanged = () => {
   window.dispatchEvent(new Event("travkin:weighbridge-data-changed"));
 };
@@ -1039,6 +1046,9 @@ export default function WeighbridgeOperationsPage() {
   const [ticketCorrectionOpen, setTicketCorrectionOpen] = useState(false);
   const [ticketCorrectionReason, setTicketCorrectionReason] = useState("");
   const [ticketCorrectionBusy, setTicketCorrectionBusy] = useState(false);
+  const [historyAdminVoidTarget, setHistoryAdminVoidTarget] = useState<HistoryAdminVoidTarget | null>(null);
+  const [historyAdminVoidReason, setHistoryAdminVoidReason] = useState("");
+  const [historyAdminVoiding, setHistoryAdminVoiding] = useState(false);
   const notificationDeepLinkHandledRef = useRef(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmBusy, setConfirmBusy] = useState(false);
@@ -1097,6 +1107,7 @@ export default function WeighbridgeOperationsPage() {
   const canView = canOperate || profile?.role === "agronomist" || profile?.role === "specialist";
   const canVoid = profile?.role === "company_admin" || profile?.role === "global_admin" || profile?.role === "director";
   const canCorrectTicket = profile?.role === "company_admin" || profile?.role === "global_admin" || profile?.role === "director" || profile?.role === "weighman";
+  const canAdminVoidHistoryTicket = profile?.role === "global_admin";
   const canUseInventory = ["company_admin", "global_admin", "warehouse", "warehouse_operator", "weighman"].includes(String(profile?.role || ""));
   const canUseOperatorSession = ["company_admin", "global_admin", "director", "weighman"].includes(String(profile?.role || ""));
   const eligibleOperators = useMemo(
@@ -4802,6 +4813,45 @@ export default function WeighbridgeOperationsPage() {
     }
   };
 
+  const handleHistoryAdminVoid = async () => {
+    const target = historyAdminVoidTarget;
+    const reason = historyAdminVoidReason.trim();
+    if (
+      !target ||
+      !profile?.id ||
+      profile.role !== "global_admin" ||
+      historyAdminVoiding
+    ) return;
+    if (!reason) {
+      toast({ title: "Укажите причину", description: "Без причины аннулирование недоступно.", variant: "destructive" });
+      return;
+    }
+
+    setHistoryAdminVoiding(true);
+    try {
+      await adminTicketAction(target.id, profile.id, "void", reason);
+      notifyWeighbridgeDataChanged();
+      setHistoryAdminVoidTarget(null);
+      setHistoryAdminVoidReason("");
+      setHistoryPreviewTicket(null);
+      toast({ title: "Талон аннулирован", description: "Отмена проведена через storno; документ сохранён в истории." });
+      await refreshLiveData({
+        source: "local",
+        tables: ["tickets", "ticket_lines", "inventory_batches", "stock_ledger_entries"],
+      }).catch(() => {
+        toast({ title: "Талон аннулирован", description: "Журнал обновится автоматически при следующей синхронизации." });
+      });
+    } catch (error: any) {
+      toast({
+        title: "Не удалось аннулировать талон",
+        description: error?.message || "Повторите попытку",
+        variant: "destructive",
+      });
+    } finally {
+      setHistoryAdminVoiding(false);
+    }
+  };
+
   const handleAdminCleanup = async (action: "void" | "archive" | "force_close") => {
     if (!activeTicket || !profile?.id || !canVoid) return;
     const titleMap: Record<string, string> = {
@@ -5071,6 +5121,25 @@ export default function WeighbridgeOperationsPage() {
       driver: driverNameForId(ticket.driver_id) || ticket.driver_name_snapshot,
       combineOperator: combineOperatorNameForTicket(ticket),
     };
+  };
+  const openHistoryAdminVoidDialog = (ticket: WeighbridgeTicket) => {
+    if (!canAdminVoidHistoryTicket || ticket.status !== "finalized") return;
+    const catalogVehicle = vehicles.find((vehicle) => vehicle.id === ticket.vehicle_id);
+    const snapshotVehicle = resolveTransportIdentity({
+      name: ticket.vehicle_name_snapshot,
+      plate: ticket.vehicle_plate_snapshot,
+    });
+    const vehicleName = catalogVehicle?.name || snapshotVehicle.name || "Транспорт не указан";
+    const vehiclePlate = catalogVehicle?.plate || snapshotVehicle.plate;
+    const rawNetWeightKg = ticket.net_weight_kg == null ? Number.NaN : Number(ticket.net_weight_kg);
+    const target: HistoryAdminVoidTarget = Object.freeze({
+      id: String(ticket.id),
+      ticketNumber: String(ticket.ticket_no || "Без номера"),
+      vehicleDisplay: vehiclePlate ? `${vehicleName} · ${vehiclePlate}` : vehicleName,
+      netWeightKg: Number.isFinite(rawNetWeightKg) ? rawNetWeightKg : null,
+    });
+    setHistoryAdminVoidReason("");
+    setHistoryAdminVoidTarget(target);
   };
   const from = activeTicket ? (activeTicket.direction === "incoming" ? fields.find((f) => f.id === activeTicket.field_id)?.name : warehouses.find((w) => w.id === activeTicket.warehouse_from_id)?.name) || "-" : "-";
   const to = activeTicket ? (activeTicket.direction === "incoming" ? warehouses.find((w) => w.id === activeTicket.warehouse_to_id)?.name : activeTicket.direction === "outgoing" ? fields.find((f) => f.id === activeTicket.field_id)?.name : warehouses.find((w) => w.id === activeTicket.warehouse_to_id)?.name) || "-" : "-";
@@ -6188,7 +6257,16 @@ export default function WeighbridgeOperationsPage() {
                 <SheetDescription>{operationUiLabel(historyPreviewTicket.op_type)}</SheetDescription>
               </SheetHeader>
               <WeighbridgeTicketPaper ticket={historyPreviewTicket} labels={ticketPaperLabels(historyPreviewTicket)} />
-              <div className="flex items-center justify-end gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {historyPreviewTicket.status === "finalized" && canAdminVoidHistoryTicket ? (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={() => openHistoryAdminVoidDialog(historyPreviewTicket)}
+                  >
+                    <Trash2 className="mr-1 h-4 w-4" />Аннулировать
+                  </Button>
+                ) : null}
                 {historyPreviewTicket.status === "finalized" && canCorrectTicket ? (
                   <Button variant="outline" onClick={() => { setTicketCorrectionReason(""); setTicketCorrectionOpen(true); }}>
                     <Pencil className="mr-1 h-4 w-4" />Исправить талон
@@ -6201,6 +6279,73 @@ export default function WeighbridgeOperationsPage() {
           ) : null}
         </SheetContent>
       </Sheet>
+      <Dialog
+        open={Boolean(historyAdminVoidTarget)}
+        onOpenChange={(open) => {
+          if (historyAdminVoiding) return;
+          if (!open) {
+            setHistoryAdminVoidTarget(null);
+            setHistoryAdminVoidReason("");
+          }
+        }}
+      >
+        <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Аннулировать завершённый талон</DialogTitle>
+            <DialogDescription>
+              Укажите причину. Система проведёт storno, а сам талон и история действий останутся в журнале.
+            </DialogDescription>
+          </DialogHeader>
+          {historyAdminVoidTarget ? (
+            <dl className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-sm">
+              <div className="grid grid-cols-[76px_minmax(0,1fr)] gap-3">
+                <dt className="text-slate-400">Талон</dt>
+                <dd className="break-words font-semibold text-slate-100">{historyAdminVoidTarget.ticketNumber}</dd>
+              </div>
+              <div className="grid grid-cols-[76px_minmax(0,1fr)] gap-3">
+                <dt className="text-slate-400">Транспорт</dt>
+                <dd className="break-words font-semibold text-slate-100">{historyAdminVoidTarget.vehicleDisplay}</dd>
+              </div>
+              <div className="grid grid-cols-[76px_minmax(0,1fr)] gap-3">
+                <dt className="text-slate-400">Нетто</dt>
+                <dd className="font-semibold text-slate-100">{formatWeightKg(historyAdminVoidTarget.netWeightKg)}</dd>
+              </div>
+            </dl>
+          ) : null}
+          <div className="space-y-2">
+            <Label htmlFor="history-admin-void-reason">Причина аннулирования</Label>
+            <Textarea
+              id="history-admin-void-reason"
+              value={historyAdminVoidReason}
+              onChange={(event) => setHistoryAdminVoidReason(event.target.value)}
+              rows={3}
+              placeholder="Например: талон внесён повторно"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={historyAdminVoiding}
+              onClick={() => {
+                setHistoryAdminVoidTarget(null);
+                setHistoryAdminVoidReason("");
+              }}
+            >
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={historyAdminVoiding || !historyAdminVoidReason.trim()}
+              onClick={handleHistoryAdminVoid}
+            >
+              {historyAdminVoiding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              {historyAdminVoiding ? "Аннулирование..." : "Аннулировать через storno"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={openTicketEditOpen} onOpenChange={(open) => { if (!ticketCorrectionBusy) setOpenTicketEditOpen(open); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
