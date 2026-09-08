@@ -939,7 +939,7 @@ export default function WeighbridgeOperationsPage() {
   const [historyHasMore, setHistoryHasMore] = useState(false);
 	  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
 	  const [harvestBatches, setHarvestBatches] = useState<HarvestBatchSummary[]>([]);
-	  const [harvestBatchOptionsStatus, setHarvestBatchOptionsStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+	  const [harvestBatchOptionsStatus, setHarvestBatchOptionsStatus] = useState<"idle" | "loading" | "refreshing" | "ready" | "stale" | "error">("idle");
 	  const [harvestBatchOptionsError, setHarvestBatchOptionsError] = useState("");
 	  const [harvestBatchDetailLoading, setHarvestBatchDetailLoading] = useState(false);
 	  const [harvestBatchDetailError, setHarvestBatchDetailError] = useState("");
@@ -1070,6 +1070,7 @@ export default function WeighbridgeOperationsPage() {
 	  const harvestBatchesRequestKeyRef = useRef("");
 	  const harvestBatchesReadyRef = useRef("");
 	  const harvestBatchesGenerationRef = useRef(0);
+	  const harvestBatchesCacheRef = useRef(new Map<string, HarvestBatchSummary[]>());
   const bootstrapRequestRef = useRef<Promise<void> | null>(null);
   const bootstrapSummaryRequestRef = useRef<Promise<void> | null>(null);
   const operatorRequestRef = useRef<Promise<WeighbridgeOperatorState | undefined> | null>(null);
@@ -1618,8 +1619,9 @@ export default function WeighbridgeOperationsPage() {
 	    harvestBatchesAbortRef.current = controller;
 	    harvestBatchesRequestKeyRef.current = requestKey;
 	    harvestBatchesReadyRef.current = "";
-	    setHarvestBatches([]);
-	    setHarvestBatchOptionsStatus("loading");
+	    const retainedRows = harvestBatchesCacheRef.current.get(requestKey) || [];
+	    setHarvestBatches(retainedRows);
+	    setHarvestBatchOptionsStatus(retainedRows.length ? "refreshing" : "loading");
 	    setHarvestBatchOptionsError("");
 
 	    const request = (async () => {
@@ -1631,14 +1633,16 @@ export default function WeighbridgeOperationsPage() {
 	          signal: controller.signal,
 	        });
 	        if (controller.signal.aborted || generation !== harvestBatchesGenerationRef.current) return;
+	        harvestBatchesCacheRef.current.set(requestKey, rows);
 	        setHarvestBatches(rows);
 	        harvestBatchesReadyRef.current = requestKey;
 	        setHarvestBatchOptionsStatus("ready");
 	      } catch (error: any) {
 	        if ((controller.signal.aborted || error?.name === "AbortError") && !requestTimedOut) return;
 	        harvestBatchesReadyRef.current = "";
-	        setHarvestBatches([]);
-	        setHarvestBatchOptionsStatus("error");
+	        const fallbackRows = harvestBatchesCacheRef.current.get(requestKey) || [];
+	        setHarvestBatches(fallbackRows);
+	        setHarvestBatchOptionsStatus(fallbackRows.length ? "stale" : "error");
 	        setHarvestBatchOptionsError(requestTimedOut
 	          ? "Склад отвечает слишком долго. Нажмите «Повторить»."
 	          : "Не удалось загрузить партии урожая. Нажмите «Повторить»."
@@ -1666,8 +1670,10 @@ export default function WeighbridgeOperationsPage() {
     harvestBatchesRequestRef.current = null;
     harvestBatchesRequestKeyRef.current = "";
     harvestBatchesReadyRef.current = "";
-    setHarvestBatches([]);
-    setHarvestBatchOptionsStatus(warehouseFromId ? "loading" : "idle");
+    const requestKey = profile?.company_id && warehouseFromId ? `${profile.company_id}:${warehouseFromId}` : "";
+    const retainedRows = requestKey ? harvestBatchesCacheRef.current.get(requestKey) || [] : [];
+    setHarvestBatches(retainedRows);
+    setHarvestBatchOptionsStatus(warehouseFromId ? (retainedRows.length ? "refreshing" : "loading") : "idle");
     setHarvestBatchOptionsError("");
     setHarvestBatchDetailLoading(false);
     setHarvestBatchDetailError("");
@@ -2024,6 +2030,7 @@ export default function WeighbridgeOperationsPage() {
 	    harvestBatchesRequestRef.current = null;
 	    harvestBatchesRequestKeyRef.current = "";
 	    harvestBatchesReadyRef.current = "";
+	    harvestBatchesCacheRef.current.clear();
 	    setHarvestBatches([]);
 	    setHarvestBatchOptionsStatus("idle");
 	    setHarvestBatchOptionsError("");
@@ -4044,6 +4051,11 @@ export default function WeighbridgeOperationsPage() {
       if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
     } else if (form.operationType === "impurity_removal") {
       if (!form.warehouseFromId) return "Выберите склад";
+	  if (harvestBatchOptionsStatus !== "ready") {
+	    return harvestBatchOptionsStatus === "stale"
+	      ? "Повторите обновление партий: сохранённый список устарел"
+	      : "Дождитесь актуальных остатков партий";
+	  }
       if (!form.sourceBatchId || !selectedHarvestBatch) return "Выберите партию урожая";
       if (selectedHarvestBatch.warehouseId !== form.warehouseFromId) return "Партия не принадлежит выбранному складу";
       if (selectedHarvestBatch.detailLevel !== "full") {
@@ -5492,9 +5504,9 @@ export default function WeighbridgeOperationsPage() {
 	            {isImpurityRemoval ? (
 	              <div className={formSectionClass}>
 	                <div className="space-y-3">
-	                  <div className="space-y-1.5">
+	                  <div className="min-h-[7.75rem] space-y-1.5">
 	                    <Label>Партия урожая *</Label>
-	                    <Select value={form.sourceBatchId} onValueChange={(v) => setForm((p) => ({ ...p, sourceBatchId: v }))} disabled={!form.warehouseFromId || harvestBatchOptionsStatus === "loading"}>
+	                    <Select value={form.sourceBatchId} onValueChange={(v) => setForm((p) => ({ ...p, sourceBatchId: v }))} disabled={!form.warehouseFromId || harvestBatchOptionsStatus === "loading" || harvestBatchOptionsStatus === "error"}>
 	                      <SelectTrigger className="h-11"><SelectValue placeholder={!form.warehouseFromId ? "Сначала выберите склад" : harvestBatchOptionsStatus === "loading" ? "Загружаем партии..." : "Выберите партию урожая"} /></SelectTrigger>
 	                      <SelectContent>
 	                        {harvestBatchOptionsStatus === "loading" || harvestBatchOptionsStatus === "idle" ? <SelectItem value="__loading" disabled>Загружаем партии урожая...</SelectItem> : null}
@@ -5504,13 +5516,19 @@ export default function WeighbridgeOperationsPage() {
                           <SelectItem key={`${batch.id}:${batch.warehouseId}`} value={batch.id}>
                             {buildHarvestLotOptionLabel(batch)}
                           </SelectItem>
-                        ))}
+	                        ))}
 	                      </SelectContent>
 	                    </Select>
-	                    {form.warehouseFromId && harvestBatchOptionsStatus === "loading" ? (
-	                      <p className="text-xs text-slate-400">Читаем актуальные остатки партий этого склада...</p>
-	                    ) : null}
-	                    {form.warehouseFromId && harvestBatchOptionsStatus === "error" ? (
+	                    <div className="min-h-5 text-xs text-slate-400" aria-live="polite">
+	                      {form.warehouseFromId && harvestBatchOptionsStatus === "loading"
+	                        ? "Читаем актуальные остатки партий этого склада..."
+	                        : form.warehouseFromId && harvestBatchOptionsStatus === "refreshing"
+	                          ? "Обновляем остатки; последний подтверждённый список остаётся доступен."
+	                          : form.warehouseFromId && harvestBatchOptionsStatus === "stale"
+	                            ? "Показан последний подтверждённый список. Перед созданием талона повторите обновление."
+	                            : null}
+	                    </div>
+	                    {form.warehouseFromId && (harvestBatchOptionsStatus === "error" || harvestBatchOptionsStatus === "stale") ? (
 	                      <div className="flex flex-wrap items-center gap-2 rounded-md border border-red-500/50 bg-red-950/25 p-2 text-xs text-red-200">
 	                        <span className="min-w-0 flex-1">{harvestBatchOptionsError}</span>
 	                        <Button
