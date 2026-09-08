@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { KeyRound, ShieldOff } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
@@ -51,6 +51,7 @@ import type {
   GlobalMachineModel,
   GlobalTransportModel,
 } from "@/lib/types/references";
+import { referenceMatchesSmartSearch } from "@/lib/references/smart-search";
 import {
   disableWeighbridgeOperatorAccess,
   getWeighbridgeOperatorAccess,
@@ -60,7 +61,15 @@ import {
 
 type DomainTab = "agronomy" | "agrochemistry" | "machine-yard" | "personnel";
 type MachineYardTab = "park" | "catalog";
+type MachineYardCategory = "all" | "machines" | "equipment" | "vehicles";
 type ModalType = "machine" | "equipment" | "vehicle" | "worker";
+
+const machineYardCategoryOptions: Array<{ value: MachineYardCategory; label: string }> = [
+  { value: "all", label: "Все" },
+  { value: "machines", label: "Машины" },
+  { value: "equipment", label: "Оборудование" },
+  { value: "vehicles", label: "Транспорт" },
+];
 
 const pesticideCategoryLabels: Record<string, string> = {
   herbicide: "Гербицид",
@@ -318,6 +327,7 @@ export default function ReferencesPage() {
 
   const [domainTab, setDomainTab] = useState<DomainTab>("agronomy");
   const [machineYardTab, setMachineYardTab] = useState<MachineYardTab>("park");
+  const [machineYardCategory, setMachineYardCategory] = useState<MachineYardCategory>("all");
   const [modalType, setModalType] = useState<ModalType | null>(null);
   const [editingMachineId, setEditingMachineId] = useState<string | null>(null);
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
@@ -331,6 +341,7 @@ export default function ReferencesPage() {
   const [workerPinConfirm, setWorkerPinConfirm] = useState("");
 
   const [modelSearch, setModelSearch] = useState("");
+  const [machineYardSearch, setMachineYardSearch] = useState("");
   const [workerSearch, setWorkerSearch] = useState("");
   const [workerRoleFilter, setWorkerRoleFilter] = useState("all");
   const [workerStatusFilter, setWorkerStatusFilter] = useState("active");
@@ -352,6 +363,76 @@ export default function ReferencesPage() {
   const canAssignVehicleDriver = ["global_admin", "company_admin", "agronomist", "weighman"].includes(profile?.role || "");
 
   const companyMaterials = useMemo(() => [...pesticides, ...fertilizers, ...additives], [pesticides, fertilizers, additives]);
+  const deferredMachineYardSearch = useDeferredValue(machineYardSearch);
+  const filteredMachines = useMemo(() => machines.filter((row) => referenceMatchesSmartSearch([
+    row.display_name,
+    row.full_name,
+    row.name,
+    row.display_type,
+    row.type,
+    row.category,
+    row.machinery_type,
+    assetBrand(row),
+    assetModel(row),
+    assetIdentifier(row),
+    row.plate_number,
+    row.license_plate,
+    row.vin,
+    currentDriverName(row),
+  ], deferredMachineYardSearch)), [deferredMachineYardSearch, machines]);
+  const filteredEquipment = useMemo(() => equipment.filter((row) => referenceMatchesSmartSearch([
+    row.display_name,
+    row.full_name,
+    row.name,
+    row.display_type,
+    row.type,
+    row.category,
+    row.equipment_category,
+    assetBrand(row),
+    assetModel(row),
+    assetIdentifier(row),
+    row.inventory_number,
+    row.vin,
+  ], deferredMachineYardSearch)), [deferredMachineYardSearch, equipment]);
+  const filteredVehicles = useMemo(() => vehicles.filter((row) => referenceMatchesSmartSearch([
+    row.display_name,
+    row.full_name,
+    row.name,
+    row.display_type,
+    row.type,
+    row.category,
+    assetBrand(row),
+    assetModel(row),
+    assetIdentifier(row),
+    row.plate_number,
+    row.license_plate,
+    row.inventory_number,
+    row.vin,
+    currentDriverName(row),
+  ], deferredMachineYardSearch)), [deferredMachineYardSearch, vehicles]);
+  const filteredMachineModels = useMemo(() => machineModels.filter((row) => referenceMatchesSmartSearch([
+    catalogModelLabel(row), row.brand, row.model, row.series, row.category,
+  ], deferredMachineYardSearch)), [deferredMachineYardSearch, machineModels]);
+  const filteredEquipmentModels = useMemo(() => equipmentModels.filter((row) => referenceMatchesSmartSearch([
+    catalogModelLabel(row), row.brand, row.model, row.series, row.category, row.equipment_type,
+  ], deferredMachineYardSearch)), [deferredMachineYardSearch, equipmentModels]);
+  const filteredTransportModels = useMemo(() => transportModels.filter((row) => referenceMatchesSmartSearch([
+    catalogModelLabel(row), row.brand, row.model, row.series, row.category,
+  ], deferredMachineYardSearch)), [deferredMachineYardSearch, transportModels]);
+  const machineYardCategoryCounts: Record<MachineYardCategory, number> = machineYardTab === "park"
+    ? {
+        all: filteredMachines.length + filteredEquipment.length + filteredVehicles.length,
+        machines: filteredMachines.length,
+        equipment: filteredEquipment.length,
+        vehicles: filteredVehicles.length,
+      }
+    : {
+        all: filteredMachineModels.length + filteredEquipmentModels.length + filteredTransportModels.length,
+        machines: filteredMachineModels.length,
+        equipment: filteredEquipmentModels.length,
+        vehicles: filteredTransportModels.length,
+      };
+  const machineYardResultCount = machineYardCategoryCounts[machineYardCategory];
   const filteredAssetModels = useMemo(() => {
     const query = modelSearch.trim().toLocaleLowerCase("ru");
     const rows = modalType === "machine"
@@ -382,20 +463,24 @@ export default function ReferencesPage() {
     if (!canManageCompanyReferences) return null;
     if (domainTab === "personnel") return { label: "Добавить сотрудника", modal: "worker" as const };
     return null;
-  }, [canManageCompanyReferences, domainTab, machineYardTab]);
+  }, [canManageCompanyReferences, domainTab]);
 
   useEffect(() => {
     const requestedDomain = searchParams.get("domain");
     const requestedTab = searchParams.get("tab");
+    const requestedCategory = searchParams.get("category");
     if (["agronomy", "agrochemistry", "machine-yard", "personnel"].includes(String(requestedDomain))) {
       setDomainTab(requestedDomain as DomainTab);
     }
     if (requestedTab === "park" || requestedTab === "catalog") {
       setMachineYardTab(requestedTab);
     }
+    if (["all", "machines", "equipment", "vehicles"].includes(String(requestedCategory))) {
+      setMachineYardCategory(requestedCategory as MachineYardCategory);
+    }
   }, [searchParams]);
 
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     if (!profile?.company_id) {
       setLoading(false);
       return;
@@ -434,11 +519,11 @@ export default function ReferencesPage() {
     } finally {
       if (companyId === assignmentCompany.current && revision === loadRevision.current) setLoading(false);
     }
-  };
+  }, [profile?.company_id]);
 
   useEffect(() => {
     void loadAll();
-  }, [profile?.company_id]);
+  }, [loadAll]);
 
   useEffect(() => {
     const companyId = profile?.company_id;
@@ -910,14 +995,65 @@ export default function ReferencesPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="machine-yard">
+        <TabsContent value="machine-yard" className="space-y-4">
           <Tabs value={machineYardTab} onValueChange={(value) => setMachineYardTab(value as MachineYardTab)}>
-            <TabsList>
-              <TabsTrigger value="park"><TabLabel label="Парк компании" count={countText(machines.length + equipment.length + vehicles.length)} /></TabsTrigger>
-              <TabsTrigger value="catalog"><TabLabel label="Каталог техники" count={countText(machineModels.length + equipmentModels.length + transportModels.length)} /></TabsTrigger>
-            </TabsList>
+            <div className="space-y-3 rounded-lg border border-slate-800/80 bg-slate-950/30 p-3">
+              <TabsList aria-label="Раздел машин и техники" className="w-full justify-start overflow-auto sm:w-auto">
+                <TabsTrigger value="park"><TabLabel label="Парк компании" count={countText(machines.length + equipment.length + vehicles.length)} /></TabsTrigger>
+                <TabsTrigger value="catalog"><TabLabel label="Каталог техники" count={countText(machineModels.length + equipmentModels.length + transportModels.length)} /></TabsTrigger>
+              </TabsList>
+
+              <div className="grid gap-2 lg:grid-cols-[minmax(260px,1fr)_auto] lg:items-end">
+                <div className="space-y-1.5">
+                  <Label htmlFor="machine-yard-search">Поиск по машинам и технике</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="machine-yard-search"
+                      type="search"
+                      value={machineYardSearch}
+                      onChange={(event) => setMachineYardSearch(event.target.value)}
+                      placeholder="Название, бренд, модель, категория, номер, VIN или водитель"
+                      autoComplete="off"
+                    />
+                    {machineYardSearch ? (
+                      <Button type="button" variant="outline" onClick={() => setMachineYardSearch("")}>
+                        Очистить
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+
+                <nav aria-label="Категории машин и техники" className="flex flex-wrap gap-2" data-reference-category-nav>
+                  {machineYardCategoryOptions.map((option) => (
+                    <Button
+                      key={option.value}
+                      type="button"
+                      size="sm"
+                      variant={machineYardCategory === option.value ? "default" : "outline"}
+                      aria-pressed={machineYardCategory === option.value}
+                      onClick={() => setMachineYardCategory(option.value)}
+                    >
+                      <TabLabel label={option.label} count={countText(machineYardCategoryCounts[option.value])} />
+                    </Button>
+                  ))}
+                </nav>
+              </div>
+
+              <p
+                className="text-xs text-slate-500"
+                role="status"
+                aria-live="polite"
+                aria-busy={machineYardSearch !== deferredMachineYardSearch}
+              >
+                {loading
+                  ? "Загрузка справочников..."
+                  : machineYardSearch
+                    ? `Найдено: ${machineYardResultCount}. Поиск понимает кириллицу, латиницу, номер и VIN без пробелов.`
+                    : "Поиск работает по названию, бренду, модели, категории, номеру, VIN и назначенному водителю."}
+              </p>
+            </div>
             <TabsContent value="park" className="space-y-4">
-              <Card>
+              {machineYardCategory === "all" || machineYardCategory === "machines" ? <Card>
                 <CardHeader className="flex flex-row items-center justify-between gap-3">
                   <CardTitle>Техника компании</CardTitle>
                   {canManageCompanyReferences ? <Button size="sm" onClick={() => openModal("machine")}>Добавить</Button> : null}
@@ -934,7 +1070,7 @@ export default function ReferencesPage() {
                       "Статус",
                       ...(canManageCompanyReferences ? ["Действия"] : []),
                     ]}
-                    rows={machines.map((x) => [
+                    rows={filteredMachines.map((x) => [
                       x.display_name || x.full_name || x.name,
                       x.display_type || emptyCell,
                       assetBrand(x),
@@ -956,8 +1092,8 @@ export default function ReferencesPage() {
                     empty="Техника компании не добавлена"
                   />
                 </CardContent>
-              </Card>
-              <Card>
+              </Card> : null}
+              {machineYardCategory === "all" || machineYardCategory === "equipment" ? <Card>
                 <CardHeader className="flex flex-row items-center justify-between gap-3">
                   <CardTitle>Оборудование компании</CardTitle>
                   {canManageCompanyReferences ? <Button size="sm" onClick={() => openModal("equipment")}>Добавить</Button> : null}
@@ -965,7 +1101,7 @@ export default function ReferencesPage() {
                 <CardContent>
                   <DataTable
                     headers={["Название", "Категория", "Бренд", "Модель", "Инв. №", "Статус"]}
-                    rows={equipment.map((x) => [
+                    rows={filteredEquipment.map((x) => [
                       x.display_name || x.full_name || x.name,
                       x.display_type || emptyCell,
                       assetBrand(x),
@@ -977,8 +1113,8 @@ export default function ReferencesPage() {
                     empty="Оборудование компании не добавлено"
                   />
                 </CardContent>
-              </Card>
-              <Card>
+              </Card> : null}
+              {machineYardCategory === "all" || machineYardCategory === "vehicles" ? <Card>
                 <CardHeader className="flex flex-row items-center justify-between gap-3">
                   <CardTitle>Автопарк</CardTitle>
                   {canManageCompanyReferences ? <Button size="sm" onClick={() => openModal("vehicle")}>Добавить</Button> : null}
@@ -996,7 +1132,7 @@ export default function ReferencesPage() {
                       "Статус",
                       ...(canManageCompanyReferences ? ["Действия"] : []),
                     ]}
-                    rows={vehicles.map((x) => [
+                    rows={filteredVehicles.map((x) => [
                       x.display_name || x.full_name || x.name,
                       x.display_type || emptyCell,
                       assetBrand(x),
@@ -1029,27 +1165,27 @@ export default function ReferencesPage() {
                     empty="Транспорт компании не добавлен"
                   />
                 </CardContent>
-              </Card>
+              </Card> : null}
             </TabsContent>
             <TabsContent value="catalog" className="space-y-4">
-              <Card>
+              {machineYardCategory === "all" || machineYardCategory === "machines" ? <Card>
                 <CardHeader><CardTitle>Модели техники</CardTitle></CardHeader>
                 <CardContent>
-                  <DataTable headers={["Марка и модель", "Категория"]} rows={machineModels.map((row) => [catalogModelLabel(row), row.category || emptyCell])} loading={loading} empty="Модели техники не найдены" />
+                  <DataTable headers={["Марка и модель", "Категория"]} rows={filteredMachineModels.map((row) => [catalogModelLabel(row), row.category || emptyCell])} loading={loading} empty="Модели техники не найдены" />
                 </CardContent>
-              </Card>
-              <Card>
+              </Card> : null}
+              {machineYardCategory === "all" || machineYardCategory === "equipment" ? <Card>
                 <CardHeader><CardTitle>Модели оборудования</CardTitle></CardHeader>
                 <CardContent>
-                  <DataTable headers={["Марка и модель", "Категория"]} rows={equipmentModels.map((row) => [catalogModelLabel(row), row.category || emptyCell])} loading={loading} empty="Модели оборудования не найдены" />
+                  <DataTable headers={["Марка и модель", "Категория"]} rows={filteredEquipmentModels.map((row) => [catalogModelLabel(row), row.category || emptyCell])} loading={loading} empty="Модели оборудования не найдены" />
                 </CardContent>
-              </Card>
-              <Card>
+              </Card> : null}
+              {machineYardCategory === "all" || machineYardCategory === "vehicles" ? <Card>
                 <CardHeader><CardTitle>Модели транспорта</CardTitle></CardHeader>
                 <CardContent>
-                  <DataTable headers={["Марка и модель", "Категория"]} rows={transportModels.map((row) => [catalogModelLabel(row), row.category || emptyCell])} loading={loading} empty="Модели транспорта не найдены" />
+                  <DataTable headers={["Марка и модель", "Категория"]} rows={filteredTransportModels.map((row) => [catalogModelLabel(row), row.category || emptyCell])} loading={loading} empty="Модели транспорта не найдены" />
                 </CardContent>
-              </Card>
+              </Card> : null}
             </TabsContent>
           </Tabs>
         </TabsContent>
