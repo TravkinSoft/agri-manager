@@ -8,7 +8,13 @@ export type HarvestDashboardQuery = {
   filters?: HarvestDashboardFilters;
 };
 
-function queryString(section: "summary" | "warehouses" | "filters", query?: HarvestDashboardQuery) {
+type HarvestDashboardSection = "summary" | "warehouses" | "filters" | "bootstrap";
+
+export type HarvestDashboardRequestOptions = {
+  signal?: AbortSignal;
+};
+
+function queryString(section: HarvestDashboardSection, query?: HarvestDashboardQuery) {
   const params = new URLSearchParams({ section });
   if (query) {
     params.set("period", query.period);
@@ -19,14 +25,28 @@ function queryString(section: "summary" | "warehouses" | "filters", query?: Harv
   return params.toString();
 }
 
-async function getSection<T>(section: "summary" | "warehouses" | "filters", query?: HarvestDashboardQuery): Promise<T> {
+async function getSection<T>(
+  section: HarvestDashboardSection,
+  query?: HarvestDashboardQuery,
+  options: HarvestDashboardRequestOptions = {}
+): Promise<T> {
   const headers = await buildClientAuthHeaders("none");
-  const response = await fetch(`/api/dashboard/harvest-summary?${queryString(section, query)}`, { method: "GET", cache: "no-store", headers });
+  const response = await fetch(`/api/dashboard/harvest-summary?${queryString(section, query)}`, {
+    method: "GET",
+    cache: "no-store",
+    headers,
+    signal: options.signal,
+  });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить сводку");
   return payload as T;
 }
 
-export const getHarvestSummary = <T,>(query: HarvestDashboardQuery) => getSection<T>("summary", query);
-export const getHarvestWarehouses = <T,>(query: HarvestDashboardQuery) => getSection<T>("warehouses", query);
-export const getHarvestFilters = <T,>() => getSection<T>("filters");
+export const getHarvestSummary = <T,>(query: HarvestDashboardQuery, options?: HarvestDashboardRequestOptions) =>
+  getSection<T>("summary", query, options);
+export const getHarvestBootstrap = <T,>(query: HarvestDashboardQuery, options?: HarvestDashboardRequestOptions) =>
+  getSection<T>("bootstrap", query, options);
+export const getHarvestWarehouses = <T,>(query: HarvestDashboardQuery, options?: HarvestDashboardRequestOptions) =>
+  getSection<T>("warehouses", query, options);
+export const getHarvestFilters = <T,>(options?: HarvestDashboardRequestOptions) =>
+  getSection<T>("filters", undefined, options);

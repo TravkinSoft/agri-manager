@@ -21,6 +21,7 @@ const PERIOD_PRESETS = new Set<HarvestPeriodPreset>(["current_day", "previous_da
 const LINEAGE_QUERY_CHUNK_SIZE = 200;
 const LINEAGE_QUERY_CONCURRENCY = 4;
 const LINEAGE_QUERY_PAGE_SIZE = 1000;
+const SUMMARY_SOURCE = "effective finalized harvest_incoming tickets";
 
 const uniqueIds = (values: unknown[]) => Array.from(new Set(
   values.map((value) => String(value || "").trim()).filter(Boolean)
@@ -290,14 +291,25 @@ export async function GET(request: NextRequest) {
       operationalDayStartHour: Number(companyResult.data?.operational_day_start_hour ?? 7),
     });
 
+    const loadedWarehouseRows = await loadWarehouseRows(supabase, getServiceClient(), companyId);
+    const filterWarehouseRows = buildWarehouseHarvestRows(loadedWarehouseRows);
     if (section === "filters") {
-      const warehouseRows = buildWarehouseHarvestRows(await loadWarehouseRows(supabase, getServiceClient(), companyId));
-      return NextResponse.json({ options: buildHarvestFilterOptions(tickets, warehouseRows), operationalDayStartHour: period.operationalDayStartHour });
+      return NextResponse.json({
+        options: buildHarvestFilterOptions(tickets, filterWarehouseRows),
+        operationalDayStartHour: period.operationalDayStartHour,
+      });
     }
 
-    const warehouseRows = buildWarehouseHarvestRows(await loadWarehouseRows(supabase, getServiceClient(), companyId), filters);
+    const warehouseRows = buildWarehouseHarvestRows(loadedWarehouseRows, filters);
     const summary = buildHarvestOverview(tickets, { period, filters, warehouseRows });
-    return NextResponse.json({ ...summary, source: "effective finalized harvest_incoming tickets" });
+    if (section === "bootstrap") {
+      return NextResponse.json({
+        summary: { ...summary, source: SUMMARY_SOURCE },
+        options: buildHarvestFilterOptions(tickets, filterWarehouseRows),
+        operationalDayStartHour: period.operationalDayStartHour,
+      });
+    }
+    return NextResponse.json({ ...summary, source: SUMMARY_SOURCE });
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });

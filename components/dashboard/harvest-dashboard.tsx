@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CalendarClock, ChevronDown, Clock3, Loader2, Scale, Warehouse } from "lucide-react";
 import { TicketPreviewDialog } from "@/components/weighbridge/ticket-preview-dialog";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,11 +10,15 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/lib/contexts/auth-context";
 import type { HarvestDashboardFilters, HarvestFilterOptions, HarvestOverview, HarvestParty, HarvestPartyTicket, HarvestPeriodPreset } from "@/lib/dashboard/harvest-summary";
-import { getHarvestFilters, getHarvestSummary, type HarvestDashboardQuery } from "@/lib/services/harvest-dashboard";
+import { getHarvestBootstrap, getHarvestSummary, type HarvestDashboardQuery } from "@/lib/services/harvest-dashboard";
 import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
 import { TrafficShiftSummary } from "@/components/dashboard/traffic-shift-summary";
 
-type FiltersPayload = { options: HarvestFilterOptions; operationalDayStartHour: number };
+type BootstrapPayload = {
+  summary: HarvestOverview;
+  options: HarvestFilterOptions;
+  operationalDayStartHour: number;
+};
 
 const EMPTY_FILTERS: HarvestDashboardFilters = { cropId: null, varietyId: null, reproductionId: null, fieldId: null, warehouseId: null };
 const EMPTY_OPTIONS: HarvestFilterOptions = { crops: [], varieties: [], reproductions: [], fields: [], warehouses: [] };
@@ -59,8 +63,12 @@ function localInputToIso(value: string): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function isAbortError(reason: unknown): boolean {
+  return reason instanceof Error && reason.name === "AbortError";
+}
+
 function SectionLoading() {
-  return <div className="flex min-h-28 items-center justify-center text-sm text-slate-400"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка...</div>;
+  return <div className="flex min-h-[20rem] items-center justify-center text-sm text-slate-400" role="status"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка сводки...</div>;
 }
 
 function FilterSelect({ label, value, options, onChange }: { label: string; value?: string | null; options: Array<{ id: string; label: string }>; onChange: (value: string | null) => void }) {
@@ -79,7 +87,7 @@ function TicketRow({ ticket, kind, onOpen }: { ticket: HarvestPartyTicket; kind:
 function PartyCard({ party, open, onOpenChange, onTicket }: { party: HarvestParty; open: boolean; onOpenChange: (open: boolean) => void; onTicket: (id: string) => void }) {
   return (
     <Collapsible open={open} onOpenChange={onOpenChange}>
-      <Card className="overflow-hidden rounded-lg border-slate-800">
+      <Card className="overflow-hidden rounded-none border-0 border-b border-slate-800 bg-transparent shadow-none">
         <CollapsibleTrigger asChild>
           <button type="button" className="grid w-full min-w-0 grid-cols-2 gap-3 p-4 text-left hover:bg-slate-900/40 lg:grid-cols-[minmax(210px,1.15fr)_repeat(4,minmax(110px,0.65fr))_auto] lg:items-center">
             <span className="col-span-2 min-w-0 lg:col-span-1"><span className="block truncate text-base font-semibold text-slate-100">{party.cropName}</span><span className="block truncate text-sm text-slate-400">{party.complete ? [party.varietyName, party.reproductionName].filter(Boolean).join(" · ") : "Требуется уточнение"}</span></span>
@@ -109,6 +117,7 @@ function PartyCard({ party, open, onOpenChange, onTicket }: { party: HarvestPart
 
 export function HarvestDashboard() {
   const { profile } = useAuth();
+  const companyId = profile?.company_id || null;
   const [period, setPeriod] = useState<HarvestPeriodPreset>("current_day");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -119,31 +128,163 @@ export function HarvestDashboard() {
   const [expandedParties, setExpandedParties] = useState<Record<string, boolean>>({});
   const [error, setError] = useState("");
   const [ticketId, setTicketId] = useState<string | null>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const summaryRef = useRef<HarvestOverview | null>(null);
+  const requestAbortRef = useRef<AbortController | null>(null);
+  const requestGenerationRef = useRef(0);
+  const scopeCompanyIdRef = useRef<string | null>(null);
+  const bootstrappedCompanyIdRef = useRef<string | null>(null);
 
   const query = useMemo<HarvestDashboardQuery>(() => ({ period, start: period === "custom" ? localInputToIso(customStart) : null, end: period === "custom" ? localInputToIso(customEnd) : null, filters }), [customEnd, customStart, filters, period]);
   const customReady = period !== "custom" || Boolean(query.start && query.end);
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
 
-  const loadSummary = useCallback(async () => {
-    if (!customReady) return;
-    try { setSummary(await getHarvestSummary<HarvestOverview>(query)); setError(""); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Не удалось загрузить сводку"); }
-  }, [customReady, query]);
+  const loadDashboard = useCallback(async () => {
+    const scopeChanged = scopeCompanyIdRef.current !== companyId;
+    if (scopeChanged) {
+      requestAbortRef.current?.abort();
+      requestGenerationRef.current += 1;
+      scopeCompanyIdRef.current = companyId;
+      bootstrappedCompanyIdRef.current = null;
+      summaryRef.current = null;
+      setSummary(null);
+      setOptions(EMPTY_OPTIONS);
+      setExpandedParties({});
+      setTicketId(null);
+      setError("");
+      setInitialLoading(Boolean(companyId));
+      setRefreshing(false);
 
-  useEffect(() => { if (profile?.company_id) void getHarvestFilters<FiltersPayload>().then((payload) => setOptions(payload.options)); }, [profile?.company_id]);
-  useEffect(() => { if (profile?.company_id && customReady) void loadSummary(); }, [customReady, loadSummary, profile?.company_id]);
-  useLiveRefresh({ enabled: Boolean(profile?.company_id), companyId: profile?.company_id, tables: LIVE_REFRESH_TABLES.weighbridge, intervalMs: 15_000, onRefresh: loadSummary });
+      if (Object.values(query.filters || {}).some(Boolean)) {
+        setFilters(EMPTY_FILTERS);
+        return;
+      }
+    }
+
+    if (!companyId || !customReady) {
+      requestAbortRef.current?.abort();
+      setInitialLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
+    requestAbortRef.current?.abort();
+    const controller = new AbortController();
+    requestAbortRef.current = controller;
+    const generation = ++requestGenerationRef.current;
+    const shouldBootstrap = bootstrappedCompanyIdRef.current !== companyId;
+    const hasRetainedSummary = summaryRef.current !== null;
+    setInitialLoading(!hasRetainedSummary);
+    setRefreshing(hasRetainedSummary);
+    setError("");
+
+    try {
+      let nextSummary: HarvestOverview;
+      if (shouldBootstrap) {
+        const payload = await getHarvestBootstrap<BootstrapPayload>(query, { signal: controller.signal });
+        if (generation !== requestGenerationRef.current || controller.signal.aborted || scopeCompanyIdRef.current !== companyId) return;
+        bootstrappedCompanyIdRef.current = companyId;
+        setOptions(payload.options);
+        nextSummary = payload.summary;
+      } else {
+        nextSummary = await getHarvestSummary<HarvestOverview>(query, { signal: controller.signal });
+      }
+
+      if (generation !== requestGenerationRef.current || controller.signal.aborted || scopeCompanyIdRef.current !== companyId) return;
+      summaryRef.current = nextSummary;
+      setSummary(nextSummary);
+    } catch (reason) {
+      if (isAbortError(reason) || generation !== requestGenerationRef.current || controller.signal.aborted) return;
+      setError(reason instanceof Error ? reason.message : "Не удалось загрузить сводку");
+    } finally {
+      if (generation === requestGenerationRef.current) {
+        if (requestAbortRef.current === controller) requestAbortRef.current = null;
+        setInitialLoading(false);
+        setRefreshing(false);
+      }
+    }
+  }, [companyId, customReady, query]);
+
+  useEffect(() => {
+    void loadDashboard();
+    return () => {
+      requestGenerationRef.current += 1;
+      requestAbortRef.current?.abort();
+    };
+  }, [loadDashboard]);
+  useLiveRefresh({ enabled: Boolean(companyId && customReady), companyId, tables: LIVE_REFRESH_TABLES.weighbridge, intervalMs: 15_000, onRefresh: loadDashboard });
 
   const setFilter = (key: keyof HarvestDashboardFilters, value: string | null) => setFilters((current) => ({ ...current, [key]: value }));
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] space-y-4 overflow-x-hidden">
-      <div className="flex min-w-0 items-end justify-between gap-3"><div className="min-w-0"><h1 className="truncate text-2xl font-semibold text-slate-100 sm:text-3xl">Сводка уборки</h1><p className="mt-1 text-sm text-slate-400">Партии урожая, фактические остатки и рейсы</p></div><div className="hidden rounded-md border border-emerald-700/40 bg-emerald-950/30 px-2.5 py-1 text-xs text-emerald-300 sm:block">Live</div></div>
+    <div className="mx-auto w-full max-w-[1500px] space-y-6 overflow-x-hidden">
+      <div className="flex min-w-0 items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="truncate text-2xl font-semibold text-slate-100 sm:text-3xl">Сводка</h1>
+          <p className="mt-1 text-sm text-slate-400">Смены, партии урожая, фактические остатки и рейсы</p>
+        </div>
+        <div className="hidden rounded-md border border-emerald-700/40 bg-emerald-950/30 px-2.5 py-1 text-xs text-emerald-300 sm:block">Live</div>
+      </div>
+
       {profile?.role === "agronomist" && profile.company_id ? <TrafficShiftSummary key={profile.company_id} companyId={profile.company_id} /> : null}
-      <Card className="rounded-lg"><CardContent className="space-y-3 p-3 sm:p-4"><div className="grid gap-2 lg:grid-cols-[minmax(240px,1fr)_auto] lg:items-end"><div><label className="mb-1 block text-[11px] uppercase text-slate-500">Период</label><Select value={period} onValueChange={(value) => setPeriod(value as HarvestPeriodPreset)}><SelectTrigger className="h-10"><SelectValue /></SelectTrigger><SelectContent>{PERIODS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select></div><Button type="button" variant="outline" className="h-10 justify-between gap-2" onClick={() => setFiltersOpen((value) => !value)}>Фильтры{activeFilterCount ? ` · ${activeFilterCount}` : ""}<ChevronDown className={`h-4 w-4 transition-transform ${filtersOpen ? "rotate-180" : ""}`} /></Button></div>{period === "custom" ? <div className="grid gap-2 sm:grid-cols-2"><Input type="datetime-local" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /><Input type="datetime-local" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></div> : null}{summary ? <div className="flex items-center gap-2 text-sm text-slate-300"><CalendarClock className="h-4 w-4 shrink-0 text-[#E0B100]" /><span>{summary.period.label}</span></div> : null}{filtersOpen ? <div className="grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-2 xl:grid-cols-5"><FilterSelect label="Культура" value={filters.cropId} options={options.crops} onChange={(value) => setFilter("cropId", value)} /><FilterSelect label="Сорт" value={filters.varietyId} options={options.varieties} onChange={(value) => setFilter("varietyId", value)} /><FilterSelect label="Репродукция" value={filters.reproductionId} options={options.reproductions} onChange={(value) => setFilter("reproductionId", value)} /><FilterSelect label="Поле" value={filters.fieldId} options={options.fields} onChange={(value) => setFilter("fieldId", value)} /><FilterSelect label="Склад" value={filters.warehouseId} options={options.warehouses} onChange={(value) => setFilter("warehouseId", value)} />{activeFilterCount ? <Button variant="ghost" className="sm:col-span-2 xl:col-span-5" onClick={() => setFilters(EMPTY_FILTERS)}>Сбросить фильтры</Button> : null}</div> : null}</CardContent></Card>
-      {error ? <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</div> : null}
-      {!customReady ? <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">Укажите начало и конец периода.</div> : null}
-      <section className="space-y-3"><div className="flex flex-wrap items-end justify-between gap-2"><div><h2 className="text-lg font-semibold text-slate-100">Партии в уборке</h2><p className="text-xs text-slate-500">Одна партия: сезон, культура, сорт и репродукция</p></div>{summary ? <div className="flex gap-3 text-xs text-slate-400"><span>В работе: <b className="text-slate-100">{summary.parties.length}</b></span><span>Открыто машин: <b className="text-slate-100">{summary.openTicketCount}</b></span></div> : null}</div>{!summary ? <Card><SectionLoading /></Card> : summary.parties.length ? summary.parties.map((party) => <PartyCard key={party.key} party={party} open={Boolean(expandedParties[party.key])} onOpenChange={(open) => setExpandedParties((current) => ({ ...current, [party.key]: open }))} onTicket={setTicketId} />) : <Card><CardContent className="py-12 text-center text-sm text-slate-500">По выбранным условиям партий нет.</CardContent></Card>}</section>
+
+      <Card className="rounded-lg" style={{ background: "transparent", border: 0, boxShadow: "none" }}>
+        <CardContent className="space-y-3 p-0">
+          <div className="grid gap-2 lg:grid-cols-[minmax(240px,1fr)_auto] lg:items-end">
+            <div>
+              <label className="mb-1 block text-[11px] uppercase text-slate-500">Период</label>
+              <Select value={period} onValueChange={(value) => setPeriod(value as HarvestPeriodPreset)}>
+                <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                <SelectContent>{PERIODS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <Button type="button" variant="outline" className="h-10 justify-between gap-2" onClick={() => setFiltersOpen((value) => !value)}>
+              Фильтры{activeFilterCount ? ` · ${activeFilterCount}` : ""}
+              <ChevronDown className={`h-4 w-4 transition-transform ${filtersOpen ? "rotate-180" : ""}`} />
+            </Button>
+          </div>
+          {period === "custom" ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Input type="datetime-local" value={customStart} onChange={(event) => setCustomStart(event.target.value)} />
+              <Input type="datetime-local" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} />
+            </div>
+          ) : null}
+          <div className="flex min-h-5 items-center gap-2 text-sm text-slate-300" aria-live="polite">
+            {summary ? <><CalendarClock className="h-4 w-4 shrink-0 text-[#E0B100]" /><span>{summary.period.label}</span></> : null}
+            {refreshing ? <span className="ml-auto flex items-center text-xs text-slate-500"><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />Обновление...</span> : null}
+          </div>
+          {filtersOpen ? (
+            <div className="grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-2 xl:grid-cols-5">
+              <FilterSelect label="Культура" value={filters.cropId} options={options.crops} onChange={(value) => setFilter("cropId", value)} />
+              <FilterSelect label="Сорт" value={filters.varietyId} options={options.varieties} onChange={(value) => setFilter("varietyId", value)} />
+              <FilterSelect label="Репродукция" value={filters.reproductionId} options={options.reproductions} onChange={(value) => setFilter("reproductionId", value)} />
+              <FilterSelect label="Поле" value={filters.fieldId} options={options.fields} onChange={(value) => setFilter("fieldId", value)} />
+              <FilterSelect label="Склад" value={filters.warehouseId} options={options.warehouses} onChange={(value) => setFilter("warehouseId", value)} />
+              {activeFilterCount ? <Button variant="ghost" className="sm:col-span-2 xl:col-span-5" onClick={() => setFilters(EMPTY_FILTERS)}>Сбросить фильтры</Button> : null}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <div className="min-h-0 space-y-2" aria-live="polite">
+        {error ? <div className="border-l-2 border-rose-500 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</div> : null}
+        {!customReady ? <div className="border-l-2 border-amber-500 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">Укажите начало и конец периода.</div> : null}
+      </div>
+
+      <section className="min-h-[24rem] border-t border-slate-800 pt-5" aria-busy={initialLoading || refreshing}>
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-100">Партии в уборке</h2>
+            <p className="text-xs text-slate-500">Одна партия: сезон, культура, сорт и репродукция</p>
+          </div>
+          {summary ? <div className="flex gap-3 text-xs text-slate-400"><span>В работе: <b className="text-slate-100">{summary.parties.length}</b></span><span>Открыто машин: <b className="text-slate-100">{summary.openTicketCount}</b></span></div> : null}
+        </div>
+        {!summary && initialLoading ? <SectionLoading /> : null}
+        {!summary && !initialLoading ? <div className="flex min-h-[20rem] items-center justify-center text-sm text-slate-500">Сводка пока недоступна.</div> : null}
+        {summary?.parties.length ? summary.parties.map((party) => <PartyCard key={party.key} party={party} open={Boolean(expandedParties[party.key])} onOpenChange={(open) => setExpandedParties((current) => ({ ...current, [party.key]: open }))} onTicket={setTicketId} />) : null}
+        {summary && !summary.parties.length ? <div className="flex min-h-[20rem] items-center justify-center text-sm text-slate-500">По выбранным условиям партий нет.</div> : null}
+      </section>
       <TicketPreviewDialog ticketId={ticketId} open={Boolean(ticketId)} onOpenChange={(open) => !open && setTicketId(null)} />
     </div>
   );
