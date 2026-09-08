@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, EllipsisVertical, LogOut, Menu, RotateCcw, Settings as SettingsIcon, Shield, User } from "lucide-react";
+import { Check, LogOut, Menu, RotateCcw, Settings as SettingsIcon, Shield } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +24,7 @@ import { supabase } from "@/lib/supabase/client";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { cachedClientValue, invalidateClientCache } from "@/lib/client/single-flight-cache";
 import type { Language } from "@/lib/i18n/translations";
+import { ProfileAvatar } from "@/components/profile/profile-avatar";
 
 const MOBILE_LANGUAGES: Array<{ code: Language; label: string }> = [
   { code: "ru", label: "RU — Русский" },
@@ -417,12 +418,17 @@ export function Header() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9 rounded-full text-[#F3F4F6] hover:bg-[#202738] hover:text-[#F3F4F6]"
+              className="h-9 w-9 rounded-full p-0 text-[#F3F4F6] hover:bg-[#202738] hover:text-[#F3F4F6]"
               aria-label={t("profile_menu")}
               title={t("profile_menu")}
             >
-              <EllipsisVertical className="h-5 w-5 md:hidden" />
-              <User className="hidden h-5 w-5 md:block" />
+              <ProfileAvatar
+                profileId={profile?.id}
+                fullName={profile?.full_name}
+                email={profile?.email || user?.email}
+                version={profile?.avatar_updated_at}
+                className="h-7 w-7"
+              />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 border-[#2C3446] bg-[#1A1F2B] text-[#F3F4F6]">

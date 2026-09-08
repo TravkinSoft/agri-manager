@@ -31,6 +31,8 @@ interface Profile {
   impersonated_by_profile_id?: string | null;
   impersonated_by_auth_user_id?: string | null;
   preferred_language?: 'ru' | 'kz' | 'en' | null;
+  avatar_path?: string | null;
+  avatar_updated_at?: string | null;
   created_at: string;
   updated_at: string;
 }

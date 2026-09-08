@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { type ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
+import { Camera, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -14,6 +15,8 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { supabase } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { ProfileAvatar } from "@/components/profile/profile-avatar";
+import { PROFILE_AVATAR_ACCEPT, prepareProfileAvatarWebp } from "@/lib/profile/avatar-client";
 
 type NotificationPreferences = {
   email_enabled: boolean;
@@ -37,15 +40,19 @@ const defaultPreferences: NotificationPreferences = {
 
 export default function SettingsPage() {
   const { language } = useLanguage();
-  const { profile } = useAuth();
+  const { profile, refreshProfile } = useAuth();
   const { toast } = useToast();
   const [notificationPreferences, setNotificationPreferences] =
     useState<NotificationPreferences>(defaultPreferences);
   const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [notificationSaving, setNotificationSaving] = useState<keyof NotificationPreferences | null>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const notificationOnly = profile?.role === "agronomist";
-  const t = (ru: string, kz: string, en: string) =>
-    language === "ru" ? ru : language === "kz" ? kz : en;
+  const t = useCallback(
+    (ru: string, kz: string, en: string) => language === "ru" ? ru : language === "kz" ? kz : en,
+    [language],
+  );
 
   const getAuthorization = useCallback(async () => {
     const { data, error } = await supabase.auth.getSession();
@@ -53,7 +60,7 @@ export default function SettingsPage() {
       throw new Error(t("Сессия истекла", "Сессия аяқталды", "Session expired"));
     }
     return `Bearer ${data.session.access_token}`;
-  }, [language]);
+  }, [t]);
 
   useEffect(() => {
     const load = async () => {
@@ -82,7 +89,7 @@ export default function SettingsPage() {
       }
     };
     void load();
-  }, [getAuthorization, profile?.company_id, toast]);
+  }, [getAuthorization, profile?.company_id, t, toast]);
 
   const updateNotificationPreference = async <Key extends keyof NotificationPreferences>(
     key: Key,
@@ -121,6 +128,60 @@ export default function SettingsPage() {
     }
   };
 
+  const handleAvatarFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    event.target.value = "";
+    if (!file || avatarBusy || profile?.is_impersonating) return;
+    setAvatarBusy(true);
+    try {
+      const prepared = await prepareProfileAvatarWebp(file);
+      const authorization = await getAuthorization();
+      const formData = new FormData();
+      formData.set("avatar", prepared);
+      const response = await fetch("/api/profile/avatar", {
+        method: "POST",
+        headers: { Authorization: authorization },
+        body: formData,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Profile avatar update failed");
+      await refreshProfile();
+      toast({ title: t("Фото профиля обновлено", "Профиль фотосы жаңартылды", "Profile photo updated") });
+    } catch (error) {
+      toast({
+        title: t("Не удалось обновить фото", "Фотоны жаңарту мүмкін болмады", "Photo update failed"),
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const removeAvatar = async () => {
+    if (avatarBusy || profile?.is_impersonating) return;
+    setAvatarBusy(true);
+    try {
+      const authorization = await getAuthorization();
+      const response = await fetch("/api/profile/avatar", {
+        method: "DELETE",
+        headers: { Authorization: authorization },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Profile avatar removal failed");
+      await refreshProfile();
+      toast({ title: t("Фото профиля удалено", "Профиль фотосы жойылды", "Profile photo removed") });
+    } catch (error) {
+      toast({
+        title: t("Не удалось удалить фото", "Фотоны жою мүмкін болмады", "Photo removal failed"),
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -132,12 +193,72 @@ export default function SettingsPage() {
         )}
       />
 
-      <Tabs defaultValue={notificationOnly ? "notifications" : "general"} className="space-y-4">
+      <Tabs defaultValue="profile" className="space-y-4">
         <TabsList>
+          <TabsTrigger value="profile">{t("Профиль", "Профиль", "Profile")}</TabsTrigger>
           {!notificationOnly ? <TabsTrigger value="general">{t("Общие", "Жалпы", "General")}</TabsTrigger> : null}
           <TabsTrigger value="notifications">{t("Уведомления", "Хабарламалар", "Notifications")}</TabsTrigger>
           {!notificationOnly ? <TabsTrigger value="security">{t("Безопасность", "Қауіпсіздік", "Security")}</TabsTrigger> : null}
         </TabsList>
+
+        <TabsContent value="profile" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("Фото профиля", "Профиль фотосы", "Profile photo")}</CardTitle>
+              <CardDescription>
+                {t(
+                  "Отображается в правом верхнем углу. Фото обрезается квадратом и хранится приватно.",
+                  "Жоғарғы оң жақ бұрышта көрсетіледі. Фото шаршыға қиылып, жеке сақталады.",
+                  "Shown in the top-right corner. The photo is square-cropped and stored privately."
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center">
+              <ProfileAvatar
+                profileId={profile?.id}
+                fullName={profile?.full_name}
+                email={profile?.email}
+                version={profile?.avatar_updated_at}
+                className="h-20 w-20 border-slate-700"
+              />
+              <div className="min-w-0 flex-1 space-y-3">
+                <div>
+                  <div className="truncate font-medium text-slate-100">{profile?.full_name || profile?.email || "—"}</div>
+                  <div className="text-sm text-slate-400">JPEG, PNG или WebP · до 5 МБ · итог до 512×512</div>
+                </div>
+                {profile?.is_impersonating ? (
+                  <p className="text-sm text-amber-200" role="status">
+                    {t(
+                      "Вернитесь в Global Admin, чтобы менять собственное фото.",
+                      "Өз фотоңызды өзгерту үшін Global Admin режиміне оралыңыз.",
+                      "Return to Global Admin to change your own photo."
+                    )}
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      ref={avatarInputRef}
+                      type="file"
+                      accept={PROFILE_AVATAR_ACCEPT}
+                      className="sr-only"
+                      onChange={(event) => void handleAvatarFile(event)}
+                    />
+                    <Button type="button" onClick={() => avatarInputRef.current?.click()} disabled={avatarBusy}>
+                      <Camera className="mr-2 h-4 w-4" />
+                      {avatarBusy ? t("Обработка...", "Өңдеу...", "Processing...") : t("Выбрать фото", "Фото таңдау", "Choose photo")}
+                    </Button>
+                    {profile?.avatar_path ? (
+                      <Button type="button" variant="outline" onClick={() => void removeAvatar()} disabled={avatarBusy}>
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        {t("Удалить", "Жою", "Remove")}
+                      </Button>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="general" className="space-y-4">
           <Card>
