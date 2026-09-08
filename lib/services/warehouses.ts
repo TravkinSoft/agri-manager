@@ -286,6 +286,19 @@ export async function updateWarehouse(
   return payload.warehouse as Warehouse;
 }
 
+export async function reorderWarehouses(
+  companyId: string,
+  warehouseIds: readonly string[],
+): Promise<void> {
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch("/api/warehouses/reorder", {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ companyId, warehouseIds }),
+  });
+  await parseJsonOrThrow(response);
+}
+
 export async function archiveWarehouse(warehouseId: string, companyId?: string): Promise<Warehouse> {
   const query = new URLSearchParams();
   query.set("mode", "archive");

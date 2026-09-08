@@ -39,6 +39,7 @@ export interface Warehouse {
   responsible_user_id?: string | null;
   location?: string | null;
   description?: string | null;
+  display_order?: number | null;
   created_at: string;
   archived: boolean;
   is_archived?: boolean;

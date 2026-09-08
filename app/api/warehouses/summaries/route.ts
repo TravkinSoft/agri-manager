@@ -17,6 +17,7 @@ import { buildWarehouseMassBreakdown } from "@/lib/warehouse/warehouse-summary-m
 import { isHarvestLedgerRow, loadHarvestLedgerOriginRefs } from "@/lib/warehouse/harvest-ledger-origin";
 import { countColdWarehousePositions } from "@/lib/warehouse/harvest-batch-selection";
 import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
+import { compareWarehouseDisplayOrder } from "@/lib/warehouse/warehouse-order";
 
 export const dynamic = "force-dynamic";
 
@@ -71,7 +72,8 @@ export async function GET(request: NextRequest) {
     const visibleWarehouses = (warehousesResult.data || [])
       .map(normalizeWarehouseRow)
       .filter((row) => warehouseVisibleToRole(row, actor.role))
-      .filter((row) => !rowHasQaDataMarker(row as unknown as Record<string, unknown>, ["name", "description", "warehouse_type"]));
+      .filter((row) => !rowHasQaDataMarker(row as unknown as Record<string, unknown>, ["name", "description", "warehouse_type"]))
+      .sort(compareWarehouseDisplayOrder);
     const warehouseIds = visibleWarehouses.map((warehouse) => String(warehouse.id));
     if (!warehouseIds.length) return NextResponse.json({ summaries: [] });
     // The actor and company scope are already verified. Restrict this privileged

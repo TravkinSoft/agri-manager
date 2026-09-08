@@ -37,6 +37,7 @@ export function normalizeWarehouseRow(row: any) {
     responsible_user_id: row.responsible_user_id ?? null,
     location: row.location ?? null,
     description: row.description ?? null,
+    display_order: row.display_order == null ? null : Number(row.display_order),
     archived: row.archived === true,
     is_archived: row.is_archived === true,
     archived_at: row.archived_at ?? null,

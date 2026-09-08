@@ -9,6 +9,7 @@ import {
 import { WAREHOUSE_ENTITY_WRITE_ROLES, WAREHOUSE_READ_ROLES, isActiveResponsibleUserInCompany, normalizeWarehouseRow, toNullableText, warehouseVisibleToRole } from "@/app/api/warehouses/_helpers";
 import { rowHasQaDataMarker } from "@/lib/utils/qa-data";
 import { parseStoragePlaceType } from "@/lib/warehouse/warehouse-scope";
+import { compareWarehouseDisplayOrder } from "@/lib/warehouse/warehouse-order";
 import { getServiceClient } from "@/lib/supabase/service";
 
 const WAREHOUSE_TYPES = new Set([
@@ -58,7 +59,8 @@ export async function GET(request: NextRequest) {
       warehouses: (data || [])
         .map(normalizeWarehouseRow)
         .filter((row) => warehouseVisibleToRole(row, actor.role))
-        .filter((row) => !rowHasQaDataMarker(row as unknown as Record<string, unknown>, ["name", "description", "warehouse_type"])),
+        .filter((row) => !rowHasQaDataMarker(row as unknown as Record<string, unknown>, ["name", "description", "warehouse_type"]))
+        .sort(compareWarehouseDisplayOrder),
     });
   } catch (error) {
     if (error instanceof SessionAuthError) {
