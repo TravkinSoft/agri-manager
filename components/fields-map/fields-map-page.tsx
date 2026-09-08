@@ -2438,83 +2438,81 @@ export function FieldsMapPage() {
       : selectedEngineeringObject?.geometry_type === "Polygon"
         ? formatSquare(geometryAreaSqMeters(selectedEngineeringObject.geometry))
         : null;
+  const hasOpenInspector = mapWorkMode === "engineering" || Boolean(selectedField);
 
   return (
-    <div className="-m-2 space-y-3 md:-m-4">
+    <div className="tf2-shell -m-2 space-y-3 md:-m-4">
       <input ref={fileInputRef} type="file" accept=".kml" className="hidden" onChange={handleKmlSelect} />
       {mapError ? <div className="mx-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100 md:mx-4">{mapError}</div> : null}
 
-      <section className="relative h-[calc(100vh-86px)] min-h-[720px] overflow-hidden rounded-xl border border-[#202B3D] bg-[#070B12] shadow-2xl">
+      <section className="relative h-[calc(100vh-86px)] min-h-[720px] overflow-hidden rounded-[18px] border border-white/[0.07] bg-[#070B12] shadow-2xl">
         <div className="absolute inset-0">
           <div ref={bindMapContainerRef} className="h-full w-full" />
         </div>
 
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-wrap items-start justify-between gap-3 p-3">
-          <div className="pointer-events-auto max-w-[760px] rounded-xl border border-white/10 bg-[#0B111D]/90 p-2 shadow-xl backdrop-blur">
+        <div
+          className={`pointer-events-none absolute left-3 top-3 z-10 w-[calc(100%-24px)] transition-[width] duration-150 ${
+            hasOpenInspector
+              ? "xl:w-[calc(100%-466px)] 2xl:w-[680px]"
+              : "xl:w-[min(860px,calc(100%-88px))]"
+          }`}
+        >
+          <div className="tf2-dock pointer-events-auto rounded-2xl p-2.5">
             <div className="flex flex-wrap items-center gap-2">
               <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Режим</div>
-              <Button size="sm" variant={mapWorkMode === "agro" ? "default" : "outline"} onClick={() => { setMapWorkMode("agro"); setEngineeringDrawMode("none"); setSelectedEngineeringObjectId(null); }}>
+              <Button className="tf2-control h-9" size="sm" variant={mapWorkMode === "agro" ? "default" : "outline"} onClick={() => { setMapWorkMode("agro"); setEngineeringDrawMode("none"); setSelectedEngineeringObjectId(null); }}>
                 <Layers className="mr-2 h-4 w-4" /> Агро
               </Button>
-              <Button size="sm" variant={mapWorkMode === "engineering" ? "default" : "outline"} onClick={() => { setMapWorkMode("engineering"); setSelectedFieldId(null); }}>
+              <Button className="tf2-control h-9" size="sm" variant={mapWorkMode === "engineering" ? "default" : "outline"} onClick={() => { setMapWorkMode("engineering"); setSelectedFieldId(null); }}>
                 <Wrench className="mr-2 h-4 w-4" /> Инженерия
               </Button>
-              <div className="h-6 w-px bg-white/10" />
-              <Select value={selectedSeasonId || ""} onValueChange={(value) => void handleSeasonChange(value)}>
-                <SelectTrigger className="h-9 w-[112px] bg-[#0A101B]"><SelectValue placeholder="Сезон" /></SelectTrigger>
-                <SelectContent>{(bootstrap?.seasons || []).map((season) => <SelectItem key={season.id} value={season.id}>{season.year}</SelectItem>)}</SelectContent>
-              </Select>
               {mapWorkMode === "agro" ? (
                 <>
                   <Select value={selectedCrop} onValueChange={setSelectedCrop}>
-                    <SelectTrigger className="h-9 w-[190px] bg-[#0A101B]"><SelectValue /></SelectTrigger>
+                    <SelectTrigger aria-label="Фильтр культуры" className="h-9 min-w-[168px] flex-1 border-white/10 bg-black/25 sm:max-w-[220px]"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Все культуры</SelectItem>
                       {cropOptions.map((crop) => <SelectItem key={crop} value={crop}>{crop}</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  <div className="h-6 w-px bg-white/10" />
+                  <div className="hidden h-6 w-px bg-white/10 sm:block" />
                   <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Цвет</div>
-                  <Button size="sm" variant={colorMode === "crop" ? "default" : "outline"} onClick={() => setColorMode("crop")}>
+                  <Button className="tf2-control h-9" size="sm" variant={colorMode === "crop" ? "default" : "outline"} onClick={() => setColorMode("crop")}>
                     Культура
                   </Button>
-                  <Button size="sm" variant={colorMode === "work_status" ? "default" : "outline"} onClick={() => setColorMode("work_status")}>
+                  <Button className="tf2-control h-9" size="sm" variant={colorMode === "work_status" ? "default" : "outline"} onClick={() => setColorMode("work_status")}>
                     Работы
                   </Button>
                 </>
               ) : (
                 <div className="flex max-w-[540px] flex-wrap gap-1">
                   {ENGINEERING_LAYER_FILTERS.map((item) => (
-                    <Button key={item.key} size="sm" variant={engineeringLayerFilter === item.key ? "default" : "outline"} className="h-8 px-2 text-xs" onClick={() => setEngineeringLayerFilter(item.key)}>
+                    <Button key={item.key} size="sm" variant={engineeringLayerFilter === item.key ? "default" : "outline"} className="tf2-control h-8 px-2 text-xs" onClick={() => setEngineeringLayerFilter(item.key)}>
                       {item.label}
                     </Button>
                   ))}
                 </div>
               )}
             </div>
-          </div>
-
-          <div className="pointer-events-auto flex flex-wrap justify-end gap-2 rounded-xl border border-white/10 bg-[#0B111D]/90 p-2 shadow-xl backdrop-blur">
-            <Button size="sm" variant={selectedBaseLayer === "map" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("map")}>Карта</Button>
-            <Button size="sm" variant={selectedBaseLayer === "satellite" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("satellite")}>Спутник</Button>
-            <Button size="sm" variant={selectedBaseLayer === "hybrid" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("hybrid")}>Гибрид</Button>
-            <Button size="sm" variant="outline" onClick={handleLocateMe}><Navigation className="mr-2 h-4 w-4" />Моё место</Button>
-            <Button size="sm" variant="outline" onClick={handleShowAllFields}>Показать все</Button>
-            <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}><FileUp className="mr-2 h-4 w-4" />KML</Button>
-          </div>
-        </div>
-
-        <div className="pointer-events-none absolute left-3 top-[88px] z-10 w-[min(360px,calc(100%-24px))] space-y-2">
-          <div className="pointer-events-auto rounded-xl border border-white/10 bg-[#0B111D]/90 p-3 shadow-xl backdrop-blur">
-            <div className="flex items-center gap-2">
-              <input value={fieldSearch} onChange={(event) => setFieldSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); runFieldSearch(); } }} placeholder="Найти поле..." className="h-9 min-w-0 flex-1 rounded-md border border-[#2B3448] bg-[#080D16] px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[#E0B100]" />
-              <Button size="sm" variant="outline" onClick={runFieldSearch}><Search className="h-4 w-4" /></Button>
-              <Button size="sm" variant="outline" onClick={() => setShowFieldListMobile((prev) => !prev)}>{filteredFields.length}</Button>
+            <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-white/[0.07] pt-2">
+              <div className="flex min-w-[220px] flex-1 items-center gap-2">
+                <input value={fieldSearch} onChange={(event) => setFieldSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); runFieldSearch(); } }} placeholder="Найти поле..." className="h-9 min-w-0 flex-1 rounded-lg border border-white/10 bg-black/25 px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[#E0B100] focus:ring-1 focus:ring-[#E0B100]/30" />
+                <Button aria-label="Найти поле" className="tf2-control h-9 w-9 shrink-0 p-0" size="sm" variant="outline" onClick={runFieldSearch}><Search className="h-4 w-4" /></Button>
+                <Button aria-label={`${showFieldListMobile ? "Скрыть" : "Показать"} список полей: ${filteredFields.length}`} className="tf2-control h-9 min-w-11 shrink-0 px-2" size="sm" variant="outline" onClick={() => setShowFieldListMobile((prev) => !prev)}>{filteredFields.length}</Button>
+              </div>
+              <div className="travkin-scrollbar flex max-w-full items-center gap-1.5 overflow-x-auto pb-0.5">
+                <Button className="tf2-control h-9 shrink-0" size="sm" variant={selectedBaseLayer === "map" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("map")}>Карта</Button>
+                <Button className="tf2-control h-9 shrink-0" size="sm" variant={selectedBaseLayer === "satellite" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("satellite")}>Спутник</Button>
+                <Button className="tf2-control h-9 shrink-0" size="sm" variant={selectedBaseLayer === "hybrid" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("hybrid")}>Гибрид</Button>
+                <Button aria-label="Моё местоположение" className="tf2-control h-9 shrink-0 px-2" size="sm" variant="outline" onClick={handleLocateMe}><Navigation className="h-4 w-4" /></Button>
+                <Button className="tf2-control h-9 shrink-0" size="sm" variant="outline" onClick={handleShowAllFields}>Все поля</Button>
+                <Button className="tf2-control h-9 shrink-0" size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}><FileUp className="mr-2 h-4 w-4" />KML</Button>
+              </div>
             </div>
             {(showFieldListMobile || searchResults.length > 0) ? (
               <div className="travkin-scrollbar mt-2 max-h-[42vh] space-y-1 overflow-y-auto pr-1">
                 {(searchResults.length ? searchResults : filteredFields.slice(0, 18)).map((field) => (
-                  <button key={`map-rail-${field.field_id}`} type="button" onClick={() => handleSelectField(field.field_id)} className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${selectedFieldId === field.field_id ? "border-[#E0B100] bg-[#1D2433] text-white" : "border-white/10 bg-[#101827] text-slate-200 hover:bg-[#172033]"}`}>
+                  <button key={`map-rail-${field.field_id}`} type="button" onClick={() => handleSelectField(field.field_id)} className={`tf2-control w-full rounded-lg border px-3 py-2 text-left text-sm ${selectedFieldId === field.field_id ? "border-[#E0B100]/70 bg-[#1D2433] text-white" : "border-white/[0.07] bg-white/[0.025] text-slate-200 hover:bg-white/[0.06]"}`}>
                     <div className="flex items-center justify-between gap-2"><span className="font-semibold">Поле {field.field_display_name}</span><span className="text-xs text-slate-400">{formatHa(field.field_area_ha)}</span></div>
                     <div className="mt-0.5 truncate text-xs text-slate-400">{field.crop_structure.slice(0, 2).map((row) => row.crop_name || "Культура не задана").join(", ") || "Структура не задана"}</div>
                   </button>
@@ -2525,12 +2523,12 @@ export function FieldsMapPage() {
         </div>
 
         <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 w-[min(980px,calc(100%-24px))] -translate-x-1/2">
-          <div className="pointer-events-auto rounded-2xl border border-white/10 bg-[#0B111D]/92 p-2 shadow-2xl backdrop-blur">
+          <div className="tf2-dock pointer-events-auto rounded-2xl p-2">
             <div className="flex flex-wrap items-center justify-center gap-2">
-              <Button size="sm" variant={measurementMode === "distance" ? "default" : "outline"} onClick={() => handleMeasurementMode("distance")}><Route className="mr-2 h-4 w-4" />Расстояние</Button>
-              <Button size="sm" variant={measurementMode === "area" ? "default" : "outline"} onClick={() => handleMeasurementMode("area")}><Ruler className="mr-2 h-4 w-4" />Площадь</Button>
-              <Button size="sm" variant={followMeasureActive ? "default" : "outline"} onClick={handleToggleFollowMeasure}><Crosshair className="mr-2 h-4 w-4" />Follow</Button>
-              <Button size="sm" variant="outline" onClick={clearMeasurement}><Trash2 className="mr-2 h-4 w-4" />Очистить</Button>
+              <Button className="tf2-control" size="sm" variant={measurementMode === "distance" ? "default" : "outline"} onClick={() => handleMeasurementMode("distance")}><Route className="mr-2 h-4 w-4" />Расстояние</Button>
+              <Button className="tf2-control" size="sm" variant={measurementMode === "area" ? "default" : "outline"} onClick={() => handleMeasurementMode("area")}><Ruler className="mr-2 h-4 w-4" />Площадь</Button>
+              <Button className="tf2-control" size="sm" variant={followMeasureActive ? "default" : "outline"} onClick={handleToggleFollowMeasure}><Crosshair className="mr-2 h-4 w-4" />Follow</Button>
+              <Button className="tf2-control" size="sm" variant="outline" onClick={clearMeasurement}><Trash2 className="mr-2 h-4 w-4" />Очистить</Button>
               {mapWorkMode === "engineering" ? (
                 <>
                   <div className="mx-1 hidden h-7 w-px bg-white/10 md:block" />
@@ -2545,7 +2543,7 @@ export function FieldsMapPage() {
         </div>
 
         {mapWorkMode === "agro" && selectedField ? (
-          <aside className="travkin-scrollbar pointer-events-auto absolute right-3 top-[88px] z-10 max-h-[calc(100vh-126px)] w-[min(430px,calc(100%-24px))] overflow-y-auto rounded-2xl border border-white/10 bg-[#0B111D]/94 p-4 shadow-2xl backdrop-blur">
+          <aside className="tf2-panel travkin-scrollbar pointer-events-auto absolute inset-x-3 bottom-20 z-10 max-h-[52vh] overflow-y-auto rounded-2xl p-4 xl:inset-x-auto xl:bottom-auto xl:right-3 xl:top-3 xl:max-h-[calc(100%-112px)] xl:w-[430px]">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div><div className="text-xs uppercase tracking-[0.24em] text-emerald-300">Структура посевов</div><h2 className="mt-1 text-2xl font-bold text-slate-50">Поле {selectedField.field_display_name}</h2><div className="text-sm text-slate-400">{formatHa(selectedField.field_area_ha)} • участков {selectedFieldStructures.length}</div></div>
               <Button size="sm" variant="ghost" onClick={() => setSelectedFieldId(null)}><X className="h-4 w-4" /></Button>
@@ -2596,7 +2594,7 @@ export function FieldsMapPage() {
         ) : null}
 
         {mapWorkMode === "engineering" ? (
-          <aside className="pointer-events-auto absolute right-3 top-[88px] z-10 w-[min(420px,calc(100%-24px))] rounded-2xl border border-white/10 bg-[#0B111D]/94 p-4 shadow-2xl backdrop-blur">
+          <aside className="tf2-panel pointer-events-auto absolute inset-x-3 bottom-20 z-10 max-h-[52vh] overflow-y-auto rounded-2xl p-4 xl:inset-x-auto xl:bottom-auto xl:right-3 xl:top-3 xl:max-h-[calc(100%-112px)] xl:w-[420px]">
             <div className="mb-3 flex items-start justify-between gap-3"><div><div className="text-xs uppercase tracking-[0.24em] text-cyan-300">Инженерия капельного</div><h2 className="mt-1 text-xl font-bold text-slate-50">{editingEngineeringObjectId ? "Редактировать объект" : "Добавить объект"}</h2></div><Button size="sm" variant="ghost" onClick={() => setSelectedEngineeringObjectId(null)}><X className="h-4 w-4" /></Button></div>
             <div className="space-y-3">
               <div className="grid grid-cols-[1fr_118px] gap-2">
