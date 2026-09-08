@@ -390,6 +390,23 @@ const materialCategory = (item: Consumption): MaterialCategory => {
   return "other";
 };
 
+const moveTabFocus = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  const tabList = event.currentTarget.parentElement;
+  if (!tabList) return;
+  const tabs = Array.from(tabList.querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)'));
+  const currentIndex = tabs.indexOf(event.currentTarget);
+  if (currentIndex < 0 || tabs.length === 0) return;
+  event.preventDefault();
+  const nextIndex = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? tabs.length - 1
+      : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  tabs[nextIndex]?.focus();
+  tabs[nextIndex]?.click();
+};
+
 export default function CropStructurePage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -2328,38 +2345,39 @@ export default function CropStructurePage() {
     const totalMaterials = rowItems.reduce((sum, item) => sum + item.materialRows.length, 0);
 
     return (
-      <div className="space-y-3 text-slate-100">
-        <div className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
+      <div className="space-y-6 text-slate-100" data-testid="field-dossier">
+        <section aria-labelledby="field-season-summary-heading" className="space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Сезонный контур поля</div>
-              <div className="mt-1 text-2xl font-semibold text-white">{fieldDisplayName(selectedField)}</div>
-              <div className="mt-1 text-sm text-slate-400">
-                Всего {fmtHa(selectedField.area)} · структура {fmtHa(planned)} · сезон {season?.year || "-"} · фактических выдач {fieldConsumptions.length}
-              </div>
+              <h3 id="field-season-summary-heading" className="text-sm font-semibold text-white">
+                Состояние поля в сезоне {season?.year || "—"}
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-slate-400">
+                Поле {fmtHa(selectedField.area)} · структура {fmtHa(planned)} · фактических выдач {fieldConsumptions.length}
+              </p>
             </div>
             <Badge className={stateClass(fieldState(selectedField.id))}>{stateText(fieldState(selectedField.id))}</Badge>
           </div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-4">
-            <div className="rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-2">
-              <div className="text-[11px] uppercase tracking-wide text-slate-500">Участков</div>
-              <div className="mt-1 text-lg font-semibold text-white">{rows.length}</div>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-slate-800 py-3 sm:grid-cols-4 sm:divide-x sm:divide-slate-800">
+            <div className="sm:px-4 sm:first:pl-0">
+              <dt className="text-[11px] uppercase tracking-wide text-slate-500">Участков</dt>
+              <dd className="mt-1 text-lg font-semibold text-white">{rows.length}</dd>
             </div>
-            <div className="rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-2">
-              <div className="text-[11px] uppercase tracking-wide text-slate-500">Операций</div>
-              <div className="mt-1 text-lg font-semibold text-white">{totalOperations}</div>
+            <div className="sm:px-4">
+              <dt className="text-[11px] uppercase tracking-wide text-slate-500">Операций</dt>
+              <dd className="mt-1 text-lg font-semibold text-white">{totalOperations}</dd>
             </div>
-            <div className="rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-2">
-              <div className="text-[11px] uppercase tracking-wide text-slate-500">Материалов</div>
-              <div className="mt-1 text-lg font-semibold text-white">{totalMaterials}</div>
+            <div className="sm:px-4">
+              <dt className="text-[11px] uppercase tracking-wide text-slate-500">Материалов</dt>
+              <dd className="mt-1 text-lg font-semibold text-white">{totalMaterials}</dd>
             </div>
-            <div className="rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-2">
-              <div className="text-[11px] uppercase tracking-wide text-slate-500">Площадь</div>
-              <div className="mt-1 text-lg font-semibold text-white">{fmtHa(planned)}</div>
+            <div className="sm:px-4 sm:last:pr-0">
+              <dt className="text-[11px] uppercase tracking-wide text-slate-500">В структуре</dt>
+              <dd className="mt-1 text-lg font-semibold text-white">{fmtHa(planned)}</dd>
             </div>
-          </div>
+          </dl>
           {FIELD_HARVEST_LIVE_ENABLED && activeCompanyId && seasonId ? (
-            <div className="mt-3">
+            <div className="border-t border-slate-800 pt-4">
               <FieldHarvestLive
                 companyId={activeCompanyId}
                 seasonId={seasonId}
@@ -2369,29 +2387,29 @@ export default function CropStructurePage() {
               />
             </div>
           ) : null}
-        </div>
+        </section>
 
         {selectedItem ? (
-          <div className="grid gap-3 lg:h-[600px] lg:grid-cols-[360px_minmax(0,1fr)]">
-            <aside className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-[#111827]">
-              <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+          <div className="grid gap-5 lg:h-[min(600px,calc(92vh-220px))] lg:grid-cols-[280px_minmax(0,1fr)]">
+            <aside className="min-w-0 lg:flex lg:min-h-0 lg:flex-col lg:border-r lg:border-slate-800 lg:pr-5" aria-label="Участки поля">
+              <div className="flex items-center justify-between pb-2 lg:pb-3">
                 <div>
                   <div className="text-sm font-semibold text-white">Участки</div>
                   <div className="text-xs text-slate-500">Выберите объект операции</div>
                 </div>
                 <Badge className="border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-900">{rowItems.length}</Badge>
               </div>
-              <div className="min-h-0 overflow-y-auto p-2 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
+              <div className="flex min-h-0 gap-2 overflow-x-auto pb-2 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] lg:block lg:space-y-1 lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
                 {rowItems.map((item) => {
                   const isSelected = item.key === selectedItem.key;
                   return (
                     <button
                       key={item.key}
                       type="button"
-                      className={`mb-2 flex h-[72px] w-full items-center justify-between gap-3 rounded-xl border px-3 text-left transition ${
+                      className={`flex min-h-16 min-w-[220px] items-center justify-between gap-3 rounded-lg border-l-2 px-3 py-2 text-left transition-colors motion-reduce:transition-none lg:min-w-0 ${
                         isSelected
-                          ? "border-yellow-400/70 bg-yellow-400/10 shadow-[inset_3px_0_0_rgba(250,204,21,1)]"
-                          : "border-slate-800 bg-slate-950/45 hover:border-slate-600"
+                          ? "border-yellow-400 bg-yellow-400/10"
+                          : "border-transparent bg-transparent hover:border-slate-600 hover:bg-slate-900/60"
                       }`}
                       onClick={() => {
                         setSelectedDossierAllocationKey(item.key);
@@ -2404,9 +2422,9 @@ export default function CropStructurePage() {
                           {item.reviewRequired ? "Требуется уточнить сорт и репродукцию" : fmtHa(item.plannedArea)}
                         </div>
                       </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1">
-                        <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-300">{item.operationsForAllocation.length} оп.</span>
-                        <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-300">{item.materialRows.length} мат.</span>
+                      <div className="shrink-0 text-right text-[11px] leading-5 text-slate-400">
+                        <div>{item.operationsForAllocation.length} оп.</div>
+                        <div>{item.materialRows.length} мат.</div>
                       </div>
                     </button>
                   );
@@ -2414,11 +2432,11 @@ export default function CropStructurePage() {
               </div>
             </aside>
 
-            <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-[#111827]">
-              <div className="border-b border-slate-800 px-4 py-3">
+            <section className="flex min-h-0 min-w-0 flex-col overflow-hidden" aria-labelledby="selected-allocation-heading">
+              <div className="border-b border-slate-800 pb-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="truncate text-lg font-semibold text-white">{selectedItem.title}</div>
+                    <h3 id="selected-allocation-heading" className="truncate text-lg font-semibold text-white">{selectedItem.title}</h3>
                     {selectedItem.reviewRequired ? (
                       <div className="mt-1 text-xs font-medium text-amber-300">
                         До оформления урожая уточните культуру, сорт и репродукцию.
@@ -2440,7 +2458,7 @@ export default function CropStructurePage() {
                   ) : null}
                 </div>
 
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 flex gap-1 overflow-x-auto" role="tablist" aria-label="Данные участка">
                   {[
                     { key: "overview", label: "Обзор" },
                     { key: "operations", label: "Операции" },
@@ -2448,11 +2466,17 @@ export default function CropStructurePage() {
                   ].map((tab) => (
                     <button
                       key={tab.key}
+                      id={`allocation-tab-${tab.key}`}
                       type="button"
-                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                      role="tab"
+                      aria-selected={dossierDetailTab === tab.key}
+                      aria-controls="allocation-detail-panel"
+                      tabIndex={dossierDetailTab === tab.key ? 0 : -1}
+                      onKeyDown={moveTabFocus}
+                      className={`min-h-11 whitespace-nowrap border-b-2 px-3 py-2 text-xs font-semibold transition-colors motion-reduce:transition-none ${
                         dossierDetailTab === tab.key
-                          ? "border-yellow-400 bg-yellow-400 text-slate-950"
-                          : "border-slate-700 bg-slate-950/40 text-slate-300 hover:border-slate-500"
+                          ? "border-yellow-400 text-yellow-300"
+                          : "border-transparent text-slate-400 hover:border-slate-600 hover:text-slate-100"
                       }`}
                       onClick={() => setDossierDetailTab(tab.key as "overview" | "operations" | "materials")}
                     >
@@ -2462,28 +2486,33 @@ export default function CropStructurePage() {
                 </div>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto p-4 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
+              <div
+                id="allocation-detail-panel"
+                role="tabpanel"
+                aria-labelledby={`allocation-tab-${dossierDetailTab}`}
+                className="min-h-0 flex-1 overflow-y-auto pt-4 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent"
+              >
                 {dossierDetailTab === "overview" ? (
                   <div className="space-y-4">
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
-                        <div className="text-[11px] uppercase tracking-wide text-slate-500">Площадь участка</div>
-                        <div className="mt-2 text-xl font-semibold text-white">{fmtHa(selectedItem.plannedArea)}</div>
+                    <dl className="grid grid-cols-3 divide-x divide-slate-800 border-y border-slate-800 py-3">
+                      <div className="px-3 first:pl-0">
+                        <dt className="text-[10px] uppercase tracking-wide text-slate-500 sm:text-[11px]">Площадь</dt>
+                        <dd className="mt-1 text-base font-semibold text-white sm:text-xl">{fmtHa(selectedItem.plannedArea)}</dd>
                       </div>
-                      <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
-                        <div className="text-[11px] uppercase tracking-wide text-slate-500">Операций</div>
-                        <div className="mt-2 text-xl font-semibold text-white">{selectedItem.operationsForAllocation.length}</div>
+                      <div className="px-3">
+                        <dt className="text-[10px] uppercase tracking-wide text-slate-500 sm:text-[11px]">Операций</dt>
+                        <dd className="mt-1 text-base font-semibold text-white sm:text-xl">{selectedItem.operationsForAllocation.length}</dd>
                       </div>
-                      <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
-                        <div className="text-[11px] uppercase tracking-wide text-slate-500">Материалов</div>
-                        <div className="mt-2 text-xl font-semibold text-white">{selectedItem.materialRows.length}</div>
+                      <div className="px-3 last:pr-0">
+                        <dt className="text-[10px] uppercase tracking-wide text-slate-500 sm:text-[11px]">Материалов</dt>
+                        <dd className="mt-1 text-base font-semibold text-white sm:text-xl">{selectedItem.materialRows.length}</dd>
                       </div>
-                    </div>
+                    </dl>
 
                     {selectedItem.allocation.land_use_type === "crop_mix" ? (
-                      <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                      <section className="border-t border-slate-800 pt-4" aria-labelledby="field-mixture-heading">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="text-sm font-semibold text-slate-100">Состав зерносмеси</div>
+                          <h4 id="field-mixture-heading" className="text-sm font-semibold text-slate-100">Состав зерносмеси</h4>
                           <div className="text-xs font-semibold text-yellow-300">
                             Всего семян: {grainMixTotalKg(selectedItem.plannedArea, selectedItem.allocation.mix_components).toLocaleString("ru-RU")} кг
                           </div>
@@ -2492,7 +2521,7 @@ export default function CropStructurePage() {
                           {selectedItem.allocation.mix_components.map((component, index) => (
                             <div
                               key={component.id || `${component.crop_id}-${index}`}
-                              className="grid gap-2 rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2 text-xs sm:grid-cols-[minmax(0,1fr)_110px_120px] sm:items-center"
+                              className="grid gap-2 border-b border-slate-800 py-2 text-xs last:border-b-0 sm:grid-cols-[minmax(0,1fr)_110px_120px] sm:items-center"
                             >
                               <div className="min-w-0 truncate font-semibold text-slate-100">
                                 {index + 1}. {cropName(component.crop_id)} · {varietyName(component.variety_id)} · {reproductionName(component.reproduction_id)}
@@ -2504,12 +2533,12 @@ export default function CropStructurePage() {
                             </div>
                           ))}
                         </div>
-                      </div>
+                      </section>
                     ) : null}
 
                     {selectedItem.operationSummary.length ? (
-                      <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
-                        <div className="text-sm font-semibold text-slate-100">Сводка операций</div>
+                      <section className="border-t border-slate-800 pt-4" aria-labelledby="field-operation-summary-heading">
+                        <h4 id="field-operation-summary-heading" className="text-sm font-semibold text-slate-100">Сводка операций</h4>
                         <div className="mt-3 flex flex-wrap gap-2">
                           {selectedItem.operationSummary.map((item) => (
                             <span key={item.label} className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300">
@@ -2517,7 +2546,7 @@ export default function CropStructurePage() {
                             </span>
                           ))}
                         </div>
-                      </div>
+                      </section>
                     ) : (
                       <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/45 p-4 text-sm text-slate-500">
                         По участку пока нет операций.
@@ -2525,19 +2554,19 @@ export default function CropStructurePage() {
                     )}
 
                     <div className="grid gap-3 lg:grid-cols-2">
-                      <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
-                        <div className="text-sm font-semibold text-slate-100">Последние операции</div>
+                      <section className="border-t border-slate-800 pt-4" aria-labelledby="latest-field-operations-heading">
+                        <h4 id="latest-field-operations-heading" className="text-sm font-semibold text-slate-100">Последние операции</h4>
                         <div className="mt-3 space-y-2">
                           {selectedItem.operationsForAllocation.slice(0, 4).map(renderOperationCard)}
                           {!selectedItem.operationsForAllocation.length ? <div className="text-xs text-slate-500">Операций нет.</div> : null}
                         </div>
-                      </div>
+                      </section>
 
-                      <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
-                        <div className="text-sm font-semibold text-slate-100">Основные материалы</div>
+                      <section className="border-t border-slate-800 pt-4" aria-labelledby="primary-field-materials-heading">
+                        <h4 id="primary-field-materials-heading" className="text-sm font-semibold text-slate-100">Основные материалы</h4>
                         <div className="mt-3 space-y-2">
                           {selectedItem.materialRows.slice(0, 4).map((item) => (
-                            <div key={`${item.category}-${item.identity}-${item.batchClass}`} className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2 text-xs">
+                            <div key={`${item.category}-${item.identity}-${item.batchClass}`} className="flex items-center justify-between gap-3 border-b border-slate-800 py-2 text-xs last:border-b-0">
                               <div className="min-w-0">
                                 <div className="truncate font-semibold text-slate-100">{item.identity}</div>
                                 <div className="text-[11px] text-slate-500">{item.categoryLabel}</div>
@@ -2547,14 +2576,14 @@ export default function CropStructurePage() {
                           ))}
                           {!selectedItem.materialRows.length ? <div className="text-xs text-slate-500">Материалов нет.</div> : null}
                         </div>
-                      </div>
+                      </section>
                     </div>
                   </div>
                 ) : null}
 
                 {dossierDetailTab === "operations" ? (
-                  <div className="overflow-hidden rounded-xl border border-slate-800">
-                    <table className="w-full text-left text-xs">
+                  <div className="overflow-x-auto border-y border-slate-800">
+                    <table className="min-w-[640px] w-full text-left text-xs">
                       <thead className="bg-slate-950/70 text-[11px] uppercase tracking-wide text-slate-500">
                         <tr>
                           <th className="px-3 py-2 font-medium">Дата</th>
@@ -2589,8 +2618,8 @@ export default function CropStructurePage() {
                 {dossierDetailTab === "materials" ? (
                   <div className="space-y-3">
                     <div className="text-xs text-slate-500">Расчёт факта: {selectedItem.rateBasis}</div>
-                    <div className="overflow-hidden rounded-xl border border-slate-800">
-                      <table className="w-full text-left text-xs">
+                    <div className="overflow-x-auto border-y border-slate-800">
+                      <table className="min-w-[680px] w-full text-left text-xs">
                         <thead className="bg-slate-950/70 text-[11px] uppercase tracking-wide text-slate-500">
                           <tr>
                             <th className="px-3 py-2 font-medium">Группа</th>
@@ -2634,28 +2663,44 @@ export default function CropStructurePage() {
     if (!selectedField) return null;
     const editorLabelClass = "mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400";
     const editorControlClass =
-      "h-10 w-full min-w-0 border-slate-700 bg-[#0f1622] text-slate-100 shadow-inner shadow-black/20 placeholder:text-slate-500 focus-visible:border-yellow-400 focus-visible:ring-2 focus-visible:ring-yellow-400/50 focus-visible:ring-offset-0";
+      "h-11 w-full min-w-0 border-slate-700 bg-[#0f1622] text-slate-100 shadow-inner shadow-black/20 placeholder:text-slate-500 focus-visible:border-yellow-400 focus-visible:ring-2 focus-visible:ring-yellow-400/50 focus-visible:ring-offset-0";
     const editorNumberControlClass = `${editorControlClass} [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
     const editorSelectContentClass = "border-slate-700 bg-[#101720] text-slate-100 shadow-xl";
     const plannedArea = sumArea(draftRows);
     const remainingArea = selectedField.area - plannedArea;
     const areaIsOver = remainingArea < -EPS;
+    const plannedPercent = selectedField.area > 0
+      ? Math.min(100, Math.max(0, (plannedArea / selectedField.area) * 100))
+      : 0;
 
     return (
-      <div className="text-slate-100">
-        <div className="mb-3 space-y-2">
+      <section className="space-y-5 text-slate-100" aria-labelledby="crop-structure-editor-heading" data-testid="crop-structure-editor">
+        <div className="space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <div className="text-sm font-semibold text-slate-100">Редактор структуры</div>
-              <div className={`mt-1 text-xs ${areaIsOver ? "font-semibold text-rose-300" : "text-slate-400"}`}>
+              <h3 id="crop-structure-editor-heading" className="text-sm font-semibold text-slate-100">Площадь структуры</h3>
+              <p className={`mt-1 text-xs ${areaIsOver ? "font-semibold text-rose-300" : "text-slate-400"}`}>
                 План: {fmtHa(plannedArea)} / {fmtHa(selectedField.area)} · {areaIsOver ? "Превышение" : "Остаток"}: {fmtHa(Math.abs(remainingArea))}
-              </div>
+              </p>
             </div>
             {hasUnsavedStructureChanges ? (
               <Badge className="border border-amber-400/30 bg-amber-400/10 text-amber-200 hover:bg-amber-400/10">
                 Не сохранено
               </Badge>
             ) : null}
+          </div>
+          <div
+            className="h-1.5 overflow-hidden rounded-full bg-slate-800"
+            role="progressbar"
+            aria-label="Заполненная площадь структуры"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(plannedPercent)}
+          >
+            <div
+              className={`h-full rounded-full transition-[width] motion-reduce:transition-none ${areaIsOver ? "bg-rose-400" : "bg-yellow-400"}`}
+              style={{ width: `${plannedPercent}%` }}
+            />
           </div>
           {!seasonId ? (
             <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
@@ -2669,7 +2714,7 @@ export default function CropStructurePage() {
           ) : null}
         </div>
 
-        <div className="space-y-3">
+        <div>
           {draftRows.map((row, index) => {
             const rowCropId = displayCropId(row.crop_id);
             const vars = rowCropId ? varietiesByCrop.get(rowCropId) || [] : [];
@@ -2680,15 +2725,33 @@ export default function CropStructurePage() {
             const isFallowRow = isFallowAllocation(row);
             const isCropMixRow = isCropMixAllocation(row);
             return (
-              <div key={`${row.id || "new"}-${index}`} className="overflow-hidden rounded-xl border border-slate-700/80 bg-[#101823] shadow-sm ring-1 ring-slate-900/40">
-                <div className="flex items-center justify-between border-b border-slate-700/70 px-3 py-2">
+              <section
+                key={`${row.id || "new"}-${index}`}
+                className="border-t border-slate-700/80 py-5 first:border-t-0 first:pt-0"
+                aria-labelledby={`crop-structure-row-${index}`}
+              >
+                <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <span className="flex h-6 w-6 items-center justify-center rounded-full bg-yellow-500 text-[11px] font-bold text-slate-950">{index + 1}</span>
-                    <span className="text-xs font-semibold text-slate-200">Участок структуры</span>
+                    <h4 id={`crop-structure-row-${index}`} className="text-sm font-semibold text-slate-100">Участок структуры</h4>
                   </div>
-                  <span className="text-xs text-slate-400">{fmtHa(Number(row.area || 0))}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400">{fmtHa(Number(row.area || 0))}</span>
+                    <Button
+                      type="button"
+                      className="h-11 w-11 border border-transparent text-slate-400 hover:border-rose-500/40 hover:bg-rose-500/15 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
+                      variant="ghost"
+                      size="icon"
+                      title={isDeleteLocked ? "Почему нельзя удалить участок" : "Удалить участок"}
+                      aria-label={isDeleteLocked ? "Показать причину запрета удаления участка" : "Удалить участок"}
+                      onClick={() => requestRemoveRow(index)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
-                <div className="grid grid-cols-12 items-end gap-3 p-3">
+                <div className="grid grid-cols-12 items-end gap-3 pt-4">
+                <div className="col-span-12 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Посев и использование</div>
                 <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
                   <Label className={editorLabelClass}>Использование участка *</Label>
                   <Select
@@ -2755,10 +2818,10 @@ export default function CropStructurePage() {
                   </>
                 ) : null}
                 {isCropMixRow ? (
-                  <div className="col-span-12 space-y-2 rounded-lg border border-slate-700/70 bg-slate-950/35 p-3">
+                  <section className="col-span-12 space-y-3 border-y border-slate-700/70 py-4" aria-labelledby={`crop-mixture-${index}`}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <div className="text-sm font-semibold text-slate-100">Состав зерносмеси</div>
+                        <h5 id={`crop-mixture-${index}`} className="text-sm font-semibold text-slate-100">Состав зерносмеси</h5>
                         <div className="text-xs text-slate-400">Нормы задаются отдельно; площадь участка учитывается один раз.</div>
                       </div>
                       <div className="text-sm font-semibold text-yellow-300">
@@ -2770,7 +2833,7 @@ export default function CropStructurePage() {
                         const componentCropId = displayCropId(component.crop_id);
                         const componentVarieties = componentCropId ? varietiesByCrop.get(componentCropId) || [] : [];
                         return (
-                          <div key={`${component.id || "new"}-${componentIndex}`} className="grid grid-cols-12 items-end gap-2 rounded-lg border border-slate-800 bg-[#0b1220] p-2">
+                          <div key={`${component.id || "new"}-${componentIndex}`} className="grid grid-cols-12 items-end gap-2 border-b border-slate-800 py-3 last:border-b-0">
                             <div className="col-span-12 min-w-0 md:col-span-2">
                               <Label className={editorLabelClass}>Компонент {componentIndex + 1}: культура *</Label>
                               <Select
@@ -2832,7 +2895,7 @@ export default function CropStructurePage() {
                             </div>
                             <div className="col-span-3 min-w-0 md:col-span-1">
                               <Label className={editorLabelClass}>Всего</Label>
-                              <div className="flex h-10 items-center truncate text-xs font-semibold text-slate-200" title={`${grainMixComponentTotalKg(row.area, component.seed_rate_kg_ha)} кг`}>
+                              <div className="flex h-11 items-center truncate text-xs font-semibold text-slate-200" title={`${grainMixComponentTotalKg(row.area, component.seed_rate_kg_ha)} кг`}>
                                 {grainMixComponentTotalKg(row.area, component.seed_rate_kg_ha).toLocaleString("ru-RU")} кг
                               </div>
                             </div>
@@ -2842,7 +2905,7 @@ export default function CropStructurePage() {
                                 variant="ghost"
                                 size="icon"
                                 title="Удалить компонент"
-                                className="h-10 w-10 text-slate-400 hover:bg-rose-500/15 hover:text-rose-200"
+                                className="h-11 w-11 text-slate-400 hover:bg-rose-500/15 hover:text-rose-200"
                                 disabled={row.mix_components.length <= GRAIN_MIX_MIN_COMPONENTS}
                                 onClick={() => removeMixComponent(index, componentIndex)}
                               >
@@ -2857,14 +2920,15 @@ export default function CropStructurePage() {
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="border-slate-700 bg-[#0b1220] text-slate-100"
+                      className="min-h-11 border-slate-700 bg-[#0b1220] text-slate-100"
                       disabled={row.mix_components.length >= GRAIN_MIX_MAX_COMPONENTS}
                       onClick={() => addMixComponent(index)}
                     >
                       <Plus className="mr-2 h-4 w-4" />Добавить компонент
                     </Button>
-                  </div>
+                  </section>
                 ) : null}
+                <div className="col-span-12 mt-1 border-t border-slate-700/70 pt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Площадь и параметры</div>
                 <div className="col-span-12 min-w-0 sm:col-span-7 xl:col-span-4">
                   <Label className={editorLabelClass}>Площадь, га *</Label>
                   <div className="flex gap-1.5">
@@ -2873,7 +2937,7 @@ export default function CropStructurePage() {
                       type="button"
                       title="Заполнить остатком площади"
                       aria-label="Заполнить остатком площади"
-                      className="h-10 w-10 shrink-0 border border-slate-700 bg-[#0b1220] p-0 text-slate-400 hover:border-yellow-500/50 hover:bg-[#172033] hover:text-yellow-300"
+                      className="h-11 w-11 shrink-0 border border-slate-700 bg-[#0b1220] p-0 text-slate-400 hover:border-yellow-500/50 hover:bg-[#172033] hover:text-yellow-300"
                       variant="outline"
                       onClick={() => fillRemainingArea(index)}
                     >
@@ -2883,22 +2947,9 @@ export default function CropStructurePage() {
                 </div>
                 <div className="col-span-8 min-w-0 sm:col-span-3 xl:col-span-2">
                   <Label className={editorLabelClass}>%</Label>
-                  <div className="flex h-10 items-center rounded-md border border-slate-700 bg-[#0b1220] px-3 text-sm font-semibold text-slate-200 shadow-inner shadow-black/20">{pct}</div>
+                  <div className="flex h-11 items-center border-b border-slate-700 px-1 text-sm font-semibold text-slate-200">{pct}</div>
                 </div>
-                <div className="col-span-4 min-w-0 sm:col-span-2 xl:col-span-1">
-                  <Label className={editorLabelClass}>Удалить</Label>
-                  <Button
-                    className="h-10 w-10 border border-transparent text-slate-400 hover:border-rose-500/40 hover:bg-rose-500/15 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
-                    variant="ghost"
-                    size="icon"
-                    title={isDeleteLocked ? "Почему нельзя удалить участок" : "Удалить участок"}
-                    aria-label={isDeleteLocked ? "Показать причину запрета удаления участка" : "Удалить участок"}
-                    onClick={() => requestRemoveRow(index)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-                <div className={`col-span-12 grid grid-cols-1 gap-2 border-t border-slate-700/70 pt-3 ${isFallowRow || isCropMixRow ? "" : "md:grid-cols-3"}`}>
+                <div className={`col-span-12 grid grid-cols-1 gap-3 ${isFallowRow || isCropMixRow ? "" : "md:grid-cols-3"}`}>
                   <div>
                     <Label className={editorLabelClass}>Орошение</Label>
                     <Select
@@ -2951,14 +3002,16 @@ export default function CropStructurePage() {
                   />
                 </div>
                 </div>
-              </div>
+              </section>
             );
           })}
+          {!draftRows.length ? (
+            <div className="border-y border-dashed border-slate-700 py-8 text-center text-sm text-slate-400">
+              В поле пока нет участков структуры. Добавьте первый участок в панели действий.
+            </div>
+          ) : null}
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Button className="border-slate-700 bg-[#0b1220] text-slate-100 hover:border-yellow-500/50 hover:bg-[#172033] hover:text-white" variant="outline" onClick={addRow}><Plus className="mr-2 h-4 w-4" />Добавить строку</Button>
-        </div>
-      </div>
+      </section>
     );
   };
 
@@ -2970,39 +3023,45 @@ export default function CropStructurePage() {
     const diffAbs = Math.abs(diff);
     const diffStatus =
       diffAbs <= 0.01 ? "ok" : diffAbs <= 1 ? "warning" : links.length ? "mismatch" : "missing_cadastre";
+    const diffStatusLabel = diffStatus === "ok"
+      ? "Совпадает"
+      : diffStatus === "warning"
+        ? "Проверьте"
+        : diffStatus === "mismatch"
+          ? "Расхождение"
+          : "Нет кадастра";
 
     return (
-      <div className="space-y-4">
-        <div className="rounded-2xl border bg-white p-4">
+      <div className="space-y-5 text-slate-100" data-testid="field-legal-contour">
+        <section aria-labelledby="field-legal-contour-heading" className="space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold text-slate-900">Юридический контур поля</div>
-              <div className="mt-1 text-sm text-slate-600">
-                {fieldDisplayName(selectedField)} · Агро-площадь {fmtHa(selectedField.area)} · Юр-площадь {fmtHa(totalLegalArea)}
-              </div>
-              <div className="mt-1 text-xs text-slate-500">
-                Разница: {diff > 0 ? "+" : ""}{fmtHa(diffAbs).replace(" га", "")} га
-              </div>
+              <h3 id="field-legal-contour-heading" className="text-sm font-semibold text-white">Юридический контур</h3>
+              <p className="mt-1 text-sm text-slate-400">
+                Агро-площадь {fmtHa(selectedField.area)} · юридическая {fmtHa(totalLegalArea)}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Разница: {diff > 0 ? "+" : diff < 0 ? "−" : ""}{fmtHa(diffAbs).replace(" га", "")} га
+              </p>
             </div>
             <Badge
               className={
                 diffStatus === "ok"
-                  ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100"
+                  ? "border border-emerald-400/30 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/10"
                   : diffStatus === "warning"
-                    ? "bg-amber-100 text-amber-800 hover:bg-amber-100"
-                    : "bg-rose-100 text-rose-800 hover:bg-rose-100"
+                    ? "border border-amber-400/30 bg-amber-400/10 text-amber-200 hover:bg-amber-400/10"
+                    : "border border-rose-400/30 bg-rose-400/10 text-rose-200 hover:bg-rose-400/10"
               }
             >
-              {diffStatus}
+              {diffStatusLabel}
             </Badge>
           </div>
-        </div>
+        </section>
 
         {links.length ? (
-          <div className="overflow-hidden rounded-xl border bg-white">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+          <div className="overflow-x-auto border-y border-slate-800">
+              <table className="w-full min-w-[760px] text-left text-xs">
+                <thead className="bg-slate-950/60 text-[11px] uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-3 py-2 font-medium">Кадастровый номер</th>
                     <th className="px-3 py-2 font-medium">Площадь</th>
@@ -3015,22 +3074,21 @@ export default function CropStructurePage() {
                 </thead>
                 <tbody>
                   {links.map((row) => (
-                    <tr key={row.id} className="border-t border-slate-100">
-                      <td className="px-3 py-2 font-medium text-slate-900">{row.cadastral_number}</td>
-                      <td className="px-3 py-2 text-slate-700">{fmtHa(row.area_ha)}</td>
-                      <td className="px-3 py-2 text-slate-700">{row.crop_id ? cropName(row.crop_id) : "—"}</td>
-                      <td className="px-3 py-2 text-slate-700">{row.legal_entity_name || "—"}</td>
-                      <td className="px-3 py-2 text-slate-700">{row.owner_legal_entity_name || row.usage_legal_entity_name || "—"}</td>
+                    <tr key={row.id} className="border-t border-slate-800">
+                      <td className="px-3 py-2 font-medium text-slate-100">{row.cadastral_number}</td>
+                      <td className="px-3 py-2 text-slate-300">{fmtHa(row.area_ha)}</td>
+                      <td className="px-3 py-2 text-slate-300">{row.crop_id ? cropName(row.crop_id) : "—"}</td>
+                      <td className="px-3 py-2 text-slate-300">{row.legal_entity_name || "—"}</td>
+                      <td className="px-3 py-2 text-slate-300">{row.owner_legal_entity_name || row.usage_legal_entity_name || "—"}</td>
                       <td className="px-3 py-2 text-slate-500">{row.allocation_method}</td>
                       <td className="px-3 py-2 text-slate-500">{row.source}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
           </div>
         ) : (
-          <div className="rounded-xl border border-dashed bg-slate-50 p-4 text-sm text-slate-600">
+          <div className="border-y border-dashed border-slate-700 py-6 text-sm text-slate-400">
             Для этого поля пока нет юридической разбивки по кадастрам в выбранном сезоне.
           </div>
         )}
@@ -3229,49 +3287,137 @@ export default function CropStructurePage() {
       ) : null}
 
       <Dialog open={Boolean(selectedFieldId)} onOpenChange={(open) => !open && requestCloseField()}>
-        <DialogContent className="max-h-[92vh] w-[94vw] max-w-none overflow-y-auto border-slate-800 bg-[#0b1017] text-slate-100 shadow-2xl shadow-black/50 sm:max-w-[1180px] [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700/80 [&::-webkit-scrollbar-track]:bg-transparent">
-          <DialogHeader>
-            <div className="flex items-center justify-between gap-2">
-              <DialogTitle>{selectedField ? `${fieldDisplayName(selectedField)} — ${fmtHa(selectedField.area)}` : "Поле"}</DialogTitle>
-              <Button variant="outline" onClick={exportFieldPdf} disabled={pdfLoading || !selectedFieldId || !seasonId}>
-                <FileText className="mr-2 h-4 w-4" />{pdfLoading ? "Формирование..." : "PDF поля"}
-              </Button>
+        <DialogContent
+          hideCloseButton
+          data-testid="field-dialog-content"
+          overlayClassName="motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none motion-reduce:duration-0"
+          className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-none flex-col gap-0 overflow-hidden border-slate-800 bg-[#0b1017] p-0 text-slate-100 shadow-2xl shadow-black/50 motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none motion-reduce:duration-0 sm:max-h-[92vh] sm:w-[94vw] sm:max-w-[1180px] sm:rounded-2xl"
+        >
+          <DialogHeader className="shrink-0 gap-3 space-y-0 border-b border-slate-800 px-4 py-4 pr-4 text-left sm:px-6">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 pt-1">
+                <DialogTitle className="truncate text-lg leading-tight sm:text-xl">
+                  {selectedField ? fieldDisplayName(selectedField) : "Поле"}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs text-slate-400 sm:text-sm">
+                  {selectedField ? `${fmtHa(selectedField.area)} · сезон ${season?.year || "—"}` : "Данные поля"}
+                </DialogDescription>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-11 min-w-11 px-3 text-slate-300 hover:bg-slate-800 hover:text-white"
+                  onClick={exportFieldPdf}
+                  disabled={pdfLoading || !selectedFieldId || !seasonId}
+                  aria-label={pdfLoading ? "Формируется PDF поля" : "Скачать PDF поля"}
+                >
+                  <FileText className="h-4 w-4 min-[420px]:mr-2" />
+                  <span className="hidden min-[420px]:inline">{pdfLoading ? "Формирование..." : "PDF поля"}</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-11 w-11 text-slate-300 hover:bg-slate-800 hover:text-white"
+                  onClick={requestCloseField}
+                  aria-label="Закрыть карточку поля"
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
             </div>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="flex flex-wrap gap-2">
-              <Button variant={fieldDialogTab === "dossier" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("dossier")}>
-                Агро-контур
+            <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Разделы карточки поля">
+              <Button
+                id="field-tab-dossier"
+                role="tab"
+                aria-selected={fieldDialogTab === "dossier"}
+                aria-controls="field-dialog-panel"
+                tabIndex={fieldDialogTab === "dossier" ? 0 : -1}
+                variant="ghost"
+                size="sm"
+                className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "dossier" ? "border-yellow-400 text-yellow-300" : "border-transparent text-slate-400 hover:border-slate-600 hover:text-slate-100"}`}
+                onClick={() => setFieldDialogTab("dossier")}
+                onKeyDown={moveTabFocus}
+              >
+                Обзор
               </Button>
               {canEditStructure ? (
                 <Button
-                  variant={fieldDialogTab === "editor" ? "default" : "outline"}
+                  id="field-tab-editor"
+                  role="tab"
+                  aria-selected={fieldDialogTab === "editor"}
+                  aria-controls="field-dialog-panel"
+                  tabIndex={fieldDialogTab === "editor" ? 0 : -1}
+                  variant="ghost"
                   size="sm"
+                  className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "editor" ? "border-yellow-400 text-yellow-300" : "border-transparent text-slate-400 hover:border-slate-600 hover:text-slate-100"}`}
                   onClick={() => setFieldDialogTab("editor")}
+                  onKeyDown={moveTabFocus}
                   disabled={!canEditSelectedSeason}
                   title={!seasonId ? "У компании нет активного сезона" : !canEditSelectedSeason ? "Сезон доступен только для чтения" : undefined}
                 >
-                  Редактор структуры
+                  Структура
                 </Button>
               ) : null}
               {isGlobalAdmin ? (
-                <Button variant={fieldDialogTab === "legal" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("legal")}>
-                  Юридический контур
+                <Button
+                  id="field-tab-legal"
+                  role="tab"
+                  aria-selected={fieldDialogTab === "legal"}
+                  aria-controls="field-dialog-panel"
+                  tabIndex={fieldDialogTab === "legal" ? 0 : -1}
+                  variant="ghost"
+                  size="sm"
+                  className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "legal" ? "border-yellow-400 text-yellow-300" : "border-transparent text-slate-400 hover:border-slate-600 hover:text-slate-100"}`}
+                  onClick={() => setFieldDialogTab("legal")}
+                  onKeyDown={moveTabFocus}
+                >
+                  Юр. контур
                 </Button>
               ) : null}
             </div>
+          </DialogHeader>
+          <div
+            id="field-dialog-panel"
+            role="tabpanel"
+            aria-labelledby={`field-tab-${fieldDialogTab}`}
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] sm:px-6 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700/80 [&::-webkit-scrollbar-track]:bg-transparent"
+          >
             {fieldDialogTab === "dossier" ? renderFieldDossier() : null}
             {fieldDialogTab === "editor" ? renderEditor() : null}
             {fieldDialogTab === "legal" ? renderLegalContour() : null}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={requestCloseField}>Закрыть</Button>
-            {canEditSelectedSeason && fieldDialogTab === "editor" ? (
-              <Button onClick={requestSave} disabled={saving}>
-                <Edit3 className="mr-2 h-4 w-4" />{saving ? "Сохранение..." : "Сохранить"}
-              </Button>
-            ) : null}
-          </DialogFooter>
+          <div
+            className="sticky bottom-0 z-20 flex shrink-0 flex-col gap-2 border-t border-slate-800 bg-[#0b1017]/95 px-4 py-3 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:px-6"
+            data-testid="field-dialog-action-bar"
+          >
+            <div className="min-h-5 text-xs text-slate-400" aria-live="polite">
+              {hasUnsavedStructureChanges
+                ? "Есть несохранённые изменения"
+                : fieldDialogTab === "editor"
+                  ? "Все изменения сохранены"
+                : "Esc или кнопка справа закроет карточку"}
+            </div>
+            <div className={`grid w-full gap-2 sm:flex sm:w-auto ${canEditSelectedSeason && fieldDialogTab === "editor" ? "grid-cols-2" : "grid-cols-1"}`}>
+              {canEditSelectedSeason && fieldDialogTab === "editor" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 border-slate-700 bg-transparent text-slate-100 hover:border-yellow-500/50 hover:bg-slate-800 hover:text-white"
+                  onClick={addRow}
+                >
+                  <Plus className="mr-2 h-4 w-4" />Добавить участок
+                </Button>
+              ) : null}
+              <Button type="button" className="h-11" variant="outline" onClick={requestCloseField}>Закрыть</Button>
+              {canEditSelectedSeason && fieldDialogTab === "editor" ? (
+                <Button className="col-span-2 h-11 sm:col-span-1" onClick={requestSave} disabled={saving || !hasUnsavedStructureChanges}>
+                  <Edit3 className="mr-2 h-4 w-4" />{saving ? "Сохранение..." : "Сохранить"}
+                </Button>
+              ) : null}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
