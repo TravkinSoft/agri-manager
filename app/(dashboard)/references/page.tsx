@@ -42,6 +42,7 @@ import {
   getPesticides,
   getSeasonAgronomyUsage,
   updateCompanyPerson,
+  updateMachineReference,
   updateVehicleReference,
   type SeasonAgronomyUsageRow,
 } from "@/lib/services/references";
@@ -156,13 +157,6 @@ function editableVehiclePlate(row: any): string {
     if (displayValue !== "Госномер не указан") return displayValue;
   }
   return "";
-}
-
-function comparableVehiclePlate(value: unknown): string {
-  return String(value || "")
-    .trim()
-    .replace(/\s+/g, "")
-    .toLocaleUpperCase("ru");
 }
 
 function machineTypeFromCatalog(category: string | null | undefined) {
@@ -325,6 +319,7 @@ export default function ReferencesPage() {
   const [domainTab, setDomainTab] = useState<DomainTab>("agronomy");
   const [machineYardTab, setMachineYardTab] = useState<MachineYardTab>("park");
   const [modalType, setModalType] = useState<ModalType | null>(null);
+  const [editingMachineId, setEditingMachineId] = useState<string | null>(null);
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   const [editingWorkerId, setEditingWorkerId] = useState<string | null>(null);
   const [editingWorkerRole, setEditingWorkerRole] = useState<string | null>(null);
@@ -495,6 +490,7 @@ export default function ReferencesPage() {
 
   const openModal = (type: ModalType, initialForm: Record<string, string> = {}) => {
     setModalType(type);
+    setEditingMachineId(type === "machine" && initialForm.id ? initialForm.id : null);
     setEditingVehicleId(type === "vehicle" && initialForm.id ? initialForm.id : null);
     setEditingWorkerId(type === "worker" && initialForm.id ? initialForm.id : null);
     setEditingWorkerRole(type === "worker" ? initialForm.role_type || null : null);
@@ -508,6 +504,7 @@ export default function ReferencesPage() {
 
   const closeModal = () => {
     setModalType(null);
+    setEditingMachineId(null);
     setEditingVehicleId(null);
     setEditingWorkerId(null);
     setEditingWorkerRole(null);
@@ -556,27 +553,43 @@ export default function ReferencesPage() {
     setSaving(true);
     try {
       if (modalType === "machine") {
-        const model = machineModels.find((row) => row.id === form.model_id);
-        if (!model) throw new Error("Выберите модель техники из ГЛБД");
-        const type = machineTypeFromCatalog(model.category);
-        const canonicalName = catalogModelLabel(model);
-        const instanceIdentifier = String(form.inventory_number || form.plate_number || "").trim();
-        await createMachineReference(profile.company_id, profile.id, {
-          name: instanceIdentifier ? `${canonicalName} • ${instanceIdentifier}` : canonicalName,
-          type,
-          model: model.model || "",
-          status: (form.status || "free") as any,
-          is_active: form.status !== "inactive",
-          global_machine_model_id: model.id,
-          full_name: canonicalName,
-          brand: model.brand,
-          series: model.series,
-          category: type,
-          machinery_type: model.category,
-          inventory_number: form.inventory_number || null,
-          license_plate: form.plate_number || null,
-          manufacture_year: form.manufacture_year ? Number(form.manufacture_year) : null,
-        });
+        const plateNumber = String(form.plate_number || "").trim();
+        if (plateNumber.length > 32) throw new Error("Госномер не должен превышать 32 символа");
+        const manufactureYear = form.manufacture_year ? Number(form.manufacture_year) : null;
+        if (manufactureYear !== null && (!Number.isInteger(manufactureYear) || manufactureYear < 1900 || manufactureYear > 2100)) {
+          throw new Error("Год выпуска должен быть целым числом от 1900 до 2100");
+        }
+
+        if (editingMachineId) {
+          await updateMachineReference(profile.company_id, editingMachineId, {
+            license_plate: plateNumber || null,
+            inventory_number: String(form.inventory_number || "").trim(),
+            manufacture_year: manufactureYear,
+            is_active: form.is_active !== "false",
+          });
+        } else {
+          const model = machineModels.find((row) => row.id === form.model_id);
+          if (!model) throw new Error("Выберите модель техники из ГЛБД");
+          const type = machineTypeFromCatalog(model.category);
+          const canonicalName = catalogModelLabel(model);
+          const instanceIdentifier = String(form.inventory_number || form.plate_number || "").trim();
+          await createMachineReference(profile.company_id, profile.id, {
+            name: instanceIdentifier ? `${canonicalName} • ${instanceIdentifier}` : canonicalName,
+            type,
+            model: model.model || "",
+            status: (form.status || "free") as any,
+            is_active: form.status !== "inactive",
+            global_machine_model_id: model.id,
+            full_name: canonicalName,
+            brand: model.brand,
+            series: model.series,
+            category: type,
+            machinery_type: model.category,
+            inventory_number: form.inventory_number || null,
+            license_plate: plateNumber || null,
+            manufacture_year: manufactureYear,
+          });
+        }
       }
       if (modalType === "equipment") {
         const model = equipmentModels.find((row) => row.id === form.model_id);
@@ -604,14 +617,6 @@ export default function ReferencesPage() {
         if (manufactureYear !== null && (!Number.isInteger(manufactureYear) || manufactureYear < 1900 || manufactureYear > 2100)) {
           throw new Error("Год выпуска должен быть целым числом от 1900 до 2100");
         }
-
-        const plateKey = comparableVehiclePlate(plateNumber);
-        const duplicateVehicle = vehicles.find(
-          (vehicle) =>
-            vehicle.id !== editingVehicleId &&
-            comparableVehiclePlate(editableVehiclePlate(vehicle)) === plateKey
-        );
-        if (duplicateVehicle) throw new Error("Машина с таким госномером уже существует");
 
         if (editingVehicleId) {
           await updateVehicleReference(profile.company_id, editingVehicleId, {
@@ -666,7 +671,7 @@ export default function ReferencesPage() {
       }
       closeModal();
       await loadAll();
-      toast({ title: "Готово", description: editingWorkerId || editingVehicleId ? "Запись обновлена" : "Запись успешно создана" });
+      toast({ title: "Готово", description: editingWorkerId || editingMachineId || editingVehicleId ? "Запись обновлена" : "Запись успешно создана" });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Не удалось сохранить запись";
       toast({
@@ -796,6 +801,17 @@ export default function ReferencesPage() {
     });
   };
 
+  const editMachine = (machine: any) => {
+    if (!canManageCompanyReferences) return;
+    openModal("machine", {
+      id: machine.id,
+      plate_number: editableVehiclePlate(machine),
+      inventory_number: String(machine.inventory_number || "").trim(),
+      manufacture_year: machine.manufacture_year ? String(machine.manufacture_year) : "",
+      is_active: machine.is_active === false ? "false" : "true",
+    });
+  };
+
   const archiveVehicle = async (vehicle: any) => {
     if (!canManageCompanyReferences || !profile?.company_id || saving) return;
     const vehicleName = vehicle.display_name || vehicle.full_name || vehicle.name || "этот транспорт";
@@ -908,7 +924,16 @@ export default function ReferencesPage() {
                 </CardHeader>
                 <CardContent>
                   <DataTable
-                    headers={["Название", "Тип", "Бренд", "Модель", "Госномер / Инв. №", "Год", "Статус"]}
+                    headers={[
+                      "Название",
+                      "Тип",
+                      "Бренд",
+                      "Модель",
+                      "Госномер / Инв. №",
+                      "Год",
+                      "Статус",
+                      ...(canManageCompanyReferences ? ["Действия"] : []),
+                    ]}
                     rows={machines.map((x) => [
                       x.display_name || x.full_name || x.name,
                       x.display_type || emptyCell,
@@ -917,6 +942,15 @@ export default function ReferencesPage() {
                       assetIdentifier(x),
                       assetYear(x),
                       activeStatus(x),
+                      ...(canManageCompanyReferences
+                        ? [
+                            <div key={`machine-actions-${x.id}`} className="flex justify-end">
+                              <Button variant="outline" size="sm" onClick={() => editMachine(x)} disabled={saving}>
+                                Редактировать
+                              </Button>
+                            </div>,
+                          ]
+                        : []),
                     ])}
                     loading={loading}
                     empty="Техника компании не добавлена"
@@ -1137,7 +1171,7 @@ export default function ReferencesPage() {
         <DialogContent className={modalType === "worker" ? "max-h-[90vh] overflow-y-auto sm:max-w-xl travkin-scrollbar" : undefined}>
           <DialogHeader>
             <DialogTitle>
-              {modalType === "machine" ? "Добавить технику" : null}
+              {modalType === "machine" ? (editingMachineId ? "Редактировать технику" : "Добавить технику") : null}
               {modalType === "equipment" ? "Добавить оборудование" : null}
               {modalType === "vehicle" ? (editingVehicleId ? "Редактировать транспорт" : "Добавить транспорт") : null}
               {modalType === "worker" ? (editingWorkerId ? "Изменить сотрудника" : "Добавить сотрудника") : null}
@@ -1145,7 +1179,7 @@ export default function ReferencesPage() {
           </DialogHeader>
 
           <div className="space-y-3">
-            {modalType === "machine" || modalType === "equipment" || (modalType === "vehicle" && !editingVehicleId) ? (
+            {(modalType === "machine" && !editingMachineId) || modalType === "equipment" || (modalType === "vehicle" && !editingVehicleId) ? (
               <>
                 <div className="space-y-2">
                   <Label>Поиск модели в ГЛБД</Label>
@@ -1435,17 +1469,63 @@ export default function ReferencesPage() {
             ) : null}
 
             {modalType === "machine" ? (
-              <div>
-                <Label>Статус</Label>
-                <Select value={form.status || "free"} onValueChange={(value) => setForm((prev) => ({ ...prev, status: value }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="free">Свободна</SelectItem>
-                    <SelectItem value="working">В работе</SelectItem>
-                    <SelectItem value="maintenance">На обслуживании</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <>
+                <div>
+                  <Label>Госномер</Label>
+                  <Input
+                    maxLength={32}
+                    value={form.plate_number || ""}
+                    onChange={(event) => setForm((prev) => ({ ...prev, plate_number: event.target.value }))}
+                  />
+                </div>
+                {editingMachineId ? (
+                  <>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <Label>Инвентарный номер</Label>
+                        <Input
+                          maxLength={64}
+                          value={form.inventory_number || ""}
+                          onChange={(event) => setForm((prev) => ({ ...prev, inventory_number: event.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <Label>Год выпуска</Label>
+                        <Input
+                          type="number"
+                          min="1900"
+                          max="2100"
+                          step="1"
+                          value={form.manufacture_year || ""}
+                          onChange={(event) => setForm((prev) => ({ ...prev, manufacture_year: event.target.value }))}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Активность</Label>
+                      <Select value={form.is_active || "true"} onValueChange={(value) => setForm((prev) => ({ ...prev, is_active: value }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="true">Активна</SelectItem>
+                          <SelectItem value="false">Неактивна</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <Label>Статус</Label>
+                    <Select value={form.status || "free"} onValueChange={(value) => setForm((prev) => ({ ...prev, status: value }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="free">Свободна</SelectItem>
+                        <SelectItem value="working">В работе</SelectItem>
+                        <SelectItem value="maintenance">На обслуживании</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </>
             ) : null}
 
             {modalType === "equipment" ? (
@@ -1483,7 +1563,7 @@ export default function ReferencesPage() {
               Отмена
             </Button>
             <Button onClick={submitCreate} disabled={saving || workerAccessSaving}>
-              {saving ? "Сохранение..." : editingWorkerId || editingVehicleId ? "Сохранить" : "Создать"}
+              {saving ? "Сохранение..." : editingWorkerId || editingMachineId || editingVehicleId ? "Сохранить" : "Создать"}
             </Button>
           </DialogFooter>
         </DialogContent>

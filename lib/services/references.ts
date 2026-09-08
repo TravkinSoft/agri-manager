@@ -670,12 +670,73 @@ export async function getVehicleReferences(
   return ((data || []) as any[]).map((row) => mapVehicleReference(row));
 }
 
-const duplicateVehiclePlateMessage = "Машина с таким госномером уже существует";
+const duplicateVehiclePlateMessage = "Машина или трактор с таким госномером уже существует";
 
-function normalizeVehiclePlate(value: unknown): string {
+const visualCyrillicToLatin: Record<string, string> = {
+  А: "A", В: "B", Е: "E", К: "K", М: "M", Н: "H", О: "O",
+  Р: "P", С: "C", Т: "T", У: "Y", Х: "X", Ё: "E",
+};
+
+export function normalizeCompanyAssetPlate(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .toLocaleUpperCase("ru-RU")
+    .replace(/[АВЕКМНОРСТУХЁ]/g, (letter) => visualCyrillicToLatin[letter] ?? letter)
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+function normalizeRequiredVehiclePlate(value: unknown): string {
   const plateNumber = String(value || "").trim();
   if (!plateNumber) throw new Error("Укажите госномер");
+  if (plateNumber.length > 32) throw new Error("Госномер не должен превышать 32 символа");
   return plateNumber;
+}
+
+function normalizeOptionalMachinePlate(value: unknown): string | null {
+  const plateNumber = String(value || "").trim();
+  if (plateNumber.length > 32) throw new Error("Госномер не должен превышать 32 символа");
+  return plateNumber || null;
+}
+
+type CompanyAssetKind = "machine" | "vehicle";
+
+async function assertCompanyAssetPlateAvailable(
+  companyId: string,
+  kind: CompanyAssetKind,
+  currentId: string | null,
+  plateNumber: string | null,
+): Promise<void> {
+  const wantedPlate = normalizeCompanyAssetPlate(plateNumber);
+  if (!wantedPlate) return;
+
+  const [machinesResult, vehiclesResult] = await Promise.all([
+    supabase
+      .from("reference_machines")
+      .select("id,license_plate")
+      .eq("company_id", companyId)
+      .eq("archived", false),
+    supabase
+      .from("reference_vehicles")
+      .select("id,plate_number,license_plate")
+      .eq("company_id", companyId)
+      .eq("archived", false)
+      .is("source_machine_id", null),
+  ]);
+
+  if (machinesResult.error) throw new Error(machinesResult.error.message);
+  if (vehiclesResult.error) throw new Error(vehiclesResult.error.message);
+
+  const duplicateMachine = (machinesResult.data || []).some((row) =>
+    !(kind === "machine" && row.id === currentId) &&
+    normalizeCompanyAssetPlate(row.license_plate) === wantedPlate
+  );
+  const duplicateVehicle = (vehiclesResult.data || []).some((row) =>
+    !(kind === "vehicle" && row.id === currentId) &&
+    [row.plate_number, row.license_plate].some(
+      (candidate) => normalizeCompanyAssetPlate(candidate) === wantedPlate,
+    )
+  );
+  if (duplicateMachine || duplicateVehicle) throw new Error(duplicateVehiclePlateMessage);
 }
 
 function isVehiclePlateUniqueViolation(error: any): boolean {
@@ -687,16 +748,8 @@ export async function createVehicleReference(
   userId: string,
   payload: VehicleFormData
 ): Promise<VehicleReference> {
-  const plateNumber = normalizeVehiclePlate(payload.plate_number);
-  const existingByPlate = await supabase
-    .from("reference_vehicles")
-    .select("id")
-    .eq("company_id", companyId)
-    .ilike("plate_number", plateNumber)
-    .eq("archived", false)
-    .maybeSingle();
-  if (existingByPlate.error) throw new Error(existingByPlate.error.message);
-  if (existingByPlate.data?.id) throw new Error(duplicateVehiclePlateMessage);
+  const plateNumber = normalizeRequiredVehiclePlate(payload.plate_number);
+  await assertCompanyAssetPlateAvailable(companyId, "vehicle", null, plateNumber);
 
   const insertPayload: any = {
     ...payload,
@@ -755,7 +808,7 @@ export async function getGlobalTransportModels(): Promise<GlobalTransportModel[]
   return (data || []) as GlobalTransportModel[];
 }
 
-type VehicleAdminUpdatePayload = {
+export type VehicleAdminUpdatePayload = {
   plate_number: string;
   inventory_number?: string | null;
   manufacture_year?: number | null;
@@ -767,7 +820,8 @@ export async function updateVehicleReference(
   id: string,
   payload: VehicleAdminUpdatePayload
 ): Promise<VehicleReference> {
-  const plateNumber = normalizeVehiclePlate(payload.plate_number);
+  const plateNumber = normalizeRequiredVehiclePlate(payload.plate_number);
+  await assertCompanyAssetPlateAvailable(companyId, "vehicle", id, plateNumber);
   const normalized = {
     plate_number: plateNumber,
     license_plate: plateNumber,
@@ -803,6 +857,7 @@ export async function createMachineReference(
   userId: string,
   payload: MachineFormData
 ): Promise<MachineReference> {
+  const plateNumber = normalizeOptionalMachinePlate(payload.license_plate);
   const existing = await supabase
     .from("reference_machines")
     .select("id")
@@ -812,24 +867,42 @@ export async function createMachineReference(
     .maybeSingle();
   if (existing.error) throw new Error(existing.error.message);
   if (existing.data?.id) throw new Error("Техника с таким названием уже существует");
+  await assertCompanyAssetPlateAvailable(companyId, "machine", null, plateNumber);
 
   const { data, error } = await supabase
     .from("reference_machines")
-    .insert([{ ...payload, company_id: companyId, user_id: userId }])
+    .insert([{ ...payload, license_plate: plateNumber, company_id: companyId, user_id: userId }])
     .select()
     .single();
   if (error) throw new Error(error.message);
   return data as MachineReference;
 }
 
+export type MachineAdminUpdatePayload = {
+  license_plate?: string | null;
+  inventory_number?: string | null;
+  manufacture_year?: number | null;
+  is_active: boolean;
+};
+
 export async function updateMachineReference(
+  companyId: string,
   id: string,
-  payload: MachineFormData
+  payload: MachineAdminUpdatePayload,
 ): Promise<MachineReference> {
+  const plateNumber = normalizeOptionalMachinePlate(payload.license_plate);
+  await assertCompanyAssetPlateAvailable(companyId, "machine", id, plateNumber);
+  const normalized = {
+    license_plate: plateNumber,
+    inventory_number: String(payload.inventory_number || "").trim() || null,
+    manufacture_year: payload.manufacture_year ?? null,
+    is_active: payload.is_active,
+  };
   const { data, error } = await supabase
     .from("reference_machines")
-    .update(payload)
+    .update(normalized)
     .eq("id", id)
+    .eq("company_id", companyId)
     .select()
     .single();
   if (error) throw new Error(error.message);
