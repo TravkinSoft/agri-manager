@@ -52,7 +52,10 @@ async function main() {
   assert.match(migration, /P0_HARVEST_CORRECTION_ATOMIC_V1/);
   assert.match(migration, /P0_HARVEST_CORRECTION_AUDIT_CONTRACT_V1/);
   assert.match(migration, /pg_get_userbyid\(v_owner_before\) <> 'postgres'/);
-  assert.match(migration, /has_function_privilege\('service_role', v_signature, 'EXECUTE'\)/);
+  assert.match(
+    migration,
+    /not pg_catalog\.has_function_privilege\('service_role', v_signature, 'EXECUTE'\)/,
+  );
   assert.match(migration, /replacement aggregate lot lineage changed/i);
   assert.doesNotMatch(migration, /disable\s+trigger/i);
   const topLevelMigration = stripDollarQuotedBodies(migration);
@@ -499,7 +502,7 @@ async function main() {
     revoke all on function public.finalize_weighbridge_ticket_correction_v1(uuid,uuid,uuid)
       from public,anon;
     grant execute on function public.finalize_weighbridge_ticket_correction_v1(uuid,uuid,uuid)
-      to authenticated;
+      to authenticated,service_role;
   `);
 
   await db.exec(migration);
@@ -526,6 +529,15 @@ async function main() {
   assert.equal(functionSecurity.prosecdef, true);
   assert.deepEqual(functionSecurity.proconfig, ["search_path=pg_catalog, public, private"]);
   assert.equal(functionSecurity.owner, "postgres");
+  const canonicalAcl = (await rows(db, `
+    select
+      has_function_privilege('anon','public.finalize_weighbridge_ticket_correction_v1(uuid,uuid,uuid)','execute') anon_execute,
+      has_function_privilege('authenticated','public.finalize_weighbridge_ticket_correction_v1(uuid,uuid,uuid)','execute') authenticated_execute,
+      has_function_privilege('service_role','public.finalize_weighbridge_ticket_correction_v1(uuid,uuid,uuid)','execute') service_execute
+  `))[0];
+  assert.equal(canonicalAcl.anon_execute, false);
+  assert.equal(canonicalAcl.authenticated_execute, true);
+  assert.equal(canonicalAcl.service_execute, true);
   const privateAcl = (await rows(db, `
     select
       has_function_privilege('anon','private.finalize_harvest_correction_accounting_v1(uuid,uuid,uuid,uuid)','execute') anon_execute,
@@ -540,8 +552,21 @@ async function main() {
   // patched canonical function must abort before accepting the marker.
   await db.exec(migration);
   await db.exec(`
+    revoke execute on function public.finalize_weighbridge_ticket_correction_v1(uuid,uuid,uuid)
+      from service_role
+  `);
+  await assert.rejects(
+    () => db.exec(migration),
+    /P0 harvest correction replay verification failed/,
+  );
+  await db.exec("rollback");
+  await db.exec(`
     grant execute on function public.finalize_weighbridge_ticket_correction_v1(uuid,uuid,uuid)
       to service_role
+  `);
+  await db.exec(`
+    grant execute on function public.finalize_weighbridge_ticket_correction_v1(uuid,uuid,uuid)
+      to anon
   `);
   await assert.rejects(
     () => db.exec(migration),
@@ -550,7 +575,7 @@ async function main() {
   await db.exec("rollback");
   await db.exec(`
     revoke execute on function public.finalize_weighbridge_ticket_correction_v1(uuid,uuid,uuid)
-      from service_role
+      from anon
   `);
 
   await db.exec(`

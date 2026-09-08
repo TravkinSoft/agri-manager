@@ -756,7 +756,7 @@ begin
        or v_config_before is distinct from array['search_path=pg_catalog, public, private']::text[]
        or not pg_catalog.has_function_privilege('authenticated', v_signature, 'EXECUTE')
        or pg_catalog.has_function_privilege('anon', v_signature, 'EXECUTE')
-       or pg_catalog.has_function_privilege('service_role', v_signature, 'EXECUTE')
+       or not pg_catalog.has_function_privilege('service_role', v_signature, 'EXECUTE')
     then
       raise exception 'P0 harvest correction replay verification failed';
     end if;
@@ -826,7 +826,7 @@ begin
      or v_config_after is distinct from array['search_path=pg_catalog, public, private']::text[]
      or not pg_catalog.has_function_privilege('authenticated', v_signature, 'EXECUTE')
      or pg_catalog.has_function_privilege('anon', v_signature, 'EXECUTE')
-     or pg_catalog.has_function_privilege('service_role', v_signature, 'EXECUTE')
+     or not pg_catalog.has_function_privilege('service_role', v_signature, 'EXECUTE')
   then
     raise exception 'P0 harvest correction canonical patch verification failed';
   end if;
