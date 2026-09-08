@@ -15,6 +15,8 @@ const mobileNav = readFileSync("components/layout/mobile-bottom-nav.tsx", "utf8"
 const trafficRoute = readFileSync("app/api/traffic/route.ts", "utf8");
 const lineRoute = readFileSync("app/api/traffic/line/route.ts", "utf8");
 const repairRoute = readFileSync("app/api/fleet/repair/route.ts", "utf8");
+const fleetControls = readFileSync("components/traffic/traffic-fleet-controls.tsx", "utf8");
+const operatorPage = readFileSync("app/traffic-operator/page.tsx", "utf8");
 const trafficServer = readFileSync("lib/traffic/server.ts", "utf8");
 const entityServer = readFileSync("lib/fleet/entity-creation-server.ts", "utf8");
 const migration = readFileSync(
@@ -23,21 +25,39 @@ const migration = readFileSync(
 );
 
 contains(trafficRoute, 'const canManageFleet = actor.role === "fleet_manager";');
-contains(trafficRoute, "canManageFleet ? readCompanyFleet(db, companyId) : Promise.resolve([])");
+contains(trafficRoute, 'actor.role === "agronomist"');
+contains(trafficRoute, "readCompanyFleet(db, companyId)");
 contains(trafficRoute, "canManageRepairs: canManageFleet");
 contains(trafficRoute, "canCreateFleetEntities: canManageFleet");
 contains(trafficRoute, "const { companyId } = await fleetManager(request);");
 
 contains(page, "const canManageFleet = managed?.canManageFleet === true;");
 contains(page, "onManageVehicle={canManageFleet ? setSelected : undefined}");
+contains(page, "fleet={managed?.fleet}");
 contains(page, "{canManageFleet && managed && live.data ? <TrafficFleetControls");
-contains(page, "if (next !== \"history\" && !canManageFleet) return;");
-contains(page, "{canManageFleet ? <div className=\"mt-5 flex flex-wrap gap-2\">");
 contains(board, 'loaded: "В пути на весовую"');
 contains(board, '"h-[4.875rem] p-1.5 lg:h-24 lg:p-2.5"');
 contains(board, 'data-testid="traffic-line-total"');
-contains(board, "displayVehicles.filter((vehicle) => !vehicle.inRepair).length");
+contains(board, '"offline"');
+contains(board, "vehicle.assigned && !vehicle.inRepair");
+contains(board, "!vehicle.assigned && !vehicle.inRepair");
 contains(page, 'compactAgronomistMobile={managed?.managerRole === "agronomist"}');
+assert.equal(page.includes('open("fleet")'), false);
+checks++;
+assert.equal(page.includes("drawerOpen"), false);
+checks++;
+assert.equal(operatorPage.includes('aria-label="Машины не на линии"'), false);
+checks++;
+assert.equal(operatorPage.includes("drawerOpen"), false);
+checks++;
+assert.equal(fleetControls.includes('type Panel = "offline"'), false);
+checks++;
+assert.equal(fleetControls.includes('data-testid={isOffline ? "offline-sheet"'), false);
+checks++;
+assert.equal(fleetControls.includes("offline-scroll-list"), false);
+checks++;
+contains(fleetControls, "assigned: selected.assigned");
+contains(fleetControls, 'publishTrafficChanged(snapshot.companyId, "fleet")');
 assert.equal(board.includes("traffic-empty-explainer"), false);
 checks++;
 assert.equal(sidebar.match(/const AGRONOMIST_NAV[\s\S]*?\];/)?.[0].includes('/tickets'), false);

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { TrafficFleetControls } from "@/components/traffic/traffic-fleet-controls";
 import { FleetEntityCreator } from "@/components/traffic/fleet-entity-creator";
 import type { TrafficVehicle } from "@/lib/traffic/model";
-import { EllipsisVertical, History, Truck, Settings2, Loader2, Plus } from "lucide-react";
+import { EllipsisVertical, History, Truck, Loader2, Plus } from "lucide-react";
 import { TrafficBoard } from "@/components/traffic/traffic-board";
 import { TrafficAnalyticsPanel } from "@/components/traffic/traffic-analytics-panel";
 import { useTraffic } from "@/components/traffic/use-traffic";
@@ -28,22 +28,17 @@ export default function TrafficPage() {
 }
 function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
   const [selected, setSelected] = useState<TrafficVehicle | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [panel, setPanel] = useState<"history" | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const managed = live.managerData;
   const companyId = live.data?.companyId;
   const canManageFleet = managed?.canManageFleet === true;
-  function open(next: "fleet" | "history") {
+  function openHistory() {
     if (!managed) return;
-    if (next !== "history" && !canManageFleet) return;
-    if (next === "fleet") { setDrawerOpen(true); return; }
-    setPanel(next);
-    if (next === "history") {
-      setHistoryLoading(true);
-      void live.refresh(true).finally(() => setHistoryLoading(false));
-    }
+    setPanel("history");
+    setHistoryLoading(true);
+    void live.refresh(true).finally(() => setHistoryLoading(false));
   }
   return (
     <div className="mx-auto w-full min-w-0 max-w-6xl touch-pan-y pt-1 lg:px-6 lg:pb-28 lg:pt-5">
@@ -60,7 +55,7 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
             </p>
           </div>
         </div>
-        {canManageFleet ? <div className="mt-5 flex flex-wrap gap-2">
+        {canManageFleet && managed?.canCreateFleetEntities ? <div className="mt-5 flex flex-wrap gap-2">
           {managed?.canCreateFleetEntities ? <button
             type="button"
             onClick={() => setCreateOpen(true)}
@@ -68,14 +63,6 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
           >
             <Plus size={17} /> Добавить
           </button> : null}
-          <button
-            type="button"
-            disabled={!managed}
-            onClick={() => open("fleet")}
-            className="flex min-h-[48px] items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 text-sm text-slate-200 disabled:opacity-40"
-          >
-            <Settings2 size={17} /> Не на линии
-          </button>
         </div> : null}
       </header>
       {live.loading || (!live.data && !live.error) ? (
@@ -99,6 +86,7 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
               error={live.error}
               refresh={live.refresh}
               onAuxiliaryCommitted={live.auxiliaryCommitted}
+              fleet={managed?.fleet}
               onManageVehicle={canManageFleet ? setSelected : undefined}
               compactAgronomistMobile={managed?.managerRole === "agronomist"}
               mobileActions={canManageFleet ? <div className="flex items-center">
@@ -117,10 +105,7 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
                   {managed?.canCreateFleetEntities ? <DropdownMenuItem onSelect={() => setCreateOpen(true)} className="min-h-[48px] gap-2">
                     <Plus aria-hidden size={17} /> Добавить машину или водителя
                   </DropdownMenuItem> : null}
-                  <DropdownMenuItem onSelect={() => open("fleet")} className="min-h-[48px] gap-2">
-                    <Truck aria-hidden size={17} /> Не на линии
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => open("history")} className="min-h-[48px] gap-2">
+                  <DropdownMenuItem onSelect={openHistory} className="min-h-[48px] gap-2">
                     <History aria-hidden size={17} /> Последние 50 изменений
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -128,7 +113,7 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
             </div> : managed?.snapshot.events.length ? <button
               type="button"
               aria-label="Последние 50 изменений"
-              onClick={() => open("history")}
+              onClick={openHistory}
               className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
             >
               <History aria-hidden size={20} />
@@ -158,7 +143,7 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
       )}
       {canManageFleet && managed && live.data ? <TrafficFleetControls
         managed={managed} snapshot={live.data} selected={selected} onSelected={setSelected}
-        drawerOpen={drawerOpen} onDrawerOpen={setDrawerOpen} stale={live.stale} refresh={live.refresh}
+        stale={live.stale} refresh={live.refresh}
       /> : null}
       {managed?.canCreateFleetEntities && companyId ? <FleetEntityCreator
         open={createOpen}

@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Truck, LogOut, Loader2, Plus, Settings2 } from "lucide-react";
+import { Truck, LogOut, Loader2, Plus } from "lucide-react";
 import { ROLE_LABEL } from "@/lib/traffic/model";
 import type { TrafficVehicle } from "@/lib/traffic/model";
 import { TrafficBoard } from "@/components/traffic/traffic-board";
@@ -239,7 +239,6 @@ function TrafficOperatorCabinet({ onAuthenticated }: { onAuthenticated: () => Pr
 function TrafficManagerPwa({ onSignedOut }: { onSignedOut: () => void }) {
   const live = useTraffic(true);
   const [selected, setSelected] = useState<TrafficVehicle | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const managed = live.managerData;
@@ -276,16 +275,12 @@ function TrafficManagerPwa({ onSignedOut }: { onSignedOut: () => void }) {
           stale={live.stale}
           error={live.error}
           refresh={live.refresh}
-          onManageVehicle={managed?.canManageRepairs ? setSelected : undefined}
-          mobileActions={managed?.canManageRepairs ? (
+          fleet={managed?.fleet}
+          onManageVehicle={managed?.canManageFleet ? setSelected : undefined}
+          mobileActions={managed?.canCreateFleetEntities ? (
             <div className="flex items-center">
-              {managed.canCreateFleetEntities ? (
-                <button type="button" aria-label="Добавить машину или водителя" onClick={() => setCreateOpen(true)} className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg text-amber-300">
-                  <Plus aria-hidden size={22} />
-                </button>
-              ) : null}
-              <button type="button" aria-label="Машины не на линии" onClick={() => setDrawerOpen(true)} className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg text-slate-200">
-                <Settings2 aria-hidden size={20} />
+              <button type="button" aria-label="Добавить машину или водителя" onClick={() => setCreateOpen(true)} className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg text-amber-300">
+                <Plus aria-hidden size={22} />
               </button>
             </div>
           ) : undefined}
@@ -293,8 +288,8 @@ function TrafficManagerPwa({ onSignedOut }: { onSignedOut: () => void }) {
       ) : (
         <div role="alert" className="py-10 text-amber-200">{live.error}<button type="button" onClick={() => void live.refresh(true)} className="mt-3 block min-h-[48px] underline">Повторить</button></div>
       )}
-      {managed && live.data ? (
-        <TrafficFleetControls managed={managed} snapshot={live.data} selected={selected} onSelected={setSelected} drawerOpen={drawerOpen} onDrawerOpen={setDrawerOpen} stale={live.stale} refresh={live.refresh} />
+      {managed?.canManageFleet && live.data ? (
+        <TrafficFleetControls managed={managed} snapshot={live.data} selected={selected} onSelected={setSelected} stale={live.stale} refresh={live.refresh} />
       ) : null}
       {managed?.canCreateFleetEntities && companyId ? (
         <FleetEntityCreator open={createOpen} companyId={companyId} onOpenChange={setCreateOpen} onCreated={() => live.refresh(true)} />

@@ -4,7 +4,7 @@ import { readVehicleRepairs } from "./repairs-server";
 import type { FleetVehicle } from "./model";
 import { isPtcEligibleReferenceVehicle, ptcVehicleDisplayPlate } from "@/lib/traffic/vehicle-eligibility";
 
-// Shared catalogue for references and the off-line drawer; never truncate the fleet.
+// Shared catalogue for references and the complete PTC manager board; never truncate the fleet.
 export async function readCompanyFleet(db: ReturnType<typeof getServiceClient>, companyId: string): Promise<FleetVehicle[]> {
   const vehicles: FleetVehicle[] = [];
   for (let from = 0; ; from += 250) {

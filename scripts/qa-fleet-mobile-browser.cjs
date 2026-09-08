@@ -15,25 +15,32 @@ async function main() {
     import {TrafficAnalyticsPanel} from './components/traffic/traffic-analytics-panel';
     import {TrafficFleetControls} from './components/traffic/traffic-fleet-controls';
     const company='10000000-0000-4000-8000-000000000001';
-    const fleet=Array.from({length:60},(_,i)=>({id:'car-'+i,name:'КАМАЗ',plate:'НОМЕР-'+i,driver:i===5||i===6?null:'Виктор Новоковский '+i,assigned:i<2,inRepair:i===2,repairVersion:i===2?1:0,state:i===1?'loaded':'empty'}));
-    const vehicles=fleet.slice(0,2).map(v=>({...v,vehicle_id:v.id,version:0,cycle:0,since:new Date().toISOString()}));
-    window.calls=[]; window.published=[]; window.fleet=fleet;
+    const initialFleet=Array.from({length:60},(_,i)=>({id:'car-'+i,name:'КАМАЗ',plate:'НОМЕР-'+i,driver:i===5||i===6?null:'Виктор Новоковский '+i,assigned:i<2,inRepair:i===2,repairVersion:i===2?1:0,state:i===1?'loaded':'empty',lastActivity:new Date().toISOString()}));
+    const initialVehicles=initialFleet.filter(v=>v.assigned).map(v=>({...v,vehicle_id:v.id,version:0,cycle:0,since:new Date().toISOString()}));
+    window.calls=[]; window.published=[];
     function App(){
-      const [snapshot,setSnapshot]=useState({companyId:company,role:'manager',personName:'',enabled:true,fieldId:null,fieldName:null,flowRevision:new Date().toISOString(),serverTime:new Date().toISOString(),vehicles,events:[]});
-      const [managed,setManaged]=useState({fleet,canManageRepairs:true,snapshot});
-      const [selected,onSelected]=useState(null),[drawerOpen,onDrawerOpen]=useState(false);
+      const [snapshot,setSnapshot]=useState({companyId:company,role:'manager',personName:'',enabled:true,fieldId:null,fieldName:null,flowRevision:new Date().toISOString(),serverTime:new Date().toISOString(),vehicles:initialVehicles,events:[]});
+      const [managed,setManaged]=useState({fleet:initialFleet,canManageFleet:true,canManageRepairs:true,snapshot});
+      const [selected,onSelected]=useState(null);
       const compactVehicles=[...Array.from({length:15},(_,i)=>({vehicle_id:'compact-empty-'+i,name:'КАМАЗ',brand:'КАМАЗ',plate:'ПУСТ-'+i,driver:'Водитель '+i,state:'empty',version:0,cycle:1,assigned:true,since:new Date().toISOString()})),{vehicle_id:'compact-loaded',name:'ЗИЛ',brand:'ЗИЛ',plate:'ГРУЗ-1',driver:'Загруженный Водитель',state:'loaded',version:0,cycle:1,assigned:true,since:new Date().toISOString()},{vehicle_id:'compact-repair',name:'МТЗ',brand:'МТЗ',plate:'РЕМ-1',driver:'Ремонт Водитель',state:'empty',version:0,cycle:1,assigned:true,inRepair:true,since:new Date().toISOString()}];
       const compactSnapshot={...snapshot,vehicles:compactVehicles};
+      const compactFleet=[...compactVehicles.map(v=>({id:v.vehicle_id,...v,lastActivity:v.since})),{id:'compact-offline',name:'КамАЗ резерв',brand:'КамАЗ',plate:'РЕЗ-1',driver:'Резервный Водитель',state:'empty',assigned:false,lastActivity:new Date().toISOString()},{id:'compact-offline-repair',name:'МТЗ ремонт',brand:'МТЗ',plate:'РЕЗ-Р',driver:null,state:'empty',assigned:false,inRepair:true,repairVersion:3,lastActivity:new Date().toISOString()}];
       const refresh=useCallback(async()=>{
         const call=window.calls.at(-1);
         if(!call||call.applied)return;
         call.applied=true;
-        if(call.url.includes('/line'))setSnapshot(s=>({...s,vehicles:call.body.assigned?[...s.vehicles,...fleet.filter(v=>call.body.vehicleIds.includes(v.id)).map(v=>({...v,vehicle_id:v.id,assigned:true,version:0,cycle:0,since:new Date().toISOString()}))]:s.vehicles.filter(v=>!call.body.vehicleIds.includes(v.vehicle_id))}));
-        if(call.url.includes('/repair'))setManaged(m=>({...m,fleet:m.fleet.map(v=>v.id===call.body.vehicleId?{...v,inRepair:call.body.inRepair,repairVersion:2}:v)}));
+        if(call.url.includes('/line')){
+          setManaged(m=>({...m,fleet:m.fleet.map(v=>call.body.vehicleIds.includes(v.id)?{...v,assigned:call.body.assigned}:v)}));
+          setSnapshot(s=>({...s,flowRevision:new Date(Date.now()+1).toISOString(),vehicles:call.body.assigned?[...s.vehicles,...initialFleet.filter(v=>call.body.vehicleIds.includes(v.id)&&!s.vehicles.some(row=>row.vehicle_id===v.id)).map(v=>({...v,vehicle_id:v.id,assigned:true,version:0,cycle:0,since:new Date().toISOString()}))]:s.vehicles.filter(v=>!call.body.vehicleIds.includes(v.vehicle_id))}));
+        }
+        if(call.url.includes('/repair')){
+          setManaged(m=>({...m,fleet:m.fleet.map(v=>v.id===call.body.vehicleId?{...v,inRepair:call.body.inRepair,repairVersion:2}:v)}));
+          setSnapshot(s=>({...s,vehicles:s.vehicles.map(v=>v.vehicle_id===call.body.vehicleId?{...v,inRepair:call.body.inRepair,repairVersion:2}:v)}));
+        }
       },[]);
-      if(new URLSearchParams(location.search).has('compact'))return <main style={{padding:12}}><h1>Оборот машин</h1><section data-testid="compact-board"><TrafficBoard snapshot={compactSnapshot} stale={false} error='' refresh={async()=>{}} compactAgronomistMobile={true}/></section><section data-testid="compact-analytics"><TrafficAnalyticsPanel analytics={{windowLabel:'Текущая смена',windowStartedAt:new Date().toISOString(),completedLoads:4,lastLoadIntervalMinutes:12,averageLoadIntervalMinutes:14,averageFieldToWeighbridgeMinutes:18,averageUnloadingMinutes:6,averageReturnToLoadMinutes:22,averageVehicleCycleMinutes:46,latestFleetRoundMinutes:38,probableDowntimeCount:1,probableDowntimeMinutes:3,currentProbableDowntimeMinutes:null}}/></section></main>;
-      return <main style={{padding:12}}><h1>Оборот машин</h1><TrafficBoard snapshot={snapshot} stale={false} error='' refresh={refresh} onManageVehicle={onSelected}/>
-        <TrafficFleetControls managed={managed} snapshot={snapshot} selected={selected} onSelected={onSelected} drawerOpen={drawerOpen} onDrawerOpen={onDrawerOpen} stale={false} refresh={refresh}/></main>;
+      if(new URLSearchParams(location.search).has('compact'))return <main style={{padding:12}}><h1>Оборот машин</h1><section data-testid="compact-board"><TrafficBoard snapshot={compactSnapshot} fleet={compactFleet} stale={false} error='' refresh={async()=>{}} compactAgronomistMobile={true}/></section><section data-testid="compact-analytics"><TrafficAnalyticsPanel analytics={{windowLabel:'Текущая смена',windowStartedAt:new Date().toISOString(),completedLoads:4,lastLoadIntervalMinutes:12,averageLoadIntervalMinutes:14,averageFieldToWeighbridgeMinutes:18,averageUnloadingMinutes:6,averageReturnToLoadMinutes:22,averageVehicleCycleMinutes:46,latestFleetRoundMinutes:38,probableDowntimeCount:1,probableDowntimeMinutes:3,currentProbableDowntimeMinutes:null}}/></section></main>;
+      return <main style={{padding:12}}><h1>Оборот машин</h1><TrafficBoard snapshot={snapshot} fleet={managed.fleet} stale={false} error='' refresh={refresh} onManageVehicle={onSelected}/>
+        <TrafficFleetControls managed={managed} snapshot={snapshot} selected={selected} onSelected={onSelected} stale={false} refresh={refresh}/></main>;
     } createRoot(document.getElementById('root')).render(<App/>);
   `;
   const mocks = {
@@ -42,7 +49,7 @@ async function main() {
       await new Promise(r=>setTimeout(r,150));
       return url.includes('/repair')?{companyId:body.companyId,vehicleId:body.vehicleId,inRepair:body.inRepair,version:2,changedAt:new Date().toISOString()}:{};
     }`,
-    changes: 'export const publishTrafficChanged=companyId=>window.published.push(companyId);',
+    changes: 'export const publishTrafficChanged=(companyId,kind="traffic")=>window.published.push({companyId,kind});',
     auth: 'export const supabase={auth:{onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}})}};',
     drivers: `export async function loadVehicleDriverAssignment(id,company){return {companyId:company,canEdit:true,vehicle:{id,name:'КАМАЗ',plate:id,assignmentId:null,driverPersonId:null},drivers:Array.from({length:75},(_,i)=>({id:'driver-'+i,name:'Андрей Водитель '+i}))};}
       export async function saveVehicleDriverAssignment(body){window.driverSave=body;return {companyId:body.companyId,vehicle:{id:body.vehicleId,driverPersonId:body.driverPersonId}};}
@@ -96,37 +103,26 @@ async function main() {
           await page.getByRole('button',{name:'Сохранить',exact:true}).tap();
           await page.waitForFunction(()=>!document.querySelector('[role=dialog]'));
           check(await page.evaluate(()=>window.driverSave.driverPersonId),'driver-74','canonical driver selected');
-          await page.getByRole('button',{name:/^Не на линии/}).tap();
-          await page.getByTestId('offline-sheet').waitFor();
-          await page.waitForFunction(()=>{
-            const sheet=document.querySelector('[data-testid="offline-sheet"]');
-            if(!sheet)return false;
-            const rect=sheet.getBoundingClientRect();
-            return Math.abs(rect.bottom-innerHeight)<3;
-          });
-          const sheet=await page.getByTestId('offline-sheet').boundingBox();
-          check(Math.abs(sheet.y+sheet.height-844)<3,true,'sheet anchored to viewport bottom');
-          check(await page.getByTestId('offline-scroll-list').evaluate(el=>el.scrollHeight>el.clientHeight),true,'offline list scrolls');
-          check(await page.getByTestId('offline-scroll-list').locator('section').evaluateAll(nodes=>nodes.map(node=>node.dataset.testid)),['offline-group-repair','offline-group-with-driver','offline-group-without-driver'],'offline vehicles grouped by attention');
-          check(await page.getByTestId('offline-group-repair').getByRole('button').count(),1,'repair group count');
-          check(await page.getByTestId('offline-group-with-driver').getByRole('button').count(),55,'assigned driver group count');
-          check(await page.getByTestId('offline-group-without-driver').getByRole('button').count(),2,'missing driver group count');
-          check(await page.getByTestId('offline-scroll-list').locator('[data-testid^="offline-vehicle-"]').count(),58,'every offline vehicle rendered once');
-          check(await page.getByTestId('offline-sheet').getByText('Водитель не назначен').count(),0,'legacy missing-driver headline removed');
-          const missingDriverCardLines=(await page.getByTestId('offline-vehicle-car-5').innerText()).split('\n');
+          check(await page.evaluate(()=>window.published.at(-1).kind),'fleet','driver assignment broadcasts typed fleet invalidation');
+          await page.evaluate(()=>{window.published=[];});
+          check(await page.getByTestId('offline-sheet').count(),0,'old offline sheet removed');
+          check(await page.getByTestId('offline-scroll-list').count(),0,'old offline scroll list removed');
+          check(await page.locator('[data-testid^="traffic-group-"]').count(),5,'five board groups rendered');
+          check(await page.locator('[data-testid^="traffic-vehicle-"]').count(),60,'every fleet vehicle rendered exactly once');
+          await page.getByTestId('traffic-filter-offline').tap();
+          const missingDriverCardLines=(await page.getByTestId('traffic-vehicle-car-5').innerText()).split('\n');
           check(missingDriverCardLines[0],'КАМАЗ','brand is primary without driver');
           check(missingDriverCardLines[1],'НОМЕР-5','plate remains visible below brand without driver');
-          await page.getByRole('button',{name:/Виктор Новоковский 3 КАМАЗ · НОМЕР-3$/}).tap();
-          await page.getByRole('button',{name:/Виктор Новоковский 4 КАМАЗ · НОМЕР-4$/}).tap();
-          check(await page.getByRole('button',{pressed:true}).count(),2,'multi-select checkmarks');
-          await page.getByRole('button',{name:'Вывести на линию · 2',exact:true}).tap();
-          check(await page.getByRole('dialog').count(),0,'line dialog unmounts instantly');
+          await page.getByTestId('traffic-vehicle-car-3').tap();
+          await page.getByRole('button',{name:'Вывести на линию',exact:true}).tap();
+          check(await page.getByRole('dialog').count(),0,'card line action unmounts instantly');
           await page.waitForTimeout(350);
-          check(await page.evaluate(()=>window.calls[0].body.vehicleIds),['car-3','car-4'],'only selected IDs posted');
+          check(await page.evaluate(()=>window.calls[0].body.vehicleIds),['car-3'],'only selected card ID posted');
+          check(await page.evaluate(()=>window.calls[0].body.assigned),true,'offline card moves onto line');
           check(await page.evaluate(()=>window.calls[0].dialogs),0,'no modal at transport entry');
-          check(await page.evaluate(()=>window.published),['10000000-0000-4000-8000-000000000001'],'line change broadcasts after commit');
-          await page.getByRole('button',{name:/^Не на линии/}).tap();
-          await page.getByRole('button',{name:/Виктор Новоковский 2 КАМАЗ · НОМЕР-2/}).tap();
+          check(await page.evaluate(()=>window.published),[{companyId:'10000000-0000-4000-8000-000000000001',kind:'fleet'}],'line change broadcasts typed fleet invalidation');
+          await page.getByTestId('traffic-filter-repair').tap();
+          await page.getByTestId('traffic-vehicle-car-2').tap();
           check(await page.getByRole('button',{name:'Вывести на линию',exact:true}).count(),0,'repair not sent onto line');
           await page.getByRole('button',{name:'Вернуть из ремонта',exact:true}).tap();
           await page.getByRole('button',{name:'Подтвердить',exact:true}).tap();
@@ -134,15 +130,24 @@ async function main() {
           await page.waitForTimeout(350);
           check(await page.evaluate(()=>window.calls.at(-1).body.inRepair),false,'return repair only');
           check(await page.evaluate(()=>window.published.length),2,'repair change broadcasts after commit');
+          check(await page.evaluate(()=>window.published.at(-1).kind),'fleet','repair broadcasts typed fleet invalidation');
+          await page.getByTestId('traffic-filter-empty').tap();
+          await page.getByTestId('traffic-vehicle-car-0').tap();
+          await page.getByRole('button',{name:'Убрать с линии',exact:true}).tap();
+          await page.getByRole('button',{name:'Подтвердить',exact:true}).tap();
+          check(await page.getByRole('dialog').count(),0,'remove confirmation unmounts instantly');
+          await page.waitForTimeout(350);
+          check(await page.evaluate(()=>window.calls.at(-1).body.vehicleIds),['car-0'],'assigned card ID posted');
+          check(await page.evaluate(()=>window.calls.at(-1).body.assigned),false,'assigned empty card moves off line');
+          await page.getByTestId('traffic-filter-offline').tap();
+          check(await page.getByTestId('traffic-vehicle-car-0').count(),1,'removed vehicle appears in offline column');
           check(await page.evaluate(()=>window.calls.some(c=>c.url.includes('/operator'))),false,'manager has no cargo transport');
           check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'no horizontal overflow');
           check(errors,[],name+' browser errors');
           if(width===390 && process.env.FLEET_SCREENSHOT_DIR) {
             await page.screenshot({path:path.join(process.env.FLEET_SCREENSHOT_DIR,'fleet-'+name+'.png'),fullPage:true});
-            await page.getByRole('button',{name:/^Не на линии/}).tap();
-            await page.getByTestId('offline-sheet').waitFor();
-            await page.waitForTimeout(300);
-            await page.screenshot({path:path.join(process.env.FLEET_SCREENSHOT_DIR,'offline-'+name+'.png')});
+            await page.getByTestId('traffic-filter-offline').tap();
+            await page.screenshot({path:path.join(process.env.FLEET_SCREENSHOT_DIR,'offline-column-'+name+'.png'),fullPage:true});
           }
           await context.close();
         }
@@ -157,11 +162,19 @@ async function main() {
           const compactCard=await compactPage.getByTestId('traffic-vehicle-compact-empty-0').boundingBox();
           check(compactCard.height>=77&&compactCard.height<=79,true,'agronomist mobile card is about 20 percent smaller');
           check((await compactPage.getByTestId('traffic-line-total').innerText()).replace(/\s+/g,' ').trim(),'На линии: 16 машин · без машин в ремонте','line total excludes repair');
+          check(await compactPage.locator('[data-testid^="traffic-filter-"]').count(),5,'agronomist has five status filters');
+          check((await compactPage.getByTestId('traffic-filter-repair').innerText()).replace(/\s+/g,' ').trim().endsWith('2'),true,'assigned and offline repairs share repair group');
+          check((await compactPage.getByTestId('traffic-filter-offline').innerText()).replace(/\s+/g,' ').trim().endsWith('1'),true,'offline repair is excluded from reserve group');
+          check(await compactPage.locator('[data-testid^="traffic-vehicle-"]').evaluateAll(nodes=>nodes.every(node=>node.tagName==='ARTICLE')),true,'agronomist fleet cards are read-only');
           await compactPage.evaluate(()=>window.scrollTo(0,700));
           await compactPage.getByTestId('traffic-filter-loaded').tap();
           await compactPage.waitForTimeout(100);
           const loadedCard=await compactPage.getByTestId('traffic-vehicle-compact-loaded').boundingBox();
           check(loadedCard.y>=0&&loadedCard.y<844,true,'tab switch returns selected status cards into view');
+          await compactPage.getByTestId('traffic-filter-offline').tap();
+          await compactPage.waitForTimeout(100);
+          const offlineCard=await compactPage.getByTestId('traffic-vehicle-compact-offline').boundingBox();
+          check(offlineCard.y>=0&&offlineCard.y<844,true,'reserve card is directly visible from fifth filter');
           check(await compactPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'compact page has no horizontal overflow');
           check(compactErrors,[],name+' compact browser errors');
           if(process.env.FLEET_SCREENSHOT_DIR)await compactPage.screenshot({path:path.join(process.env.FLEET_SCREENSHOT_DIR,'agronomist-compact-'+name+'-'+compactWidth+'.png'),fullPage:true});

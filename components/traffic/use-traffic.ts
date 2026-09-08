@@ -347,15 +347,16 @@ export function useTraffic(isManager: boolean) {
     publishTrafficChanged(data?.companyId);
     await refresh(true);
   }, [data?.companyId, generation, refresh]);
-  useEffect(() => subscribeTrafficChanges(data?.companyId, (companyId) => {
+  useEffect(() => subscribeTrafficChanges(data?.companyId, (companyId, kind) => {
     if (!mounted.current || generation !== authGeneration.current || companyId !== data?.companyId) return;
-    // A real committed movement changes the rhythm immediately. The following
-    // compact read refreshes aggregates once, while idle one-second polls stay cheap.
-    forceAnalyticsRead.current = true;
+    // Fleet metadata needs the complete manager payload; ordinary movements keep
+    // the one-second operational path compact. Old untyped hints arrive as traffic.
+    const changeKind = kind === "fleet" ? "fleet" : "traffic";
+    if (changeKind === "traffic") forceAnalyticsRead.current = true;
     readEpoch.current++;
     controller.current?.abort();
     // Epoch invalidation guarantees one quiet successor to the aborted read.
-    void refresh();
+    void refresh(changeKind === "fleet");
   }), [data?.companyId, generation, refresh]);
   useEffect(() => subscribeVehicleDriverAssignments((result) => {
     if (!mounted.current || generation !== authGeneration.current ||

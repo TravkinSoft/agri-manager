@@ -10,6 +10,7 @@ import tailwindcss from "tailwindcss";
 import config from "../tailwind.config";
 import * as model from "../lib/traffic/model";
 import * as optimistic from "../lib/traffic/optimistic";
+import type { FleetVehicle } from "../lib/fleet/model";
 
 const localRequire = createRequire(import.meta.url);
 const source = readFileSync("components/traffic/traffic-board.tsx", "utf8");
@@ -48,6 +49,8 @@ function harness(role: model.TrafficRole, input = vehicles, options: {
   acceptReceipt?: boolean;
   deferRefresh?: boolean;
   confirm?: boolean;
+  canManage?: boolean;
+  fleet?: FleetVehicle[];
 } = {}) {
   const snapshot: model.TrafficSnapshot = {
     role, companyId: "company-a", personName: "", enabled: true, fieldId: null, fieldName: null, serverTime: "2026-09-04T10:08:00Z",
@@ -58,8 +61,21 @@ function harness(role: model.TrafficRole, input = vehicles, options: {
   const confirmPrompts: string[] = [];
   const refreshCalls: Array<boolean | undefined> = [];
   const refreshGate = deferred<void>();
-  const props = { snapshot, stale: false, error: "", onManageVehicle: role === "manager"
-    ? (vehicle: model.TrafficVehicle) => managedVehicles.push(vehicle.vehicle_id)
+  const inferredFleet: FleetVehicle[] = input.map(vehicle => ({
+    id: vehicle.vehicle_id,
+    name: vehicle.name,
+    brand: vehicle.brand,
+    plate: vehicle.plate,
+    driver: vehicle.driver,
+    assigned: vehicle.assigned,
+    state: vehicle.state,
+    inRepair: vehicle.inRepair,
+    repairVersion: vehicle.repairVersion,
+    lastActivity: vehicle.since,
+  }));
+  const props = { snapshot, fleet: role === "manager" ? options.fleet ?? inferredFleet : undefined,
+    stale: false, error: "", onManageVehicle: role === "manager" && options.canManage !== false
+    ? (vehicle: model.TrafficVehicle & { id?: string }) => managedVehicles.push(vehicle.vehicle_id ?? vehicle.id ?? "")
     : undefined, refresh: async (fresh?: boolean) => {
     refreshCalls.push(fresh); if (options.deferRefresh) await refreshGate.promise;
   }, onCommitted: (receipt: model.TrafficCommit, vehicleId: string, expectedVersion: number) => {
@@ -128,22 +144,31 @@ async function main() {
     check(repairHtml.includes("На ремонте"), role === "manager");
   }
   const managerVehicles = vehicles.map(vehicle => vehicle.vehicle_id === "car-3" ? { ...vehicle, inRepair: true } : vehicle);
-  const manager = harness("manager", managerVehicles);
+  const managerFleet: FleetVehicle[] = [
+    ...managerVehicles.map(vehicle => ({
+      id: vehicle.vehicle_id, name: vehicle.name, brand: vehicle.brand, plate: vehicle.plate,
+      driver: vehicle.driver, assigned: true, state: vehicle.state, inRepair: vehicle.inRepair,
+      repairVersion: vehicle.repairVersion, lastActivity: vehicle.since,
+    })),
+    { id: "car-4", name: "Reserve Truck", brand: "KAMAZ", plate: "OFF-4", driver: "Reserve Driver", assigned: false, state: "empty", lastActivity: "2026-09-04T09:00:00Z" },
+    { id: "car-5", name: "Offline Repair", brand: "MTZ", plate: "REP-5", driver: null, assigned: false, state: "empty", inRepair: true, repairVersion: 2, lastActivity: "2026-09-04T08:00:00Z" },
+  ];
+  const manager = harness("manager", managerVehicles, { fleet: managerFleet });
   const tree = manager.render();
   const groups = nodes(tree).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-"));
-  check(groups.map(group => group.props["data-testid"]), ["traffic-group-empty", "traffic-group-loaded", "traffic-group-unloading", "traffic-group-repair"]);
-  const expected = [["car-1"], ["car-0"], ["car-2"], ["car-3"]];
+  check(groups.map(group => group.props["data-testid"]), ["traffic-group-empty", "traffic-group-loaded", "traffic-group-unloading", "traffic-group-repair", "traffic-group-offline"]);
+  const expected = [["car-1"], ["car-0"], ["car-2"], ["car-3", "car-5"], ["car-4"]];
   for (const [index, group] of Array.from(groups.entries())) {
     check(cardNodes(group).map(card => card.props["data-testid"].replace("traffic-vehicle-", "")), expected[index]);
     const count = nodes(group).filter(node => node.props?.className?.includes("tabular-nums"));
     check(count.length, 1); check(count[0].props.children, expected[index].length);
   }
-  check(nodes(tree).filter(node => node.props?.className?.includes("tabular-nums")).length, 9); // Line total + mobile selectors + desktop column headings; never visible together.
+  check(nodes(tree).filter(node => node.props?.className?.includes("tabular-nums")).length, 11); // Line total + five mobile selectors + five desktop column headings; never visible together.
   const lineTotal = nodes(tree).find(node => node.props?.["data-testid"] === "traffic-line-total");
   check(Boolean(lineTotal), true);
   check(words(lineTotal), "На линии:3машины· без машин в ремонте");
-  check(cardNodes(tree).length, vehicles.length);
-  check(new Set(cardNodes(tree).map(card => card.props["data-testid"])).size, vehicles.length);
+  check(cardNodes(tree).length, managerFleet.length);
+  check(new Set(cardNodes(tree).map(card => card.props["data-testid"])).size, managerFleet.length);
   check(cardNodes(tree).every(card => card.type === "button"), true);
   const unassignedCard = cardNodes(tree).find(card => card.props["data-testid"] === "traffic-vehicle-car-0")!;
   const assignedCard = cardNodes(tree).find(card => card.props["data-testid"] === "traffic-vehicle-car-1")!;
@@ -152,10 +177,12 @@ async function main() {
   check(words(assignedCard).startsWith("Existing DriverTruck · QA-1"), true);
   check(nodes(tree).filter(node => node.props?.["data-driver-assignment"]).length, 0);
   check(cardNodes(tree).every(card => !card.props.className.includes("pr-14")), true);
-  cardNodes(groups[3])[0].props.onClick();
-  check(manager.managedVehicles, ["car-3"]); // Repair card stays fully clickable for Fleet Manager controls.
+  cardNodes(groups[3])[1].props.onClick();
+  cardNodes(groups[4])[0].props.onClick();
+  check(manager.managedVehicles, ["car-5", "car-4"]); // Repair and reserve cards are managed directly from the board.
   const colors = ["bg-[#ffffff]", "bg-emerald-100", "bg-amber-100", "bg-rose-100"];
-  groups.forEach((group, index) => check(cardNodes(group).every(card => card.props.className.split(" ").includes(colors[index])), true));
+  groups.slice(0, 4).forEach((group, index) => check(cardNodes(group).every(card => card.props.className.split(" ").includes(colors[index])), true));
+  check(cardNodes(groups[4]).every(card => !colors.some(color => card.props.className.split(" ").includes(color))), true);
   const globalCss = readFileSync("app/globals.css", "utf8");
   // The dashboard shell deliberately remaps .bg-white with !important. PTC cards and
   // the category dot must use an explicit white utility outside that selector.
@@ -177,11 +204,19 @@ async function main() {
   check((managerText.match(/В пути на весовую/g) ?? []).length, 1);
   check((managerText.match(/На выгрузке/g) ?? []).length, 1);
   check((managerText.match(/На ремонте/g) ?? []).length >= 2, true);
-  check(managerHtml.includes("lg:grid-cols-4"), true);
-  check(managerHtml.includes("grid-cols-4") && !managerHtml.includes('class="grid grid-cols-4'), true);
+  check((managerText.match(/Не на линии/g) ?? []).length, 3);
+  check(managerHtml.includes("lg:grid-cols-5"), true);
+  check(managerHtml.includes("grid-cols-5") && !managerHtml.includes('class="grid grid-cols-5'), true);
   const emptyTree = harness("manager", []).render();
-  check(nodes(emptyTree).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-")).length, 4);
-  check((renderToStaticMarkup(emptyTree).match(/Нет машин/g) ?? []).length, 4);
+  check(nodes(emptyTree).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-")).length, 5);
+  check((renderToStaticMarkup(emptyTree).match(/Нет машин/g) ?? []).length, 5);
+
+  const agronomist = harness("manager", managerVehicles, { fleet: managerFleet, canManage: false });
+  const agronomistTree = agronomist.render();
+  check(cardNodes(agronomistTree).length, managerFleet.length);
+  check(cardNodes(agronomistTree).every(card => card.type === "article"), true);
+  check(cardNodes(agronomistTree).every(card => card.props.onClick === undefined), true);
+  check(agronomist.managedVehicles, []);
 
   const filterNodes = (value: any) => nodes(value).filter(node => node.props?.["data-testid"]?.startsWith("traffic-filter-"));
   const mobileGroups = (value: any) => nodes(value).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-") && !node.props.className.split(/\s+/).includes("hidden"));
@@ -189,27 +224,27 @@ async function main() {
   const allRepairManager = harness("manager", repairVehicles);
   const allRepairTree = allRepairManager.render();
   const allRepairGroups = nodes(allRepairTree).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-"));
-  check(allRepairGroups.map(group => cardNodes(group).length), [0, 0, 0, repairVehicles.length]);
+  check(allRepairGroups.map(group => cardNodes(group).length), [0, 0, 0, repairVehicles.length, 0]);
   filterNodes(allRepairTree)[3].props.onClick();
   check(mobileGroups(allRepairManager.render()).map(group => group.props["data-testid"]), ["traffic-group-repair"]);
-  check(filterCounts(tree), [1, 1, 1, 1]);
+  check(filterCounts(tree), [1, 1, 1, 2, 1]);
   check(mobileGroups(tree).map(group => group.props["data-testid"]), ["traffic-group-empty"]);
-  check(filterNodes(tree).map(filter => filter.props["aria-pressed"]), [true, false, false, false]);
-  check(filterNodes(tree).map(filter => words(filter).replace(/\d+$/, "")), ["Пустые", "На весовую", "Выгрузка", "Ремонт"]);
+  check(filterNodes(tree).map(filter => filter.props["aria-pressed"]), [true, false, false, false, false]);
+  check(filterNodes(tree).map(filter => words(filter).replace(/\d+$/, "")), ["Пустые", "На весовую", "Выгрузка", "Ремонт", "Не на линии"]);
   check(nodes(tree).some(node => node.props?.role === "group" && node.props["aria-label"] === "Показать машины по статусу"), true);
   filterNodes(tree).forEach(filter => {
     check(filter.type, "button"); check(filter.props.type, "button");
     check(filter.props.tabIndex, undefined); // Native Tab + Enter/Space, not an incomplete ARIA tablist.
-    check(filter.props.className.includes("min-h-[52px]"), true);
+    check(filter.props.className.includes("min-h-[60px]"), true);
     check(filter.props.className.includes("focus-visible:outline"), true);
     check(groups.some(group => group.props.id === filter.props["aria-controls"]), true);
   });
   filterNodes(tree)[1].props.onClick();
   let filteredTree = manager.render();
-  check(filterNodes(filteredTree).map(filter => filter.props["aria-pressed"]), [false, true, false, false]);
+  check(filterNodes(filteredTree).map(filter => filter.props["aria-pressed"]), [false, true, false, false, false]);
   check(mobileGroups(filteredTree).map(group => group.props["data-testid"]), ["traffic-group-loaded"]);
   check(cardNodes(mobileGroups(filteredTree)).map(card => card.props["data-testid"]), ["traffic-vehicle-car-0"]);
-  check(filterCounts(filteredTree), [1, 1, 1, 1]);
+  check(filterCounts(filteredTree), [1, 1, 1, 2, 1]);
   check(manager.calls.length, 0);
   manager.props.snapshot = {
     ...manager.props.snapshot,
@@ -218,8 +253,8 @@ async function main() {
   };
   filteredTree = manager.render();
   check(words(filteredTree).includes("Existing Driver · Truck · QA-1 · Пустая → Загружена"), true);
-  check(filterCounts(filteredTree), [0, 2, 1, 1]);
-  check(filterNodes(filteredTree).map(filter => filter.props["aria-pressed"]), [false, true, false, false]);
+  check(filterCounts(filteredTree), [0, 2, 1, 2, 1]);
+  check(filterNodes(filteredTree).map(filter => filter.props["aria-pressed"]), [false, true, false, false, false]);
   check(cardNodes(mobileGroups(filteredTree)).length, 2);
   check(nodes(filteredTree).filter(node => node.props?.["data-driver-assignment"]).length, 0);
 
@@ -228,11 +263,11 @@ async function main() {
   check(cardNodes(mobileGroups(longFleet.render())).length, 14);
   filterNodes(longFleet.render())[1].props.onClick();
   check(cardNodes(mobileGroups(longFleet.render())).map(card => card.props["data-testid"]), ["traffic-vehicle-car-0"]);
-  check(filterCounts(longFleet.render()), [14, 1, 1, 0]);
+  check(filterCounts(longFleet.render()), [14, 1, 1, 0, 0]);
   filterNodes(longFleet.render())[2].props.onClick();
   check(cardNodes(mobileGroups(longFleet.render())).map(card => card.props["data-testid"]), ["traffic-vehicle-car-2"]);
   check(filterNodes(longFleet.render())[3].props["aria-pressed"], false);
-  check(filterNodes(emptyTree).map(filter => filter.props.disabled), [undefined, undefined, undefined, undefined]);
+  check(filterNodes(emptyTree).map(filter => filter.props.disabled), [undefined, undefined, undefined, undefined, undefined]);
 
   const refreshing = harness("harvester");
   refreshing.props.stale = true;
@@ -443,7 +478,7 @@ async function main() {
   }
   const pageSource = readFileSync("app/(dashboard)/traffic/page.tsx", "utf8");
   const css = (await postcss([tailwindcss({ ...config, content: [{ raw: `${source}\n${pageSource}`, extension: "tsx" }] })]).process("@tailwind utilities;", { from: undefined })).css;
-  for (const expression of [/min-height:\s*48px/, /padding:\s*0\.625rem/, /@media \(min-width: 1024px\)/, /grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/,
+  for (const expression of [/min-height:\s*48px/, /padding:\s*0\.625rem/, /@media \(min-width: 1024px\)/, /grid-template-columns:\s*repeat\(5, minmax\(0, 1fr\)\)/,
     /\.bg-emerald-100\s*\{/, /\.bg-amber-100\s*\{/]) { assert.match(css, expression); checks++; }
   check(source.includes("grayscale"), false);
   check(source.includes("Проверяем актуальность"), false);
@@ -484,7 +519,7 @@ async function main() {
     check(stylesAt(lists, width)["overflow-y"] ?? stylesAt(lists, width).overflow, desktop ? "visible" : "auto");
     check(nodes(lists).includes(toolbar), false); // Selector/menu never scroll away with the cards.
     const renderedGroups = nodes(filteredTree).filter(node => node.props?.["data-testid"]?.startsWith("traffic-group-"));
-    check(renderedGroups.filter(group => stylesAt(group, width).display !== "none").length, desktop ? 4 : 1);
+    check(renderedGroups.filter(group => stylesAt(group, width).display !== "none").length, desktop ? 5 : 1);
     renderedGroups.forEach(group => {
       check(stylesAt(group, width)["min-width"], "0px");
       const heading = nodes(group).find(node => node.type === "h2");
@@ -492,12 +527,14 @@ async function main() {
     });
     const filters = filterNodes(filteredTree);
     filters.forEach(filter => {
-      check(stylesAt(filter, width)["min-height"], "52px");
+      check(stylesAt(filter, width)["min-height"], "60px");
       check(stylesAt(filter, width)["min-width"], "0px");
-      check(stylesAt(nodes(filter).find(node => node.props?.className?.includes("whitespace-nowrap")), width)["white-space"], "nowrap");
+      const label = nodes(filter).find(node => node.type === "span" && node.props?.className?.includes("h-8"));
+      check(stylesAt(label, width).height, "2rem");
+      check(stylesAt(label, width)["line-height"], ".75rem");
     });
     const filterGrid = nodes(toolbar).find(node => node.props?.role === "group");
-    check(stylesAt(filterGrid, width)["grid-template-columns"], "repeat(4, minmax(0, 1fr))");
+    check(stylesAt(filterGrid, width)["grid-template-columns"], "repeat(5, minmax(0, 1fr))");
     const explainer = nodes(filteredTree).find(node => node.props?.["data-testid"] === "traffic-empty-explainer");
     check(explainer, undefined);
     const inlineHistory = nodes(filteredTree).find(node => node.props?.["data-testid"] === "traffic-manager-history-inline");

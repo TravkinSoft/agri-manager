@@ -99,7 +99,7 @@ export function FleetEntityCreator({
       if (controller.signal.aborted) return;
       onOpenChange(false);
       resetAll();
-      publishTrafficChanged(result.companyId);
+      publishTrafficChanged(result.companyId, "fleet");
       try { await onCreated?.(result); } catch { /* The canonical insert is already committed. */ }
       toast({
         title: result.kind === "vehicle" ? "Машина добавлена" : "Водитель добавлен",

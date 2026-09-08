@@ -19,7 +19,7 @@ import {
   type TrafficCommit,
   type TrafficVehicle,
 } from "@/lib/traffic/model";
-import { getFleetVehicleCardIdentity } from "@/lib/fleet/model";
+import { getFleetVehicleCardIdentity, type FleetVehicle } from "@/lib/fleet/model";
 import { trafficRequest } from "./use-traffic";
 import { isTrafficAcknowledgement, optimisticTrafficVehicles, trafficCommandObserved, type PendingTrafficCommand, type TrafficCommand } from "@/lib/traffic/optimistic";
 const tones: Record<TrafficState, string> = {
@@ -27,30 +27,34 @@ const tones: Record<TrafficState, string> = {
   loaded: "border-emerald-300 bg-emerald-100 text-emerald-950",
   unloading: "border-amber-300 bg-amber-100 text-amber-950",
 };
-type ManagerTrafficGroup = TrafficState | "repair";
+type ManagerTrafficGroup = TrafficState | "repair" | "offline";
 const managerGroupOrder: readonly ManagerTrafficGroup[] = [
   "empty",
   "loaded",
   "unloading",
   "repair",
+  "offline",
 ];
 const groupLabels: Record<ManagerTrafficGroup, string> = {
   empty: "Пустые",
   loaded: "В пути на весовую",
   unloading: "На выгрузке",
   repair: "На ремонте",
+  offline: "Не на линии",
 };
 const mobileGroupLabels: Record<ManagerTrafficGroup, string> = {
   empty: "Пустые",
   loaded: "На весовую",
   unloading: "Выгрузка",
   repair: "Ремонт",
+  offline: "Не на линии",
 };
 const groupDots: Record<ManagerTrafficGroup, string> = {
   empty: "bg-[#ffffff]",
   loaded: "bg-emerald-400",
   unloading: "bg-amber-300",
   repair: "bg-rose-400",
+  offline: "bg-sky-400",
 };
 export function TrafficBoard({
   snapshot,
@@ -61,6 +65,7 @@ export function TrafficBoard({
   onAuxiliaryCommitted,
   mobileActions,
   onManageVehicle,
+  fleet,
   compactAgronomistMobile = false,
 }: {
   snapshot: TrafficSnapshot;
@@ -71,6 +76,7 @@ export function TrafficBoard({
   onAuxiliaryCommitted?: () => Promise<void>;
   mobileActions?: ReactNode;
   onManageVehicle?: (vehicle: TrafficVehicle) => void;
+  fleet?: FleetVehicle[];
   compactAgronomistMobile?: boolean;
 }) {
   const [now, setNow] = useState(Date.now());
@@ -179,17 +185,42 @@ export function TrafficBoard({
   }
   const isManager = snapshot.role === "manager";
   const displayVehicles = optimisticTrafficVehicles(snapshot, pendingCommands);
+  const managerVehicles = useMemo(() => {
+    if (!isManager) return displayVehicles;
+    const assignedIds = new Set(displayVehicles.map((vehicle) => vehicle.vehicle_id));
+    const supplemental = (fleet ?? [])
+      .filter((vehicle) => !assignedIds.has(vehicle.id))
+      .map((vehicle): TrafficVehicle => ({
+        vehicle_id: vehicle.id,
+        name: vehicle.name,
+        brand: vehicle.brand,
+        plate: vehicle.plate,
+        driver: vehicle.driver,
+        state: vehicle.state ?? "empty",
+        version: 0,
+        since: vehicle.lastActivity ?? snapshot.serverTime,
+        cycle: 0,
+        // The compact PTC snapshot contains every assigned vehicle. A fleet row
+        // absent from it is reserve, even if an earlier full response is stale.
+        assigned: false,
+        inRepair: vehicle.inRepair,
+        repairVersion: vehicle.repairVersion,
+      }));
+    return [...displayVehicles, ...supplemental];
+  }, [displayVehicles, fleet, isManager, snapshot.serverTime]);
   const groups = isManager
     ? managerGroupOrder.map((state) => ({
         state,
-        vehicles: displayVehicles.filter((vehicle) =>
+        vehicles: managerVehicles.filter((vehicle) =>
           state === "repair"
             ? !!vehicle.inRepair
-            : !vehicle.inRepair && vehicle.state === state),
+            : state === "offline"
+              ? !vehicle.assigned && !vehicle.inRepair
+              : vehicle.assigned && !vehicle.inRepair && vehicle.state === state),
       }))
     : [{ state: null, vehicles: displayVehicles }];
   const lineVehicleCount = isManager
-    ? displayVehicles.filter((vehicle) => !vehicle.inRepair).length
+    ? managerVehicles.filter((vehicle) => vehicle.assigned && !vehicle.inRepair).length
     : 0;
   const lineVehicleWord = lineVehicleCount % 10 === 1 && lineVehicleCount % 100 !== 11
     ? "машина"
@@ -278,7 +309,7 @@ export function TrafficBoard({
         ) : null}
         {isManager ? (
           <div data-testid="traffic-mobile-toolbar" className="sticky top-0 z-20 mb-3 flex min-w-0 shrink-0 items-stretch gap-1 rounded-xl bg-[#0f172a] py-1 lg:hidden">
-            <div role="group" aria-label="Показать машины по статусу" className="grid min-w-0 flex-1 grid-cols-4 gap-1">
+            <div role="group" aria-label="Показать машины по статусу" className="grid min-w-0 flex-1 grid-cols-5 gap-1">
               {groups.map(({ state, vehicles }) => state ? (
                 <button
                   key={state}
@@ -295,9 +326,9 @@ export function TrafficBoard({
                       mobileListRef.current?.scrollTo({ top: 0 });
                     }
                   }}
-                  className={`grid min-h-[52px] min-w-0 grid-rows-[1rem_1.25rem] content-center items-center justify-items-center rounded-lg border px-0.5 py-1 text-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${mobileState === state ? "border-slate-400 bg-slate-700 text-white" : "border-transparent text-slate-300"}`}
+                  className={`grid min-h-[60px] min-w-0 grid-rows-[2rem_1.25rem] content-center items-center justify-items-center rounded-lg border px-0.5 py-1 text-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${mobileState === state ? "border-slate-400 bg-slate-700 text-white" : "border-transparent text-slate-300"}`}
                 >
-                  <span className="w-full whitespace-nowrap text-[10px] font-medium leading-4">{mobileGroupLabels[state]}</span>
+                  <span className="flex h-8 w-full items-center justify-center text-[9px] font-medium leading-3 min-[390px]:text-[10px]">{mobileGroupLabels[state]}</span>
                   <span className="flex items-center gap-1.5 text-lg font-semibold leading-5 tabular-nums">
                     <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${groupDots[state]}`} />
                     {vehicles.length}
@@ -311,8 +342,8 @@ export function TrafficBoard({
       <div ref={mobileListRef} data-testid={isManager ? "traffic-manager-lists" : undefined}
         className={isManager
           ? compactAgronomistMobile
-            ? "grid min-h-0 scroll-mt-16 items-start gap-3 lg:grid-cols-4 lg:gap-4"
-            : "grid min-h-0 items-start gap-4 overflow-y-auto overscroll-contain lg:grid-cols-4 lg:overflow-visible lg:overscroll-auto"
+            ? "grid min-h-0 scroll-mt-16 items-start gap-3 lg:grid-cols-5 lg:gap-3"
+            : "grid min-h-0 items-start gap-4 overflow-y-auto overscroll-contain lg:grid-cols-5 lg:overflow-visible lg:overscroll-auto"
           : ""}>
         {groups.map((group) => (
           <section
@@ -343,7 +374,11 @@ export function TrafficBoard({
             (isLastVehicle || vehicle.state === "empty");
           const cardClass = `${compactAgronomistMobile
             ? "h-[4.875rem] p-1.5 lg:h-24 lg:p-2.5"
-            : "h-24 p-2.5"} min-w-0 overflow-hidden rounded-xl border text-left shadow-sm ${vehicle.inRepair ? "border-rose-400 bg-rose-100 text-rose-950" : tones[vehicle.state]}`;
+            : "h-24 p-2.5"} min-w-0 overflow-hidden rounded-xl border text-left shadow-sm ${vehicle.inRepair
+              ? "border-rose-400 bg-rose-100 text-rose-950"
+              : !vehicle.assigned
+                ? "border-sky-300 bg-sky-100 text-sky-950"
+                : tones[vehicle.state]}`;
           const content = (
             <>
               <span className={`${compactAgronomistMobile
@@ -362,7 +397,8 @@ export function TrafficBoard({
                 {!identity.hasDriver ? <span className="shrink-0 font-medium">Без водителя ·</span> : null}
                 {vehicle.inRepair ? <span className="flex shrink-0 items-center gap-1 font-semibold">
                   <Wrench size={11} aria-hidden /> На ремонте · {STATE_LABEL[vehicle.state]} ·
-                </span> : !isManager ? <span className="shrink-0">{STATE_LABEL[vehicle.state]} ·</span> : null}
+                </span> : !vehicle.assigned ? <span className="shrink-0 font-semibold">Не на линии ·</span>
+                  : !isManager ? <span className="shrink-0">{STATE_LABEL[vehicle.state]} ·</span> : null}
                 <Clock3 aria-hidden size={11} />
                 <span className="truncate">{stateAge(vehicle.since, now + offset)}</span>
               </span>
@@ -432,7 +468,7 @@ export function TrafficBoard({
         ))}
       </div>
       </div>
-      {!displayVehicles.length ? (
+      {!(isManager ? managerVehicles : displayVehicles).length ? (
         <div className="py-16 text-center">
           <Truck size={38} className="mx-auto mb-4 text-slate-600" />
           <h2 className="font-medium text-slate-200">
@@ -447,7 +483,7 @@ export function TrafficBoard({
               ? "Машина появится здесь сразу после подтверждения комбайнёра."
               : snapshot.role === "receiver"
                 ? "Машина появится здесь сразу после подтверждения весовщика."
-                : "Агроном добавляет машины через «Выбрать машины»."}
+                : "В парке пока нет машин, доступных для оборота."}
           </p>
         </div>
       ) : null}

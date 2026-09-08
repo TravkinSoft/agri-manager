@@ -55,6 +55,7 @@ function page(live: Record<string, unknown>) {
     "@/components/traffic/install-traffic-app": { TrafficPwa },
     "@/components/traffic/traffic-fleet-controls": { TrafficFleetControls: () => null },
     "@/components/traffic/fleet-entity-creator": { FleetEntityCreator: () => null },
+    "@/components/traffic/traffic-shift-controls": { TrafficShiftControls: () => null },
     "@/lib/supabase/client": { supabase: {} },
   });
   return materialize(pageModule.default());
@@ -79,6 +80,9 @@ async function main() {
   check(/failure\.status === 401 \|\| failure\.status === 403/.test(pageSource), true);
   check(/mode === "manager"[\s\S]*<TrafficManagerPwa/.test(pageSource), true);
   check(/<TrafficFleetControls[\s\S]*<FleetEntityCreator/.test(pageSource), true);
+  check(pageSource.includes("fleet={managed?.fleet}"), true);
+  check(/onManageVehicle=\{managed\?\.canManageFleet \? setSelected : undefined\}/.test(pageSource), true);
+  check(/Settings2|Машины не на линии|drawerOpen|onDrawerOpen/.test(pageSource), false);
 
   const applyCommitted = () => undefined;
   const scenarios = [
@@ -104,6 +108,8 @@ async function main() {
     if (scenario.data) {
       const board = nodes(tree).find(node => node.type === TrafficBoard);
       check(board.props.onCommitted, applyCommitted);
+      check(board.props.fleet, undefined); // Operator cabinets never receive the manager fleet payload.
+      check(board.props.onManageVehicle, undefined);
     }
   }
 

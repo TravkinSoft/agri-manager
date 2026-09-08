@@ -128,7 +128,7 @@ function FleetCabinet({ companyId }: { companyId: string }) {
         receipt.vehicleId !== vehicle.id || receipt.inRepair !== desired || receipt.version < (vehicle.repairVersion ?? 0)) {
         throw new Error("Нет корректного подтверждения ремонта. Обновите карточку.");
       }
-      publishTrafficChanged(companyId);
+      publishTrafficChanged(companyId, "fleet");
       if (!alive.current) return;
       cancelRead();
       setData(old => old ? applyFleetRepair(old, receipt) : old);

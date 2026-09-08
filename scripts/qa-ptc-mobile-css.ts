@@ -26,7 +26,7 @@ async function main() {
     /max-height:\s*calc\(100dvh - 2rem\)/,
     /width:\s*calc\(100% - 2rem\)/,
     /font-size:\s*1rem/,
-    /grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/,
+    /grid-template-columns:\s*repeat\(5, minmax\(0, 1fr\)\)/,
     /background-color:\s*rgb\(251 113 133/,
     /safe-area-inset-bottom/,
     /safe-area-inset-top/,

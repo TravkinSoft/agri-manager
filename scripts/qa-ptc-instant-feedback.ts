@@ -55,14 +55,14 @@ class TestChannel {
 const liveChannels: TestLiveChannel[] = [];
 const authTokens: string[] = [];
 class TestLiveChannel {
-  callback: (() => void) | null = null;
+  callback: ((message?: unknown) => void) | null = null;
   onType = "";
   onEvent = "";
   subscribed = false;
   removed = false;
   messages: unknown[] = [];
   constructor(public name: string, public options: unknown) { liveChannels.push(this); }
-  on(type: string, filter: { event: string }, callback: () => void) {
+  on(type: string, filter: { event: string }, callback: (message?: unknown) => void) {
     this.onType = type; this.onEvent = filter.event; this.callback = callback; return this;
   }
   subscribe() { this.subscribed = true; return this; }
@@ -90,10 +90,10 @@ const otherCompany = "20000000-0000-4000-8000-000000000002";
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 
 async function verifyChannels() {
-  const received: string[] = [];
+  const received: Array<{ companyId: string; kind: string }> = [];
   const stopBad = api.subscribeTrafficChanges(liveCompany, () => { throw new Error("isolated consumer"); });
-  const stopGood = api.subscribeTrafficChanges(liveCompany, (companyId: string) => received.push(companyId));
-  const stopOther = api.subscribeTrafficChanges(otherCompany, () => received.push("wrong-company"));
+  const stopGood = api.subscribeTrafficChanges(liveCompany, (companyId: string, kind: string) => received.push({ companyId, kind }));
+  const stopOther = api.subscribeTrafficChanges(otherCompany, (companyId: string, kind: string) => received.push({ companyId, kind }));
   check(channels.length, 1);
   await flush();
   check(liveChannels.map(channel => ({ name: channel.name, onType: channel.onType, onEvent: channel.onEvent, subscribed: channel.subscribed })), [
@@ -103,24 +103,47 @@ async function verifyChannels() {
   check(authTokens.every(token => token === "test-access-token"), true);
   for (const data of [null, {}, { companyId: 7 }, { companyId: "" }, { companyId: "x".repeat(65) }]) channels[0].onmessage({ data });
   check(received.length, 0);
-  channels[0].onmessage({ data: { companyId: liveCompany, state: "ignored", driver: "ignored" } });
-  check(received, [liveCompany]); check(channels[0].messages.length, 0);
-  liveChannels.find(channel => channel.name.endsWith(liveCompany))?.callback?.();
-  check(received, [liveCompany, liveCompany]);
-  liveChannels.find(channel => channel.name.endsWith(otherCompany))?.callback?.();
-  check(received.includes("wrong-company"), true);
+  channels[0].onmessage({ data: { companyId: liveCompany, kind: "traffic", state: "ignored", driver: "ignored" } });
+  channels[0].onmessage({ data: { companyId: liveCompany, kind: "fleet" } });
+  // Old or malformed senders retain the compact traffic refresh contract.
+  channels[0].onmessage({ data: { companyId: liveCompany } });
+  channels[0].onmessage({ data: { companyId: liveCompany, kind: "not-a-kind" } });
+  check(received, [
+    { companyId: liveCompany, kind: "traffic" },
+    { companyId: liveCompany, kind: "fleet" },
+    { companyId: liveCompany, kind: "traffic" },
+    { companyId: liveCompany, kind: "traffic" },
+  ]);
+  check(channels[0].messages.length, 0);
+  liveChannels.find(channel => channel.name.endsWith(liveCompany))?.callback?.({ payload: { kind: "fleet" } });
+  check(received.at(-1), { companyId: liveCompany, kind: "fleet" });
+  liveChannels.find(channel => channel.name.endsWith(liveCompany))?.callback?.({ payload: { kind: "traffic" } });
+  check(received.at(-1), { companyId: liveCompany, kind: "traffic" });
+  liveChannels.find(channel => channel.name.endsWith(otherCompany))?.callback?.({ payload: { kind: "fleet" } });
+  check(received.at(-1), { companyId: otherCompany, kind: "fleet" });
   api.publishTrafficChanged(liveCompany);
+  api.publishTrafficChanged(liveCompany, "fleet");
   await flush();
-  check(channels[0].messages, [{ companyId: liveCompany }]);
+  check(channels[0].messages, [
+    { companyId: liveCompany, kind: "traffic" },
+    { companyId: liveCompany, kind: "fleet" },
+  ]);
   check(liveChannels.find(channel => channel.name.endsWith(liveCompany))?.messages, [{
-    type: "broadcast", event: "changed", payload: {},
+    type: "broadcast", event: "changed", payload: { kind: "traffic" },
+  }, {
+    type: "broadcast", event: "changed", payload: { kind: "fleet" },
   }]);
   api.publishTrafficChanged(undefined); api.publishTrafficChanged("not-a-company-id");
-  await flush(); check(channels[0].messages.length, 1);
+  await flush();
+  check(channels[0].messages.length, 2);
   stopBad(); check(channels[0].closed, false);
   stopGood(); check(channels[0].closed, false);
   stopOther(); await flush();
   check(channels[0].closed, true); check(liveChannels.every(channel => channel.removed), true);
+  const useTrafficSource = readFileSync("components/traffic/use-traffic.ts", "utf8");
+  check(/subscribeTrafficChanges\([\s\S]*?\(companyId,\s*(?:kind|changeKind)\)/.test(useTrafficSource), true);
+  check(/(?:kind|changeKind)\s*===\s*["']fleet["']/.test(useTrafficSource), true);
+  check(/refresh\(true\)/.test(useTrafficSource), true);
   console.log(`PTC instant feedback PASS: ${checks} checks (instant UI, cross-tab and cross-device invalidation, tenant filtering, cleanup; no remote writes).`);
 }
 void verifyChannels().catch(error => { console.error(error); process.exitCode = 1; });

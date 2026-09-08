@@ -6,7 +6,11 @@ const LOCAL_CHANNEL = "travkinflow.traffic.changed.v1";
 const LIVE_TOPIC_PREFIX = "travkinflow:traffic";
 const LIVE_EVENT = "changed";
 const COMPANY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-type ListenerEntry = { companyId: string; receive: (companyId: string) => void };
+export type TrafficChangeKind = "traffic" | "fleet";
+type ListenerEntry = {
+  companyId: string;
+  receive: (companyId: string, kind: TrafficChangeKind) => void;
+};
 const listeners = new Set<ListenerEntry>();
 let localChannel: BroadcastChannel | null = null;
 type LiveChannel = ReturnType<typeof supabase.channel>;
@@ -17,14 +21,25 @@ function validCompanyId(value: unknown): value is string {
   return typeof value === "string" && COMPANY_ID.test(value);
 }
 
+function validKind(value: unknown): value is TrafficChangeKind {
+  return value === "traffic" || value === "fleet";
+}
+
 function deliver(value: unknown) {
-  const companyId = value && typeof value === "object" && "companyId" in value
-    ? (value as { companyId?: unknown }).companyId
+  const message = value && typeof value === "object"
+    ? value as { companyId?: unknown; kind?: unknown }
+    : null;
+  const companyId = message
+    ? message.companyId
     : value;
   if (!validCompanyId(companyId)) return;
+  // Old tabs sent only the company id (or { companyId }). Treat those hints as
+  // compact traffic invalidations during the rolling upgrade.
+  const candidateKind = message?.kind;
+  const kind = validKind(candidateKind) ? candidateKind : "traffic";
   listeners.forEach(entry => {
     if (entry.companyId !== companyId) return;
-    try { entry.receive(companyId); } catch { /* Independent subscribers. */ }
+    try { entry.receive(companyId, kind); } catch { /* Independent subscribers. */ }
   });
 }
 
@@ -45,8 +60,12 @@ async function startLiveChannel(companyId: string, state: LiveState) {
     if (liveStates.get(companyId) !== state || state.generation !== generation || state.refs < 1) return;
     const next = supabase
       .channel(liveTopic(companyId), { config: { broadcast: { ack: false, self: false } } })
-      // The topic chooses the tenant. Never trust or consume remote payload data.
-      .on("broadcast", { event: LIVE_EVENT }, () => deliver(companyId));
+      // The topic chooses the tenant. The only consumed payload value is the
+      // validated invalidation kind; every receiver still rereads its own data.
+      .on("broadcast", { event: LIVE_EVENT }, event => deliver({
+        companyId,
+        kind: event?.payload?.kind,
+      }));
     state.channel = next;
     next.subscribe();
   } catch {
@@ -73,11 +92,11 @@ function retainLiveChannel(companyId: string) {
   };
 }
 
-async function sendLiveInvalidation(companyId: string) {
+async function sendLiveInvalidation(companyId: string, kind: TrafficChangeKind) {
   try {
     const active = liveStates.get(companyId)?.channel;
     if (active) {
-      await active.send({ type: "broadcast", event: LIVE_EVENT, payload: {} });
+      await active.send({ type: "broadcast", event: LIVE_EVENT, payload: { kind } });
       return;
     }
     const { data, error } = await supabase.auth.getSession();
@@ -90,7 +109,7 @@ async function sendLiveInvalidation(companyId: string) {
       config: { broadcast: { ack: true, self: false } },
     });
     try {
-      await sender.send({ type: "broadcast", event: LIVE_EVENT, payload: {} });
+      await sender.send({ type: "broadcast", event: LIVE_EVENT, payload: { kind } });
     } finally {
       await supabase.removeChannel(sender);
     }
@@ -102,7 +121,7 @@ async function sendLiveInvalidation(companyId: string) {
 /** Only an invalidation hint. Every receiver rereads its own authorized snapshot. */
 export function subscribeTrafficChanges(
   companyId: string | undefined,
-  listener: (companyId: string) => void,
+  listener: (companyId: string, kind: TrafficChangeKind) => void,
 ): () => void {
   if (!validCompanyId(companyId)) return () => undefined;
   const entry = { companyId, receive: listener };
@@ -122,15 +141,19 @@ export function subscribeTrafficChanges(
 }
 
 /** Call only after a validated server commit, never for optimistic UI intent. */
-export function publishTrafficChanged(companyId: string | undefined): void {
+export function publishTrafficChanged(
+  companyId: string | undefined,
+  kind: TrafficChangeKind = "traffic",
+): void {
   if (!validCompanyId(companyId)) return;
+  const normalizedKind = validKind(kind) ? kind : "traffic";
   try {
-    if (localChannel) localChannel.postMessage({ companyId });
+    if (localChannel) localChannel.postMessage({ companyId, kind: normalizedKind });
     else if (typeof BroadcastChannel !== "undefined") {
       const sender = new BroadcastChannel(LOCAL_CHANNEL);
-      sender.postMessage({ companyId });
+      sender.postMessage({ companyId, kind: normalizedKind });
       sender.close();
     }
   } catch { /* A delivered action must not become a false failure. */ }
-  void sendLiveInvalidation(companyId);
+  void sendLiveInvalidation(companyId, normalizedKind);
 }
