@@ -153,7 +153,7 @@ export function Sidebar() {
           isCollapsed ? "justify-center px-0" : "px-4"
         )}
       >
-        <TravkinLogo compact={isCollapsed} />
+        <TravkinLogo compact={isCollapsed} tiltMark />
       </div>
 
       <nav className="travkin-scrollbar flex-1 space-y-1 overflow-y-auto p-3">

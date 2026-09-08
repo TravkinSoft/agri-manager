@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, EllipsisVertical, LogOut, Menu, Settings as SettingsIcon, Shield, User } from "lucide-react";
+import { Check, EllipsisVertical, LogOut, Menu, RotateCcw, Settings as SettingsIcon, Shield, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -332,7 +332,6 @@ export function Header() {
                 ))}
               </SelectContent>
             </Select>
-            {activeCompanyName ? <span className="max-w-[150px] truncate text-xs text-[#9CA3AF]">{activeCompanyName}</span> : null}
           </div>
         ) : null}
 
@@ -376,6 +375,24 @@ export function Header() {
               </SelectContent>
             </Select>
           </div>
+        ) : null}
+
+        {isImpersonating ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-9 max-w-[210px] shrink-0 border-amber-500/35 bg-amber-500/10 px-2 text-amber-100 hover:border-amber-400/55 hover:bg-amber-500/15 hover:text-amber-50"
+            onClick={() => void handleSwitchUser("__admin__")}
+            disabled={switchingUser}
+            aria-label={`${t("impersonation_as")} ${profile?.full_name || profile?.email || profile?.id}. ${t("return_to_global_admin")}`}
+            title={t("return_to_global_admin")}
+          >
+            <RotateCcw aria-hidden="true" className="h-4 w-4 shrink-0" />
+            <span className="ml-1.5 hidden truncate md:inline">
+              {switchingUser ? t("returning") : profile?.full_name || profile?.email || t("return_to_global_admin")}
+            </span>
+          </Button>
         ) : null}
 
         {profile ? (

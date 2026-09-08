@@ -8,10 +8,12 @@ const SYMBOL = "/brand/v1/travkinflow-symbol-006f2efc.png";
 export function TravkinLogo({
   compact = false,
   size = "default",
+  tiltMark = false,
   className,
 }: {
   compact?: boolean;
   size?: "default" | "mobile" | "large";
+  tiltMark?: boolean;
   className?: string;
 }) {
   const isLarge = !compact && size === "large";
@@ -35,7 +37,7 @@ export function TravkinLogo({
     >
       <span
         className={cn(
-          "relative block shrink-0",
+          "relative block shrink-0 overflow-visible",
           compact
             ? "h-9 w-14"
             : isLarge
@@ -50,7 +52,7 @@ export function TravkinLogo({
           alt=""
           aria-hidden="true"
           fill
-          className="object-contain"
+          className={cn("object-contain", tiltMark && "-rotate-[14deg]")}
           sizes={compact ? "56px" : isLarge ? "100px" : isMobile ? "62px" : "68px"}
           priority
         />
