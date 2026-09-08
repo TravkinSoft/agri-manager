@@ -102,7 +102,7 @@ type VehicleOption = Option & {
   type: string;
   fleetType: string;
   transportCategory: string;
-  source: "reference_vehicles";
+  source: "reference_vehicles" | "reference_machines";
   primaryPersonnelId: string | null;
   searchTerms: string[];
 };
@@ -717,6 +717,7 @@ const harvestContextRequestCache = new Map<string, SharedAbortableRequest<Harves
 const WEIGHBRIDGE_WORKSPACE_CACHE_VERSION = 2;
 const WEIGHBRIDGE_WORKSPACE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const MODE_RESOURCE_STABILITY_DELAY_MS = 75;
+const HARVEST_BATCH_REQUEST_TIMEOUT_MS = 12_000;
 
 const workspaceCacheKey = (companyId: string, profileId: string, language: string) =>
   `travkin.weighbridge.workspace.v${WEIGHBRIDGE_WORKSPACE_CACHE_VERSION}.${companyId}.${profileId}.${language}`;
@@ -928,9 +929,13 @@ export default function WeighbridgeOperationsPage() {
   const [tickets, setTickets] = useState<WeighbridgeTicket[]>([]);
   const [historyLimit, setHistoryLimit] = useState(10);
   const [historyHasMore, setHistoryHasMore] = useState(false);
-  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
-  const [harvestBatches, setHarvestBatches] = useState<HarvestBatchSummary[]>([]);
-  const [harvestBatchDetailLoading, setHarvestBatchDetailLoading] = useState(false);
+	  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+	  const [harvestBatches, setHarvestBatches] = useState<HarvestBatchSummary[]>([]);
+	  const [harvestBatchOptionsStatus, setHarvestBatchOptionsStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+	  const [harvestBatchOptionsError, setHarvestBatchOptionsError] = useState("");
+	  const [harvestBatchDetailLoading, setHarvestBatchDetailLoading] = useState(false);
+	  const [harvestBatchDetailError, setHarvestBatchDetailError] = useState("");
+	  const [harvestBatchDetailRetry, setHarvestBatchDetailRetry] = useState(0);
   const [fields, setFields] = useState<FieldOption[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
@@ -1049,10 +1054,11 @@ export default function WeighbridgeOperationsPage() {
   const harvestAllocationsAbortRef = useRef<AbortController | null>(null);
   const harvestAllocationsGenerationRef = useRef(0);
   const ticketsRequestRef = useRef<Promise<void> | null>(null);
-  const harvestBatchesRequestRef = useRef<Promise<void> | null>(null);
-  const harvestBatchesAbortRef = useRef<AbortController | null>(null);
-  const harvestBatchesReadyRef = useRef(false);
-  const harvestBatchesGenerationRef = useRef(0);
+	  const harvestBatchesRequestRef = useRef<Promise<void> | null>(null);
+	  const harvestBatchesAbortRef = useRef<AbortController | null>(null);
+	  const harvestBatchesRequestKeyRef = useRef("");
+	  const harvestBatchesReadyRef = useRef("");
+	  const harvestBatchesGenerationRef = useRef(0);
   const bootstrapRequestRef = useRef<Promise<void> | null>(null);
   const bootstrapSummaryRequestRef = useRef<Promise<void> | null>(null);
   const operatorRequestRef = useRef<Promise<WeighbridgeOperatorState | undefined> | null>(null);
@@ -1450,11 +1456,11 @@ export default function WeighbridgeOperationsPage() {
             id: String(row.id), name: String(row.name || "Машина"), model: String(row.model || row.name || ""),
             plate: String(row.plate || ""), type: String(row.type || ""), fleetType: String(row.fleetType || ""),
             transportCategory: String(row.transportCategory || ""),
-            source: "reference_vehicles" as const,
+            source: row.source === "reference_machines" ? "reference_machines" as const : "reference_vehicles" as const,
             primaryPersonnelId: row.primaryPersonnelId ? String(row.primaryPersonnelId) : null,
             searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
           }));
-          if (!failedResources.has("reference_vehicles") && assignmentRevision === vehicleAssignmentRevisionRef.current) {
+          if (!failedResources.has("reference_vehicles") && !failedResources.has("reference_machines") && assignmentRevision === vehicleAssignmentRevisionRef.current) {
             setVehicles(mappedVehicles);
           }
           if (!failedResources.has("reference_vehicles")) {
@@ -1567,39 +1573,93 @@ export default function WeighbridgeOperationsPage() {
     return request;
   };
 
-  const refreshHarvestBatches = async (options: { force?: boolean; signal?: AbortSignal } = {}) => {
-    if (!profile?.company_id) return;
-    const companyId = profile.company_id;
-    if (!options.force && harvestBatchesReadyRef.current) return;
-    if (harvestBatchesRequestRef.current) return harvestBatchesRequestRef.current;
+	  const refreshHarvestBatches = async (options: { force?: boolean; signal?: AbortSignal; warehouseId?: string } = {}) => {
+	    if (!profile?.company_id) return;
+	    const companyId = profile.company_id;
+	    const warehouseId = String(options.warehouseId || "").trim();
+	    if (!warehouseId) {
+	      setHarvestBatches([]);
+	      setHarvestBatchOptionsStatus("idle");
+	      setHarvestBatchOptionsError("");
+	      return;
+	    }
+	    const requestKey = `${companyId}:${warehouseId}`;
+	    if (!options.force && harvestBatchesReadyRef.current === requestKey) return;
+	    if (harvestBatchesRequestRef.current && harvestBatchesRequestKeyRef.current === requestKey) {
+	      return harvestBatchesRequestRef.current;
+	    }
+	    if (harvestBatchesRequestRef.current) {
+	      harvestBatchesGenerationRef.current += 1;
+	      harvestBatchesAbortRef.current?.abort();
+	      harvestBatchesRequestRef.current = null;
+	    }
 
-    const controller = new AbortController();
-    const generation = ++harvestBatchesGenerationRef.current;
-    const abortFromParent = () => controller.abort();
-    options.signal?.addEventListener("abort", abortFromParent, { once: true });
-    harvestBatchesAbortRef.current = controller;
+	    const controller = new AbortController();
+	    const generation = ++harvestBatchesGenerationRef.current;
+	    let requestTimedOut = false;
+	    const timeoutId = window.setTimeout(() => {
+	      requestTimedOut = true;
+	      controller.abort();
+	    }, HARVEST_BATCH_REQUEST_TIMEOUT_MS);
+	    const abortFromParent = () => controller.abort();
+	    options.signal?.addEventListener("abort", abortFromParent, { once: true });
+	    harvestBatchesAbortRef.current = controller;
+	    harvestBatchesRequestKeyRef.current = requestKey;
+	    harvestBatchesReadyRef.current = "";
+	    setHarvestBatches([]);
+	    setHarvestBatchOptionsStatus("loading");
+	    setHarvestBatchOptionsError("");
 
-    const request = (async () => {
-      try {
-        const rows = await listHarvestBatchSummaries(companyId, {
-          aggregateLots: true,
-          summaryOnly: true,
-          signal: controller.signal,
-        });
-        if (controller.signal.aborted || generation !== harvestBatchesGenerationRef.current) return;
-        setHarvestBatches(rows);
-        harvestBatchesReadyRef.current = true;
-      } catch (error: any) {
-        if (controller.signal.aborted || error?.name === "AbortError") return;
-        throw error;
-      }
+	    const request = (async () => {
+	      try {
+	        const rows = await listHarvestBatchSummaries(companyId, {
+	          warehouseId,
+	          aggregateLots: true,
+	          summaryOnly: true,
+	          signal: controller.signal,
+	        });
+	        if (controller.signal.aborted || generation !== harvestBatchesGenerationRef.current) return;
+	        setHarvestBatches(rows);
+	        harvestBatchesReadyRef.current = requestKey;
+	        setHarvestBatchOptionsStatus("ready");
+	      } catch (error: any) {
+	        if ((controller.signal.aborted || error?.name === "AbortError") && !requestTimedOut) return;
+	        harvestBatchesReadyRef.current = "";
+	        setHarvestBatches([]);
+	        setHarvestBatchOptionsStatus("error");
+	        setHarvestBatchOptionsError(requestTimedOut
+	          ? "Склад отвечает слишком долго. Нажмите «Повторить»."
+	          : "Не удалось загрузить партии урожая. Нажмите «Повторить»."
+	        );
+	        throw error;
+	      }
     })().finally(() => {
-      options.signal?.removeEventListener("abort", abortFromParent);
-      if (harvestBatchesRequestRef.current === request) harvestBatchesRequestRef.current = null;
-      if (harvestBatchesAbortRef.current === controller) harvestBatchesAbortRef.current = null;
-    });
+	      window.clearTimeout(timeoutId);
+	      options.signal?.removeEventListener("abort", abortFromParent);
+	      if (harvestBatchesRequestRef.current === request) harvestBatchesRequestRef.current = null;
+	      if (harvestBatchesAbortRef.current === controller) {
+	        harvestBatchesAbortRef.current = null;
+	        harvestBatchesRequestKeyRef.current = "";
+	      }
+	    });
     harvestBatchesRequestRef.current = request;
     return request;
+  };
+
+  const selectImpurityWarehouse = (warehouseFromId: string) => {
+    if (warehouseFromId === form.warehouseFromId) return;
+    harvestBatchesGenerationRef.current += 1;
+    harvestBatchesAbortRef.current?.abort();
+    harvestBatchesAbortRef.current = null;
+    harvestBatchesRequestRef.current = null;
+    harvestBatchesRequestKeyRef.current = "";
+    harvestBatchesReadyRef.current = "";
+    setHarvestBatches([]);
+    setHarvestBatchOptionsStatus(warehouseFromId ? "loading" : "idle");
+    setHarvestBatchOptionsError("");
+    setHarvestBatchDetailLoading(false);
+    setHarvestBatchDetailError("");
+    setForm((previous) => ({ ...previous, warehouseFromId, sourceBatchId: "" }));
   };
 
   const refreshBootstrap = async (includeSummary = false, signal?: AbortSignal) => {
@@ -1660,7 +1720,7 @@ export default function WeighbridgeOperationsPage() {
       type: String(row.type || ""),
       fleetType: String(row.fleetType || ""),
       transportCategory: String(row.transportCategory || ""),
-      source: "reference_vehicles" as const,
+      source: row.source === "reference_machines" ? "reference_machines" as const : "reference_vehicles" as const,
       primaryPersonnelId: row.primaryPersonnelId ? String(row.primaryPersonnelId) : null,
       searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
     })));
@@ -1801,9 +1861,9 @@ export default function WeighbridgeOperationsPage() {
     if (ticketChanged) {
       tasks.push(refreshTickets());
     }
-    if (ticketChanged || stockChanged) harvestBatchesReadyRef.current = false;
-    if (form.operationType === "impurity_removal" && (ticketChanged || stockChanged)) {
-      tasks.push(refreshHarvestBatches({ force: true }));
+	    if (ticketChanged || stockChanged) harvestBatchesReadyRef.current = "";
+	    if (form.operationType === "impurity_removal" && form.warehouseFromId && (ticketChanged || stockChanged)) {
+	      tasks.push(refreshHarvestBatches({ force: true, warehouseId: form.warehouseFromId }));
     }
     if (ticketChanged && (event?.source === "realtime" || event?.source === "online")) {
       tasks.push(refreshTransportPickerData());
@@ -1949,9 +2009,14 @@ export default function WeighbridgeOperationsPage() {
     harvestBatchesGenerationRef.current += 1;
     harvestBatchesAbortRef.current?.abort();
     harvestBatchesAbortRef.current = null;
-    harvestBatchesRequestRef.current = null;
-    harvestBatchesReadyRef.current = false;
-    setHarvestBatches([]);
+	    harvestBatchesRequestRef.current = null;
+	    harvestBatchesRequestKeyRef.current = "";
+	    harvestBatchesReadyRef.current = "";
+	    setHarvestBatches([]);
+	    setHarvestBatchOptionsStatus("idle");
+	    setHarvestBatchOptionsError("");
+	    setHarvestBatchDetailLoading(false);
+	    setHarvestBatchDetailError("");
     stockIdentityGenerationRef.current += 1;
     stockIdentityRequestsRef.current.forEach((entry) => entry.controller.abort());
     stockIdentityRequestsRef.current.clear();
@@ -1971,7 +2036,7 @@ export default function WeighbridgeOperationsPage() {
       setFields(cached.fields || []);
       setWarehouses(cached.warehouses || []);
       setVehicles(((cached.vehicles || []) as VehicleOption[])
-        .filter((vehicle) => vehicle.source === "reference_vehicles"));
+        .filter((vehicle) => vehicle.source === "reference_vehicles" || vehicle.source === "reference_machines"));
       setTrailers(cached.trailers || []);
       setDrivers(cached.drivers || []);
       setDriverNames(cached.driverNames || {});
@@ -2034,18 +2099,20 @@ export default function WeighbridgeOperationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, profile?.company_id, profile?.id, profile?.role, language, canUseOperatorSession, operatorState.unlocked]);
 
-  useEffect(() => {
-    if (canUseOperatorSession && !operatorState.unlocked) return;
-    if (form.operationType !== "impurity_removal" || !profile?.company_id || harvestBatchesReadyRef.current) return;
-    const timer = window.setTimeout(() => {
-      void refreshHarvestBatches().catch((error) => {
-        console.error("Harvest batch options refresh failed", error);
-      });
+	  useEffect(() => {
+	    if (canUseOperatorSession && !operatorState.unlocked) return;
+	    if (form.operationType !== "impurity_removal" || !profile?.company_id || !form.warehouseFromId) return;
+	    const requestKey = `${profile.company_id}:${form.warehouseFromId}`;
+	    if (harvestBatchesReadyRef.current === requestKey) return;
+	    const timer = window.setTimeout(() => {
+	      void refreshHarvestBatches({ warehouseId: form.warehouseFromId }).catch((error) => {
+	        console.error("Harvest batch options refresh failed", error);
+	      });
     }, MODE_RESOURCE_STABILITY_DELAY_MS);
     return () => window.clearTimeout(timer);
     // Harvest batches are needed only by impurity removal, not by the default intake form.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.operationType, profile?.company_id, canUseOperatorSession, operatorState.unlocked]);
+	  }, [form.operationType, form.warehouseFromId, profile?.company_id, canUseOperatorSession, operatorState.unlocked]);
 
   const needsSecondaryCatalogs = ["supplier_receipt", "issue_to_field", "shipment_outbound"]
     .includes(form.operationType);
@@ -3553,14 +3620,21 @@ export default function WeighbridgeOperationsPage() {
       form.operationType !== "impurity_removal"
       || !profile?.company_id
       || !selectedHarvestBatch?.aggregateLotId
-      || selectedHarvestBatch.detailLevel === "full"
-    ) {
-      setHarvestBatchDetailLoading(false);
-      return;
-    }
+	      || selectedHarvestBatch.detailLevel === "full"
+	    ) {
+	      setHarvestBatchDetailLoading(false);
+	      setHarvestBatchDetailError("");
+	      return;
+	    }
 
-    const controller = new AbortController();
-    setHarvestBatchDetailLoading(true);
+	    const controller = new AbortController();
+	    let requestTimedOut = false;
+	    const timeoutId = window.setTimeout(() => {
+	      requestTimedOut = true;
+	      controller.abort();
+	    }, HARVEST_BATCH_REQUEST_TIMEOUT_MS);
+	    setHarvestBatchDetailLoading(true);
+	    setHarvestBatchDetailError("");
     void listHarvestBatchSummaries(profile.company_id, {
       aggregateLots: true,
       lotId: selectedHarvestBatch.aggregateLotId,
@@ -3577,26 +3651,35 @@ export default function WeighbridgeOperationsPage() {
       setHarvestBatches((current) => current.map((row) =>
         row.id === detail.id && row.warehouseId === detail.warehouseId ? detail : row
       ));
-    }).catch((error: any) => {
-      if (controller.signal.aborted || error?.name === "AbortError") return;
-      toast({
-        title: "Не удалось загрузить партию",
-        description: error?.message || "Повторите выбор партии",
-        variant: "destructive",
-      });
-    }).finally(() => {
-      if (!controller.signal.aborted) setHarvestBatchDetailLoading(false);
-    });
+	    }).catch((error: any) => {
+	      if ((controller.signal.aborted || error?.name === "AbortError") && !requestTimedOut) return;
+	      const message = requestTimedOut
+	        ? "Карточка партии загружается слишком долго. Нажмите «Повторить»."
+	        : "Не удалось загрузить полные данные партии. Нажмите «Повторить».";
+	      setHarvestBatchDetailError(message);
+	      toast({
+	        title: "Не удалось загрузить партию",
+	        description: message,
+	        variant: "destructive",
+	      });
+	    }).finally(() => {
+	      window.clearTimeout(timeoutId);
+	      if (!controller.signal.aborted || requestTimedOut) setHarvestBatchDetailLoading(false);
+	    });
 
-    return () => controller.abort();
+	    return () => {
+	      window.clearTimeout(timeoutId);
+	      controller.abort();
+	    };
   }, [
     form.operationType,
     profile?.company_id,
     selectedHarvestBatch?.id,
     selectedHarvestBatch?.warehouseId,
-    selectedHarvestBatch?.aggregateLotId,
-    selectedHarvestBatch?.detailLevel,
-    toast,
+	    selectedHarvestBatch?.aggregateLotId,
+	    selectedHarvestBatch?.detailLevel,
+	    harvestBatchDetailRetry,
+	    toast,
   ]);
   const fieldIssueStockOptions = useMemo(() => {
     const filtered = stockIdentityOptions.filter(isFieldMaterialOption);
@@ -4569,6 +4652,7 @@ export default function WeighbridgeOperationsPage() {
       }
     }
     const isHarvestClosure = activeTicket.op_type === "harvest_incoming";
+    const isAtomicHarvestClosure = isHarvestClosure && !activeTicket.correction_of_ticket_id;
     const isAtomicTransferClosure = activeTicket.op_type === "warehouse_transfer"
       && activeTicket.weigh_method !== "manual_override_with_reason"
       && !activeTicket.correction_of_ticket_id;
@@ -4590,7 +4674,7 @@ export default function WeighbridgeOperationsPage() {
     setFinalizing(true);
     try {
       let finalizeResponse: Record<string, any> | null = null;
-      if (isHarvestClosure || isAtomicTransferClosure) {
+      if (isAtomicHarvestClosure || isAtomicTransferClosure) {
         const currentFinalizeKey = finalizeTicketIdempotencyRef.current?.ticketId === activeTicket.id
           ? finalizeTicketIdempotencyRef.current.key
           : crypto.randomUUID();
@@ -5177,11 +5261,7 @@ export default function WeighbridgeOperationsPage() {
                         group: storagePlaceTypeGroupLabel(warehouse.placeType),
                         keywords: [warehouse.warehouseType, warehouse.placeType],
                       }))}
-                      onValueChange={(warehouseFromId) => setForm((previous) => ({
-                        ...previous,
-                        warehouseFromId,
-                        sourceBatchId: "",
-                      }))}
+	                      onValueChange={selectImpurityWarehouse}
                       placeholder="Выберите склад с урожаем"
                       searchPlaceholder="Поиск склада или площадки"
                       emptyLabel="Место с урожаем не найдено"
@@ -5339,34 +5419,72 @@ export default function WeighbridgeOperationsPage() {
               </div>
             ) : null}
 
-            {isImpurityRemoval ? (
-              <div className={formSectionClass}>
-                <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <Label>Партия урожая *</Label>
-                    <Select value={form.sourceBatchId} onValueChange={(v) => setForm((p) => ({ ...p, sourceBatchId: v }))} disabled={!form.warehouseFromId}>
-                      <SelectTrigger className="h-11"><SelectValue placeholder={form.warehouseFromId ? "Выберите партию урожая" : "Сначала выберите склад"} /></SelectTrigger>
-                      <SelectContent>
-                        {availableHarvestBatches.length === 0 ? <SelectItem value="__empty" disabled>На складе нет принятых партий урожая</SelectItem> : null}
-                        {availableHarvestBatches.map((batch) => (
+	            {isImpurityRemoval ? (
+	              <div className={formSectionClass}>
+	                <div className="space-y-3">
+	                  <div className="space-y-1.5">
+	                    <Label>Партия урожая *</Label>
+	                    <Select value={form.sourceBatchId} onValueChange={(v) => setForm((p) => ({ ...p, sourceBatchId: v }))} disabled={!form.warehouseFromId || harvestBatchOptionsStatus === "loading"}>
+	                      <SelectTrigger className="h-11"><SelectValue placeholder={!form.warehouseFromId ? "Сначала выберите склад" : harvestBatchOptionsStatus === "loading" ? "Загружаем партии..." : "Выберите партию урожая"} /></SelectTrigger>
+	                      <SelectContent>
+	                        {harvestBatchOptionsStatus === "loading" || harvestBatchOptionsStatus === "idle" ? <SelectItem value="__loading" disabled>Загружаем партии урожая...</SelectItem> : null}
+	                        {harvestBatchOptionsStatus === "error" ? <SelectItem value="__error" disabled>Не удалось загрузить партии урожая</SelectItem> : null}
+	                        {harvestBatchOptionsStatus === "ready" && availableHarvestBatches.length === 0 ? <SelectItem value="__empty" disabled>На складе нет партий с положительным остатком</SelectItem> : null}
+	                        {availableHarvestBatches.map((batch) => (
                           <SelectItem key={`${batch.id}:${batch.warehouseId}`} value={batch.id}>
                             {batch.batchCode} · {[batch.cropName, batch.varietyName, batch.reproductionName].filter(Boolean).join(" / ")} · {batch.fieldName ? `${batch.fieldName} · ` : ""}остаток {batch.cleanMassKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг
                           </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+	                        ))}
+	                      </SelectContent>
+	                    </Select>
+	                    {form.warehouseFromId && harvestBatchOptionsStatus === "loading" ? (
+	                      <p className="text-xs text-slate-400">Читаем актуальные остатки партий этого склада...</p>
+	                    ) : null}
+	                    {form.warehouseFromId && harvestBatchOptionsStatus === "error" ? (
+	                      <div className="flex flex-wrap items-center gap-2 rounded-md border border-red-500/50 bg-red-950/25 p-2 text-xs text-red-200">
+	                        <span className="min-w-0 flex-1">{harvestBatchOptionsError}</span>
+	                        <Button
+	                          type="button"
+	                          size="sm"
+	                          variant="outline"
+	                          className="h-8 border-red-400/60 text-red-100 hover:bg-red-950/60"
+	                          onClick={() => {
+	                            void refreshHarvestBatches({ force: true, warehouseId: form.warehouseFromId }).catch((error) => {
+	                              console.error("Harvest batch options retry failed", error);
+	                            });
+	                          }}
+	                        >
+	                          Повторить
+	                        </Button>
+	                      </div>
+	                    ) : null}
+	                  </div>
                   {selectedHarvestBatch?.detailLevel === "full" ? (
                     <div className="grid gap-2 rounded-md border border-slate-700 bg-slate-950/55 p-3 text-xs sm:grid-cols-3">
                       <div><span className="text-slate-500">Принято</span><div className="mt-1 font-semibold text-slate-100">{selectedHarvestBatch.receivedKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div></div>
                       <div><span className="text-slate-500">Уже вывезено</span><div className="mt-1 font-semibold text-amber-300">{selectedHarvestBatch.removedKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div></div>
                       <div><span className="text-slate-500">Чистая масса</span><div className="mt-1 font-semibold text-emerald-300">{selectedHarvestBatch.cleanMassKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div></div>
                     </div>
-                  ) : selectedHarvestBatch ? (
-                    <div className="rounded-md border border-slate-700 bg-slate-950/55 p-3 text-xs text-slate-400">
-                      {harvestBatchDetailLoading ? "Загружаем учёт и происхождение партии..." : "Полные данные партии недоступны. Выберите её повторно."}
-                    </div>
-                  ) : null}
+	                  ) : selectedHarvestBatch ? (
+	                    harvestBatchDetailError ? (
+	                      <div className="flex flex-wrap items-center gap-2 rounded-md border border-red-500/50 bg-red-950/25 p-3 text-xs text-red-200">
+	                        <span className="min-w-0 flex-1">{harvestBatchDetailError}</span>
+	                        <Button
+	                          type="button"
+	                          size="sm"
+	                          variant="outline"
+	                          className="h-8 border-red-400/60 text-red-100 hover:bg-red-950/60"
+	                          onClick={() => setHarvestBatchDetailRetry((value) => value + 1)}
+	                        >
+	                          Повторить
+	                        </Button>
+	                      </div>
+	                    ) : (
+	                      <div className="rounded-md border border-slate-700 bg-slate-950/55 p-3 text-xs text-slate-400">
+	                        {harvestBatchDetailLoading ? "Загружаем учёт и происхождение партии..." : "Получаем полные данные партии..."}
+	                      </div>
+	                    )
+	                  ) : null}
                   <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
                     {(Object.keys(impurityTypeLabels) as ImpurityType[]).map((type) => (
                       <Button key={type} type="button" size="sm" variant="outline" className={`${segmentClass(form.impurityType === type)} h-auto min-h-10 whitespace-normal`} onClick={() => setForm((p) => ({ ...p, impurityType: type }))}>
@@ -5633,7 +5751,7 @@ export default function WeighbridgeOperationsPage() {
                 onChange={(vehicleId, driverId) => setForm((previous) => ({ ...previous, vehicleId, driverId }))}
                 onBlockedAssignment={(assignment) => void handleBlockedTransportAssignment(assignment)}
                 onComplete={() => grossInputRef.current?.focus()}
-                vehicleAssignment={selectedVehicle ? (
+                vehicleAssignment={selectedVehicle?.source === "reference_vehicles" ? (
                   <VehicleDriverAssignment
                     key={`${profile?.company_id}:${selectedWorkspaceId}:${selectedVehicle.id}`}
                     vehicleId={selectedVehicle.id}

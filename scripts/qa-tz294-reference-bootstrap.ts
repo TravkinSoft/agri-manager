@@ -26,8 +26,10 @@ const harvestSummaryRoute = read("app/api/dashboard/harvest-summary/route.ts");
 const ticketPaper = read("components/weighbridge/weighbridge-ticket-paper.tsx");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
 
-check("weighbridge picker bootstrap does not query agricultural machines", () => {
-  assert.doesNotMatch(resourcesRoute, /\.from\("reference_machines"\)/);
+check("weighbridge picker bootstrap includes active agricultural machines", () => {
+  assert.match(resourcesRoute, /\.from\("reference_machines"\)/);
+  assert.match(resourcesRoute, /license_plate/);
+  assert.match(resourcesRoute, /source: "reference_machines"/);
 });
 
 check("reference_machines never queries absent plate_number", () => {
@@ -39,7 +41,7 @@ check("reference_machines never queries absent plate_number", () => {
 });
 
 check("reference_vehicles retain both compatible plate fields", () => {
-  const vehicleQuery = resourcesRoute.match(/\.from\("reference_vehicles"\)([\s\S]*?)\.from\("company_people"\)/)?.[1] || "";
+  const vehicleQuery = resourcesRoute.match(/\.from\("reference_vehicles"\)([\s\S]*?)\.from\("reference_machines"\)/)?.[1] || "";
   assert.match(vehicleQuery, /plate_number/);
   assert.match(vehicleQuery, /license_plate/);
 });
@@ -62,9 +64,9 @@ check("client isolates reference bootstrap reads", () => {
 });
 
 check("client keeps its cached vehicle source on partial transport failure", () => {
-  assert.match(page, /if \(!failedResources\.has\("reference_vehicles"\)\) \{[\s\S]*?setVehicles\(mappedVehicles\)/);
-  assert.match(page, /cached\.vehicles[\s\S]*?vehicle\.source === "reference_vehicles"/);
-  assert.doesNotMatch(page, /row\.source === "reference_machines"/);
+  assert.match(page, /!failedResources\.has\("reference_vehicles"\)[\s\S]*?!failedResources\.has\("reference_machines"\)[\s\S]*?setVehicles\(mappedVehicles\)/);
+  assert.match(page, /cached\.vehicles[\s\S]*?vehicle\.source === "reference_machines"/);
+  assert.match(page, /row\.source === "reference_machines"/);
 });
 
 check("client never renders a raw schema error", () => {

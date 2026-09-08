@@ -6,16 +6,14 @@ export function isConfirmedInvalidSessionError(error: unknown) {
 
   const candidate = error as { name?: unknown; status?: unknown; code?: unknown; message?: unknown };
   const name = String(candidate.name || "");
-  const status = Number(candidate.status || 0);
   const code = String(candidate.code || "").toLowerCase();
   const message = String(candidate.message || "").toLowerCase();
 
   return (
     name === "AuthSessionMissingError" ||
-    status === 401 ||
-    status === 403 ||
     code.includes("refresh_token_not_found") ||
-    /invalid refresh token|refresh token not found|session missing|invalid jwt|jwt expired/.test(message)
+    code.includes("session_not_found") ||
+    /invalid refresh token|refresh token not found|auth session missing|session not found/.test(message)
   );
 }
 

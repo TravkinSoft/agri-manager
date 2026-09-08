@@ -134,7 +134,7 @@ export async function POST(
       ? null
       : await requireWeighbridgeOperatorSession(request, { companyId, supabase });
 
-    if (ticketBefore.op_type === "harvest_incoming") {
+    if (ticketBefore.op_type === "harvest_incoming" && !ticketBefore.correction_of_ticket_id) {
       const tare = Number(body?.tare_weight_kg);
       const moisture = body?.moisture_percent == null || String(body.moisture_percent).trim() === ""
         ? null

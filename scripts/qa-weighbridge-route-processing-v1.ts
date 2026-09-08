@@ -150,10 +150,11 @@ check("warehouse uses staged loading and exact lot details", () => {
   assert.match(warehousePage, /warehouseDetailsRequestCache/);
   assert.match(warehousePage, /lotId: batch\.aggregateLotId \|\| batch\.id/);
   assert.match(harvestBatchesRoute, /detail\"\) === \"summary\"/);
-  assert.match(warehouseSummaryRoute, /\.limit\(1\)/);
+  assert.match(warehouseSummaryRoute, /LEDGER_PAGE_SIZE = 1000/);
+  assert.match(warehouseSummaryRoute, /\.range\(from, from \+ LEDGER_PAGE_SIZE - 1\)/);
   assert.doesNotMatch(warehouseSummaryRoute, /\.limit\(5000\)/);
-  assert.match(harvestBatchDialog, /Историческое поступление партии/);
-  assert.match(harvestBatchDialog, /История партии/);
+  assert.match(harvestBatchDialog, /label: "Поступило"/);
+  assert.match(harvestBatchDialog, /Рейсы и поля для этого склада/);
 });
 
 check("processing cards render without waiting for warehouse summaries", () => {

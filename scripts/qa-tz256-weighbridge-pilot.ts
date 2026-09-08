@@ -36,17 +36,22 @@ check("driver can be chosen manually for tractor", () => assert.equal(personnelR
 check("machine operator can be chosen manually for truck", () => assert.equal(personnelRoleMatchesVehicle("mechanic_operator", { type: "truck" }), true));
 
 check("resources use current company vehicles", () => assert.match(resources, /from\("reference_vehicles"\)[\s\S]*eq\("company_id", companyId\)/));
-check("resources keep agricultural machines out of the transport picker", () => assert.doesNotMatch(resources, /from\("reference_machines"\)/));
+check("resources include active agricultural machines without PTC proxy duplicates", () => {
+  assert.match(resources, /from\("reference_machines"\)/);
+  assert.match(resources, /is\("source_machine_id", null\)/);
+  assert.match(resources, /source: "reference_machines"/);
+});
 check("resources split trailers", () => assert.match(resources, /const trailers = vehicleRows\.filter/));
 check("resources keep active non-archived assets", () => assert.match(resources, /eq\("is_active", true\)[\s\S]*eq\("archived", false\)/));
 check("resources contain no crop filter", () => assert.doesNotMatch(resources, /crop_id|cropId/));
 
 check("API validates vehicle against company", () => assert.match(tickets, /eq\("company_id", ticket\.company_id\)/));
-check("API accepts only canonical vehicle-fleet records for new tickets", () => {
-  assert.doesNotMatch(tickets, /from\("reference_machines"\)/);
-  assert.doesNotMatch(tickets, /isCargoTractor/);
+check("API validates both canonical transport sources for new tickets", () => {
+  assert.match(tickets, /requestedVehicleSource/);
+  assert.match(tickets, /from\("reference_machines"\)/);
+  assert.match(tickets, /from\("reference_vehicles"\)/);
 });
-check("API rejects non-cargo assets", () => assert.match(tickets, /isCargoVehicle/));
+check("API keeps trailers out of the main transport source", () => assert.match(tickets, /!isTrailerTransport/));
 check("API validates optional trailer", () => assert.match(tickets, /isTrailerTransport/));
 check("API blocks active trailer reuse", () => assert.match(tickets, /This trailer already has an active ticket/));
 check("API stores validated transport snapshot", () => {
@@ -61,7 +66,7 @@ check("UI has separate transport and driver searches", () => {
 });
 check("legacy trailer remains visible on existing tickets", () => assert.match(ticketPaper, /trailer_name_snapshot[\s\S]*label="Прицеп"/));
 check("UI protects manual transport choices during pair autofill", () => {
-  assert.match(transportPicker, /if \(!nextDriverId\)/);
+  assert.match(transportPicker, /if \(!nextDriverId \|\| nextVehicleId !== vehicleId\)/);
   assert.match(transportPicker, /if \(!nextVehicleId\)/);
 });
 check("UI labels recent valid transport choices", () => assert.match(transportPicker, /Недавно использованные/));

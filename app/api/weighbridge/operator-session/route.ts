@@ -10,7 +10,7 @@ import {
 } from "@/lib/auth/server-session";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
-import { isCargoVehicle, isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
+import { isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
 
 const OPERATOR_SESSION_ROLES = ["global_admin", "company_admin", "director", "weighman"] as const;
 const WEIGHBRIDGE_PERSONNEL_ROLES = new Set(["driver", "mechanic_operator"]);
@@ -52,9 +52,12 @@ function jsonWithOperatorCookie(payload: Record<string, any>) {
 function normalizeInitialWorkspace(
   payload: Record<string, any> | null | undefined,
   assignmentBridges: Record<string, any>[] = [],
+  machineSourceRows: Record<string, any>[] = [],
+  resourceErrors: Record<string, string>[] = [],
 ) {
   if (!payload) return null;
-  const rawVehicles = Array.isArray(payload.vehicles) ? payload.vehicles : [];
+  const rawVehicles = (Array.isArray(payload.vehicles) ? payload.vehicles : [])
+    .filter((row: any) => !row?.source_machine_id);
   const vehicleRows = rawVehicles.map((row: any) => {
     const transportModel = Array.isArray(row.transport_model)
       ? row.transport_model[0]
@@ -73,6 +76,27 @@ function normalizeInitialWorkspace(
       primaryPersonnelId: row.primary_responsible_personnel_id
         ? String(row.primary_responsible_personnel_id)
         : null,
+    };
+  });
+  const machineRows = machineSourceRows.map((row: any) => {
+    const globalModel = Array.isArray(row.global_model)
+      ? row.global_model[0]
+      : row.global_model;
+    const identity = resolveTransportIdentity({
+      ...row,
+      plate: row.license_plate,
+    });
+    return {
+      id: String(row.id),
+      name: identity.name,
+      model: String(globalModel?.full_name || row.full_name || row.model || row.name || ""),
+      plate: identity.plate,
+      searchTerms: identity.searchTerms,
+      type: String(row.type || row.machinery_type || ""),
+      fleetType: String(row.machinery_type || row.type || ""),
+      transportCategory: String(globalModel?.category || row.category || ""),
+      source: "reference_machines" as const,
+      primaryPersonnelId: null,
     };
   });
 
@@ -169,12 +193,13 @@ function normalizeInitialWorkspace(
         .filter((row: any) => !hasQaDataMarker(String(row.name || ""))),
       destinations: (Array.isArray(payload.destinations) ? payload.destinations : [])
         .filter((row: any) => !hasQaDataMarker(String(row.name || ""))),
-      vehicles: vehicleRows.filter((row) => isCargoVehicle(row)),
+      vehicles: [...vehicleRows.filter((row) => !isTrailerTransport(row)), ...machineRows]
+        .sort((a, b) => a.name.localeCompare(b.name, "ru")),
       trailers: vehicleRows.filter((row) => isTrailerTransport(row)),
       drivers,
       driverNames,
       combineOperators,
-      resourceErrors: [],
+      resourceErrors,
     },
     harvestAllocations: {
       seasonId: payload.seasonId ? String(payload.seasonId) : null,
@@ -213,31 +238,54 @@ export async function GET(request: NextRequest) {
         .map((row: any) => String(row?.primary_responsible_personnel_id || ""))
         .filter(Boolean),
     ));
-    let assignmentBridges: Record<string, any>[] = [];
-    let bridgesMs = 0;
-    if (assignmentBridgeIds.length > 0) {
-      const bridgesStartedAt = performance.now();
-      const { data: bridgeRows, error: bridgeError } = await supabase
+    const bridgesStartedAt = performance.now();
+    const bridgePromise = assignmentBridgeIds.length > 0
+      ? supabase
         .from("reference_specialists")
         .select("id,person_id,personnel_type,status,archived")
         .eq("company_id", requestedCompanyId)
-        .in("id", assignmentBridgeIds);
-      bridgesMs = performance.now() - bridgesStartedAt;
-      if (bridgeError) {
-        return NextResponse.json(
-          { error: "Не удалось проверить актуальные привязки водителей." },
-          { status: bridgeError.code === "42501" ? 403 : 500 },
-        );
-      }
-      assignmentBridges = (bridgeRows || []) as Record<string, any>[];
+        .in("id", assignmentBridgeIds)
+      : Promise.resolve({ data: [], error: null });
+    const machinesStartedAt = performance.now();
+    const machinePromise = initialWorkspace
+      ? supabase
+        .from("reference_machines")
+        .select("id,name,full_name,brand,model,series,license_plate,source_raw_name,type,category,machinery_type,status,is_active,archived,global_model:global_machine_model_id(full_name,category)")
+        .eq("company_id", requestedCompanyId)
+        .eq("is_active", true)
+        .eq("archived", false)
+        .order("name", { ascending: true })
+      : Promise.resolve({ data: [], error: null });
+    const [bridgeResult, machineResult] = await Promise.all([bridgePromise, machinePromise]);
+    const bridgesMs = performance.now() - bridgesStartedAt;
+    const machinesMs = performance.now() - machinesStartedAt;
+    if (bridgeResult.error) {
+      return NextResponse.json(
+        { error: "Не удалось проверить актуальные привязки водителей." },
+        { status: bridgeResult.error.code === "42501" ? 403 : 500 },
+      );
     }
+    const assignmentBridges = (bridgeResult.data || []) as Record<string, any>[];
+    const initialMachines = (machineResult.data || []) as Record<string, any>[];
+    const initialResourceErrors = machineResult.error
+      ? [{
+          resource: "reference_machines",
+          code: "WB_RESOURCES_MACHINES",
+          message: "Не удалось загрузить тракторы и технику. Остальные данные сохранены.",
+        }]
+      : [];
     const response = NextResponse.json({
       ...(payload.operator_state || {}),
-      initial_workspace: normalizeInitialWorkspace(initialWorkspace, assignmentBridges),
+      initial_workspace: normalizeInitialWorkspace(
+        initialWorkspace,
+        assignmentBridges,
+        initialMachines,
+        initialResourceErrors,
+      ),
     });
     response.headers.set(
       "Server-Timing",
-      `initial_workspace_rpc;dur=${rpcMs.toFixed(1)}, assignment_bridges;dur=${bridgesMs.toFixed(1)}, total;dur=${(performance.now() - startedAt).toFixed(1)}`
+      `initial_workspace_rpc;dur=${rpcMs.toFixed(1)}, assignment_bridges;dur=${bridgesMs.toFixed(1)}, machines;dur=${machinesMs.toFixed(1)}, total;dur=${(performance.now() - startedAt).toFixed(1)}`
     );
     return response;
   } catch (error) {

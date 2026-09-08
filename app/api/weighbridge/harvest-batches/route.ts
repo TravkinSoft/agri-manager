@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import {
   WEIGHBRIDGE_READ_ROLES,
   asSessionErrorResponse,
@@ -27,10 +28,44 @@ const ids = (values: unknown[]) => Array.from(new Set(values.map((value) => Stri
 const LINEAGE_QUERY_CHUNK_SIZE = 200;
 const LINEAGE_QUERY_CONCURRENCY = 4;
 const LINEAGE_QUERY_PAGE_SIZE = 1000;
+const HARVEST_STOCK_VIEW = "v_harvest_lot_stock_v2";
+const HARVEST_STOCK_READ_ATTEMPTS = 2;
+
+function isTransientHarvestStockReadError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown; details?: unknown };
+  const code = String(candidate.code || "").toUpperCase();
+  const message = `${String(candidate.message || "")} ${String(candidate.details || "")}`.toLowerCase();
+  return (
+    code === "57014" ||
+    code === "53300" ||
+    code === "57P01" ||
+    code === "57P02" ||
+    code === "57P03" ||
+    code === "PGRST000" ||
+    code === "PGRST001" ||
+    code === "PGRST002" ||
+    code.startsWith("08") ||
+    /statement timeout|canceling statement|connection (?:closed|reset|timed out)|fetch failed|network error/.test(message)
+  );
+}
+
+async function readHarvestStockWithRetry<T>(read: () => PromiseLike<{ data: T[] | null; error: unknown }>) {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < HARVEST_STOCK_READ_ATTEMPTS; attempt += 1) {
+    const result = await read();
+    if (!result.error) return result.data || [];
+    lastError = result.error;
+    if (!isTransientHarvestStockReadError(lastError) || attempt + 1 >= HARVEST_STOCK_READ_ATTEMPTS) break;
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 120));
+  }
+  throw lastError;
+}
 
 async function loadInChunks<T>(
   values: string[],
-  query: (chunk: string[]) => any
+  query: (chunk: string[]) => any,
+  options: { retryTransientStockRead?: boolean } = {},
 ): Promise<T[]> {
   const normalized = ids(values);
   if (!normalized.length) return [];
@@ -44,9 +79,13 @@ async function loadInChunks<T>(
       chunks.slice(index, index + LINEAGE_QUERY_CONCURRENCY).map(async (chunk) => {
         const chunkRows: T[] = [];
         for (let from = 0; ; from += LINEAGE_QUERY_PAGE_SIZE) {
-          const result = await query(chunk).range(from, from + LINEAGE_QUERY_PAGE_SIZE - 1);
-          if (result.error) throw result.error;
-          const page = (result.data || []) as T[];
+          const execute = () => query(chunk).range(from, from + LINEAGE_QUERY_PAGE_SIZE - 1);
+          const page = options.retryTransientStockRead
+            ? await readHarvestStockWithRetry<T>(execute)
+            : await execute().then((result: { data: T[] | null; error: unknown }) => {
+                if (result.error) throw result.error;
+                return result.data || [];
+              });
           chunkRows.push(...page);
           if (page.length < LINEAGE_QUERY_PAGE_SIZE) break;
         }
@@ -83,16 +122,16 @@ async function loadAggregateHarvestLotSummaries(
   warehouseId: string | null,
   lotId: string | null
 ) {
-  let stockQuery = supabase
-    .from("v_harvest_lot_stock_v1")
-    .select("harvest_lot_id,warehouse_id,trip_count,current_weight_kg,batch_class,physical_state")
-    .eq("company_id", companyId)
-    .gt("current_weight_kg", 0.0001);
-  if (warehouseId) stockQuery = stockQuery.eq("warehouse_id", warehouseId);
-  if (lotId) stockQuery = stockQuery.eq("harvest_lot_id", lotId);
-  const stockResult = await stockQuery;
-  if (stockResult.error) throw stockResult.error;
-  const stockRows = (stockResult.data || []) as any[];
+  const stockRows = await readHarvestStockWithRetry<any>(() => {
+    let stockQuery = supabase
+      .from(HARVEST_STOCK_VIEW)
+      .select("harvest_lot_id,warehouse_id,trip_count,current_weight_kg,batch_class,physical_state")
+      .eq("company_id", companyId)
+      .gt("current_weight_kg", 0.0001);
+    if (warehouseId) stockQuery = stockQuery.eq("warehouse_id", warehouseId);
+    if (lotId) stockQuery = stockQuery.eq("harvest_lot_id", lotId);
+    return stockQuery;
+  });
   if (!stockRows.length) return [];
 
   const lotIds = ids(stockRows.map((row) => row.harvest_lot_id));
@@ -259,7 +298,7 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
       .order("inventory_batch_id", { ascending: true })),
     loadInChunks<any>(lotIds, (chunk) => {
       let query = supabase
-        .from("v_harvest_lot_stock_v1")
+        .from(HARVEST_STOCK_VIEW)
         .select("harvest_lot_id,warehouse_id,trip_count,current_weight_kg,batch_class,physical_state")
         .eq("company_id", companyId)
         .in("harvest_lot_id", chunk)
@@ -269,7 +308,7 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
         .order("physical_state", { ascending: true });
       if (warehouseId) query = query.eq("warehouse_id", warehouseId);
       return query;
-    }),
+    }, { retryTransientStockRead: true }),
   ]);
 
   const batchIds = ids(links.map((row) => row.inventory_batch_id));
@@ -1261,8 +1300,24 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    const traceId = randomUUID();
+    const candidate = error && typeof error === "object"
+      ? error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown }
+      : null;
+    console.error("[weighbridge/harvest-batches] read failed", {
+      traceId,
+      code: String(candidate?.code || "unknown"),
+      message: String(candidate?.message || (error instanceof Error ? error.message : "unknown")),
+      details: String(candidate?.details || ""),
+      hint: String(candidate?.hint || ""),
+    });
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Не удалось загрузить партии урожая" },
+      {
+        error: error instanceof Error
+          ? error.message
+          : String(candidate?.message || "Не удалось загрузить партии урожая"),
+        trace_id: traceId,
+      },
       { status: 500 }
     );
   }

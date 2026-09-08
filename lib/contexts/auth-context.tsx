@@ -704,7 +704,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     const { data } = await supabase.auth.getSession();
     await clearServerImpersonationContext(data.session?.access_token || null);
-    const { error } = await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut({ scope: "local" });
     clearLocalSupabaseSession();
     clearRememberedAuthUiState();
     setUser(null);

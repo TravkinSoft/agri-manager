@@ -48,11 +48,13 @@ check("mode catalogs are single-flight cached and survive rapid revisits", () =>
 
 check("impurity batches are stable-mode delayed, single-flight and cached", () => {
   assert.match(page, /harvestBatchesRequestRef = useRef<Promise<void> \| null>/);
-  assert.match(page, /harvestBatchesReadyRef = useRef\(false\)/);
-  assert.match(page, /if \(!options\.force && harvestBatchesReadyRef\.current\) return/);
-  assert.match(page, /if \(harvestBatchesRequestRef\.current\) return harvestBatchesRequestRef\.current/);
-  assert.match(page, /summaryOnly:\s*true,[\s\S]*?signal:\s*controller\.signal/);
-  assert.match(page, /form\.operationType !== "impurity_removal"[\s\S]*?window\.setTimeout\([\s\S]*?refreshHarvestBatches\(\)[\s\S]*?MODE_RESOURCE_STABILITY_DELAY_MS/);
+  assert.match(page, /harvestBatchesRequestKeyRef = useRef\(""\)/);
+  assert.match(page, /harvestBatchesReadyRef = useRef\(""\)/);
+  assert.match(page, /const requestKey = `\$\{companyId\}:\$\{warehouseId\}`/);
+  assert.match(page, /harvestBatchesReadyRef\.current === requestKey/);
+  assert.match(page, /harvestBatchesRequestKeyRef\.current === requestKey/);
+  assert.match(page, /warehouseId,[\s\S]*?summaryOnly:\s*true,[\s\S]*?signal:\s*controller\.signal/);
+  assert.match(page, /form\.operationType !== "impurity_removal"[\s\S]*?!form\.warehouseFromId[\s\S]*?window\.setTimeout\([\s\S]*?refreshHarvestBatches\(\{ warehouseId: form\.warehouseFromId \}\)[\s\S]*?MODE_RESOURCE_STABILITY_DELAY_MS/);
   assert.match(page, /harvestBatchesAbortRef\.current\?\.abort\(\)/);
 });
 
@@ -126,7 +128,7 @@ check("processing summary scope is bounded and has no ledger N plus one", () => 
   const scopedBlock = summariesRoute.match(/if \(processingCardsScope\) \{[\s\S]*?\n    \}/)?.[0] || "";
   assert.match(summariesRoute, /scope"\) === "processing_cards"/);
   assert.match(summariesRoute, /warehouseQuery\.in\("place_type", \["YARD", "DRYER", "CLEANER"\]\)/);
-  assert.match(scopedBlock, /v_harvest_lot_stock_v1/);
+  assert.match(scopedBlock, /v_harvest_lot_stock_v2/);
   assert.doesNotMatch(scopedBlock, /stock_ledger_entries/);
   assert.doesNotMatch(scopedBlock, /inventory_batches/);
   assert.match(scopedBlock, /last_movement_at:\s*null/);

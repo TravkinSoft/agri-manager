@@ -199,7 +199,7 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
 
 async function loadWarehouseRows(supabase: any, companyId: string): Promise<HarvestBatchSummary[]> {
   const { data: stocks, error: stockError } = await supabase
-    .from("v_harvest_lot_stock_v1")
+    .from("v_harvest_lot_stock_v2")
     .select("harvest_lot_id,warehouse_id,trip_count,current_weight_kg")
     .eq("company_id", companyId);
   if (stockError) throw stockError;
@@ -264,7 +264,7 @@ export async function GET(request: NextRequest) {
     const filters = readFilters(request);
     if (section === "warehouses") {
       const rows = buildWarehouseHarvestRows(await loadWarehouseRows(supabase, companyId), filters);
-      return NextResponse.json({ rows, source: "v_harvest_lot_stock_v1" });
+      return NextResponse.json({ rows, source: "v_harvest_lot_stock_v2" });
     }
 
     const [tickets, seasonResult, shiftResult, companyResult] = await Promise.all([

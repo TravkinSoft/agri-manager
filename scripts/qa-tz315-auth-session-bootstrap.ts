@@ -35,13 +35,18 @@ async function main() {
     ),
   );
   assert.equal(invalidCalls, 1);
-  assert.equal(isConfirmedInvalidSessionError({ status: 401 }), true);
+  assert.equal(isConfirmedInvalidSessionError({ status: 401 }), false);
+  assert.equal(isConfirmedInvalidSessionError({ status: 403 }), false);
+  assert.equal(isConfirmedInvalidSessionError({ code: "refresh_token_not_found" }), true);
+  assert.equal(isConfirmedInvalidSessionError({ code: "session_not_found" }), true);
+  assert.equal(isConfirmedInvalidSessionError(new Error("jwt expired")), false);
   assert.equal(isConfirmedInvalidSessionError(new Error("temporary network failure")), false);
 
   assert.match(authContext, /getSessionWithBoundedRetry\(/);
   assert.match(authContext, /setAuthUnavailable\(true\);/);
   assert.match(authContext, /if \(isConfirmedInvalidSessionError\(error\)\) \{\s*clearLocalSupabaseSession\(\);/);
   assert.match(authContext, /if \(event === "SIGNED_OUT"\) clearLocalSupabaseSession\(\);/);
+  assert.match(authContext, /supabase\.auth\.signOut\(\{ scope: "local" \}\)/);
   assert.doesNotMatch(
     authContext,
     /catch \(error\) \{\s*console\.error\('Error loading session:', error\);\s*clearLocalSupabaseSession\(\);/,

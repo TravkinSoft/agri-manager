@@ -47,7 +47,7 @@ const valueId = (value: unknown): string | null => {
 };
 
 /**
- * Keep the first hop aligned with v_harvest_lot_stock_v1, then continue the
+ * Keep the first hop aligned with v_harvest_lot_stock_v2, then continue the
  * same link-before-batch precedence through older transfer ancestors.
  */
 export function resolveHarvestLotTicketLineage(

@@ -4,7 +4,7 @@ import {
   asSessionErrorResponse,
   resolveWeighbridgeSession,
 } from "@/app/api/weighbridge/_auth";
-import { isCargoVehicle, isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
+import { isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
 
 export const runtime = "nodejs";
@@ -15,6 +15,7 @@ const WEIGHBRIDGE_PERSONNEL_ROLES = new Set(["driver", "mechanic_operator"]);
 type ResourceError = {
   resource:
     | "reference_vehicles"
+    | "reference_machines"
     | "company_people"
     | "reference_specialists"
     | "profiles"
@@ -28,6 +29,10 @@ const RESOURCE_ERROR_COPY: Record<ResourceError["resource"], Omit<ResourceError,
   reference_vehicles: {
     code: "WB_RESOURCES_VEHICLES",
     message: "Не удалось загрузить транспорт. Остальные данные сохранены.",
+  },
+  reference_machines: {
+    code: "WB_RESOURCES_MACHINES",
+    message: "Не удалось загрузить тракторы и технику. Остальные данные сохранены.",
   },
   company_people: {
     code: "WB_RESOURCES_DRIVERS",
@@ -61,6 +66,14 @@ export async function GET(request: NextRequest) {
       supabase
         .from("reference_vehicles")
         .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name,type,fleet_type,primary_responsible_personnel_id,is_active,archived,transport_model:transport_model_id(full_name,category)")
+        .eq("company_id", companyId)
+        .is("source_machine_id", null)
+        .eq("is_active", true)
+        .eq("archived", false)
+        .order("name", { ascending: true }),
+      supabase
+        .from("reference_machines")
+        .select("id,name,full_name,brand,model,series,license_plate,source_raw_name,type,category,machinery_type,status,is_active,archived,global_model:global_machine_model_id(full_name,category)")
         .eq("company_id", companyId)
         .eq("is_active", true)
         .eq("archived", false)
@@ -97,6 +110,7 @@ export async function GET(request: NextRequest) {
 
     const resourceNames: ResourceError["resource"][] = [
       "reference_vehicles",
+      "reference_machines",
       "company_people",
       "reference_specialists",
       "profiles",
@@ -125,11 +139,12 @@ export async function GET(request: NextRequest) {
     };
 
     const vehicleSourceRows = readRows(0);
-    const peopleRows = readRows(1);
-    const legacyDriverRows = readRows(2);
-    const profileRows = readRows(3);
-    const fieldRows = readRows(4);
-    const warehouseRows = readRows(5);
+    const machineSourceRows = readRows(1);
+    const peopleRows = readRows(2);
+    const legacyDriverRows = readRows(3);
+    const profileRows = readRows(4);
+    const fieldRows = readRows(5);
+    const warehouseRows = readRows(6);
 
     const vehicleRows = vehicleSourceRows.map((row: any) => {
       const transportModel = Array.isArray(row.transport_model)
@@ -151,7 +166,29 @@ export async function GET(request: NextRequest) {
           : null,
       };
     });
-    const vehicles = vehicleRows.filter((row) => isCargoVehicle(row));
+    const machineRows = machineSourceRows.map((row: any) => {
+      const globalModel = Array.isArray(row.global_model)
+        ? row.global_model[0]
+        : row.global_model;
+      const identity = resolveTransportIdentity({
+        ...row,
+        plate: row.license_plate,
+      });
+      return {
+        id: String(row.id),
+        name: identity.name,
+        model: String(globalModel?.full_name || row.full_name || row.model || row.name || ""),
+        plate: identity.plate,
+        searchTerms: identity.searchTerms,
+        type: String(row.type || row.machinery_type || ""),
+        fleetType: String(row.machinery_type || row.type || ""),
+        transportCategory: String(globalModel?.category || row.category || ""),
+        source: "reference_machines" as const,
+        primaryPersonnelId: null,
+      };
+    });
+    const vehicles = [...vehicleRows.filter((row) => !isTrailerTransport(row)), ...machineRows]
+      .sort((a, b) => a.name.localeCompare(b.name, "ru"));
     const trailers = vehicleRows.filter((row) => isTrailerTransport(row));
 
     const legacyPersonById = new Map<string, { personId: string; personnelType: string }>();

@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
 
     if (processingCardsScope) {
       const harvestLotsResult = await supabase
-        .from("v_harvest_lot_stock_v1")
+        .from("v_harvest_lot_stock_v2")
         .select("harvest_lot_id,warehouse_id,current_weight_kg")
         .eq("company_id", companyId)
         .in("warehouse_id", warehouseIds)
@@ -119,7 +119,7 @@ export async function GET(request: NextRequest) {
         .eq("company_id", companyId)
         .in("warehouse_id", warehouseIds),
       supabase
-        .from("v_harvest_lot_stock_v1")
+        .from("v_harvest_lot_stock_v2")
         .select("harvest_lot_id,warehouse_id,current_weight_kg")
         .eq("company_id", companyId)
         .in("warehouse_id", warehouseIds)

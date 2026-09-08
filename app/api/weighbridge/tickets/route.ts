@@ -13,7 +13,7 @@ import { isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
 import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
 import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
 import { isWeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
-import { isCargoVehicle, isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
+import { isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
 import { enrichTicketCombineOperators, validateActiveCombineOperator } from "@/lib/server/weighbridge-combine-operator";
 import { resolveStockOutQuantityAtCreate } from "@/lib/weighbridge/stock-out-availability";
@@ -732,15 +732,26 @@ export async function POST(request: NextRequest) {
         });
     const vehicleGuardStartedAt = Date.now();
     const transportAudit = ticket.audit_json?.transport as Record<string, unknown> | undefined;
+    const requestedVehicleSource = transportAudit?.vehicle_source === "reference_machines"
+      ? "reference_machines" as const
+      : "reference_vehicles" as const;
     const requestedTrailerId = String(transportAudit?.trailer_id || "").trim() || null;
     const vehicleGuardPromise = ticket.vehicle_id
       ? Promise.all([
-          supabase
-            .from("reference_vehicles")
-            .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name,type,fleet_type,status,is_active,archived,transport_model:transport_model_id(category,full_name)")
-            .eq("company_id", ticket.company_id)
-            .eq("id", ticket.vehicle_id)
-            .maybeSingle(),
+          requestedVehicleSource === "reference_machines"
+            ? supabase
+                .from("reference_machines")
+                .select("id,name,full_name,brand,model,series,license_plate,source_raw_name,type,category,machinery_type,status,is_active,archived,global_model:global_machine_model_id(category,full_name)")
+                .eq("company_id", ticket.company_id)
+                .eq("id", ticket.vehicle_id)
+                .maybeSingle()
+            : supabase
+                .from("reference_vehicles")
+                .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name,type,fleet_type,status,is_active,archived,source_machine_id,transport_model:transport_model_id(category,full_name)")
+                .eq("company_id", ticket.company_id)
+                .eq("id", ticket.vehicle_id)
+                .is("source_machine_id", null)
+                .maybeSingle(),
           supabase
             .from("tickets")
             .select("id, ticket_no")
@@ -1571,7 +1582,7 @@ export async function POST(request: NextRequest) {
       search_terms?: string[];
       type?: string | null;
       fleet_type?: string | null;
-      source: "reference_vehicles";
+      source: "reference_vehicles" | "reference_machines";
     } | null = null;
     if (ticket.vehicle_id) {
       const [vehicleResult, activeTicketResult] =
@@ -1581,36 +1592,43 @@ export async function POST(request: NextRequest) {
       if (vehicleError) {
         return NextResponse.json({ error: vehicleError.message }, { status: 400 });
       }
-      const vehicleModel = Array.isArray((vehicle as any)?.transport_model)
-        ? (vehicle as any).transport_model[0]
-        : (vehicle as any)?.transport_model;
-      const cargoVehicle = vehicle?.id && isCargoVehicle({
-        type: vehicle.type,
-        fleet_type: vehicle.fleet_type,
-        category: vehicleModel?.category,
-      })
-        ? vehicle
+      const vehicleRow = vehicle as any;
+      const vehicleModelRaw = requestedVehicleSource === "reference_machines"
+        ? vehicleRow?.global_model
+        : vehicleRow?.transport_model;
+      const vehicleModel = Array.isArray(vehicleModelRaw) ? vehicleModelRaw[0] : vehicleModelRaw;
+      const selectableVehicle = vehicleRow?.id && (
+        requestedVehicleSource === "reference_machines" ||
+        !isTrailerTransport({
+          type: vehicleRow.type,
+          fleet_type: vehicleRow.fleet_type,
+          category: vehicleModel?.category,
+        })
+      )
+        ? vehicleRow
         : null;
-      if (!cargoVehicle) {
+      if (!selectableVehicle) {
         return NextResponse.json({ error: "Vehicle not found in current company" }, { status: 400 });
       }
-      if (!cargoVehicle.is_active || cargoVehicle.archived) {
+      if (!selectableVehicle.is_active || selectableVehicle.archived) {
         return NextResponse.json({ error: "Vehicle is inactive or archived" }, { status: 400 });
       }
       const transportIdentity = resolveTransportIdentity({
-        ...cargoVehicle,
-        fullName: cargoVehicle.full_name,
-        sourceRawName: cargoVehicle.source_raw_name,
-        plate: cargoVehicle.plate_number,
+        ...selectableVehicle,
+        fullName: selectableVehicle.full_name,
+        sourceRawName: selectableVehicle.source_raw_name,
+        plate: requestedVehicleSource === "reference_machines"
+          ? selectableVehicle.license_plate
+          : selectableVehicle.plate_number,
       });
       selectedVehicle = {
-        id: String(cargoVehicle.id),
+        id: String(selectableVehicle.id),
         name: transportIdentity.name,
         plate_number: transportIdentity.plate || null,
         search_terms: transportIdentity.searchTerms,
-        type: cargoVehicle.type,
-        fleet_type: cargoVehicle.fleet_type,
-        source: "reference_vehicles",
+        type: selectableVehicle.type,
+        fleet_type: selectableVehicle.fleet_type || selectableVehicle.machinery_type || selectableVehicle.type,
+        source: requestedVehicleSource,
       };
       if (activeByVehicleError) {
         return NextResponse.json({ error: activeByVehicleError.message }, { status: 400 });
