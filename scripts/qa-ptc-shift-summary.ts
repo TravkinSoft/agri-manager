@@ -129,8 +129,12 @@ assert.match(server, /\.gte\("created_at", openedAt\)[\s\S]*\.lte\("created_at",
 assert.match(server, /select\("id,vehicle_id,actor_user_id,from_state,to_state,cycle,created_at"\)/); checks += 1;
 assert.match(server, /select\("id,operator_user_id,operator_name,field_id,opened_at,closed_at,hectares_shift,hectares_field_total"\)/); checks += 1;
 assert.match(server, /\.order\("created_at", \{ ascending: true \}\)[\s\S]*\.order\("id", \{ ascending: true \}\)/); checks += 1;
-assert.match(server, /\.range\(from, from \+ EVENT_PAGE_SIZE - 1\)/); checks += 1;
-assert.match(server, /if \(page\.length < EVENT_PAGE_SIZE\) return events/); checks += 1;
+assert.match(server, /const MAX_SHIFT_DURATION_MS = 36 \* 60 \* 60 \* 1_000/); checks += 1;
+assert.match(server, /const MAX_SHIFT_EVENT_ROWS = 10_000/); checks += 1;
+assert.match(server, /created_at\.gt\.\$\{cursor\.createdAt\},and\(created_at\.eq\.\$\{cursor\.createdAt\},id\.gt\.\$\{cursor\.id\}\)/); checks += 1;
+assert.match(server, /query\.limit\(pageSize \+ 1\)/); checks += 1;
+assert.match(server, /throw new TrafficShiftReconstructionLimitError/); checks += 1;
+assert.doesNotMatch(server, /\.range\(/); checks += 1;
 assert.match(server, /const SUMMARY_CACHE_MAX_COMPANIES = 100/); checks += 1;
 assert.match(server, /const closedShiftSummaryCache = new Map<string, CachedClosedShiftSummary>\(\)/); checks += 1;
 assert.match(server, /const SUMMARY_CACHE_TTL_MS = 60_000/); checks += 1;

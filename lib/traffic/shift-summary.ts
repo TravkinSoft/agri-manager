@@ -60,6 +60,23 @@ export interface TrafficClosedShiftSummary {
   vehicles: TrafficClosedShiftVehicleSummary[];
 }
 
+/** Durable, event-free row used by the bounded closed-shift history list. */
+export interface TrafficClosedShiftHistoryItem {
+  shiftId: string;
+  operatorName: string;
+  fieldName: string | null;
+  openedAt: string;
+  closedAt: string;
+  durationMinutes: number;
+  hectaresShift: number | null;
+  hectaresFieldTotal: number | null;
+}
+
+export interface TrafficClosedShiftHistoryPage {
+  items: TrafficClosedShiftHistoryItem[];
+  nextCursor: string | null;
+}
+
 type ShiftTimingSampleCounts = {
   fieldToWeighbridgeTrips: number;
   unloadingTrips: number;
