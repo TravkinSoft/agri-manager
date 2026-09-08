@@ -309,6 +309,79 @@ export default function PlatformCompaniesPage() {
         </div>
       </div>
 
+      <Card className="rounded-none border-[#9aa8ba] bg-white shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+        <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-[#9aa8ba] bg-[#d7dde6] text-[#111827]">
+          <div>
+            <CardTitle className="text-[#111827]">Компании платформы</CardTitle>
+            <CardDescription className="text-[#5a6677]">
+              Создание компаний и вход в контекст выбранной компании без изменения глобального профиля.
+            </CardDescription>
+          </div>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Создать компанию
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-2 text-[#111827]">
+          {loading ? <p className="text-sm text-slate-500">Загрузка...</p> : null}
+          {!loading && companies.length === 0 ? <p className="text-sm text-slate-500">Компаний пока нет.</p> : null}
+          {companies.map((company) => {
+            const isOpening = openingCompanyId === company.id;
+
+            return (
+              <div key={company.id} className="relative border border-[#9aa8ba] bg-white text-[#111827]">
+                <button
+                  type="button"
+                  className="flex min-h-12 w-full items-center justify-between gap-3 px-3 py-2 pr-16 text-left transition-colors hover:bg-[#eef1f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16324f] focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={openingCompanyId !== null}
+                  aria-label={`Открыть компанию ${company.name}`}
+                  aria-busy={isOpening}
+                  onClick={() => openCompanyContext(company.id)}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Building2 aria-hidden="true" className="h-4 w-4 shrink-0 text-slate-500" />
+                    <span className="truncate font-medium">{company.name}</span>
+                  </span>
+                  {isOpening ? (
+                    <span className="shrink-0 text-xs font-medium text-[#42566f]">Открываем...</span>
+                  ) : (
+                    <ArrowRightCircle aria-hidden="true" className="h-4 w-4 shrink-0 text-[#42566f]" />
+                  )}
+                </button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="icon"
+                  className="absolute right-2 top-1/2 z-10 -translate-y-1/2"
+                  title={`Удалить компанию ${company.name}`}
+                  aria-label={`Удалить компанию ${company.name}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openDeleteDialog(company);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+
+      <div
+        className={
+          selectedCompany
+            ? "border border-emerald-700/35 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900"
+            : "border border-amber-700/35 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900"
+        }
+        role="status"
+      >
+        {selectedCompany
+          ? `Контекст компании: ${selectedCompany.name}`
+          : "Сначала выберите компанию. До выбора контекста тест ассистента недоступен."}
+      </div>
+
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
         <div className="grid gap-3 lg:grid-cols-2">
           <ConsolePanel title="Движок знаний" code="KNO">
@@ -394,66 +467,6 @@ export default function PlatformCompaniesPage() {
           </div>
         </ConsolePanel>
       </div>
-
-      <div
-        className={
-          selectedCompany
-            ? "border border-emerald-700/35 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900"
-            : "border border-amber-700/35 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900"
-        }
-        role="status"
-      >
-        {selectedCompany
-          ? `Контекст компании: ${selectedCompany.name}`
-          : "Сначала выберите компанию. До выбора контекста тест ассистента недоступен."}
-      </div>
-
-      <Card className="rounded-none border-[#9aa8ba] bg-white shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
-        <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-[#9aa8ba] bg-[#d7dde6] text-[#111827]">
-          <div>
-            <CardTitle className="text-[#111827]">Компании платформы</CardTitle>
-            <CardDescription className="text-[#5a6677]">
-              Создание компаний и вход в контекст выбранной компании без изменения глобального профиля.
-            </CardDescription>
-          </div>
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Создать компанию
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-2 text-[#111827]">
-          {loading ? <p className="text-sm text-slate-500">Загрузка...</p> : null}
-          {!loading && companies.length === 0 ? <p className="text-sm text-slate-500">Компаний пока нет.</p> : null}
-          {companies.map((company) => (
-            <div key={company.id} className="flex items-center justify-between gap-3 border border-[#9aa8ba] bg-white px-3 py-2 text-[#111827]">
-              <div className="flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-slate-500" />
-                <span className="font-medium">{company.name}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  className="border-[#111827] bg-[#111827] text-white hover:border-[#263244] hover:bg-[#263244] hover:text-white disabled:border-[#4b5563] disabled:bg-[#1f2937] disabled:text-slate-300 disabled:opacity-100 [&_svg]:text-current"
-                  disabled={openingCompanyId !== null}
-                  onClick={() => openCompanyContext(company.id)}
-                >
-                  <ArrowRightCircle className="mr-2 h-4 w-4" />
-                  {openingCompanyId === company.id ? "Открываем..." : "Войти в компанию"}
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="icon"
-                  title="Удалить компанию"
-                  aria-label={`Удалить компанию ${company.name}`}
-                  onClick={() => openDeleteDialog(company)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
