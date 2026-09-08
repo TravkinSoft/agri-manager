@@ -957,6 +957,7 @@ export default function WeighbridgeOperationsPage() {
   resourceCompanyRef.current = profile?.company_id;
   const [harvestStructureByField, setHarvestStructureByField] = useState<Record<string, HarvestStructureOption[]>>({});
   const [harvestIncompleteFields, setHarvestIncompleteFields] = useState<Record<string, boolean>>({});
+  const [harvestAllocationsReady, setHarvestAllocationsReady] = useState(false);
   const [activeHarvests, setActiveHarvests] = useState<ActiveHarvestRoute[]>([]);
   const [completedHarvests, setCompletedHarvests] = useState<ActiveHarvestRoute[]>([]);
   const [activeHarvestSeasonId, setActiveHarvestSeasonId] = useState<string | null>(null);
@@ -1209,6 +1210,7 @@ export default function WeighbridgeOperationsPage() {
     setActiveHarvestSeasonYear(payload?.seasonYear ? Number(payload.seasonYear) : null);
     setHarvestStructureByField((payload?.byField || {}) as Record<string, HarvestStructureOption[]>);
     setHarvestIncompleteFields((payload?.incompleteByField || {}) as Record<string, boolean>);
+    setHarvestAllocationsReady(true);
   };
 
   const refreshHarvestAllocations = async (parentSignal?: AbortSignal) => {
@@ -1698,6 +1700,7 @@ export default function WeighbridgeOperationsPage() {
     setActiveHarvestSeasonYear(allocations.seasonYear ? Number(allocations.seasonYear) : null);
     setHarvestStructureByField((allocations.byField || {}) as Record<string, HarvestStructureOption[]>);
     setHarvestIncompleteFields((allocations.incompleteByField || {}) as Record<string, boolean>);
+    setHarvestAllocationsReady(true);
     setCoreResourceErrors([]);
     setCoreDataReady(true);
     setLoading(false);
@@ -2273,6 +2276,7 @@ export default function WeighbridgeOperationsPage() {
   useEffect(() => {
     setActiveHarvestSeasonId(null);
     setActiveHarvestSeasonYear(null);
+    setHarvestAllocationsReady(false);
     setWorkspaceHydratedKey("");
   }, [profile?.company_id]);
 
@@ -2648,6 +2652,7 @@ export default function WeighbridgeOperationsPage() {
 
   useEffect(() => {
     if (form.operationType !== "harvest_incoming" && form.operationType !== "issue_to_field") return;
+    if (!workspaceReady || !harvestAllocationsReady) return;
     if (!form.fieldId) {
       setForm((prev) => ({ ...prev, cropStructureAllocationId: "", cropId: "", varietyId: "", reproductionId: "" }));
       return;
@@ -2680,7 +2685,7 @@ export default function WeighbridgeOperationsPage() {
         reproductionId: "",
       }));
     }
-  }, [form.operationType, form.fieldId, fieldHarvestOptions, form.cropStructureAllocationId]);
+  }, [form.operationType, form.fieldId, fieldHarvestOptions, form.cropStructureAllocationId, workspaceReady, harvestAllocationsReady]);
 
   useEffect(() => {
     if (form.operationType !== "harvest_incoming" && form.operationType !== "issue_to_field") return;

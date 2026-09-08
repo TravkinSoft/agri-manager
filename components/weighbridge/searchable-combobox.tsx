@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,6 +52,7 @@ export function SearchableCombobox({
   mobile = false,
 }: SearchableComboboxProps) {
   const [open, setOpen] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
   const selected = options.find((option) => option.value === value) || null;
   const groups = useMemo(() => {
     const map = new Map<string, SearchableComboboxOption[]>();
@@ -83,8 +84,15 @@ export function SearchableCombobox({
         className={cn("w-[var(--radix-popover-trigger-width)] border-slate-700 bg-slate-950 p-0 text-slate-100", mobile ? "min-w-0 max-w-[calc(100vw-2rem)]" : "min-w-[320px]")}
       >
         <Command className="bg-slate-950 text-slate-100">
-          <CommandInput placeholder={searchPlaceholder} className={cn("text-slate-100", mobile && "min-h-[48px] text-base")} />
-          <CommandList className="max-h-60 travkin-scrollbar">
+          <CommandInput
+            placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder}
+            onValueChange={() => {
+              if (listRef.current) listRef.current.scrollTop = 0;
+            }}
+            className={cn("text-slate-100", mobile && "min-h-[48px] text-base")}
+          />
+          <CommandList ref={listRef} className="max-h-60 travkin-scrollbar">
             <CommandEmpty className="py-5 text-center text-sm text-slate-500">{emptyLabel}</CommandEmpty>
             {groups.map(([group, groupOptions]) => (
               <CommandGroup key={group || "default"} heading={group || undefined}>

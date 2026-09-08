@@ -96,6 +96,7 @@
     "qa:crop-optional-seed": "npx --no-install tsx scripts/qa-crop-structure-optional-seed.ts",
     "qa:tz266": "npx --no-install tsx scripts/qa-tz266-active-harvest-tabs.ts",
     "qa:p0:weighbridge-gross": "npx --no-install tsx scripts/qa-p0-weighbridge-gross-legacy-schema.ts",
+    "qa:p0:weighbridge-form-state": "npx --no-install tsx scripts/qa-p0-weighbridge-form-state.ts",
     "health:check": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1",
     "health:check:strict": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1 -Strict",
     "qa:assistant:full": "npx tsx scripts/qa-assistant-copilot-full-check.ts",
