@@ -1,4 +1,4 @@
-const CACHE_VERSION = "travkinflow-v8-static-push";
+const CACHE_VERSION = "travkinflow-v9-static-manor";
 const STATIC_CACHE = `${CACHE_VERSION}:static`;
 
 const STATIC_ASSETS = [
@@ -96,10 +96,10 @@ function offlinePageResponse() {
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>TravkinFlow offline</title>
   <style>
-    body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1115;color:#f3f4f6;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
-    main{max-width:520px;padding:28px;border:1px solid #262d3d;border-radius:12px;background:#151922}
-    h1{margin:0 0 10px;font-size:24px}
-    p{margin:0;color:#b8c0cc;line-height:1.55}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f7f1e7;color:#31251c;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+    main{max-width:520px;padding:28px;border:1px solid #d8c8ac;border-radius:12px;background:#fbf8f1}
+    h1{margin:0 0 10px;font-size:24px;font-family:Georgia,serif}
+    p{margin:0;color:#736353;line-height:1.55}
   </style>
 </head>
 <body>
