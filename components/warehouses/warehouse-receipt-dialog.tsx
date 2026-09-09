@@ -215,8 +215,8 @@ export function WarehouseReceiptDialog({ open, onOpenChange, companyId, warehous
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[100dvh] max-h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[92vh] sm:max-h-[92vh] sm:w-[min(1040px,calc(100vw-32px))] sm:max-w-[1040px] sm:rounded-lg">
-        <DialogHeader className="shrink-0 border-b border-slate-800 px-5 py-4 text-left">
-          <DialogTitle className="flex items-center gap-2 text-lg"><PackagePlus className="h-5 w-5 text-yellow-400" />Создать приход</DialogTitle>
+        <DialogHeader className="shrink-0 border-b border-border px-5 py-4 text-left">
+          <DialogTitle className="flex items-center gap-2 text-lg"><PackagePlus className="h-5 w-5 text-amber-800" />Создать приход</DialogTitle>
           <DialogDescription>
             {receiptMode === "seed"
               ? "Семенной и посадочный материал проводится по точной культуре, сорту и репродукции."
@@ -224,7 +224,7 @@ export function WarehouseReceiptDialog({ open, onOpenChange, companyId, warehous
           </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-4">
-          {error ? <div className="rounded-md border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-200">{error}</div> : null}
+          {error ? <div className="rounded-md border border-red-500/40 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div> : null}
           <section className="space-y-4">
             <div className="space-y-2">
               <Label>Тип прихода *</Label>
@@ -261,19 +261,19 @@ export function WarehouseReceiptDialog({ open, onOpenChange, companyId, warehous
               <Label>Поставщик *</Label>
               <Popover open={supplierOpen} onOpenChange={setSupplierOpen}>
                 <PopoverTrigger asChild><Button type="button" variant="outline" role="combobox" aria-expanded={supplierOpen} className="h-auto min-h-10 w-full justify-between px-3 py-2 text-left font-normal"><span className={cn("min-w-0 truncate", !selectedSupplier && "text-muted-foreground")}>{selectedSupplier ? `${selectedSupplier.legal_name} — ${selectedSupplier.tax_id || "без БИН/ИНН"}` : "Найти по названию, БИН/ИНН или транслитерации"}</span><ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" /></Button></PopoverTrigger>
-                <PopoverContent className="w-[min(620px,calc(100vw-40px))] p-0" align="start"><Command shouldFilter={false}><CommandInput value={supplierSearch} onValueChange={setSupplierSearch} placeholder="Syngenta, Сингента или БИН/ИНН" /><CommandList className="max-h-72"><CommandEmpty>{suppliersLoading ? "Поиск..." : "Контрагент не найден в ГЛБД"}</CommandEmpty><CommandGroup>{supplierResults.map((row) => <CommandItem key={row.key} value={row.key} onSelect={() => { setSelectedSupplier(row); setSupplierOpen(false); }} className="items-start gap-2 py-2"><Building2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" /><span className="min-w-0 flex-1"><span className="block truncate font-medium">{row.legal_name}</span><span className="block text-xs text-muted-foreground">{row.tax_id || "БИН/ИНН не указан"} — {row.country_name || "Страна не указана"}{row.source === "company" ? " — уже в компании" : ""}</span></span><Check className={cn("h-4 w-4", selectedSupplier?.key === row.key ? "opacity-100" : "opacity-0")} /></CommandItem>)}</CommandGroup></CommandList></Command></PopoverContent>
+                <PopoverContent className="w-[min(620px,calc(100vw-40px))] p-0" align="start"><Command shouldFilter={false}><CommandInput value={supplierSearch} onValueChange={setSupplierSearch} placeholder="Syngenta, Сингента или БИН/ИНН" /><CommandList className="max-h-72"><CommandEmpty>{suppliersLoading ? "Поиск..." : "Контрагент не найден в ГЛБД"}</CommandEmpty><CommandGroup>{supplierResults.map((row) => <CommandItem key={row.key} value={row.key} onSelect={() => { setSelectedSupplier(row); setSupplierOpen(false); }} className="items-start gap-2 py-2"><Building2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1"><span className="block truncate font-medium">{row.legal_name}</span><span className="block text-xs text-muted-foreground">{row.tax_id || "БИН/ИНН не указан"} — {row.country_name || "Страна не указана"}{row.source === "company" ? " — уже в компании" : ""}</span></span><Check className={cn("h-4 w-4", selectedSupplier?.key === row.key ? "opacity-100" : "opacity-0")} /></CommandItem>)}</CommandGroup></CommandList></Command></PopoverContent>
               </Popover>
             </div> : null}
             {receiptMode === "agrochemical" ? <div className="space-y-2"><Label>Номер накладной</Label><Input value={documentNo} onChange={(event) => setDocumentNo(event.target.value)} placeholder="Необязательно" /></div> : null}
           </section>
 
           {receiptMode === "seed" ? (
-            <section className="space-y-4 rounded-md border border-emerald-800/60 bg-emerald-950/20 p-4">
+            <section className="space-y-4 rounded-md border border-emerald-800/60 bg-emerald-50 p-4">
               <div className="flex items-center gap-2">
-                <Sprout className="h-5 w-5 text-emerald-400" />
-                <div><h3 className="font-semibold">Точная складская identity</h3><p className="text-sm text-slate-400">Техническая карточка создаётся только внутри компании.</p></div>
+                <Sprout className="h-5 w-5 text-emerald-800" />
+                <div><h3 className="font-semibold">Точная складская identity</h3><p className="text-sm text-muted-foreground">Техническая карточка создаётся только внутри компании.</p></div>
               </div>
-              {seedReferencesLoading ? <p className="text-sm text-slate-400">Загрузка справочников...</p> : null}
+              {seedReferencesLoading ? <p className="text-sm text-muted-foreground">Загрузка справочников...</p> : null}
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2"><Label>Культура *</Label><Select value={cropId} onValueChange={(value) => { setCropId(value); setVarietyId(""); }}><SelectTrigger><SelectValue placeholder="Выберите культуру" /></SelectTrigger><SelectContent>{seedReferences.crops.map((row) => <SelectItem key={row.id} value={row.id}>{referenceName(row)}</SelectItem>)}</SelectContent></Select></div>
                 <div className="space-y-2"><Label>Сорт *</Label><Select value={varietyId} onValueChange={setVarietyId} disabled={!cropId}><SelectTrigger><SelectValue placeholder="Выберите сорт" /></SelectTrigger><SelectContent>{availableVarieties.map((row) => <SelectItem key={row.id} value={row.id}>{referenceName(row)}</SelectItem>)}</SelectContent></Select></div>
@@ -284,21 +284,21 @@ export function WarehouseReceiptDialog({ open, onOpenChange, companyId, warehous
                 <div className="space-y-2"><Label>Внутренний код партии</Label><Input value={seedBatchCode} onChange={(event) => setSeedBatchCode(event.target.value)} placeholder="Создастся автоматически" /></div>
                 <div className="space-y-2"><Label>Партия поставщика</Label><Input value={supplierLot} onChange={(event) => setSupplierLot(event.target.value)} placeholder="Необязательно" /></div>
               </div>
-              <div className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-300">
+              <div className="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground">
                 Единица складского учёта: <strong>кг</strong>. Литры и произвольный товар для семян недоступны.
               </div>
             </section>
           ) : <section className="space-y-3">
-            <div><h3 className="text-base font-semibold">Материалы</h3><p className="text-sm text-slate-400">Пестициды, удобрения и добавки из глобального каталога и каталога компании.</p></div>
+            <div><h3 className="text-base font-semibold">Материалы</h3><p className="text-sm text-muted-foreground">Пестициды, удобрения и добавки из глобального каталога и каталога компании.</p></div>
             {lines.map((line, index) => {
               const selectedProduct = products.find((product) => product.id === line.product_id);
-              return <div key={line.key} className="border-b border-slate-800 pb-4 last:border-b-0">
-                <div className="mb-3 flex items-center justify-between"><span className="text-sm font-medium text-slate-300">Строка {index + 1}</span><Button type="button" variant="ghost" size="icon" aria-label="Удалить строку" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((row) => row.key !== line.key))}><Trash2 className="h-4 w-4" /></Button></div>
+              return <div key={line.key} className="border-b border-border pb-4 last:border-b-0">
+                <div className="mb-3 flex items-center justify-between"><span className="text-sm font-medium text-foreground">Строка {index + 1}</span><Button type="button" variant="ghost" size="icon" aria-label="Удалить строку" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((row) => row.key !== line.key))}><Trash2 className="h-4 w-4" /></Button></div>
                 <div className="grid gap-3 md:grid-cols-12">
                   <div className="space-y-2 md:col-span-6"><Label>Материал *</Label><Popover open={productOpenKey === line.key} onOpenChange={(value) => setProductOpenKey(value ? line.key : null)}><PopoverTrigger asChild><Button type="button" variant="outline" role="combobox" className="w-full justify-between font-normal"><span className={cn("truncate", !selectedProduct && "text-muted-foreground")}>{selectedProduct?.name || "Найти материал по названию или alias"}</span><ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" /></Button></PopoverTrigger><PopoverContent className="w-[min(620px,calc(100vw-40px))] p-0" align="start"><Command><CommandInput placeholder="Найти материал по названию или alias" /><CommandList className="max-h-72"><CommandEmpty>Материал не найден</CommandEmpty><CommandGroup>{products.map((product) => <CommandItem key={product.id} value={productSearchValue(product)} onSelect={() => selectProduct(line.key, product)}><Check className={cn("mr-2 h-4 w-4", product.id === line.product_id ? "opacity-100" : "opacity-0")} /><span className="truncate">{product.name}</span></CommandItem>)}</CommandGroup></CommandList></Command></PopoverContent></Popover></div>
                   <div className="space-y-2 md:col-span-3"><Label>Принятое количество *</Label><Input type="number" min="0" step="0.001" value={line.quantity || ""} onChange={(event) => updateLine(line.key, { quantity: Number(event.target.value) })} /></div>
-                  <div className="space-y-2 md:col-span-3"><Label>Единица</Label><Input value={line.uom || "Не задана"} readOnly className={!line.uom && line.product_id ? "border-red-500 text-red-300" : ""} />{!line.uom && line.product_id ? <p className="text-xs text-red-300">Для материала не задана единица хранения</p> : null}</div>
-                  <div className="space-y-2 md:col-span-4"><Label>Партия / серия</Label><Input value={line.lot_number || ""} onChange={(event) => updateLine(line.key, { lot_number: event.target.value })} placeholder="Необязательно" /><p className="text-xs text-slate-500">Номер с упаковки или накладной. Нужен для разделения поставок и сроков годности.</p></div>
+                  <div className="space-y-2 md:col-span-3"><Label>Единица</Label><Input value={line.uom || "Не задана"} readOnly className={!line.uom && line.product_id ? "border-red-500 text-red-800" : ""} />{!line.uom && line.product_id ? <p className="text-xs text-red-800">Для материала не задана единица хранения</p> : null}</div>
+                  <div className="space-y-2 md:col-span-4"><Label>Партия / серия</Label><Input value={line.lot_number || ""} onChange={(event) => updateLine(line.key, { lot_number: event.target.value })} placeholder="Необязательно" /><p className="text-xs text-muted-foreground">Номер с упаковки или накладной. Нужен для разделения поставок и сроков годности.</p></div>
                   <div className="space-y-2 md:col-span-4"><Label>Дата производства</Label><Input type="date" value={line.manufactured_at || ""} onChange={(event) => updateLine(line.key, { manufactured_at: event.target.value })} /></div>
                   <div className="space-y-2 md:col-span-4"><Label>Срок годности</Label><Input type="date" value={line.expires_at || ""} onChange={(event) => updateLine(line.key, { expires_at: event.target.value })} /></div>
                 </div>
@@ -307,9 +307,9 @@ export function WarehouseReceiptDialog({ open, onOpenChange, companyId, warehous
             <Button type="button" variant="outline" onClick={() => setLines((current) => [...current, newLine()])}><Plus className="mr-2 h-4 w-4" />Добавить строку</Button>
           </section>}
           <div className="space-y-2"><Label>Комментарий</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Необязательно" /></div>
-          <div className="space-y-2"><Label>Дата и время проведения</Label><div className="flex items-center gap-2 rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-400"><Clock3 className="h-4 w-4" />Определятся сервером при проведении</div></div>
+          <div className="space-y-2"><Label>Дата и время проведения</Label><div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground"><Clock3 className="h-4 w-4" />Определятся сервером при проведении</div></div>
         </div>
-        <DialogFooter className="shrink-0 border-t border-slate-800 bg-slate-950 px-5 py-3 sm:justify-end"><Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>Отмена</Button><Button type="button" onClick={submit} disabled={submitting}>{submitting ? "Проведение..." : "Провести приход"}</Button></DialogFooter>
+        <DialogFooter className="shrink-0 border-t border-border bg-background px-5 py-3 sm:justify-end"><Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>Отмена</Button><Button type="button" onClick={submit} disabled={submitting}>{submitting ? "Проведение..." : "Провести приход"}</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   );

@@ -78,10 +78,10 @@ export default function WeighbridgeDashboardPage() {
       />
 
       <div className="grid gap-4 md:grid-cols-4">
-        <Card><CardContent className="pt-5"><div className="text-sm text-slate-500">Активные талоны</div><div className="text-3xl font-bold">{metrics.active}</div></CardContent></Card>
-        <Card><CardContent className="pt-5"><div className="text-sm text-slate-500">Ожидают 2-е взвешивание</div><div className="text-3xl font-bold">{metrics.awaitingSecond}</div></CardContent></Card>
-        <Card><CardContent className="pt-5"><div className="text-sm text-slate-500">Финализировано сегодня</div><div className="text-3xl font-bold">{metrics.finalizedToday}</div></CardContent></Card>
-        <Card><CardContent className="pt-5"><div className="text-sm text-slate-500">Всего талонов</div><div className="text-3xl font-bold">{tickets.length}</div></CardContent></Card>
+        <Card><CardContent className="pt-5"><div className="text-sm text-muted-foreground">Активные талоны</div><div className="text-3xl font-bold">{metrics.active}</div></CardContent></Card>
+        <Card><CardContent className="pt-5"><div className="text-sm text-muted-foreground">Ожидают 2-е взвешивание</div><div className="text-3xl font-bold">{metrics.awaitingSecond}</div></CardContent></Card>
+        <Card><CardContent className="pt-5"><div className="text-sm text-muted-foreground">Финализировано сегодня</div><div className="text-3xl font-bold">{metrics.finalizedToday}</div></CardContent></Card>
+        <Card><CardContent className="pt-5"><div className="text-sm text-muted-foreground">Всего талонов</div><div className="text-3xl font-bold">{tickets.length}</div></CardContent></Card>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -89,7 +89,7 @@ export default function WeighbridgeDashboardPage() {
           <CardHeader><CardTitle>{isAgronomistObserver ? "Режим наблюдения" : "Быстрые действия"}</CardTitle></CardHeader>
           <CardContent className="flex flex-wrap gap-2">
             {isAgronomistObserver ? (
-              <div className="text-sm text-slate-600">
+              <div className="text-sm text-muted-foreground">
                 Для агронома доступен только обзор. Создание и ведение талонов доступны весовщику.
               </div>
             ) : (
@@ -106,13 +106,13 @@ export default function WeighbridgeDashboardPage() {
           <CardHeader><CardTitle>Талоны по типам</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             {Object.keys(metrics.byType).length === 0 ? (
-              <div className="text-sm text-slate-500">{loading ? "Загрузка..." : "Нет данных"}</div>
+              <div className="text-sm text-muted-foreground">{loading ? "Загрузка..." : "Нет данных"}</div>
             ) : (
               Object.entries(metrics.byType)
                 .sort((a, b) => b[1] - a[1])
                 .map(([type, count]) => (
                   <div key={type} className="flex justify-between text-sm">
-                    <span className="text-slate-600">{type}</span>
+                    <span className="text-muted-foreground">{type}</span>
                     <span className="font-medium">{count}</span>
                   </div>
                 ))
@@ -125,13 +125,13 @@ export default function WeighbridgeDashboardPage() {
         <CardHeader><CardTitle>Последние движения</CardTitle></CardHeader>
         <CardContent>
           {tickets.length === 0 ? (
-            <div className="text-sm text-slate-500">{loading ? "Загрузка..." : "Талоны отсутствуют"}</div>
+            <div className="text-sm text-muted-foreground">{loading ? "Загрузка..." : "Талоны отсутствуют"}</div>
           ) : (
             <div className="space-y-2">
               {tickets.slice(0, 8).map((ticket) => (
                 <div key={ticket.id} className="rounded-md border p-2 flex items-center justify-between text-sm">
                   <span>{ticket.ticket_no} · {ticket.op_type}</span>
-                  <span className="text-slate-500">{ticket.status}</span>
+                  <span className="text-muted-foreground">{ticket.status}</span>
                 </div>
               ))}
             </div>

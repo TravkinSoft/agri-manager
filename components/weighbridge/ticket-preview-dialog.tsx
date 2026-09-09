@@ -45,9 +45,9 @@ export function TicketPreviewDialog({
 
         <div className="min-h-0 flex-1 lg:overflow-hidden">
           {loading && !payload ? (
-            <div className="flex min-h-48 items-center justify-center gap-2 text-slate-400"><Loader2 className="h-5 w-5 animate-spin" />Загрузка талона...</div>
+            <div className="flex min-h-48 items-center justify-center gap-2 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" />Загрузка талона...</div>
           ) : error ? (
-            <div role="alert" className="rounded-md border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">{readErrorMessage(error, "Талон")}<Button variant="outline" size="sm" className="ml-3" onClick={() => setRetry((value) => value + 1)}>Повторить</Button></div>
+            <div role="alert" className="rounded-md border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-800">{readErrorMessage(error, "Талон")}<Button variant="outline" size="sm" className="ml-3" onClick={() => setRetry((value) => value + 1)}>Повторить</Button></div>
           ) : ticket ? (
             <>
               <WeighbridgeTicketPaper
@@ -59,8 +59,8 @@ export function TicketPreviewDialog({
                 )}
               />
               {ticket.technical_audit ? (
-                <details className="mx-auto mt-3 w-full max-w-[540px] rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-xs text-slate-300">
-                  <summary className="cursor-pointer font-semibold text-slate-200">Технический аудит</summary>
+                <details className="mx-auto mt-3 w-full max-w-[540px] rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground">
+                  <summary className="cursor-pointer font-semibold text-foreground">Технический аудит</summary>
                   <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
                     <dt>Auth account created</dt><dd>{ticket.technical_audit.auth_account_created || "—"}</dd>
                     <dt>Auth account finalized</dt><dd>{ticket.technical_audit.auth_account_finalized || "—"}</dd>
@@ -74,7 +74,7 @@ export function TicketPreviewDialog({
           ) : null}
         </div>
 
-        <DialogFooter className="shrink-0 border-t border-slate-800 pt-3">
+        <DialogFooter className="shrink-0 border-t border-border pt-3">
           <DialogClose asChild>
             <Button onClick={() => onOpenChange(false)}>Закрыть</Button>
           </DialogClose>

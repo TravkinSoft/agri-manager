@@ -42,7 +42,7 @@ export default function WeighbridgePrintPage() {
     return () => window.clearTimeout(timer);
   }, [autoPrint, loading, ticket]);
 
-  if (loading) return <div className="p-6 text-sm text-slate-500">Загрузка талона...</div>;
+  if (loading) return <div className="p-6 text-sm text-muted-foreground">Загрузка талона...</div>;
   if (error) return <div className="p-6 text-sm text-red-600">{error}</div>;
   if (!ticket) return <div className="p-6 text-sm text-red-600">Талон не найден</div>;
 

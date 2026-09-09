@@ -89,33 +89,33 @@ export function TrafficShiftControls({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button type="button" aria-label="Меню комбайнёра" disabled={busy || stale || !snapshot.enabled}
-              className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-xl text-slate-300 hover:bg-white/5 disabled:opacity-40">
+              className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-xl text-foreground hover:bg-accent/40 disabled:opacity-40">
               <EllipsisVertical aria-hidden size={22} />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-64">
             <DropdownMenuLabel className="font-normal">
-              <span className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-                <Wrench aria-hidden size={15} className={isBroken ? "text-rose-300" : "text-emerald-300"} />
+              <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Wrench aria-hidden size={15} className={isBroken ? "text-rose-800" : "text-emerald-800"} />
                 Статус комбайна
               </span>
-              <span className={`mt-1 block text-xs ${isBroken ? "text-rose-300" : "text-emerald-300"}`}>
+              <span className={`mt-1 block text-xs ${isBroken ? "text-rose-800" : "text-emerald-800"}`}>
                 {isBroken ? "Поломка" : "Работает"}
               </span>
             </DropdownMenuLabel>
             <DropdownMenuItem
               onSelect={() => void changeCombineStatus(!isBroken)}
-              className={`min-h-[48px] gap-2 ${isBroken ? "text-emerald-300 focus:text-emerald-200" : "text-rose-300 focus:text-rose-200"}`}
+              className={`min-h-[48px] gap-2 ${isBroken ? "text-emerald-800 focus:text-emerald-800" : "text-rose-800 focus:text-rose-800"}`}
             >
               {isBroken ? <Play aria-hidden size={16} /> : <Wrench aria-hidden size={16} />}
               {isBroken ? "Комбайн снова работает" : "Сообщить о поломке"}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuLabel className="font-normal">
-              <span className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-                <Clock3 aria-hidden size={15} className="text-amber-300" /> Смена комбайнёра
+              <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Clock3 aria-hidden size={15} className="text-amber-800" /> Смена комбайнёра
               </span>
-              <span className={`mt-1 block text-xs ${open ? "text-emerald-300" : "text-slate-400"}`}>
+              <span className={`mt-1 block text-xs ${open ? "text-emerald-800" : "text-muted-foreground"}`}>
                 {open
                   ? `Открыта в ${new Date(shift.openedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`
                   : shift?.closedAt
@@ -138,7 +138,7 @@ export function TrafficShiftControls({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
-        {error ? <span role="alert" className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg bg-rose-950 p-2 text-xs text-rose-200">{error}</span> : null}
+        {error ? <span role="alert" className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg bg-rose-50 p-2 text-xs text-rose-800">{error}</span> : null}
       </div>
       <Dialog open={closing} onOpenChange={(value) => { if (!busy) setClosing(value); }}>
         <DialogContent className="w-[calc(100%-2rem)] max-w-md rounded-2xl">
@@ -149,21 +149,21 @@ export function TrafficShiftControls({
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={closeShift} className="space-y-4">
-            <label className="block text-sm text-slate-200">
+            <label className="block text-sm text-foreground">
               Гектаров за смену
               <input name="hectaresShift" type="number" inputMode="decimal" min="0" max="1000000" step="0.001" required
-                className="mt-2 min-h-[48px] w-full rounded-xl border border-white/15 bg-slate-950 px-3 text-base text-white outline-none focus:border-amber-300" />
+                className="mt-2 min-h-[48px] w-full rounded-xl border border-border bg-background px-3 text-base text-foreground outline-none focus:border-amber-300" />
             </label>
-            <label className="block text-sm text-slate-200">
+            <label className="block text-sm text-foreground">
               Итого гектаров на поле
               <input name="hectaresFieldTotal" type="number" inputMode="decimal" min="0" max="1000000" step="0.001" required
-                className="mt-2 min-h-[48px] w-full rounded-xl border border-white/15 bg-slate-950 px-3 text-base text-white outline-none focus:border-amber-300" />
+                className="mt-2 min-h-[48px] w-full rounded-xl border border-border bg-background px-3 text-base text-foreground outline-none focus:border-amber-300" />
             </label>
             <div className="grid grid-cols-2 gap-2">
               <button type="button" disabled={busy} onClick={() => setClosing(false)}
-                className="min-h-[48px] rounded-xl border border-white/15 text-slate-200 disabled:opacity-50">Отмена</button>
+                className="min-h-[48px] rounded-xl border border-border text-foreground disabled:opacity-50">Отмена</button>
               <button type="submit" disabled={busy}
-                className="min-h-[48px] rounded-xl bg-amber-300 font-semibold text-slate-950 disabled:opacity-50">
+                className="min-h-[48px] rounded-xl bg-primary font-semibold text-primary-foreground disabled:opacity-50">
                 {busy ? "Сохраняем…" : "Закрыть смену"}
               </button>
             </div>

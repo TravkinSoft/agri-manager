@@ -12,7 +12,7 @@ export default function WeighmanTrafficPage() {
 
   if (authLoading || live.loading) {
     return (
-      <div role="status" className="flex min-h-[50vh] items-center justify-center text-amber-300">
+      <div role="status" className="flex min-h-[50vh] items-center justify-center text-amber-800">
         <Loader2 className="animate-spin" aria-hidden />
         <span className="sr-only">Загрузка машин</span>
       </div>
@@ -34,7 +34,7 @@ export default function WeighmanTrafficPage() {
           onCommitted={live.applyCommitted}
         />
       ) : (
-        <div role="alert" className="py-10 text-amber-200">
+        <div role="alert" className="py-10 text-amber-800">
           {live.error || "Не удалось открыть оборот машин"}
         </div>
       )}

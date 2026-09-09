@@ -95,7 +95,7 @@ export function UniversalWorkspaceTabs({
   };
 
   return (
-    <section aria-label="Рабочие вкладки Весовой" aria-busy={disabled} className={`flex min-w-0 items-center gap-1.5 rounded-lg bg-slate-950/40 p-1.5 ${disabled ? "opacity-60" : ""}`}>
+    <section aria-label="Рабочие вкладки Весовой" aria-busy={disabled} className={`flex min-w-0 items-center gap-1.5 rounded-lg bg-background p-1.5 ${disabled ? "opacity-60" : ""}`}>
       <div role="tablist" aria-label="Открытые задачи Весовой" className="travkin-scrollbar flex min-w-0 flex-1 gap-1 overflow-x-auto overflow-y-hidden">
         {tabs.map((tab) => {
           const selected = selectedId === tab.id;
@@ -104,8 +104,8 @@ export function UniversalWorkspaceTabs({
             <div
               key={tab.id}
               className={selected
-                ? "flex h-11 min-w-[11rem] max-w-[18rem] shrink-0 items-center rounded-md bg-slate-800/90 text-slate-50 shadow-[inset_0_-2px_0_rgba(250,204,21,0.9)] transition-colors duration-150 motion-reduce:transition-none"
-                : "flex h-11 min-w-[11rem] max-w-[18rem] shrink-0 items-center rounded-md bg-transparent text-slate-300 transition-colors duration-150 hover:bg-slate-900/90 hover:text-slate-50 motion-reduce:transition-none"}
+                ? "flex h-11 min-w-[11rem] max-w-[18rem] shrink-0 items-center rounded-md bg-muted text-foreground shadow-[inset_0_-2px_0_rgba(250,204,21,0.9)] transition-colors duration-150 motion-reduce:transition-none"
+                : "flex h-11 min-w-[11rem] max-w-[18rem] shrink-0 items-center rounded-md bg-transparent text-foreground transition-colors duration-150 hover:bg-background hover:text-foreground motion-reduce:transition-none"}
               title={tab.fullLabel}
             >
               <button
@@ -126,16 +126,16 @@ export function UniversalWorkspaceTabs({
                 }}
                 aria-selected={selected}
               >
-                <Icon className={selected ? "h-3.5 w-3.5 shrink-0 text-yellow-300" : "h-3.5 w-3.5 shrink-0 text-slate-500"} />
+                <Icon className={selected ? "h-3.5 w-3.5 shrink-0 text-amber-800" : "h-3.5 w-3.5 shrink-0 text-muted-foreground"} />
                 <span className="min-w-0 flex-1 space-y-0.5">
                   <span className="block truncate text-xs font-semibold leading-none">{tab.primaryLabel}</span>
-                  <span className={selected ? "block truncate text-[10px] leading-none text-slate-300" : "block truncate text-[10px] leading-none text-slate-400"}>
+                  <span className={selected ? "block truncate text-[10px] leading-none text-foreground" : "block truncate text-[10px] leading-none text-muted-foreground"}>
                     {tab.secondaryLabel}
                   </span>
                 </span>
                 {tab.dirty ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300" title="Есть несохранённые данные" aria-label="Есть несохранённые данные" /> : null}
                 {Number(tab.openTicketCount || 0) > 0 ? (
-                  <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full border border-amber-400/50 bg-amber-400/10 px-1 text-[9px] font-bold text-amber-200">
+                  <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full border border-amber-400/50 bg-amber-400/10 px-1 text-[9px] font-bold text-amber-800">
                     {tab.openTicketCount}
                   </span>
                 ) : null}
@@ -145,7 +145,7 @@ export function UniversalWorkspaceTabs({
                 disabled={disabled}
                 variant="ghost"
                 size="icon"
-                className="h-8 w-7 shrink-0 text-slate-500 hover:bg-slate-700/70 hover:text-slate-100"
+                className="h-8 w-7 shrink-0 text-muted-foreground hover:bg-muted hover:text-foreground"
                 aria-label={`Закрыть вкладку: ${tab.fullLabel}`}
                 title="Закрыть вкладку"
                 onClick={() => onRemove(tab.id)}
@@ -170,14 +170,14 @@ export function UniversalWorkspaceTabs({
             type="button"
             disabled={disabled}
             size="icon"
-            className="h-9 w-9 shrink-0 bg-yellow-400 text-slate-950 shadow-none hover:bg-yellow-300"
+            className="h-9 w-9 shrink-0 bg-primary text-primary-foreground shadow-none hover:bg-primary"
             aria-label="Добавить вкладку"
             title="Добавить вкладку"
           >
             <Plus className="h-4 w-4" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-56 border-slate-700 bg-slate-950 p-1 text-slate-100">
+        <PopoverContent align="end" className="w-56 border-border bg-background p-1 text-foreground">
           {WORKSPACE_MENU.map((item) => {
             const Icon = item.icon;
             return (
@@ -185,13 +185,13 @@ export function UniversalWorkspaceTabs({
                 key={item.type}
                 type="button"
                 disabled={disabled}
-                className="flex h-9 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-slate-800"
+                className="flex h-9 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-muted"
                 onClick={() => {
                   onAdd(item.type);
                   setMenuOpen(false);
                 }}
               >
-                <Icon className="h-4 w-4 text-yellow-300" />
+                <Icon className="h-4 w-4 text-amber-800" />
                 <span>{item.label}</span>
               </button>
             );

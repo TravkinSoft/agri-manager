@@ -201,7 +201,7 @@ async function main() {
     check(repairHtml.includes("На ремонте"), role === "manager");
     if (role === "manager") {
       check(repairCards.every(card => card.type === "button"), true);
-      check(repairCards.every(card => card.props.className.includes("bg-rose-950/80")), true);
+      check(repairCards.every(card => card.props.className.includes("bg-rose-50")), true);
       check(repairCards.every(card => words(card).includes("Ремонт 3 мин")), true);
       check(repairCards.every(card => card.props["data-repair-stage-action"] === undefined), true);
     } else if (role === "harvester") {
@@ -211,7 +211,7 @@ async function main() {
       check(repairCards.every(card => words(card).includes("Ремонт отмечен")), true);
       check(repairCards.every(card => words(card).includes("8 мин")), true);
       check(repairCards.every(card => card.props["data-repair-stage-action"] === "true"), true);
-      const expectedStateTone = role === "weighman" ? "bg-emerald-950/80" : "bg-amber-950/75";
+      const expectedStateTone = role === "weighman" ? "bg-emerald-50" : "bg-amber-50";
       check(repairCards[0].props.className.includes(expectedStateTone), true);
       const stageNote = nodes(repairTree).find(node => node.props?.["data-testid"] === "traffic-repair-stage-note");
       check(stageNote?.props.role, "status");
@@ -295,7 +295,7 @@ async function main() {
     check(legacyLists.props.className.includes("tf2-traffic-lanes"), false);
     check(legacyLists.props.className.includes("lg:overflow-visible"), true);
     check(legacyHeadings.every(node => !node.props.className.includes("lg:sticky")), true);
-    check(cardNodes(legacyTree).some(card => card.props.className.includes("bg-[#ffffff]")), true);
+    check(cardNodes(legacyTree).some(card => card.props.className.includes("bg-card")), true);
     check(cardNodes(legacyTree).every(card => !card.props.className.includes("tf2-traffic-card")), true);
 
     const legacySwipe = harness("harvester", [vehicles[1]], { featureFlag });
@@ -319,18 +319,18 @@ async function main() {
   check(movingSlot.props["data-transitioning"], "true");
   const settledSlot = nodes(movingManager.render()).find(node => node.props?.["data-traffic-card-id"] === "car-1");
   check(settledSlot.props["data-transitioning"], undefined);
-  const colors = ["bg-slate-800/95", "bg-emerald-950/80", "bg-amber-950/75", "bg-rose-950/80"];
+  const colors = ["bg-card", "bg-emerald-50", "bg-amber-50", "bg-rose-50"];
   groups.slice(0, 4).forEach((group, index) => check(cardNodes(group).every(card => card.props.className.split(" ").includes(colors[index])), true));
   check(cardNodes(groups[4]).every(card => !colors.some(color => card.props.className.split(" ").includes(color))), true);
   const globalCss = readFileSync("app/globals.css", "utf8");
-  // The dashboard shell deliberately remaps .bg-white with !important. The empty
-  // category dot uses an explicit white utility while cards stay in the dark shell.
+  // Warm paper cards use the shared surface token; the empty category dot must
+  // remain visible on ivory without relying on a hard-coded white background.
   const whiteNodes = [...cardNodes(groups[0]), ...nodes(groups[0]).filter(node => node.type === "span" && node.props?.["aria-hidden"])];
   check(whiteNodes.length, 2);
   check(whiteNodes.every(node => !node.props.className.split(/\s+/).includes("bg-white")), true);
-  check(whiteNodes.filter(node => node.props.className.split(/\s+/).includes("bg-[#ffffff]")).length, 1);
-  check(globalCss.includes(".travkin-shell .bg-white"), true);
-  check(globalCss.includes(".travkin-shell .bg-\\[\\#ffffff\\]"), false);
+  check(whiteNodes.filter(node => node.props.className.split(/\s+/).includes("bg-[#ffffff]")).length, 0);
+  check(source.includes('empty: "bg-stone-500"'), true);
+  check(cardNodes(groups[0]).every(node => node.props.className.split(/\s+/).includes("text-foreground")), true);
   check(globalCss.includes("@keyframes tf2-traffic-card-settle"), true);
   check(/prefers-reduced-motion:\s*reduce[\s\S]*\.tf2-traffic-card-slot\[data-transitioning="true"\][\s\S]*animation:\s*none\s*!important/.test(globalCss), true);
   check(/\.tf2-shell,\s*\.tf2-portal-panel\s*\{[\s\S]*--tf2-surface-strong/.test(globalCss), true);
@@ -506,7 +506,7 @@ async function main() {
         check(card.props.onClick, undefined);
         check(card.props.tabIndex, undefined);
       }
-      check(card.props.className.includes({ empty: "bg-slate-800/95", loaded: "bg-emerald-950/80", unloading: "bg-amber-950/75" }[vehicle.state]), true);
+      check(card.props.className.includes({ empty: "bg-card", loaded: "bg-emerald-50", unloading: "bg-amber-50" }[vehicle.state]), true);
     }
     const actionable = cards.find(card => card.type === "button")!;
     const clicked = vehicles.find(car => `traffic-vehicle-${car.vehicle_id}` === actionable.props["data-testid"])!;
@@ -757,10 +757,10 @@ async function main() {
     const inlineHistory = nodes(filteredTree).find(node => node.props?.["data-testid"] === "traffic-manager-history-inline");
     check(stylesAt(inlineHistory, width).display, desktop ? "block" : "none");
   }
-  const explicitWhite = postcss.parse(css).nodes.find(node => node.type === "rule" && node.selector === ".bg-\\[\\#ffffff\\]");
-  check(!!explicitWhite, true);
-  if (explicitWhite?.type === "rule") {
-    check(explicitWhite.nodes.some(node => node.type === "decl" && node.prop === "background-color" && node.value.includes("255 255 255")), true);
+  const paperSurface = postcss.parse(css).nodes.find(node => node.type === "rule" && node.selector === ".bg-card");
+  check(!!paperSurface, true);
+  if (paperSurface?.type === "rule") {
+    check(paperSurface.nodes.some(node => node.type === "decl" && node.prop === "background-color" && node.value.includes("--card")), true);
   }
   console.log(`PTC compact board PASS: ${checks} checks (actual component handlers + SSR + compiled CSS; no browser measurements or remote writes)`);
 }

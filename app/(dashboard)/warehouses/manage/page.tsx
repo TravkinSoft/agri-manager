@@ -594,7 +594,7 @@ export default function ManageWarehousesPage() {
       />
 
       {loadError ? (
-        <div role="alert" className="rounded-md border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+        <div role="alert" className="rounded-md border border-red-800 bg-red-50 px-4 py-3 text-sm text-red-800">
           {loadError}
         </div>
       ) : null}
@@ -645,13 +645,13 @@ export default function ManageWarehousesPage() {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-slate-500 py-8">
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                         {t("Загрузка...", "Жүктелуде...", "Loading...")}
                       </TableCell>
                     </TableRow>
                   ) : visibleWarehouses.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-slate-500 py-8">
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                         {t("Объекты не найдены", "Нысандар табылмады", "No objects found")}
                       </TableCell>
                     </TableRow>
@@ -742,7 +742,7 @@ export default function ManageWarehousesPage() {
               </CardHeader>
               <CardContent className="p-0">
                 {productsLoadError ? (
-                  <div role="alert" className="border-b border-amber-700/60 bg-amber-950/30 px-4 py-3 text-sm text-amber-200">
+                  <div role="alert" className="border-b border-amber-700/60 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                     {productsLoadError}
                   </div>
                 ) : null}
@@ -758,13 +758,13 @@ export default function ManageWarehousesPage() {
                   <TableBody>
                     {productsLoading && products.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center text-slate-500 py-8">
+                        <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
                           {t("Загрузка...", "Жүктелуде...", "Loading...")}
                         </TableCell>
                       </TableRow>
                     ) : products.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center text-slate-500 py-8">
+                        <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
                           {t("Продукты не найдены", "Өнімдер табылмады", "No products found")}
                         </TableCell>
                       </TableRow>

@@ -33,21 +33,21 @@ export function TrafficAnalyticsPanel({ analytics }: { analytics: TrafficAnalyti
     : analytics.currentProbableDowntimeMinutes + 15;
   const completedDelays = analytics.probableDowntimeCount - Number(currentGapMinutes !== null);
   return (
-    <aside data-testid="traffic-analytics" className="min-w-0 rounded-xl border border-white/10 bg-white/[0.035] p-3 lg:sticky lg:top-20">
+    <aside data-testid="traffic-analytics" className="min-w-0 rounded-xl border border-border bg-accent/40 p-3 lg:sticky lg:top-20">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-            <Activity aria-hidden size={16} className="text-amber-300" /> Ритм уборки
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Activity aria-hidden size={16} className="text-amber-800" /> Ритм уборки
           </h2>
-          <p className="mt-1 text-[11px] text-slate-500">{analytics.windowLabel}</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">{analytics.windowLabel}</p>
         </div>
         <div className="text-right">
-          <strong className="block text-xl tabular-nums text-white">{analytics.completedLoads}</strong>
-          <span className="text-[10px] text-slate-500">загрузок</span>
+          <strong className="block text-xl tabular-nums text-foreground">{analytics.completedLoads}</strong>
+          <span className="text-[10px] text-muted-foreground">загрузок</span>
         </div>
       </div>
       {analytics.completedLoads < 2 ? (
-        <p className="mt-3 rounded-lg border border-amber-300/15 bg-amber-300/5 px-2.5 py-2 text-xs leading-4 text-slate-300">
+        <p className="mt-3 rounded-lg border border-amber-300/15 bg-amber-300/5 px-2.5 py-2 text-xs leading-4 text-foreground">
           {analytics.completedLoads === 0
             ? "Загрузок пока нет. Расчёты появятся после первых отметок машин."
             : "Первая загрузка отмечена. Интервалы появятся после следующей загрузки."}
@@ -55,19 +55,19 @@ export function TrafficAnalyticsPanel({ analytics }: { analytics: TrafficAnalyti
       ) : null}
       <dl className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-1">
         {metrics.map(({ icon: Icon, label, value }) => (
-          <div key={label} className="rounded-lg bg-black/15 p-2">
-            <dt className="flex items-center gap-1.5 text-[11px] leading-4 text-slate-400">
+          <div key={label} className="rounded-lg bg-muted/60 p-2">
+            <dt className="flex items-center gap-1.5 text-[11px] leading-4 text-muted-foreground">
               <Icon aria-hidden size={12} /> {label}
             </dt>
-            <dd className="mt-0.5 text-sm font-semibold tabular-nums text-slate-100">{value}</dd>
+            <dd className="mt-0.5 text-sm font-semibold tabular-nums text-foreground">{value}</dd>
           </div>
         ))}
       </dl>
       <div className={`mt-2 rounded-lg border p-2 ${analytics.currentProbableDowntimeMinutes !== null
         ? "border-rose-400/40 bg-rose-500/10"
-        : "border-white/5 bg-black/15"}`}>
-        <p className="text-[11px] text-slate-400">Вероятный простой комбайна</p>
-        <p className={`mt-0.5 text-sm font-semibold leading-5 tabular-nums ${analytics.currentProbableDowntimeMinutes !== null ? "text-rose-300" : "text-slate-100"}`}>
+        : "border-border bg-muted/60"}`}>
+        <p className="text-[11px] text-muted-foreground">Вероятный простой комбайна</p>
+        <p className={`mt-0.5 text-sm font-semibold leading-5 tabular-nums ${analytics.currentProbableDowntimeMinutes !== null ? "text-rose-800" : "text-foreground"}`}>
           {currentGapMinutes !== null
             ? `Новых загрузок нет ${currentGapMinutes} мин. Возможный простой — ${analytics.currentProbableDowntimeMinutes} мин.${completedDelays > 0 ? ` Ранее: ${delays(completedDelays)}.` : ""}`
             : analytics.probableDowntimeCount
@@ -75,7 +75,7 @@ export function TrafficAnalyticsPanel({ analytics }: { analytics: TrafficAnalyti
               : "Задержек дольше 15 минут не выявлено."}
         </p>
       </div>
-      <p className="mt-2 text-[10px] leading-4 text-slate-500">
+      <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
         Оценка по подтверждённым движениям машин. Простой отмечается после 15 минут без новой загрузки.
       </p>
     </aside>

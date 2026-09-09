@@ -98,21 +98,21 @@ function statusLabel(status: string): string {
 }
 
 function statusClass(status: string): string {
-  if (status === "ready") return "border-blue-400/30 bg-blue-500/15 text-blue-200";
+  if (status === "ready") return "border-blue-400/30 bg-blue-500/15 text-blue-800";
   if (status === "received_confirmed") {
-    return "border-emerald-400/30 bg-emerald-500/15 text-emerald-200";
+    return "border-emerald-400/30 bg-emerald-500/15 text-emerald-800";
   }
   if (status === "issued" || status === "issued_by_warehouse") {
     return "border-violet-400/30 bg-violet-500/15 text-violet-200";
   }
   if (status === "closed") {
-    return "border-emerald-500/40 bg-emerald-500/15 text-emerald-200";
+    return "border-emerald-500/40 bg-emerald-500/15 text-emerald-800";
   }
   if (status === "partially_issued") {
-    return "border-amber-400/30 bg-amber-500/15 text-amber-200";
+    return "border-amber-400/30 bg-amber-500/15 text-amber-800";
   }
-  if (status === "cancelled") return "border-slate-600 bg-slate-800 text-slate-300";
-  return "border-yellow-400/30 bg-yellow-500/15 text-yellow-200";
+  if (status === "cancelled") return "border-border bg-muted text-foreground";
+  return "border-yellow-400/30 bg-yellow-500/15 text-amber-800";
 }
 
 function tabForRequest(row: WarehouseIssueRequest): WarehouseTab {
@@ -822,14 +822,14 @@ export default function WarehouseRequestsPage() {
               checked={showTestData}
               onCheckedChange={setShowTestData}
             />
-            <Label htmlFor="warehouse-test-data" className="text-sm text-slate-300">
+            <Label htmlFor="warehouse-test-data" className="text-sm text-foreground">
               Показать тестовые данные
             </Label>
           </div>
         ) : null}
       </div>
 
-      <div className="flex gap-1 overflow-x-auto border-b border-slate-800">
+      <div className="flex gap-1 overflow-x-auto border-b border-border">
         {WAREHOUSE_TABS.map((tab) => (
           <button
             key={tab.key}
@@ -840,12 +840,12 @@ export default function WarehouseRequestsPage() {
               setMobileDetailOpen(false);
             }}
             className={[
-              "relative shrink-0 px-3 py-3 text-sm font-medium text-slate-400 transition-colors",
-              activeTab === tab.key ? "text-slate-100" : "hover:text-slate-200",
+              "relative shrink-0 px-3 py-3 text-sm font-medium text-muted-foreground transition-colors",
+              activeTab === tab.key ? "text-foreground" : "hover:text-foreground",
             ].join(" ")}
           >
             {tab.title}
-            <span className="ml-1.5 rounded-full bg-slate-800 px-1.5 py-0.5 text-[11px]">
+            <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[11px]">
               {tabCounts[tab.key]}
             </span>
             {activeTab === tab.key ? (
@@ -858,22 +858,22 @@ export default function WarehouseRequestsPage() {
       <div className="grid min-h-[660px] gap-4 lg:grid-cols-[minmax(310px,370px)_minmax(0,1fr)]">
         <aside className="min-w-0">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Поиск по заявке, полю или работе"
-              className="h-11 border-slate-800 bg-slate-950 pl-9"
+              className="h-11 border-border bg-background pl-9"
             />
           </div>
 
           <div className="mt-3 max-h-[calc(100dvh-245px)] space-y-2 overflow-y-auto pr-1">
             {loading ? (
-              <div className="py-10 text-center text-sm text-slate-500">
+              <div className="py-10 text-center text-sm text-muted-foreground">
                 Загрузка заявок...
               </div>
             ) : visibleRequests.length === 0 ? (
-              <div className="py-10 text-center text-sm text-slate-500">
+              <div className="py-10 text-center text-sm text-muted-foreground">
                 В этой вкладке заявок нет.
               </div>
             ) : (
@@ -892,15 +892,15 @@ export default function WarehouseRequestsPage() {
                       "w-full rounded-lg border p-4 text-left transition-colors",
                       selected
                         ? "border-yellow-400/80 bg-yellow-400/10"
-                        : "border-slate-800 bg-slate-900/55 hover:border-slate-700 hover:bg-slate-900",
+                        : "border-border bg-background hover:border-border hover:bg-background",
                     ].join(" ")}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="truncate text-base font-bold text-slate-100">
+                        <div className="truncate text-base font-bold text-foreground">
                           {row.request_number}
                         </div>
-                        <div className="mt-2 truncate text-[12px] font-semibold uppercase text-yellow-300">
+                        <div className="mt-2 truncate text-[12px] font-semibold uppercase text-amber-800">
                           {row.operation_type || "Полевая работа"}
                         </div>
                       </div>
@@ -908,15 +908,15 @@ export default function WarehouseRequestsPage() {
                         {statusLabel(row.workflow_status || row.status)}
                       </Badge>
                     </div>
-                    <div className="mt-1 truncate text-sm font-semibold text-slate-200">
+                    <div className="mt-1 truncate text-sm font-semibold text-foreground">
                       {row.field_name || "Поле не указано"}
                       {row.crop_name ? ` · ${row.crop_name}` : ""}
                     </div>
-                    <div className="mt-3 flex items-center justify-between gap-3 text-[13px] text-slate-500">
+                    <div className="mt-3 flex items-center justify-between gap-3 text-[13px] text-muted-foreground">
                       <span>{formatDate(row.planned_datetime || row.operation_date)}</span>
                       <span className="shrink-0">{row.items.length} поз.</span>
                     </div>
-                    <div className="mt-2 truncate text-[13px] text-slate-400">
+                    <div className="mt-2 truncate text-[13px] text-muted-foreground">
                       {recipientLabel(row)}
                     </div>
                   </button>
@@ -928,7 +928,7 @@ export default function WarehouseRequestsPage() {
 
         <section
           className={[
-            "min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-slate-800 bg-slate-950 text-slate-100",
+            "min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-border bg-background text-foreground",
             mobileDetailOpen ? "fixed inset-0 z-50 grid h-[100dvh] border" : "hidden",
             "lg:sticky lg:top-4 lg:z-auto lg:grid lg:h-[calc(100dvh-120px)] lg:rounded-lg lg:border",
           ].join(" ")}
@@ -936,21 +936,21 @@ export default function WarehouseRequestsPage() {
         >
           {selectedRequest ? (
             <>
-              <header className="border-b border-slate-800 px-4 py-4 sm:px-6">
+              <header className="border-b border-border px-4 py-4 sm:px-6">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-xl font-bold text-slate-100 sm:text-2xl">
+                      <h2 className="text-xl font-bold text-foreground sm:text-2xl">
                         Заявка {selectedRequest.request_number}
                       </h2>
                       <Badge className={statusClass(selectedRequest.workflow_status || selectedRequest.status)}>
                         {statusLabel(selectedRequest.workflow_status || selectedRequest.status)}
                       </Badge>
                     </div>
-                    <div className="mt-2 text-[13px] font-semibold uppercase text-yellow-300">
+                    <div className="mt-2 text-[13px] font-semibold uppercase text-amber-800">
                       {selectedRequest.operation_type || "Полевая работа"}
                     </div>
-                    <div className="mt-1 text-base font-semibold text-slate-200 sm:text-lg">
+                    <div className="mt-1 text-base font-semibold text-foreground sm:text-lg">
                       {selectedRequest.field_name || "Поле не указано"}
                       {selectedRequest.crop_name
                         ? ` · ${selectedRequest.crop_name}`
@@ -973,11 +973,11 @@ export default function WarehouseRequestsPage() {
               <div className="min-h-0 space-y-7 overflow-y-auto px-4 py-5 sm:px-6">
                 <section className="grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
                   <div>
-                    <div className="flex items-center gap-1.5 text-[12px] text-slate-500">
+                    <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
                       <CalendarDays className="h-3.5 w-3.5" />
                       Плановая дата
                     </div>
-                    <div className="mt-1 font-semibold text-slate-100">
+                    <div className="mt-1 font-semibold text-foreground">
                       {formatDate(
                         selectedRequest.planned_datetime ||
                           selectedRequest.operation_date
@@ -985,16 +985,16 @@ export default function WarehouseRequestsPage() {
                     </div>
                   </div>
                   <div>
-                    <div className="flex items-center gap-1.5 text-[12px] text-slate-500">
+                    <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
                       <UserRound className="h-3.5 w-3.5" />
                       Ответственный
                     </div>
-                    <div className="mt-1 font-semibold text-slate-100">
+                    <div className="mt-1 font-semibold text-foreground">
                       {recipientLabel(selectedRequest)}
                     </div>
                   </div>
                   <div>
-                    <div className="flex items-center gap-1.5 text-[12px] text-slate-500">
+                    <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
                       <WarehouseIcon className="h-3.5 w-3.5" />
                       Склад выдачи
                     </div>
@@ -1015,14 +1015,14 @@ export default function WarehouseRequestsPage() {
                         </SelectContent>
                       </Select>
                     ) : (
-                      <div className="mt-1 font-semibold text-slate-100">
+                      <div className="mt-1 font-semibold text-foreground">
                         {selectedWarehouseName || "Не выбран"}
                       </div>
                     )}
                   </div>
                   <div>
-                    <div className="text-[12px] text-slate-500">Позиций</div>
-                    <div className="mt-1 font-semibold text-slate-100">
+                    <div className="text-[12px] text-muted-foreground">Позиций</div>
+                    <div className="mt-1 font-semibold text-foreground">
                       {selectedRequest.items.length}
                     </div>
                   </div>
@@ -1030,20 +1030,20 @@ export default function WarehouseRequestsPage() {
 
                 {selectedComment ? (
                   <section>
-                    <h3 className="text-sm font-semibold text-slate-100">
+                    <h3 className="text-sm font-semibold text-foreground">
                       Комментарий агронома
                     </h3>
-                    <p className="mt-2 text-sm leading-6 text-slate-400">
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
                       {selectedComment}
                     </p>
                   </section>
                 ) : null}
 
                 <section className="space-y-3">
-                  <h3 className="text-base font-semibold text-slate-100">
+                  <h3 className="text-base font-semibold text-foreground">
                     Позиции заявки
                   </h3>
-                  <div className="hidden grid-cols-[minmax(180px,1.4fr)_110px_100px_130px_120px_minmax(160px,1fr)] gap-3 border-b border-slate-800 pb-2 text-[12px] text-slate-500 md:grid">
+                  <div className="hidden grid-cols-[minmax(180px,1.4fr)_110px_100px_130px_120px_minmax(160px,1fr)] gap-3 border-b border-border pb-2 text-[12px] text-muted-foreground md:grid">
                     <span>Материал</span>
                     <span>Плановая потребность</span>
                     <span>Доступно</span>
@@ -1055,24 +1055,24 @@ export default function WarehouseRequestsPage() {
                     {stockRows.map((row) => (
                       <div
                         key={row.item.id}
-                        className="grid gap-3 rounded-lg border border-slate-800 p-3 text-sm md:grid-cols-[minmax(180px,1.4fr)_110px_100px_130px_120px_minmax(160px,1fr)] md:items-center md:rounded-none md:border-x-0 md:border-t-0 md:px-0 md:py-3"
+                        className="grid gap-3 rounded-lg border border-border p-3 text-sm md:grid-cols-[minmax(180px,1.4fr)_110px_100px_130px_120px_minmax(160px,1fr)] md:items-center md:rounded-none md:border-x-0 md:border-t-0 md:px-0 md:py-3"
                       >
                         <div className="min-w-0">
-                          <div className="font-semibold text-slate-100">
+                          <div className="font-semibold text-foreground">
                             {row.item.product_name || "Материал"}
                           </div>
-                          <div className="mt-1 text-[12px] text-slate-500">
+                          <div className="mt-1 text-[12px] text-muted-foreground">
                             {productCategoryLabel(row.item)}
                           </div>
                         </div>
                         <div>
-                          <span className="mr-1 text-[12px] text-slate-500 md:hidden">
+                          <span className="mr-1 text-[12px] text-muted-foreground md:hidden">
                             Плановая потребность:
                           </span>
                           {numberText(row.planned)} {row.unit}
                         </div>
-                        <div className={row.exceedsStock ? "text-red-300" : ""}>
-                          <span className="mr-1 text-[12px] text-slate-500 md:hidden">
+                        <div className={row.exceedsStock ? "text-red-800" : ""}>
+                          <span className="mr-1 text-[12px] text-muted-foreground md:hidden">
                             Доступно:
                           </span>
                           {numberText(row.available)} {row.unit}
@@ -1080,7 +1080,7 @@ export default function WarehouseRequestsPage() {
                         <div>
                           <Label
                             htmlFor={`prepared-${row.item.id}`}
-                            className="mb-1 block text-[12px] text-slate-500 md:hidden"
+                            className="mb-1 block text-[12px] text-muted-foreground md:hidden"
                           >
                             К выдаче
                           </Label>
@@ -1101,7 +1101,7 @@ export default function WarehouseRequestsPage() {
                                 className="h-10 pr-10"
                                 disabled={submitting || stockDetailsLoading}
                               />
-                              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-slate-500">
+                              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-muted-foreground">
                                 {row.unit}
                               </span>
                             </div>
@@ -1111,8 +1111,8 @@ export default function WarehouseRequestsPage() {
                             </span>
                           )}
                         </div>
-                        <div className="text-slate-200">
-                          <span className="mr-1 text-[12px] text-slate-500 md:hidden">
+                        <div className="text-foreground">
+                          <span className="mr-1 text-[12px] text-muted-foreground md:hidden">
                             Ожидаемый возврат:
                           </span>
                           {numberText(row.expectedReturn)} {row.unit}
@@ -1120,15 +1120,15 @@ export default function WarehouseRequestsPage() {
                         <div
                           className={
                             row.exceedsStock
-                              ? "text-red-300"
+                              ? "text-red-800"
                               : row.expectedReturn > 0.000001
-                                ? "text-slate-200"
-                                : "text-emerald-300"
+                                ? "text-foreground"
+                                : "text-emerald-800"
                           }
                         >
                           {row.status}
                           {row.validation.errors.length > 0 ? (
-                            <div className="mt-1 text-[11px] leading-4 text-red-300">
+                            <div className="mt-1 text-[11px] leading-4 text-red-800">
                               {row.validation.errors[0]}
                             </div>
                           ) : null}
@@ -1149,12 +1149,12 @@ export default function WarehouseRequestsPage() {
                 ) : null}
 
                 {issued && selectedRequest.warehouse_request_status !== "closed" ? (
-                  <section className="space-y-3 rounded-lg border border-slate-800 p-4">
+                  <section className="space-y-3 rounded-lg border border-border p-4">
                     <div>
-                      <h3 className="font-semibold text-slate-100">
+                      <h3 className="font-semibold text-foreground">
                         Физический возврат
                       </h3>
-                      <p className="mt-1 text-[13px] text-slate-500">
+                      <p className="mt-1 text-[13px] text-muted-foreground">
                         Укажите только фактически принятый возврат.
                       </p>
                     </div>
@@ -1200,12 +1200,12 @@ export default function WarehouseRequestsPage() {
                 ) : null}
 
                 {canAdmin ? (
-                  <section className="space-y-3 rounded-lg border border-slate-800 p-4">
+                  <section className="space-y-3 rounded-lg border border-border p-4">
                     <div>
-                      <h3 className="font-semibold text-slate-100">
+                      <h3 className="font-semibold text-foreground">
                         Действия Company Admin
                       </h3>
-                      <p className="mt-1 text-[13px] text-slate-500">
+                      <p className="mt-1 text-[13px] text-muted-foreground">
                         Складовщику эти действия недоступны.
                       </p>
                     </div>
@@ -1269,7 +1269,7 @@ export default function WarehouseRequestsPage() {
                 ) : null}
 
                 <section className="space-y-3">
-                  <h3 className="text-base font-semibold text-slate-100">
+                  <h3 className="text-base font-semibold text-foreground">
                     История заявки
                   </h3>
                   <div className="space-y-3">
@@ -1279,14 +1279,14 @@ export default function WarehouseRequestsPage() {
                         className="flex items-start justify-between gap-4 text-sm"
                       >
                         <div>
-                          <div className="font-medium text-slate-200">
+                          <div className="font-medium text-foreground">
                             {event.title}
                           </div>
-                          <div className="mt-0.5 text-[13px] text-slate-500">
+                          <div className="mt-0.5 text-[13px] text-muted-foreground">
                             {event.actor}
                           </div>
                         </div>
-                        <div className="shrink-0 text-[13px] text-slate-500">
+                        <div className="shrink-0 text-[13px] text-muted-foreground">
                           {formatDate(event.at)}
                         </div>
                       </div>
@@ -1295,11 +1295,11 @@ export default function WarehouseRequestsPage() {
                 </section>
               </div>
 
-              <footer className="border-t border-slate-800 bg-slate-950 px-4 py-4 sm:px-6">
+              <footer className="border-t border-border bg-background px-4 py-4 sm:px-6">
                 {preparing && canProcess ? (
                   <div className="flex justify-end">
                     <Button
-                      className="h-12 w-full bg-yellow-400 text-slate-950 hover:bg-yellow-300 sm:w-auto sm:min-w-72"
+                      className="h-12 w-full bg-primary text-primary-foreground hover:bg-primary sm:w-auto sm:min-w-72"
                       onClick={() => void handleReady()}
                       disabled={
                         submitting ||
@@ -1314,17 +1314,17 @@ export default function WarehouseRequestsPage() {
                     </Button>
                   </div>
                 ) : selectedRequest.status === "ready" ? (
-                  <div className="flex items-center gap-3 text-sm text-blue-200">
+                  <div className="flex items-center gap-3 text-sm text-blue-800">
                     <PackageCheck className="h-5 w-5 shrink-0" />
                     Материалы подготовлены. Ожидаем подтверждение специалиста.
                   </div>
                 ) : selectedRequest.status === "received_confirmed" && canProcess ? (
                   <div className="flex items-center justify-between gap-4">
-                    <span className="text-sm text-slate-400">
+                    <span className="text-sm text-muted-foreground">
                       Специалист подтвердил получение.
                     </span>
                     <Button
-                      className="h-12 bg-yellow-400 px-8 text-slate-950 hover:bg-yellow-300"
+                      className="h-12 bg-primary px-8 text-primary-foreground hover:bg-primary"
                       onClick={() => void handleIssue()}
                       disabled={submitting}
                     >
@@ -1332,14 +1332,14 @@ export default function WarehouseRequestsPage() {
                     </Button>
                   </div>
                 ) : (
-                  <div className="text-sm text-slate-400">
+                  <div className="text-sm text-muted-foreground">
                     {statusLabel(selectedRequest.workflow_status || selectedRequest.status)}
                   </div>
                 )}
               </footer>
             </>
           ) : (
-            <div className="hidden h-full place-items-center text-sm text-slate-500 lg:grid">
+            <div className="hidden h-full place-items-center text-sm text-muted-foreground lg:grid">
               Выберите заявку слева.
             </div>
           )}

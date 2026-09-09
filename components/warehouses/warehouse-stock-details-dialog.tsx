@@ -89,17 +89,17 @@ export function WarehouseStockDetailsDialog({ open, onOpenChange, companyId, bal
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Boxes className="h-5 w-5 text-yellow-400" />{balance?.product_name || "Материал"}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2"><Boxes className="h-5 w-5 text-amber-800" />{balance?.product_name || "Материал"}</DialogTitle>
           <DialogDescription>Фактический остаток и резерв.</DialogDescription>
         </DialogHeader>
-        {loading && !details ? <div className="py-10 text-center text-sm text-slate-400">Загрузка деталей...</div> : null}
-        {error ? <div className="rounded-md border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-200">{error}</div> : null}
+        {loading && !details ? <div className="py-10 text-center text-sm text-muted-foreground">Загрузка деталей...</div> : null}
+        {error ? <div className="rounded-md border border-red-500/40 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div> : null}
         {details ? (
           <div className="space-y-6">
-            <div className="grid grid-cols-3 gap-3 border-y border-slate-800 py-4 text-sm">
-              <div><div className="text-slate-500">Всего</div><div className="mt-1 font-semibold">{quantity(details.quantity, details.unit)}</div></div>
-              <div><div className="text-slate-500">Доступно</div><div className={`mt-1 font-semibold ${details.available_quantity < 0 ? "text-red-300" : "text-emerald-300"}`}>{quantity(details.available_quantity, details.unit)}</div>{details.deficit_quantity > 0 ? <div className="text-xs text-red-300">Дефицит {quantity(details.deficit_quantity, details.unit)}</div> : null}</div>
-              <div><div className="text-slate-500">Резерв</div><div className="mt-1 font-semibold text-amber-300">{quantity(details.reserved_quantity, details.unit)}</div></div>
+            <div className="grid grid-cols-3 gap-3 border-y border-border py-4 text-sm">
+              <div><div className="text-muted-foreground">Всего</div><div className="mt-1 font-semibold">{quantity(details.quantity, details.unit)}</div></div>
+              <div><div className="text-muted-foreground">Доступно</div><div className={`mt-1 font-semibold ${details.available_quantity < 0 ? "text-red-800" : "text-emerald-800"}`}>{quantity(details.available_quantity, details.unit)}</div>{details.deficit_quantity > 0 ? <div className="text-xs text-red-800">Дефицит {quantity(details.deficit_quantity, details.unit)}</div> : null}</div>
+              <div><div className="text-muted-foreground">Резерв</div><div className="mt-1 font-semibold text-amber-800">{quantity(details.reserved_quantity, details.unit)}</div></div>
             </div>
 
             {details.reservations.length ? (
@@ -107,10 +107,10 @@ export function WarehouseStockDetailsDialog({ open, onOpenChange, companyId, bal
                 <h3 className="mb-2 font-semibold">Резервы</h3>
                 <div className="space-y-2">
                   {details.reservations.map((reservation) => (
-                    <div key={`${reservation.request_id}-${reservation.quantity}`} className="grid gap-1 border-t border-slate-800 py-2 text-sm sm:grid-cols-[150px_1fr_120px]">
+                    <div key={`${reservation.request_id}-${reservation.quantity}`} className="grid gap-1 border-t border-border py-2 text-sm sm:grid-cols-[150px_1fr_120px]">
                       <span className="font-medium">{reservation.request_number}</span>
                       <span>{[reservation.operation, reservation.field].filter(Boolean).join(" · ")}</span>
-                      <span className="text-right text-amber-300">{quantity(reservation.quantity, details.unit)}</span>
+                      <span className="text-right text-amber-800">{quantity(reservation.quantity, details.unit)}</span>
                     </div>
                   ))}
                 </div>
@@ -122,7 +122,7 @@ export function WarehouseStockDetailsDialog({ open, onOpenChange, companyId, bal
                 <h3 className="mb-2 font-semibold">Поставочные партии</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm">
-                    <thead className="text-slate-500">
+                    <thead className="text-muted-foreground">
                       <tr>
                         {showBatch ? <th className="py-2">Партия / серия</th> : null}
                         <th className="py-2">Остаток</th>
@@ -134,7 +134,7 @@ export function WarehouseStockDetailsDialog({ open, onOpenChange, companyId, bal
                     </thead>
                     <tbody>
                       {visibleLots.map((lot) => (
-                        <tr key={lot.key} className="border-t border-slate-800">
+                        <tr key={lot.key} className="border-t border-border">
                           {showBatch ? <td className="py-2 font-medium">{lot.batch_label || "—"}</td> : null}
                           <td className="py-2">{quantity(lot.quantity, details.unit)}</td>
                           {showManufactured ? <td>{dateOnly(lot.manufactured_at) || "—"}</td> : null}

@@ -300,8 +300,8 @@ export function WarehouseOpeningBalanceDialog({
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-2">
-          {error ? <div className="rounded-md border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-200">{error}</div> : null}
-          {loading ? <div className="text-sm text-slate-400">Загрузка структуры и справочников...</div> : null}
+          {error ? <div className="rounded-md border border-red-800 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div> : null}
+          {loading ? <div className="text-sm text-muted-foreground">Загрузка структуры и справочников...</div> : null}
 
           <div className="grid gap-3 md:grid-cols-3">
             <div className="space-y-1.5"><Label>Номер документа *</Label><Input value={documentNo} onChange={(event) => setDocumentNo(event.target.value)} placeholder="ОСТ-2026-01" /></div>
@@ -318,7 +318,7 @@ export function WarehouseOpeningBalanceDialog({
                 : selectableStructures;
               const varieties = (references?.varieties || []).filter((row) => row.crop_id === line.cropId && !row.archived && row.is_active !== false);
               return (
-                <section key={line.key} className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/35 p-4">
+                <section key={line.key} className="space-y-3 rounded-lg border border-border bg-background p-4">
                   <div className="flex items-center justify-between gap-3">
                     <h3 className="font-semibold">Строка {index + 1}</h3>
                     {lines.length > 1 ? <Button type="button" size="icon" variant="ghost" onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))}><Trash2 className="h-4 w-4" /></Button> : null}
@@ -332,11 +332,11 @@ export function WarehouseOpeningBalanceDialog({
                   {line.originMode === "explicit" ? (
                     <div className="space-y-1.5">
                       <Label>Поле / участок структуры *</Label>
-                      <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border border-slate-800 p-2">
+                      <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border border-border p-2">
                         {compatibleSources.map((row) => {
                           const selected = line.sourceIds.includes(row.id);
                           return (
-                            <div key={row.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-900">
+                            <div key={row.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-background">
                               <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2">
                                 <input type="checkbox" className="mt-1" checked={selected} onChange={() => toggleSource(line, row)} />
                                 <span>{structureLabel(row)}</span>
@@ -359,7 +359,7 @@ export function WarehouseOpeningBalanceDialog({
                           );
                         })}
                       </div>
-                      {line.sourceIds.length > 1 ? <p className="text-xs text-amber-300">Смешанная партия: сохранено {line.sourceIds.length} источника. Массы заполните для всех источников либо оставьте все неизвестными.</p> : null}
+                      {line.sourceIds.length > 1 ? <p className="text-xs text-amber-800">Смешанная партия: сохранено {line.sourceIds.length} источника. Массы заполните для всех источников либо оставьте все неизвестными.</p> : null}
                     </div>
                   ) : (
                     <div className="grid gap-3 md:grid-cols-4">
@@ -384,7 +384,7 @@ export function WarehouseOpeningBalanceDialog({
             })}
           </div>
           <Button type="button" variant="outline" onClick={() => setLines((current) => [...current, createDraftLine(defaultWarehouseId)])}><Plus className="mr-2 h-4 w-4" />Добавить строку</Button>
-          <label className="flex items-start gap-2 rounded-md border border-amber-800/60 bg-amber-950/20 p-3 text-sm"><input type="checkbox" className="mt-1" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>Подтверждаю: это полный однократный начальный срез сезона. После проведения документ и lineage неизменяемы.</span></label>
+          <label className="flex items-start gap-2 rounded-md border border-amber-800/60 bg-amber-50 p-3 text-sm"><input type="checkbox" className="mt-1" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>Подтверждаю: это полный однократный начальный срез сезона. После проведения документ и lineage неизменяемы.</span></label>
         </div>
 
         <DialogFooter>

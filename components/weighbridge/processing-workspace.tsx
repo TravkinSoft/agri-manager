@@ -305,10 +305,10 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
   if (!loading && activeItems.length === 0 && historyItemCount === 0 && freeProcessingSummaries.length === 0 && yardSummaries.length === 0) return null;
 
   return (
-    <section className="overflow-hidden rounded-md border border-slate-800/80 bg-[#101724]/95" data-testid="processing-workspace" aria-label="Партии на объектах">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-800/80 px-4 py-3">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-50"><Factory className="h-4 w-4 text-yellow-400" />Партии на объектах</h2>
-        {loading ? <Loader2 className="h-4 w-4 animate-spin text-slate-500" /> : <Badge className="border border-slate-700 bg-slate-950 text-slate-200">{activeItems.length + freeProcessingSummaries.length + yardSummaries.length}</Badge>}
+    <section className="overflow-hidden rounded-md border border-border bg-card" data-testid="processing-workspace" aria-label="Партии на объектах">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground"><Factory className="h-4 w-4 text-amber-800" />Партии на объектах</h2>
+        {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : <Badge className="border border-border bg-background text-foreground">{activeItems.length + freeProcessingSummaries.length + yardSummaries.length}</Badge>}
       </div>
 
       <div className="max-h-[clamp(220px,38vh,430px)] space-y-2 overflow-y-auto p-3 travkin-scrollbar">
@@ -323,12 +323,12 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
           const showActions = canOperateLifecycle || (pending && canManageBalance);
           const previousCount = item.node_warehouse_id ? previousCountByWarehouse.get(item.node_warehouse_id) || 0 : 0;
           return (
-            <article key={item.id} className="rounded-md border border-slate-800 bg-slate-950/55 p-3" data-processing-state={item.processing_state} data-place-type={placeType}>
+            <article key={item.id} className="rounded-md border border-border bg-background p-3" data-processing-state={item.processing_state} data-place-type={placeType}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="text-[10px] font-semibold uppercase text-slate-500">{placeLabel}</div>
-                  <div className="truncate text-sm font-bold text-slate-100" title={item.processing_node_name || placeLabel}>{item.processing_node_name || placeLabel}</div>
-                  <div className="mt-0.5 truncate text-xs text-slate-400" title={item.identity_label || item.input_label}>{item.identity_label || item.input_label}</div>
+                  <div className="text-[10px] font-semibold uppercase text-muted-foreground">{placeLabel}</div>
+                  <div className="truncate text-sm font-bold text-foreground" title={item.processing_node_name || placeLabel}>{item.processing_node_name || placeLabel}</div>
+                  <div className="mt-0.5 truncate text-xs text-muted-foreground" title={item.identity_label || item.input_label}>{item.identity_label || item.input_label}</div>
                 </div>
                 <div className="flex shrink-0 items-start gap-1">
                   <StatusBadge status={reconciling ? "warning" : readyToClose ? "closed" : "active"}>{reconciling ? "Сверка" : readyToClose ? "Готово к закрытию" : "В работе"}</StatusBadge>
@@ -345,18 +345,18 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
                   </DropdownMenu> : null}
                 </div>
               </div>
-              <div className="mt-3 grid grid-cols-3 divide-x divide-slate-800 border-t border-slate-800 pt-2 text-xs">
-                <div className="pr-2"><div className="text-[10px] uppercase text-slate-500">Вход</div><div className="truncate font-semibold text-slate-100">{formatMass(input)}</div></div>
-                <div className="px-2"><div className="text-[10px] uppercase text-slate-500">Выход</div><div className="truncate font-semibold text-slate-100">{formatMass(output)}</div></div>
-                <div className="pl-2"><div className="text-[10px] uppercase text-slate-500">Остаток</div><div className={`truncate font-semibold ${reconciling ? "text-amber-300" : "text-emerald-300"}`}>{formatMass(balanceDeltaKg)}</div></div>
+              <div className="mt-3 grid grid-cols-3 divide-x divide-border border-t border-border pt-2 text-xs">
+                <div className="pr-2"><div className="text-[10px] uppercase text-muted-foreground">Вход</div><div className="truncate font-semibold text-foreground">{formatMass(input)}</div></div>
+                <div className="px-2"><div className="text-[10px] uppercase text-muted-foreground">Выход</div><div className="truncate font-semibold text-foreground">{formatMass(output)}</div></div>
+                <div className="pl-2"><div className="text-[10px] uppercase text-muted-foreground">Остаток</div><div className={`truncate font-semibold ${reconciling ? "text-amber-800" : "text-emerald-800"}`}>{formatMass(balanceDeltaKg)}</div></div>
               </div>
               {formatMoisture(item.input_moisture_percent) || formatMoisture(item.output_moisture_percent) ? (
-                <div className="mt-2 truncate text-[11px] text-slate-500" title={`Влажность: ${formatMoisture(item.input_moisture_percent) || "-"} → ${formatMoisture(item.output_moisture_percent) || "-"}`}>
-                  Влажность: <span className="text-slate-300">{formatMoisture(item.input_moisture_percent) || "-"} → {formatMoisture(item.output_moisture_percent) || "-"}</span>
+                <div className="mt-2 truncate text-[11px] text-muted-foreground" title={`Влажность: ${formatMoisture(item.input_moisture_percent) || "-"} → ${formatMoisture(item.output_moisture_percent) || "-"}`}>
+                  Влажность: <span className="text-foreground">{formatMoisture(item.input_moisture_percent) || "-"} → {formatMoisture(item.output_moisture_percent) || "-"}</span>
                 </div>
               ) : null}
               {previousCount > 0 ? (
-                <div className="mt-2 text-[11px] text-slate-500">
+                <div className="mt-2 text-[11px] text-muted-foreground">
                   Предыдущих обработок: {previousCount} · История
                 </div>
               ) : null}
@@ -369,48 +369,48 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
           const weight = Number(summary.harvest_weight_kg || 0);
           const isFree = weight <= 0.001;
           return (
-            <article key={summary.warehouse.id} className="rounded-md border border-slate-800 bg-slate-950/55 p-3" data-place-type={placeType} data-processing-state="empty">
+            <article key={summary.warehouse.id} className="rounded-md border border-border bg-background p-3" data-place-type={placeType} data-processing-state="empty">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-slate-500"><Factory className="h-3 w-3" />{placeType === "DRYER" ? "Сушилка" : "Очистка"}</div>
-                  <div className="truncate text-sm font-bold text-slate-100" title={summary.warehouse.name}>{summary.warehouse.name}</div>
+                  <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-muted-foreground"><Factory className="h-3 w-3" />{placeType === "DRYER" ? "Сушилка" : "Очистка"}</div>
+                  <div className="truncate text-sm font-bold text-foreground" title={summary.warehouse.name}>{summary.warehouse.name}</div>
                 </div>
                 <StatusBadge status={isFree ? "closed" : "active"}>{isFree ? "Свободно" : "Остаток"}</StatusBadge>
               </div>
-              <div className="mt-2 flex items-end justify-between gap-3 border-t border-slate-800 pt-2">
-                <div className="text-xs text-slate-400">{isFree ? "Нет активной партии" : `${Number(summary.harvest_lot_count || 0)} партий`}</div>
-                <div className="text-sm font-bold text-slate-100">{formatMass(weight)}</div>
+              <div className="mt-2 flex items-end justify-between gap-3 border-t border-border pt-2">
+                <div className="text-xs text-muted-foreground">{isFree ? "Нет активной партии" : `${Number(summary.harvest_lot_count || 0)} партий`}</div>
+                <div className="text-sm font-bold text-foreground">{formatMass(weight)}</div>
               </div>
             </article>
           );
         })}
 
         {yardSummaries.map((summary) => (
-          <article key={summary.warehouse.id} className="rounded-md border border-slate-800 bg-slate-950/55 p-3" data-place-type="YARD">
+          <article key={summary.warehouse.id} className="rounded-md border border-border bg-background p-3" data-place-type="YARD">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-slate-500"><Warehouse className="h-3 w-3" />Площадка</div>
-                <div className="truncate text-sm font-bold text-slate-100" title={summary.warehouse.name}>{summary.warehouse.name}</div>
+                <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-muted-foreground"><Warehouse className="h-3 w-3" />Площадка</div>
+                <div className="truncate text-sm font-bold text-foreground" title={summary.warehouse.name}>{summary.warehouse.name}</div>
               </div>
               <StatusBadge status={Number(summary.harvest_weight_kg || 0) > 0 ? "active" : "closed"}>{Number(summary.harvest_weight_kg || 0) > 0 ? "Хранение" : "Свободно"}</StatusBadge>
             </div>
-            <div className="mt-2 flex items-end justify-between gap-3 border-t border-slate-800 pt-2">
-              <div className="text-xs text-slate-400">{Number(summary.harvest_lot_count || 0)} {Number(summary.harvest_lot_count || 0) === 1 ? "партия" : "партий"}</div>
-              <div className="text-sm font-bold text-slate-100">{formatMass(summary.harvest_weight_kg)}</div>
+            <div className="mt-2 flex items-end justify-between gap-3 border-t border-border pt-2">
+              <div className="text-xs text-muted-foreground">{Number(summary.harvest_lot_count || 0)} {Number(summary.harvest_lot_count || 0) === 1 ? "партия" : "партий"}</div>
+              <div className="text-sm font-bold text-foreground">{formatMass(summary.harvest_weight_kg)}</div>
             </div>
           </article>
         ))}
 
       {historyItemCount > 0 ? (
-        <div className="border-t border-slate-800 pt-2">
+        <div className="border-t border-border pt-2">
           <Button
             type="button"
             variant="ghost"
-            className="h-8 w-full justify-between px-1 text-xs text-slate-400 hover:text-slate-50"
+            className="h-8 w-full justify-between px-1 text-xs text-muted-foreground hover:text-foreground"
             onClick={() => setHistoryOpen((value) => !value)}
             aria-expanded={historyOpen}
           >
-            <span className="flex items-center gap-2"><History className="h-3.5 w-3.5" />История <Badge className="border border-slate-700 bg-slate-950 text-slate-300">{historyItemCount}</Badge></span>
+            <span className="flex items-center gap-2"><History className="h-3.5 w-3.5" />История <Badge className="border border-border bg-background text-foreground">{historyItemCount}</Badge></span>
             <ChevronDown className={`h-4 w-4 transition-transform ${historyOpen ? "rotate-180" : ""}`} />
           </Button>
           {historyOpen ? (
@@ -427,10 +427,10 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
                       ? "Готова к закрытию"
                       : "В работе";
                 return (
-                  <div key={item.id} className="flex items-center justify-between gap-3 rounded px-2 py-1.5 text-xs hover:bg-slate-900/70">
-                    <div className="min-w-0"><div className="truncate font-medium text-slate-200">{item.processing_node_name || typeLabels[item.transformation_type] || "Обработка"}</div><div className="truncate text-slate-500">{item.identity_label || item.input_label}</div></div>
+                  <div key={item.id} className="flex items-center justify-between gap-3 rounded px-2 py-1.5 text-xs hover:bg-background">
+                    <div className="min-w-0"><div className="truncate font-medium text-foreground">{item.processing_node_name || typeLabels[item.transformation_type] || "Обработка"}</div><div className="truncate text-muted-foreground">{item.identity_label || item.input_label}</div></div>
                     <div className="flex shrink-0 items-center gap-1">
-                      <div className="text-right text-slate-400"><div>{formatMass(item.input_total_kg ?? item.input_weight_kg)}</div><div className="text-[10px] text-slate-600">{stateLabel} · {formatDateTime(item.completed_at || item.started_at || item.created_at)}</div></div>
+                      <div className="text-right text-muted-foreground"><div>{formatMass(item.input_total_kg ?? item.input_weight_kg)}</div><div className="text-[10px] text-muted-foreground">{stateLabel} · {formatDateTime(item.completed_at || item.started_at || item.created_at)}</div></div>
                       {showActions ? <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button type="button" size="icon" variant="ghost" className="h-7 w-7" aria-label={`Действия предыдущей обработки: ${item.processing_node_name || typeLabels[item.transformation_type] || "Обработка"}`}><MoreHorizontal className="h-4 w-4" /></Button>
@@ -457,7 +457,7 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>Завершить обработку партии?</AlertDialogTitle>
             <AlertDialogDescription className="space-y-1">
-              <span className="block font-medium text-slate-200">{finishItem?.processing_node_name} · {finishItem ? typeLabels[finishItem.transformation_type] || "Обработка" : ""}</span>
+              <span className="block font-medium text-foreground">{finishItem?.processing_node_name} · {finishItem ? typeLabels[finishItem.transformation_type] || "Обработка" : ""}</span>
               <span className="block">{finishItem?.identity_label || finishItem?.input_label}</span>
               <span className="block">Вход: {formatMass(finishItem?.input_total_kg ?? finishItem?.input_weight_kg)}</span>
               <span className="block pt-2">После подтверждения новые поступления этой партии в данную обработку добавлять будет нельзя.</span>
@@ -478,20 +478,20 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
             differenceKg={manageMass?.balanceDeltaKg || 0}
           /> : null}
           {manageItem && manageMass && (manageItem.transformation_type === "drying" || ["MECHANICAL_DRYING", "NATURAL_DRYING"].includes(String(manageItem.processing_method || ""))) ? (
-            <div className="rounded-md border border-slate-800 bg-slate-950/55 p-3 text-xs text-slate-300">
+            <div className="rounded-md border border-border bg-background p-3 text-xs text-foreground">
               <div className="grid gap-2 sm:grid-cols-2">
-                <div>Ожидаемая усушка: <span className="font-semibold text-slate-100">{formatMass(manageItem.moisture_loss_kg)}</span></div>
-                <div>Фактическая усушка: <span className="font-semibold text-slate-100">{formatMass(manageItem.actual_shrink_kg)}</span></div>
-                <div>Отклонение: <span className={manageMass.withinTolerance ? "font-semibold text-amber-300" : "font-semibold text-red-300"}>{formatMass(manageMass.balanceDeltaKg)}</span></div>
-                <div>Допуск: <span className="font-semibold text-slate-100">±{formatMass(manageMass.toleranceKg)}</span></div>
+                <div>Ожидаемая усушка: <span className="font-semibold text-foreground">{formatMass(manageItem.moisture_loss_kg)}</span></div>
+                <div>Фактическая усушка: <span className="font-semibold text-foreground">{formatMass(manageItem.actual_shrink_kg)}</span></div>
+                <div>Отклонение: <span className={manageMass.withinTolerance ? "font-semibold text-amber-800" : "font-semibold text-red-800"}>{formatMass(manageMass.balanceDeltaKg)}</span></div>
+                <div>Допуск: <span className="font-semibold text-foreground">±{formatMass(manageMass.toleranceKg)}</span></div>
               </div>
-              <div className="mt-2 text-[11px] text-slate-500">
+              <div className="mt-2 text-[11px] text-muted-foreground">
                 Отклонение сохраняется в сверке и не становится подтверждённой потерей автоматически.
               </div>
             </div>
           ) : null}
-          <div className="space-y-3 border-t border-slate-800 pt-4">
-            <div className="font-medium text-slate-100">Подтвердить не складскую потерю</div>
+          <div className="space-y-3 border-t border-border pt-4">
+            <div className="font-medium text-foreground">Подтвердить не складскую потерю</div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1"><Label>Тип</Label><Select value={lossType} onValueChange={(value) => setLossType(value as keyof typeof lossLabels)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(lossLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
               <div className="space-y-1"><Label>Масса, кг</Label><Input inputMode="decimal" value={lossKg} onChange={(event) => setLossKg(event.target.value)} /></div>
@@ -499,7 +499,7 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
             <div className="space-y-1"><Label>{lossType === "other" ? "Пояснение *" : "Комментарий (необязательно)"}</Label><Textarea rows={2} value={lossReason} onChange={(event) => setLossReason(event.target.value)} /></div>
             <Button type="button" variant="outline" className="w-full" disabled={!manageItem || savingId === manageItem.id} onClick={() => manageItem && void runAction(manageItem, "approve_loss")}>Подтвердить потерю</Button>
           </div>
-          <DialogFooter className="border-t border-slate-800 pt-4">
+          <DialogFooter className="border-t border-border pt-4">
             <Button variant="outline" onClick={() => setManageItem(null)}>Закрыть</Button>
             <Button disabled={!manageItem || savingId === manageItem.id || !manageMass?.hasCanonicalInput || !manageMass?.hasRequiredDryingMoisture || !manageMass.withinTolerance} onClick={() => manageItem && void runAction(manageItem, "hard_close")}>Закрыть материальный баланс</Button>
           </DialogFooter>

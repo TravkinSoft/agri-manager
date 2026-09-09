@@ -84,18 +84,18 @@ export function TrafficFleetControls({ managed, snapshot, selected, onSelected, 
   }
   const currentIdentity = current ? getFleetVehicleCardIdentity(current) : null;
   return <>
-    {pending ? <p role="status" className="mt-2 text-xs text-slate-400">Изменение отправлено…</p> : null}
-    {error ? <p role="alert" className="mt-2 text-sm text-amber-200">{error}</p> : null}
+    {pending ? <p role="status" className="mt-2 text-xs text-muted-foreground">Изменение отправлено…</p> : null}
+    {error ? <p role="alert" className="mt-2 text-sm text-amber-800">{error}</p> : null}
     {panel === "driver" && current ? <VehicleDriverAssignment key={current.id} autoOpen
       vehicleId={current.id} companyId={snapshot.companyId} driverName={current.driver}
       vehicleLabel={`${current.name} · ${current.plate || "без номера"}`}
       onClosed={close} onAssigned={() => { publishTrafficChanged(snapshot.companyId, "fleet"); void refresh(true); }} /> : null}
     {panel && panel !== "driver" ? <Dialog open onOpenChange={open => { if (!open) close(); }}>
       <DialogContent hideCloseButton data-testid="vehicle-actions"
-        className="flex max-h-[90dvh] w-[calc(100%-2rem)] max-w-md flex-col overflow-y-auto rounded-2xl border-slate-700 bg-slate-950 p-4 text-slate-100">
+        className="flex max-h-[90dvh] w-[calc(100%-2rem)] max-w-md flex-col overflow-y-auto rounded-2xl border-border bg-background p-4 text-foreground">
         <DialogHeader className="shrink-0 pr-10 text-left">
           <DialogTitle>{panel === "repair" ? current?.inRepair ? "Вернуть из ремонта?" : "Отправить на ремонт?" : panel === "remove" ? "Убрать с линии?" : currentIdentity?.primary || "Машина"}</DialogTitle>
-          <DialogDescription className="break-words text-slate-400">
+          <DialogDescription className="break-words text-muted-foreground">
             {currentIdentity?.secondary || "Номер не указан"}
           </DialogDescription>
         </DialogHeader>
@@ -104,9 +104,9 @@ export function TrafficFleetControls({ managed, snapshot, selected, onSelected, 
           <Button variant="outline" className="min-h-[48px] w-full justify-start gap-2" onClick={() => setPanel("driver")}><UserRound size={18} />{current.driver ? "Сменить водителя" : "Назначить водителя"}</Button>
           {managed.canManageRepairs ? <Button variant="outline" disabled={stale || pending} className="min-h-[48px] w-full justify-start gap-2" onClick={() => setPanel("repair")}><Wrench size={18} />{current.inRepair ? "Вернуть из ремонта" : "Отправить на ремонт"}</Button> : null}
           {current.assigned ? <Button variant="outline" disabled={stale || pending || current.state !== "empty"} className="min-h-[48px] w-full justify-start" onClick={() => setPanel("remove")}>Убрать с линии</Button> : !current.inRepair ? <Button disabled={stale || pending} className="min-h-[48px] w-full" onClick={() => void mutate("line", current, [current.id], true)}>Вывести на линию</Button> : null}
-          {current.assigned && current.state !== "empty" ? <p className="text-xs text-slate-400">Снять с линии можно после разгрузки. Отметка ремонта сохраняет груз.</p> : null}
+          {current.assigned && current.state !== "empty" ? <p className="text-xs text-muted-foreground">Снять с линии можно после разгрузки. Отметка ремонта сохраняет груз.</p> : null}
         </div> : current ? <>
-          {panel === "repair" ? <p className="text-sm text-slate-400">
+          {panel === "repair" ? <p className="text-sm text-muted-foreground">
             {current.inRepair
               ? "После возврата таймер текущего статуса начнётся заново; пустая машина встанет в конец очереди."
               : current.state === "loaded"

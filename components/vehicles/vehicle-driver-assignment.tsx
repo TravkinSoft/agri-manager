@@ -145,35 +145,35 @@ export function VehicleDriverAssignment({ vehicleId, companyId, driverName, vehi
       {!iconOnly ? <span className="truncate">{driverName || "Назначить водителя"}</span> : null}
     </Button> : null}
     {open ? <Dialog open onOpenChange={next => { if (!next) { close(); onClosed?.(); } }}>
-      <DialogContent hideCloseButton className="flex max-h-[90dvh] w-[calc(100%-2rem)] max-w-md flex-col overflow-hidden rounded-xl border-slate-700 bg-slate-950 p-4 text-slate-100"
+      <DialogContent hideCloseButton className="flex max-h-[90dvh] w-[calc(100%-2rem)] max-w-md flex-col overflow-hidden rounded-xl border-border bg-background p-4 text-foreground"
         onClick={event => event.stopPropagation()}>
         <DialogHeader className="pr-10 text-left">
           <DialogTitle>Водитель машины</DialogTitle>
-          <DialogDescription className="break-words text-slate-400">{vehicleLabel || [data?.vehicle.name, data?.vehicle.plate].filter(Boolean).join(" · ") || vehicleId}</DialogDescription>
+          <DialogDescription className="break-words text-muted-foreground">{vehicleLabel || [data?.vehicle.name, data?.vehicle.plate].filter(Boolean).join(" · ") || vehicleId}</DialogDescription>
         </DialogHeader>
         <Button type="button" variant="ghost" aria-label="Закрыть выбор водителя" className="absolute right-1 top-1 h-12 w-12 p-0" onClick={() => { close(); onClosed?.(); }}>
           <X className="h-5 w-5" aria-hidden="true" />
         </Button>
-        {loading ? <p role="status" className="flex min-h-[48px] items-center gap-2 text-sm text-slate-400"><Loader2 className="h-4 w-4 animate-spin" />Загружаем водителей…</p> : null}
+        {loading ? <p role="status" className="flex min-h-[48px] items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загружаем водителей…</p> : null}
         {data ? <>
           <Input aria-label="Найти водителя" placeholder="Найти водителя" value={search}
             onChange={event => setSearch(event.target.value)} className="min-h-[48px] shrink-0 text-base" />
           <div role="radiogroup" aria-label="Водитель машины" data-testid="driver-scroll-list"
-            className="min-h-0 max-h-[45dvh] flex-1 touch-pan-y overflow-y-auto overscroll-contain rounded-xl border border-white/10">
+            className="min-h-0 max-h-[45dvh] flex-1 touch-pan-y overflow-y-auto overscroll-contain rounded-xl border border-border">
             {options.filter(option => option.label.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())).map(option => (
               <button key={option.value} type="button" role="radio" aria-checked={selected === option.value}
                 disabled={saving || disabled || !data.canEdit} onClick={() => setSelected(option.value)}
-                className={cn("flex min-h-[48px] w-full items-center justify-between gap-3 border-b border-white/5 px-3 py-3 text-left text-sm last:border-0", selected === option.value && "bg-amber-300/10 text-amber-200")}>
+                className={cn("flex min-h-[48px] w-full items-center justify-between gap-3 border-b border-border px-3 py-3 text-left text-sm last:border-0", selected === option.value && "bg-amber-300/10 text-amber-800")}>
                 <span className="break-words">{option.label}</span>
                 {selected === option.value ? <Check size={18} className="shrink-0" aria-hidden /> : null}
               </button>
             ))}
-            {!options.some(option => option.label.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) ? <p className="p-3 text-sm text-slate-400">Водитель не найден</p> : null}
+            {!options.some(option => option.label.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) ? <p className="p-3 text-sm text-muted-foreground">Водитель не найден</p> : null}
           </div>
         </> : null}
-        <p className="text-sm text-slate-400">Закреплён за машиной до ручной смены. Старые талоны не изменятся.</p>
-        {data && !data.canEdit ? <p className="text-sm text-amber-300">Нет прав на смену водителя.</p> : null}
-        {error ? <p role="alert" className="text-sm text-amber-300">{error}</p> : null}
+        <p className="text-sm text-muted-foreground">Закреплён за машиной до ручной смены. Старые талоны не изменятся.</p>
+        {data && !data.canEdit ? <p className="text-sm text-amber-800">Нет прав на смену водителя.</p> : null}
+        {error ? <p role="alert" className="text-sm text-amber-800">{error}</p> : null}
         {!loading && !data ? <Button type="button" variant="outline" className="min-h-[48px]" onClick={() => void load()}>Повторить загрузку</Button> : null}
         <Button type="button" className="min-h-[48px] w-full" disabled={loading || saving || disabled || !data?.canEdit || unchanged} onClick={() => void save()}>
           {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />Сохраняем…</> : "Сохранить"}

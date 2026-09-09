@@ -125,10 +125,10 @@ export function FleetEntityCreator({
   return <Dialog open={open} onOpenChange={changeOpen}>
     <DialogContent hideCloseButton
       data-testid="fleet-entity-creator"
-      className="flex max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-md flex-col overflow-y-auto rounded-2xl border-slate-700 bg-slate-950 p-4 text-slate-100 sm:p-5">
+      className="flex max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-md flex-col overflow-y-auto rounded-2xl border-border bg-background p-4 text-foreground sm:p-5">
       <DialogHeader className="pr-10 text-left">
         <DialogTitle>Добавить в автопарк</DialogTitle>
-        <DialogDescription className="text-slate-400">Запись сразу будет общей для TravkinFlow.</DialogDescription>
+        <DialogDescription className="text-muted-foreground">Запись сразу будет общей для TravkinFlow.</DialogDescription>
       </DialogHeader>
       <Button type="button" variant="ghost" aria-label="Закрыть" disabled={pending}
         className="absolute right-1 top-1 h-12 w-12 p-0" onClick={() => changeOpen(false)}>
@@ -146,8 +146,8 @@ export function FleetEntityCreator({
             className={cn(
               "flex min-h-[48px] items-center justify-center gap-2 rounded-xl border px-3 text-sm font-medium",
               kind === value
-                ? "border-amber-300 bg-amber-300 text-slate-950"
-                : "border-white/15 bg-white/5 text-slate-300",
+                ? "border-amber-300 bg-primary text-primary-foreground"
+                : "border-border bg-accent/40 text-foreground",
             )}>
             <Icon aria-hidden size={18} />{label}
           </button>
@@ -183,24 +183,24 @@ export function FleetEntityCreator({
           exact ? "border-rose-400/40 bg-rose-400/10" : "border-amber-300/40 bg-amber-300/10",
         )}>
           <div className="flex items-start gap-2">
-            <AlertTriangle aria-hidden className={cn("mt-0.5 shrink-0", exact ? "text-rose-300" : "text-amber-300")} size={18} />
+            <AlertTriangle aria-hidden className={cn("mt-0.5 shrink-0", exact ? "text-rose-800" : "text-amber-800")} size={18} />
             <div className="min-w-0">
               <p className="font-semibold">{exact ? "Такая запись уже есть" : "Возможно, это дубль"}</p>
-              <p className="mt-1 text-sm text-slate-300">{exact
+              <p className="mt-1 text-sm text-foreground">{exact
                 ? "Новый дубль создать нельзя. Измените данные или используйте существующую запись."
                 : "Проверьте найденные записи. Если это действительно другая машина или другой человек, создание можно продолжить."}</p>
             </div>
           </div>
-          {warning.candidates.length ? <div className="mt-3 divide-y divide-white/10 rounded-lg bg-black/20 px-3">
+          {warning.candidates.length ? <div className="mt-3 divide-y divide-border rounded-lg bg-muted/60 px-3">
             {warning.candidates.map(candidate => <div key={`${candidate.kind}:${candidate.id}`} className="py-2">
               <p className="break-words text-sm font-medium">{candidate.title}</p>
-              {candidate.subtitle ? <p className="mt-0.5 break-words text-sm text-slate-300">{candidate.subtitle}</p> : null}
-              <p className="mt-1 text-xs text-slate-400">{candidate.reason}</p>
+              {candidate.subtitle ? <p className="mt-0.5 break-words text-sm text-foreground">{candidate.subtitle}</p> : null}
+              <p className="mt-1 text-xs text-muted-foreground">{candidate.reason}</p>
             </div>)}
           </div> : null}
         </div> : null}
 
-        {error ? <p role="alert" className="rounded-xl bg-rose-400/10 p-3 text-sm text-rose-200">{error}</p> : null}
+        {error ? <p role="alert" className="rounded-xl bg-rose-400/10 p-3 text-sm text-rose-800">{error}</p> : null}
 
         {warning && !exact ? <div className="grid gap-2 sm:grid-cols-2">
           <Button type="button" variant="outline" className="min-h-[48px]" disabled={pending}

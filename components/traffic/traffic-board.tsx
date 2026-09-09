@@ -34,14 +34,14 @@ import { trafficRequest } from "./use-traffic";
 import { isTrafficAcknowledgement, optimisticTrafficVehicles, trafficCommandObserved, type PendingTrafficCommand, type TrafficCommand } from "@/lib/traffic/optimistic";
 const PTC_BOARD_V2 = process.env.NEXT_PUBLIC_PTC_BOARD_V2 === "1";
 const legacyTones: Record<TrafficState, string> = {
-  empty: "border-slate-300 bg-[#ffffff] text-slate-950",
+  empty: "border-border bg-card text-foreground",
   loaded: "border-emerald-300 bg-emerald-100 text-emerald-950",
   unloading: "border-amber-300 bg-amber-100 text-amber-950",
 };
 const v2Tones: Record<TrafficState, string> = {
-  empty: "border-slate-500/55 bg-slate-800/95 text-slate-100",
-  loaded: "border-emerald-400/50 bg-emerald-950/80 text-emerald-100",
-  unloading: "border-amber-300/55 bg-amber-950/75 text-amber-100",
+  empty: "border-border bg-card text-foreground",
+  loaded: "border-emerald-400/50 bg-emerald-50 text-emerald-800",
+  unloading: "border-amber-300/55 bg-amber-50 text-amber-800",
 };
 const tones = PTC_BOARD_V2 ? v2Tones : legacyTones;
 type ManagerTrafficGroup = TrafficState | "repair" | "offline";
@@ -67,7 +67,7 @@ const mobileGroupLabels: Record<ManagerTrafficGroup, string> = {
   offline: "Не на линии",
 };
 const groupDots: Record<ManagerTrafficGroup, string> = {
-  empty: "bg-[#ffffff]",
+  empty: "bg-stone-500",
   loaded: "bg-emerald-400",
   unloading: "bg-amber-300",
   repair: "bg-rose-400",
@@ -446,11 +446,11 @@ export function TrafficBoard({
           data-testid="traffic-combine-breakdown-banner"
           role="status"
           aria-live="polite"
-          className="mb-3 flex min-w-0 items-start gap-2 rounded-xl border border-rose-400/40 bg-rose-500/15 px-3 py-2 text-rose-100"
+          className="mb-3 flex min-w-0 items-start gap-2 rounded-xl border border-rose-400/40 bg-rose-500/15 px-3 py-2 text-rose-800"
         >
-          <Wrench aria-hidden size={18} className="mt-0.5 shrink-0 text-rose-300" />
+          <Wrench aria-hidden size={18} className="mt-0.5 shrink-0 text-rose-800" />
           <div className="min-w-0 text-sm">
-            <p className="font-semibold text-rose-200">
+            <p className="font-semibold text-rose-800">
               {combineBreakdowns.length === 1
                 ? "Поломка комбайна"
                 : `Поломка комбайнов · ${combineBreakdowns.length}`}
@@ -458,8 +458,8 @@ export function TrafficBoard({
             <ul className="mt-0.5 flex min-w-0 flex-wrap gap-x-3 gap-y-0.5">
               {combineBreakdowns.map((status) => (
                 <li key={status.operatorUserId} className="min-w-0 break-words">
-                  <span className="font-medium text-white">{status.operatorName}</span>
-                  <span className="text-rose-200"> · {stateAge(status.changedAt, now + offset)}</span>
+                  <span className="font-medium text-foreground">{status.operatorName}</span>
+                  <span className="text-rose-800"> · {stateAge(status.changedAt, now + offset)}</span>
                 </li>
               ))}
             </ul>
@@ -467,25 +467,25 @@ export function TrafficBoard({
         </section>
       ) : null}
       {snapshot.role === "receiver" && snapshot.lastVehicle ? (
-        <p data-testid="traffic-last-vehicle-banner" className="mb-4 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm text-slate-100">
-          <span className="font-semibold text-rose-300">Последняя:</span>{" "}
+        <p data-testid="traffic-last-vehicle-banner" className="mb-4 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm text-foreground">
+          <span className="font-semibold text-rose-800">Последняя:</span>{" "}
           {[snapshot.lastVehicle.driver || "Водитель не назначен", snapshot.lastVehicle.brand, snapshot.lastVehicle.plate || "Без номера"].join(" · ")}
         </p>
       ) : null}
-      {actionError ? <p role="alert" className="mb-3 text-sm text-rose-300">{actionError}</p> : null}
+      {actionError ? <p role="alert" className="mb-3 text-sm text-rose-800">{actionError}</p> : null}
       {activeRepairStageMessage ? (
-        <p data-testid="traffic-repair-stage-note" role="status" className="mb-3 rounded-xl border border-rose-400/35 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+        <p data-testid="traffic-repair-stage-note" role="status" className="mb-3 rounded-xl border border-rose-400/35 bg-rose-500/10 px-3 py-2 text-sm text-rose-800">
           {activeRepairStageMessage}
         </p>
       ) : null}
       {pendingCommands.filter(command => command.phase === "uncertain").map(command => (
-        <div key={command.key} role="alert" className="mb-3 text-sm text-rose-300">
+        <div key={command.key} role="alert" className="mb-3 text-sm text-rose-800">
           <p>{command.vehicle.plate || command.vehicle.name}: {command.error || "Нет подтверждения сервера."}</p>
           <button type="button" disabled={stale || !snapshot.enabled} className="min-h-[48px] underline disabled:opacity-50"
             onClick={() => void confirm(command, true)}>Повторить отправку</button>
         </div>
       ))}
-      {error ? <div className="mb-3 flex min-w-0 items-center justify-between gap-2 text-xs text-amber-200" role="status">
+      {error ? <div className="mb-3 flex min-w-0 items-center justify-between gap-2 text-xs text-amber-800" role="status">
         <span className="min-w-0 break-words">{error}</span>
         <button
           type="button"
@@ -497,7 +497,7 @@ export function TrafficBoard({
         </button>
       </div> : null}
       {!snapshot.enabled ? (
-        <p className="mb-5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-amber-100">
+        <p className="mb-5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-amber-800">
           {snapshot.role === "manager"
             ? "Выберите и сохраните машины, чтобы начать работу."
             : "Агроном ещё не подтвердил список машин для работы."}
@@ -518,16 +518,16 @@ export function TrafficBoard({
         {isManager ? (
           <p
             data-testid="traffic-line-total"
-            className="mb-2 flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-sm text-slate-300"
+            className="mb-2 flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-sm text-foreground"
           >
             <span>На линии:</span>
-            <strong className="text-lg font-semibold tabular-nums text-white">{lineVehicleCount}</strong>
+            <strong className="text-lg font-semibold tabular-nums text-foreground">{lineVehicleCount}</strong>
             <span>{lineVehicleWord}</span>
-            <span className="text-xs text-slate-500">· без машин в ремонте</span>
+            <span className="text-xs text-muted-foreground">· без машин в ремонте</span>
           </p>
         ) : null}
         {isManager ? (
-          <div data-testid="traffic-mobile-toolbar" className="sticky top-0 z-20 mb-3 flex min-w-0 shrink-0 items-stretch gap-1 rounded-xl bg-[#0f172a] py-1 lg:hidden">
+          <div data-testid="traffic-mobile-toolbar" className="sticky top-0 z-20 mb-3 flex min-w-0 shrink-0 items-stretch gap-1 rounded-xl bg-card py-1 lg:hidden">
             <div role="group" aria-label="Показать машины по статусу" className="grid min-w-0 flex-1 grid-cols-5 gap-1">
               {groups.map(({ state, vehicles }) => state ? (
                 <button
@@ -545,7 +545,7 @@ export function TrafficBoard({
                       mobileListRef.current?.scrollTo({ top: 0 });
                     }
                   }}
-                  className={`grid min-h-[60px] min-w-0 grid-rows-[2rem_1.25rem] content-center items-center justify-items-center rounded-lg border px-0.5 py-1 text-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${mobileState === state ? "border-slate-400 bg-slate-700 text-white" : "border-transparent text-slate-300"}`}
+                  className={`grid min-h-[60px] min-w-0 grid-rows-[2rem_1.25rem] content-center items-center justify-items-center rounded-lg border px-0.5 py-1 text-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${mobileState === state ? "border-primary bg-primary text-primary-foreground" : "border-transparent text-foreground"}`}
                 >
                   <span className="flex h-8 w-full items-center justify-center text-[9px] font-medium leading-3 min-[390px]:text-[10px]">{mobileGroupLabels[state]}</span>
                   <span className="flex items-center gap-1.5 text-lg font-semibold leading-5 tabular-nums">
@@ -574,15 +574,15 @@ export function TrafficBoard({
             id={group.state ? `traffic-list-${group.state}` : undefined}
             data-testid={group.state ? `traffic-group-${group.state}` : "traffic-operator-list"}
             aria-label={group.state ? groupLabels[group.state] : "Машины"}
-            className={`${PTC_BOARD_V2 ? "min-w-0 lg:self-stretch lg:rounded-2xl lg:bg-white/[0.018] lg:p-2" : "min-w-0"} ${group.state && group.state !== mobileState ? "hidden lg:block" : ""}`}
+            className={`${PTC_BOARD_V2 ? "min-w-0 lg:self-stretch lg:rounded-2xl lg:bg-accent/40 lg:p-2" : "min-w-0"} ${group.state && group.state !== mobileState ? "hidden lg:block" : ""}`}
           >
             {group.state ? (
               <h2 className={PTC_BOARD_V2
-                ? "mb-3 hidden items-center gap-2 border-b border-white/[0.08] bg-[#0c1118]/95 py-2 text-sm font-medium text-slate-200 backdrop-blur-md lg:sticky lg:top-0 lg:z-10 lg:flex"
-                : "mb-3 hidden items-center gap-2 text-sm font-medium text-slate-200 lg:flex"}>
+                ? "mb-3 hidden items-center gap-2 border-b border-border bg-card py-2 text-sm font-medium text-foreground backdrop-blur-md lg:sticky lg:top-0 lg:z-10 lg:flex"
+                : "mb-3 hidden items-center gap-2 text-sm font-medium text-foreground lg:flex"}>
                 <span aria-hidden className={`h-2.5 w-2.5 rounded-full ${groupDots[group.state]}`} />
                 {groupLabels[group.state]}
-                <span aria-live={PTC_BOARD_V2 ? "polite" : undefined} aria-atomic={PTC_BOARD_V2 ? "true" : undefined} className="ml-auto text-xl font-semibold tabular-nums text-white">
+                <span aria-live={PTC_BOARD_V2 ? "polite" : undefined} aria-atomic={PTC_BOARD_V2 ? "true" : undefined} className="ml-auto text-xl font-semibold tabular-nums text-foreground">
                   {group.vehicles.length}
                 </span>
               </h2>
@@ -607,13 +607,13 @@ export function TrafficBoard({
             (isLastVehicle || vehicle.state === "empty");
           const cardClass = `${PTC_BOARD_V2 ? "tf2-traffic-card " : ""}${compactAgronomistMobile
             ? "h-[4.875rem] p-1.5 lg:h-24 lg:p-2.5"
-              : "h-24 p-2.5"} min-w-0 overflow-hidden rounded-xl border text-left ${PTC_BOARD_V2 ? "shadow-[0_8px_22px_rgba(2,6,12,0.24)]" : "shadow-sm"} ${isManager && repairPhase === "active"
+              : "h-24 p-2.5"} min-w-0 overflow-hidden rounded-xl border text-left ${PTC_BOARD_V2 ? "shadow-sm" : "shadow-sm"} ${isManager && repairPhase === "active"
               ? PTC_BOARD_V2
-                ? "border-rose-400/55 bg-rose-950/80 text-rose-100"
+                ? "border-rose-400/55 bg-rose-50 text-rose-800"
                 : "border-rose-400 bg-rose-100 text-rose-950"
               : !vehicle.assigned
                 ? PTC_BOARD_V2
-                  ? "border-sky-400/45 bg-sky-950/75 text-sky-100"
+                  ? "border-sky-400/45 bg-sky-50 text-sky-800"
                   : "border-sky-300 bg-sky-100 text-sky-950"
                 : tones[vehicle.state]}`;
           const content = (
@@ -629,8 +629,8 @@ export function TrafficBoard({
                   {identity.secondary}
                 </span>
               </span> : <span aria-hidden className={`block ${compactAgronomistMobile ? "h-4 lg:h-5" : "h-5"}`} />}
-              <span className={`flex min-w-0 items-center gap-1 truncate opacity-70 ${compactAgronomistMobile ? "h-3 text-[10px] leading-3 lg:h-4 lg:text-[11px] lg:leading-4" : "h-4 text-[11px] leading-4"}`}>
-                {isLastVehicle ? <span className={`shrink-0 font-extrabold ${PTC_BOARD_V2 ? "text-rose-300" : "text-rose-700"}`}>ПОСЛЕДНЯЯ ·</span> : null}
+              <span className={`flex min-w-0 items-center gap-1 truncate opacity-90 ${compactAgronomistMobile ? "h-3 text-[10px] leading-3 lg:h-4 lg:text-[11px] lg:leading-4" : "h-4 text-[11px] leading-4"}`}>
+                {isLastVehicle ? <span className={`shrink-0 font-extrabold ${PTC_BOARD_V2 ? "text-rose-800" : "text-rose-700"}`}>ПОСЛЕДНЯЯ ·</span> : null}
                 {!identity.hasDriver ? <span className="shrink-0 font-medium">Без водителя ·</span> : null}
                 {isManager && repairPhase === "active" ? <>
                   <span className="flex shrink-0 items-center gap-1 font-semibold">
@@ -638,14 +638,14 @@ export function TrafficBoard({
                   </span>
                   <span className="truncate">{STATE_LABEL[vehicle.state]}</span>
                 </> : !isManager && vehicle.inRepair ? <>
-                  <span className={`flex shrink-0 items-center gap-1 font-semibold ${PTC_BOARD_V2 ? "text-rose-300" : "text-rose-700"}`}>
+                  <span className={`flex shrink-0 items-center gap-1 font-semibold ${PTC_BOARD_V2 ? "text-rose-800" : "text-rose-700"}`}>
                     <Wrench size={11} aria-hidden /> Ремонт отмечен · {STATE_LABEL[vehicle.state]} ·
                   </span>
                   <Clock3 aria-hidden size={11} />
                   <span className="truncate">{stateAge(statusSince, now + offset)}</span>
                 </> : <>
                   {!vehicle.assigned ? <span className="shrink-0 font-semibold">Не на линии ·</span>
-                    : usesHarvesterSwipe ? <span className={`shrink-0 font-semibold ${PTC_BOARD_V2 ? "text-emerald-300" : "text-emerald-800"}`}>Свайп вправо → ·</span>
+                    : usesHarvesterSwipe ? <span className={`shrink-0 font-semibold ${PTC_BOARD_V2 ? "text-emerald-800" : "text-emerald-800"}`}>Свайп вправо → ·</span>
                       : !isManager ? <span className="shrink-0">{STATE_LABEL[vehicle.state]} ·</span> : null}
                   <Clock3 aria-hidden size={11} />
                   <span className="truncate">{stateAge(statusSince, now + offset)}</span>
@@ -699,7 +699,7 @@ export function TrafficBoard({
                 transform: `translate3d(${swipeDistance}px, 0, 0)`,
                 transitionDuration: swipeVisual?.dragging ? "0ms" : undefined,
               } : undefined}
-              className={`${cardClass} min-h-[48px] w-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 disabled:cursor-not-allowed ${usesHarvesterSwipe
+              className={`${cardClass} min-h-[48px] w-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed ${usesHarvesterSwipe
                 ? `relative z-10 touch-pan-y select-none cursor-grab transition-transform ${PTC_BOARD_V2 ? "duration-150 motion-reduce:transition-none" : "duration-200"} ease-out ${swipeVisual?.dragging ? "cursor-grabbing" : ""}`
                 : PTC_BOARD_V2
                   ? "cursor-pointer motion-safe:transition motion-safe:duration-150 motion-safe:hover:-translate-y-0.5 motion-safe:active:scale-[0.98] motion-reduce:transform-none"
@@ -712,7 +712,7 @@ export function TrafficBoard({
               data-testid={`traffic-vehicle-${vehicle.vehicle_id}`}
               aria-label={`Управление машиной: ${vehicle.driver || vehicle.name}, ${vehicle.plate || "без номера"}`}
               onClick={() => onManageVehicle(vehicle)}
-              className={`${cardClass} w-full cursor-pointer ${PTC_BOARD_V2 ? "motion-safe:transition motion-safe:duration-150 motion-safe:hover:-translate-y-0.5 motion-safe:active:scale-[0.98] motion-reduce:transform-none" : "active:scale-[0.98]"} focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300`}>
+              className={`${cardClass} w-full cursor-pointer ${PTC_BOARD_V2 ? "motion-safe:transition motion-safe:duration-150 motion-safe:hover:-translate-y-0.5 motion-safe:active:scale-[0.98] motion-reduce:transform-none" : "active:scale-[0.98]"} focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring`}>
               {content}
             </button>
           ) : (
@@ -735,7 +735,7 @@ export function TrafficBoard({
                 <div
                   aria-hidden
                   data-testid={`traffic-swipe-track-${vehicle.vehicle_id}`}
-                  className={`pointer-events-none absolute inset-0 flex items-center px-4 text-sm font-extrabold text-white transition-colors ${PTC_BOARD_V2 ? "duration-150 motion-reduce:transition-none " : ""}${swipeReady ? "bg-emerald-500" : "bg-emerald-700"}`}
+                  className={`pointer-events-none absolute inset-0 flex items-center px-4 text-sm font-extrabold text-white transition-colors ${PTC_BOARD_V2 ? "duration-150 motion-reduce:transition-none " : ""}${swipeReady ? "bg-emerald-800" : "bg-emerald-700"}`}
                 >
                   {swipeReady ? "✓ Отпустите — загружена" : "→ Проведите вправо"}
                 </div>
@@ -751,7 +751,7 @@ export function TrafficBoard({
                     event.stopPropagation();
                     void changeLastVehicle(vehicle, isLastVehicle ? "clear" : "mark");
                   }}
-                  className={`absolute right-0 top-0 z-20 flex min-h-[48px] min-w-[48px] items-center justify-center rounded-tr-xl ${PTC_BOARD_V2 ? "text-slate-300 hover:text-white" : "text-slate-700"} focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-amber-500 disabled:opacity-40`}
+                  className={`absolute right-0 top-0 z-20 flex min-h-[48px] min-w-[48px] items-center justify-center rounded-tr-xl ${PTC_BOARD_V2 ? "text-foreground hover:text-foreground" : "text-muted-foreground"} focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring disabled:opacity-40`}
                 >
                   <EllipsisVertical aria-hidden size={20} />
                 </button>
@@ -761,7 +761,7 @@ export function TrafficBoard({
         })}
             </div>
             {group.state && !group.vehicles.length ? (
-              <p className={`${PTC_BOARD_V2 ? "px-1 " : ""}py-3 text-xs text-slate-500`}>Нет машин</p>
+              <p className={`${PTC_BOARD_V2 ? "px-1 " : ""}py-3 text-xs text-muted-foreground`}>Нет машин</p>
             ) : null}
           </section>
         ))}
@@ -769,15 +769,15 @@ export function TrafficBoard({
       </div>
       {!(isManager ? managerVehicles : displayVehicles).length ? (
         <div className="py-16 text-center">
-          <Truck size={38} className="mx-auto mb-4 text-slate-600" />
-          <h2 className="font-medium text-slate-200">
+          <Truck size={38} className="mx-auto mb-4 text-muted-foreground" />
+          <h2 className="font-medium text-foreground">
             {snapshot.role === "weighman"
               ? "Пока нет загруженных машин"
               : snapshot.role === "receiver"
                 ? "Пока нет машин на выгрузке"
                 : "Машины ещё не назначены"}
           </h2>
-          <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500">
+          <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
             {snapshot.role === "weighman"
               ? "Машина появится здесь сразу после подтверждения комбайнёра."
               : snapshot.role === "receiver"
@@ -787,17 +787,17 @@ export function TrafficBoard({
         </div>
       ) : null}
       {snapshot.role === "manager" && snapshot.events.length ? (
-        <details data-testid="traffic-manager-history-inline" className="mt-8 hidden border-t border-white/10 pt-4 lg:block">
-          <summary className="min-h-[48px] cursor-pointer py-3 text-sm text-slate-400">
+        <details data-testid="traffic-manager-history-inline" className="mt-8 hidden border-t border-border pt-4 lg:block">
+          <summary className="min-h-[48px] cursor-pointer py-3 text-sm text-muted-foreground">
             Последние 50 изменений
           </summary>
-          <div className="mt-3 divide-y divide-white/5">
+          <div className="mt-3 divide-y divide-border">
             {snapshot.events.map((event) => (
               <div key={event.id} className="break-words py-3 text-sm">
-                <p className="text-slate-300">
+                <p className="text-foreground">
                   {trafficEventSummary(event)}
                 </p>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-muted-foreground">
                   {event.actor_name} ·{" "}
                   {new Date(event.created_at).toLocaleString("ru-RU")}
                 </p>

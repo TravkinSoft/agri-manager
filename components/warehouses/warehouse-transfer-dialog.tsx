@@ -130,18 +130,18 @@ export function WarehouseTransferDialog({
       <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <ArrowRightLeft className="h-5 w-5 text-yellow-400" />
+            <ArrowRightLeft className="h-5 w-5 text-amber-800" />
             Переместить материалы
           </DialogTitle>
           <DialogDescription>Перемещение сразу проводится двумя связанными ledger-записями.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          {error ? <div className="rounded-md border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-200">{error}</div> : null}
+          {error ? <div className="rounded-md border border-red-500/40 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div> : null}
 
           <div className="space-y-2">
             <Label>Из склада</Label>
-            <div className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium">
+            <div className="rounded-md border border-border bg-background px-3 py-2 text-sm font-medium">
               {sourceWarehouse?.name || "Склад не выбран"}
             </div>
           </div>
@@ -168,12 +168,12 @@ export function WarehouseTransferDialog({
                 ))}
               </SelectContent>
             </Select>
-            {destinationId && materials.length === 0 ? <p className="text-sm text-slate-400">На складе нет доступных материалов для перемещения.</p> : null}
+            {destinationId && materials.length === 0 ? <p className="text-sm text-muted-foreground">На складе нет доступных материалов для перемещения.</p> : null}
           </div>
 
           <div className="space-y-2">
             <Label>Доступно</Label>
-            <div className="text-sm text-slate-300">{selected ? `${formatQuantity(available)} ${selected.unit}` : "Выберите материал"}</div>
+            <div className="text-sm text-foreground">{selected ? `${formatQuantity(available)} ${selected.unit}` : "Выберите материал"}</div>
           </div>
 
           <div className="space-y-2">
@@ -182,7 +182,7 @@ export function WarehouseTransferDialog({
               <Input value={quantity} onChange={(event) => setQuantity(event.target.value)} type="number" min="0" step="0.001" disabled={!selected} />
               <span className="w-12 text-sm font-medium">{selected?.unit || "—"}</span>
             </div>
-            {selected ? <p className="text-xs text-slate-500">Доступно: {formatQuantity(available)} {selected.unit}</p> : null}
+            {selected ? <p className="text-xs text-muted-foreground">Доступно: {formatQuantity(available)} {selected.unit}</p> : null}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -209,7 +209,7 @@ export function WarehouseTransferDialog({
 
           <div className="space-y-2">
             <Label>Дата и время проведения</Label>
-            <div className="flex items-center gap-2 rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-400">
+            <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
               <Clock3 className="h-4 w-4" /> Определятся сервером при проведении
             </div>
           </div>

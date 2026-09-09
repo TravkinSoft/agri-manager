@@ -919,15 +919,15 @@ export default function WarehousesPage() {
             openWarehouse(warehouse.id);
           }
         }}
-        className={`group relative flex h-full min-h-[148px] min-w-0 flex-col rounded-xl border bg-[#141a23] p-4 transition-[border-color,background-color,transform] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 motion-reduce:transition-none ${reorderable ? "cursor-default select-none" : "cursor-pointer hover:border-slate-600/90 hover:bg-[#171e29]"} ${draggingWarehouseId === warehouse.id ? "z-10 border-yellow-400/80 bg-[#1a2230] shadow-lg will-change-transform" : "border-slate-800/90"}`}
+        className={`group relative flex h-full min-h-[148px] min-w-0 flex-col rounded-xl border bg-card p-4 transition-[border-color,background-color,transform] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${reorderable ? "cursor-default select-none" : "cursor-pointer hover:border-border hover:bg-accent/60"} ${draggingWarehouseId === warehouse.id ? "z-10 border-yellow-400/80 bg-accent/60 shadow-lg will-change-transform" : "border-border"}`}
       >
         <div className="flex items-start gap-2.5">
           <ObjectVisual placeType={placeType} className="h-9 w-9 shrink-0 border-0 bg-transparent" />
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <h2 className="break-words text-sm font-semibold leading-5 text-slate-50">{warehouse.name}</h2>
-                <div className="mt-0.5 truncate text-xs text-slate-400">
+                <h2 className="break-words text-sm font-semibold leading-5 text-foreground">{warehouse.name}</h2>
+                <div className="mt-0.5 truncate text-xs text-muted-foreground">
                   {placeType === "WAREHOUSE" ? warehouseTypeLabel(warehouse.warehouse_type) : storagePlaceTypeLabel(placeType)}
                 </div>
               </div>
@@ -942,7 +942,7 @@ export default function WarehousesPage() {
                       event.stopPropagation();
                       moveReorderItemByOffset(warehouse.id, -1);
                     }}
-                    className="inline-flex h-11 w-11 items-center justify-center rounded-md text-slate-300 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 disabled:cursor-not-allowed disabled:opacity-30"
+                    className="inline-flex h-11 w-11 items-center justify-center rounded-md text-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-30"
                   >
                     <ArrowUp className="h-4 w-4" />
                   </button>
@@ -955,7 +955,7 @@ export default function WarehousesPage() {
                       event.stopPropagation();
                       moveReorderItemByOffset(warehouse.id, 1);
                     }}
-                    className="inline-flex h-11 w-11 items-center justify-center rounded-md text-slate-300 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 disabled:cursor-not-allowed disabled:opacity-30"
+                    className="inline-flex h-11 w-11 items-center justify-center rounded-md text-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-30"
                   >
                     <ArrowDown className="h-4 w-4" />
                   </button>
@@ -980,7 +980,7 @@ export default function WarehousesPage() {
                     onPointerUp={finishPointerReorder}
                     onPointerCancel={finishPointerReorder}
                     onLostPointerCapture={finishPointerReorder}
-                    className="inline-flex h-11 w-11 touch-none cursor-grab items-center justify-center rounded-md text-slate-300 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-30"
+                    className="inline-flex h-11 w-11 touch-none cursor-grab items-center justify-center rounded-md text-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-30"
                   >
                     <GripVertical className="h-4 w-4" />
                   </button>
@@ -990,23 +990,23 @@ export default function WarehousesPage() {
           </div>
         </div>
         {!summaryLoaded ? (
-          <div className="mt-4 h-14 rounded-md bg-slate-900 motion-safe:animate-pulse" aria-label="Загрузка остатка" />
+          <div className="mt-4 h-14 rounded-md bg-background motion-safe:animate-pulse" aria-label="Загрузка остатка" />
         ) : (
           <div className="mt-4 flex flex-1 flex-col justify-end gap-3">
             <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
-              <strong className={`text-xl font-semibold tabular-nums ${invalidStock ? "text-rose-300" : empty ? "text-slate-300" : "text-emerald-300"}`}>
+              <strong className={`text-xl font-semibold tabular-nums ${invalidStock ? "text-rose-800" : empty ? "text-foreground" : "text-emerald-800"}`}>
                 {invalidStock ? "Проверить остаток" : empty ? "0 кг" : totalWeightKg === 0 ? "Есть материалы" : formatMass(totalWeightKg)}
               </strong>
-              <span className="max-w-[60%] text-right text-xs leading-4 text-slate-400">{positionLabel}</span>
+              <span className="max-w-[60%] text-right text-xs leading-4 text-muted-foreground">{positionLabel}</span>
             </div>
-            {invalidStock ? <div role="alert" className="text-xs text-rose-300">Отрицательный или некорректный остаток: {String(totalWeightKg)} кг</div> : null}
+            {invalidStock ? <div role="alert" className="text-xs text-rose-800">Отрицательный или некорректный остаток: {String(totalWeightKg)} кг</div> : null}
             {fillPercent != null && !invalidStock && !empty ? (
               <div>
-                <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500">
-                  <span>Вместимость {formatMass(capacity || 0)}</span><span className={capacityExceeded ? "font-semibold text-rose-300" : undefined}>{fillPercent}%</span>
+                <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                  <span>Вместимость {formatMass(capacity || 0)}</span><span className={capacityExceeded ? "font-semibold text-rose-800" : undefined}>{fillPercent}%</span>
                 </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-slate-800"><div className={`h-full rounded-full ${capacityExceeded ? "bg-rose-400/80" : "bg-yellow-400/75"}`} style={{ width: `${fillBarPercent}%` }} /></div>
-                {capacityExceeded ? <div className="mt-1 text-[11px] font-medium text-rose-300">Остаток превышает указанную вместимость. Проверьте вместимость объекта.</div> : null}
+                <div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${capacityExceeded ? "bg-rose-400/80" : "bg-yellow-400/75"}`} style={{ width: `${fillBarPercent}%` }} /></div>
+                {capacityExceeded ? <div className="mt-1 text-[11px] font-medium text-rose-800">Остаток превышает указанную вместимость. Проверьте вместимость объекта.</div> : null}
               </div>
             ) : null}
           </div>
@@ -1052,7 +1052,7 @@ export default function WarehousesPage() {
       {reorderError ? <Alert variant="destructive"><AlertDescription>{reorderError}. Исходный порядок восстановлен.</AlertDescription></Alert> : null}
       <div className="sr-only" role="status" aria-live="polite">{reorderAnnouncement}</div>
       {isAgronomist ? (
-        <div role="tablist" aria-label="Представление складов" className="flex gap-1 border-b border-slate-800">
+        <div role="tablist" aria-label="Представление складов" className="flex gap-1 border-b border-border">
           {([{ value: "availability", label: "В наличии" }, { value: "warehouses", label: "По складам" }] as const).map((tab) => (
             <button key={tab.value} id={`warehouse-tab-${tab.value}`} type="button" role="tab" tabIndex={selectedView === tab.value ? 0 : -1} aria-selected={selectedView === tab.value} aria-controls={tab.value === "availability" ? "warehouse-availability-view" : "warehouse-view"} onClick={() => selectView(tab.value)} onKeyDown={(event) => {
               if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -1060,7 +1060,7 @@ export default function WarehousesPage() {
               const next: WarehouseView = event.key === "Home" ? "availability" : event.key === "End" ? "warehouses" : selectedView === "availability" ? "warehouses" : "availability";
               selectView(next);
               document.getElementById(`warehouse-tab-${next}`)?.focus();
-            }} className={`min-h-[44px] border-b-2 px-4 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 ${selectedView === tab.value ? "border-yellow-400 text-yellow-300" : "border-transparent text-slate-400 hover:text-slate-100"}`}>{tab.label}</button>
+            }} className={`min-h-[44px] border-b-2 px-4 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selectedView === tab.value ? "border-yellow-400 text-amber-800" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{tab.label}</button>
           ))}
         </div>
       ) : null}
@@ -1073,8 +1073,8 @@ export default function WarehousesPage() {
       {isReorderMode ? (
         <section className="flex flex-col gap-3 rounded-xl border border-yellow-400/25 bg-yellow-400/[0.04] p-4 sm:flex-row sm:items-center sm:justify-between" aria-label="Изменение порядка складов">
           <div>
-            <div className="text-sm font-semibold text-slate-100">Изменение порядка</div>
-            <p id="warehouse-reorder-instructions" className="mt-1 text-xs leading-5 text-slate-400">
+            <div className="text-sm font-semibold text-foreground">Изменение порядка</div>
+            <p id="warehouse-reorder-instructions" className="mt-1 text-xs leading-5 text-muted-foreground">
               Удерживайте рукоятку и перетащите карточку. С клавиатуры используйте кнопки вверх и вниз. Архивные склады не меняются.
             </p>
           </div>
@@ -1089,7 +1089,7 @@ export default function WarehousesPage() {
         </section>
       ) : null}
       <div className="relative max-w-md">
-        <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-500" />
+        <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
         <Input
           className="pl-9"
           value={search}
@@ -1100,13 +1100,13 @@ export default function WarehousesPage() {
         />
       </div>
       {searchDataLoading ? (
-        <div className="text-xs text-slate-500" role="status">Ищем по остаткам и партиям...</div>
+        <div className="text-xs text-muted-foreground" role="status">Ищем по остаткам и партиям...</div>
       ) : null}
 
       {loading ? (
-        <div className="py-12 text-center text-sm text-slate-400">Загрузка складов...</div>
+        <div className="py-12 text-center text-sm text-muted-foreground">Загрузка складов...</div>
       ) : activeSummaries.length === 0 ? (
-        <div className="border-y border-slate-800 py-12 text-center text-sm text-slate-400">Активные склады не найдены.</div>
+        <div className="border-y border-border py-12 text-center text-sm text-muted-foreground">Активные склады не найдены.</div>
       ) : (
         <div
           ref={reorderGridRef}
@@ -1119,8 +1119,8 @@ export default function WarehousesPage() {
       )}
 
       {canManageWarehouses && archivedSummaries.length > 0 ? (
-        <section className="space-y-3 border-t border-slate-800 pt-5">
-          <h2 className="text-base font-semibold text-slate-300">Архивные склады</h2>
+        <section className="space-y-3 border-t border-border pt-5">
+          <h2 className="text-base font-semibold text-foreground">Архивные склады</h2>
           <div className="grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {archivedSummaries.map(renderWarehouseCard)}
           </div>
@@ -1132,7 +1132,7 @@ export default function WarehousesPage() {
         <DialogContent className="flex h-[100dvh] max-h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[92vh] sm:max-h-[92vh] sm:w-[min(1100px,calc(100vw-32px))] sm:max-w-[1100px] sm:rounded-lg">
           {selectedSummary ? (
             <>
-              <DialogHeader className="shrink-0 border-b border-slate-800 px-5 py-4 text-left">
+              <DialogHeader className="shrink-0 border-b border-border px-5 py-4 text-left">
                 <div className="flex flex-wrap items-start justify-between gap-3 pr-8">
                   <div className="flex min-w-0 items-center gap-3">
                     <ObjectVisual placeType={selectedSummary.warehouse.place_type} className="h-11 w-12" />
@@ -1168,7 +1168,7 @@ export default function WarehousesPage() {
 
               <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
                 {detailsLoading ? (
-                  <div className="rounded-md border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-400" role="status">
+                  <div className="rounded-md border border-border bg-background px-4 py-3 text-sm text-muted-foreground" role="status">
                     Обновляем остатки...
                   </div>
                 ) : null}
@@ -1176,8 +1176,8 @@ export default function WarehousesPage() {
                   <Alert variant="destructive"><AlertDescription>{detailsError}</AlertDescription></Alert>
                 ) : null}
                 <section className="mt-4">
-                  <h3 className="mb-3 flex items-center gap-2 text-base font-semibold"><Boxes className="h-4 w-4 text-yellow-400" />Остатки</h3>
-                  <div className="divide-y divide-slate-800 overflow-hidden rounded-md border border-slate-800 bg-slate-950/35">
+                  <h3 className="mb-3 flex items-center gap-2 text-base font-semibold"><Boxes className="h-4 w-4 text-amber-800" />Остатки</h3>
+                  <div className="divide-y divide-border overflow-hidden rounded-md border border-border bg-background">
                     {selectedSummary.batches.map((batch) => {
                       const identity = batch.reviewState === "requires_review"
                         ? "Требуется уточнение"
@@ -1187,13 +1187,13 @@ export default function WarehousesPage() {
                           key={`harvest-${batch.id}`}
                           type="button"
                           onClick={() => void openHarvestBatch(batch)}
-                          className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-yellow-400"
+                          className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                         >
                           <div className="min-w-0">
-                            <div className="truncate font-semibold text-slate-100">{batch.cropName}</div>
-                            <div className={`mt-0.5 truncate text-sm ${batch.reviewState === "requires_review" ? "text-amber-300" : "text-slate-400"}`}>{identity}</div>
+                            <div className="truncate font-semibold text-foreground">{batch.cropName}</div>
+                            <div className={`mt-0.5 truncate text-sm ${batch.reviewState === "requires_review" ? "text-amber-800" : "text-muted-foreground"}`}>{identity}</div>
                           </div>
-                          <div className="shrink-0 font-semibold text-emerald-300">{quantity(batch.cleanMassKg)} кг</div>
+                          <div className="shrink-0 font-semibold text-emerald-800">{quantity(batch.cleanMassKg)} кг</div>
                         </button>
                       );
                     })}
@@ -1202,26 +1202,26 @@ export default function WarehousesPage() {
                         key={`material-${row.product_id}-${row.unit}-${row.batch_class || "commodity"}`}
                         type="button"
                         onClick={() => setDetailBalance(row)}
-                        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-yellow-400"
+                        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                       >
                         <div className="min-w-0">
-                          <div className="truncate font-semibold text-slate-100">{row.product_name}</div>
-                          {row.identity_name ? <div className="mt-0.5 truncate text-sm text-slate-400">{row.identity_name}</div> : null}
+                          <div className="truncate font-semibold text-foreground">{row.product_name}</div>
+                          {row.identity_name ? <div className="mt-0.5 truncate text-sm text-muted-foreground">{row.identity_name}</div> : null}
                         </div>
-                        <div className="shrink-0 font-semibold text-slate-100">{quantity(row.quantity)} {localizeUnit(row.unit, language)}</div>
+                        <div className="shrink-0 font-semibold text-foreground">{quantity(row.quantity)} {localizeUnit(row.unit, language)}</div>
                       </button>
                     ))}
                     {selectedSummary.detailsLoaded && selectedSummary.batches.length === 0 && selectedMaterialStock.length === 0 ? (
                       <div className="px-4"><EmptyState /></div>
                     ) : null}
                     {!detailsLoading && selectedSummary.batches.length === 0 && selectedMaterialStock.length === 0 ? (
-                      <div className="px-4 py-10 text-center text-sm text-slate-500">Склад пуст</div>
+                      <div className="px-4 py-10 text-center text-sm text-muted-foreground">Склад пуст</div>
                     ) : null}
                   </div>
                 </section>
               </div>
 
-              <DialogFooter className="shrink-0 border-t border-slate-800 px-5 py-3">
+              <DialogFooter className="shrink-0 border-t border-border px-5 py-3">
                 <Button variant="outline" onClick={closeWarehouse}>Закрыть</Button>
               </DialogFooter>
             </>

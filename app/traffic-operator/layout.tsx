@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Кабинеты комбайнёра и приёмки картофеля",
   applicationName: "Оборот машин",
   manifest: "/traffic-operator.webmanifest",
-  themeColor: "#0c1118",
+  themeColor: "#f7f1e7",
   // This operator-only viewport follows the requested fixed-scale workflow.
   // Browser accessibility settings may override it; do not change the ERP root.
   viewport: {

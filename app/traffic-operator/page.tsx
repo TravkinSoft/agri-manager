@@ -53,11 +53,11 @@ export default function TrafficOperatorPage() {
       return <TrafficPwaShell><div role="status" className="flex justify-center py-20"><Loader2 className="animate-spin" /><span className="sr-only">Определяем кабинет</span></div></TrafficPwaShell>;
     }
     return <TrafficPwaShell>
-      <header className="mb-6 border-b border-white/[0.07] pb-5">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-300/80">TravkinFlow · полевая линия</p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">Оборот машин</h1>
+      <header className="mb-6 border-b border-border pb-5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-800">TravkinFlow · полевая линия</p>
+        <h1 className="tf-manor-heading mt-1 text-2xl font-semibold tracking-tight">Оборот машин</h1>
       </header>
-      <div role="status" className="tf2-panel flex items-center justify-center gap-3 rounded-2xl py-16 text-slate-300">
+      <div role="status" className="tf2-panel flex items-center justify-center gap-3 rounded-2xl py-16 text-foreground">
         <Loader2 aria-hidden className="animate-spin motion-reduce:animate-none" />
         <span>Проверяем рабочую сессию…</span>
       </div>
@@ -65,14 +65,14 @@ export default function TrafficOperatorPage() {
   }
   if (mode === "error") {
     if (!PTC_BOARD_V2) {
-      return <TrafficPwaShell><div role="alert" className="py-10 text-amber-200">{gateError}<button type="button" onClick={() => { setMode("checking"); void detectCabinet(); }} className="mt-3 block min-h-[48px] underline">Повторить</button></div></TrafficPwaShell>;
+      return <TrafficPwaShell><div role="alert" className="py-10 text-amber-800">{gateError}<button type="button" onClick={() => { setMode("checking"); void detectCabinet(); }} className="mt-3 block min-h-[48px] underline">Повторить</button></div></TrafficPwaShell>;
     }
     return <TrafficPwaShell>
-      <header className="mb-6 border-b border-white/[0.07] pb-5">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-300/80">TravkinFlow · полевая линия</p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">Оборот машин</h1>
+      <header className="mb-6 border-b border-border pb-5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-800">TravkinFlow · полевая линия</p>
+        <h1 className="tf-manor-heading mt-1 text-2xl font-semibold tracking-tight">Оборот машин</h1>
       </header>
-      <div role="alert" className="tf2-panel rounded-2xl p-5 text-amber-200">
+      <div role="alert" className="tf2-panel rounded-2xl p-5 text-amber-800">
         {gateError}
         <button type="button" onClick={() => { setMode("checking"); void detectCabinet(); }} className="mt-3 block min-h-[48px] underline">Повторить</button>
       </div>
@@ -84,8 +84,8 @@ export default function TrafficOperatorPage() {
 function TrafficPwaShell({ children }: { children: React.ReactNode }) {
   return (
     <main className={PTC_BOARD_V2
-      ? "tf2-shell tf2-traffic-shell min-h-[100dvh] touch-pan-y px-4 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] text-slate-100 sm:px-6"
-      : "min-h-[100dvh] touch-pan-y bg-[#0c1118] px-4 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] text-slate-100 sm:px-6"}>
+      ? "tf2-shell tf2-traffic-shell min-h-[100dvh] touch-pan-y px-4 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] text-foreground sm:px-6"
+      : "min-h-[100dvh] touch-pan-y bg-card px-4 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] text-foreground sm:px-6"}>
       <TrafficPwa />
       <div className={PTC_BOARD_V2 ? "mx-auto w-full max-w-6xl" : "mx-auto max-w-5xl"}>{children}</div>
     </main>
@@ -135,20 +135,20 @@ function TrafficOperatorCabinet({ onAuthenticated }: { onAuthenticated: () => Pr
   return (
     <TrafficPwaShell>
       {PTC_BOARD_V2 ? (
-        <header className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.07] pb-5">
+        <header className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-border pb-5">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-300/10 text-amber-300">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-300/10 text-amber-800">
               <Truck aria-hidden size={24} />
             </span>
             <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-300/80">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-800">
                 TravkinFlow · полевая линия
               </p>
-              <h1 className="mt-0.5 truncate text-2xl font-semibold tracking-tight">
+              <h1 className="tf-manor-heading mt-0.5 truncate text-2xl font-semibold tracking-tight">
                 {live.data ? ROLE_LABEL[live.data.role] : "Оборот машин"}
               </h1>
               {live.data ? (
-                <p className="mt-1 truncate text-sm text-slate-500">
+                <p className="mt-1 truncate text-sm text-muted-foreground">
                   {live.data.personName} · рабочая сессия активна
                 </p>
               ) : null}
@@ -163,7 +163,7 @@ function TrafficOperatorCabinet({ onAuthenticated }: { onAuthenticated: () => Pr
                 onClick={() => void logout()}
                 disabled={busy}
                 type="button"
-                className="flex min-h-[48px] items-center gap-2 rounded-xl px-3 text-sm text-slate-400 hover:bg-white/5"
+                className="flex min-h-[48px] items-center gap-2 rounded-xl px-3 text-sm text-muted-foreground hover:bg-accent/40"
               >
                 <LogOut size={16} /> Выйти
               </button>
@@ -173,14 +173,14 @@ function TrafficOperatorCabinet({ onAuthenticated }: { onAuthenticated: () => Pr
       ) : (
         <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-[11px] font-semibold tracking-[0.2em] text-amber-300">
+            <p className="text-[11px] font-semibold tracking-[0.2em] text-amber-800">
               TRAVKINFLOW
             </p>
-            <h1 className="mt-2 text-2xl font-semibold">
+            <h1 className="tf-manor-heading mt-2 text-2xl font-semibold">
               {live.data ? ROLE_LABEL[live.data.role] : "Оборот машин"}
             </h1>
             {live.data ? (
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-muted-foreground">
                 {live.data.personName}
               </p>
             ) : null}
@@ -194,13 +194,13 @@ function TrafficOperatorCabinet({ onAuthenticated }: { onAuthenticated: () => Pr
                 onClick={() => void logout()}
                 disabled={busy}
                 type="button"
-                className="flex min-h-[48px] items-center gap-2 rounded-xl px-3 text-sm text-slate-400 hover:bg-white/5"
+                className="flex min-h-[48px] items-center gap-2 rounded-xl px-3 text-sm text-muted-foreground hover:bg-accent/40"
               >
                 <LogOut size={16} /> Выйти
               </button>
             </div>
           ) : (
-            <Truck className="text-amber-300" size={28} />
+            <Truck className="text-amber-800" size={28} />
           )}
         </header>
       )}
@@ -215,15 +215,15 @@ function TrafficOperatorCabinet({ onAuthenticated }: { onAuthenticated: () => Pr
             aria-busy={PTC_BOARD_V2 ? busy : undefined}
             className={PTC_BOARD_V2
               ? "tf2-panel mx-auto mt-6 max-w-md rounded-2xl p-6 sm:p-7"
-              : "mx-auto mt-10 max-w-sm rounded-3xl border border-white/10 bg-gradient-to-b from-[#1c2633] to-[#111820] p-6 shadow-2xl"}
+              : "mx-auto mt-10 max-w-sm rounded-3xl border border-border bg-gradient-to-b from-card to-background p-6 shadow-2xl"}
           >
-            {PTC_BOARD_V2 ? <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-300/75">Единый аккаунт TravkinFlow</p> : null}
-            <h2 className={PTC_BOARD_V2 ? "mt-2 text-xl font-semibold" : "text-xl font-semibold"}>Вход в рабочий кабинет</h2>
-            <p className="mb-6 mt-2 text-sm leading-relaxed text-slate-400">
+            {PTC_BOARD_V2 ? <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-800">Единый аккаунт TravkinFlow</p> : null}
+            <h2 className={PTC_BOARD_V2 ? "tf-manor-heading mt-2 text-xl font-semibold" : "tf-manor-heading text-xl font-semibold"}>Вход в рабочий кабинет</h2>
+            <p className="mb-6 mt-2 text-sm leading-relaxed text-muted-foreground">
               Войдите с обычной почтой и паролем TravkinFlow. При первом входе
               откройте приглашение администратора на почте и задайте пароль.
             </p>
-            <label className="block text-sm text-slate-300">
+            <label className="block text-sm text-foreground">
               Почта
               <input
                 name="email"
@@ -233,11 +233,11 @@ function TrafficOperatorCabinet({ onAuthenticated }: { onAuthenticated: () => Pr
                 required
                 maxLength={254}
                 className={PTC_BOARD_V2
-                  ? "mt-2 mb-4 min-h-[48px] w-full rounded-xl border border-white/15 bg-black/20 px-3 text-base text-white outline-none transition-colors focus:border-amber-400 focus:ring-2 focus:ring-amber-300/15 motion-reduce:transition-none"
-                  : "mt-2 mb-4 min-h-[48px] w-full rounded-xl border border-white/15 bg-black/20 px-3 text-base text-white outline-none focus:border-amber-400"}
+                  ? "mt-2 mb-4 min-h-[48px] w-full rounded-xl border border-border bg-muted/60 px-3 text-base text-foreground outline-none transition-colors focus:border-amber-400 focus:ring-2 focus:ring-ring motion-reduce:transition-none"
+                  : "mt-2 mb-4 min-h-[48px] w-full rounded-xl border border-border bg-muted/60 px-3 text-base text-foreground outline-none focus:border-amber-400"}
               />
             </label>
-            <label className="block text-sm text-slate-300">
+            <label className="block text-sm text-foreground">
               Пароль
               <input
                 name="password"
@@ -246,26 +246,26 @@ function TrafficOperatorCabinet({ onAuthenticated }: { onAuthenticated: () => Pr
                 required
                 maxLength={128}
                 className={PTC_BOARD_V2
-                  ? "mt-2 mb-5 min-h-[48px] w-full rounded-xl border border-white/15 bg-black/20 px-3 text-base text-white outline-none transition-colors focus:border-amber-400 focus:ring-2 focus:ring-amber-300/15 motion-reduce:transition-none"
-                  : "mt-2 mb-5 min-h-[48px] w-full rounded-xl border border-white/15 bg-black/20 px-3 text-base text-white outline-none focus:border-amber-400"}
+                  ? "mt-2 mb-5 min-h-[48px] w-full rounded-xl border border-border bg-muted/60 px-3 text-base text-foreground outline-none transition-colors focus:border-amber-400 focus:ring-2 focus:ring-ring motion-reduce:transition-none"
+                  : "mt-2 mb-5 min-h-[48px] w-full rounded-xl border border-border bg-muted/60 px-3 text-base text-foreground outline-none focus:border-amber-400"}
               />
             </label>
             {error ? (
-              <p role="alert" className="mb-4 text-sm text-rose-300">
+              <p role="alert" className="mb-4 text-sm text-rose-800">
                 {error}
               </p>
             ) : null}
             <button
               disabled={busy}
               className={PTC_BOARD_V2
-                ? "tf2-control min-h-[48px] w-full rounded-xl bg-amber-300 font-semibold text-slate-950 hover:bg-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 disabled:opacity-50"
-                : "min-h-[48px] w-full rounded-xl bg-amber-300 font-semibold text-slate-950 hover:bg-amber-200 disabled:opacity-50"}
+                ? "tf2-control min-h-[48px] w-full rounded-xl bg-primary font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50"
+                : "min-h-[48px] w-full rounded-xl bg-primary font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"}
             >
               {busy ? "Входим…" : "Войти"}
             </button>
             <a
               href="/auth/forgot-password"
-              className="mt-2 flex min-h-[48px] items-center justify-center text-sm text-slate-400 underline"
+              className="mt-2 flex min-h-[48px] items-center justify-center text-sm text-muted-foreground underline"
             >
               Забыли пароль?
             </a>
@@ -281,13 +281,13 @@ function TrafficOperatorCabinet({ onAuthenticated }: { onAuthenticated: () => Pr
             onAuxiliaryCommitted={live.auxiliaryCommitted}
           />
         ) : (
-          <div role="alert" className="py-10 text-amber-200">
+          <div role="alert" className="py-10 text-amber-800">
             {live.error}
             <button
               type="button"
               onClick={() => void logout()}
               disabled={busy}
-              className="mt-3 block min-h-[48px] text-sm text-slate-300 underline"
+              className="mt-3 block min-h-[48px] text-sm text-foreground underline"
             >
               Выйти и сменить аккаунт
             </button>
@@ -300,7 +300,7 @@ function TrafficOperatorCabinet({ onAuthenticated }: { onAuthenticated: () => Pr
           </div>
         )}
         {error && live.data ? (
-          <p role="alert" className="mt-4 text-rose-300">
+          <p role="alert" className="mt-4 text-rose-800">
             {error}
           </p>
         ) : null}
@@ -330,25 +330,25 @@ function TrafficManagerPwa({ onSignedOut }: { onSignedOut: () => void }) {
   return (
     <TrafficPwaShell>
       {PTC_BOARD_V2 ? (
-        <header className="mb-5 flex items-center justify-between gap-3 border-b border-white/[0.07] pb-5">
+        <header className="mb-5 flex items-center justify-between gap-3 border-b border-border pb-5">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-300/10 text-amber-300"><Truck aria-hidden size={24} /></span>
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-300/10 text-amber-800"><Truck aria-hidden size={24} /></span>
             <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-300/80">TravkinFlow · полевая линия</p>
-              <h1 className="mt-0.5 truncate text-2xl font-semibold tracking-tight">Оборот машин</h1>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-800">TravkinFlow · полевая линия</p>
+              <h1 className="tf-manor-heading mt-0.5 truncate text-2xl font-semibold tracking-tight">Оборот машин</h1>
             </div>
           </div>
-          <button type="button" onClick={() => void logout()} disabled={busy} className="flex min-h-[48px] items-center gap-2 rounded-xl px-3 text-sm text-slate-400 hover:bg-white/5 disabled:opacity-50">
+          <button type="button" onClick={() => void logout()} disabled={busy} className="flex min-h-[48px] items-center gap-2 rounded-xl px-3 text-sm text-muted-foreground hover:bg-accent/40 disabled:opacity-50">
             <LogOut size={16} /> Выйти
           </button>
         </header>
       ) : (
         <header className="mb-5 flex items-center justify-between gap-3">
           <div>
-            <p className="text-[11px] font-semibold tracking-[0.2em] text-amber-300">TRAVKINFLOW</p>
-            <h1 className="mt-2 text-2xl font-semibold">Оборот машин</h1>
+            <p className="text-[11px] font-semibold tracking-[0.2em] text-amber-800">TRAVKINFLOW</p>
+            <h1 className="tf-manor-heading mt-2 text-2xl font-semibold">Оборот машин</h1>
           </div>
-          <button type="button" onClick={() => void logout()} disabled={busy} className="flex min-h-[48px] items-center gap-2 rounded-xl px-3 text-sm text-slate-400 hover:bg-white/5 disabled:opacity-50">
+          <button type="button" onClick={() => void logout()} disabled={busy} className="flex min-h-[48px] items-center gap-2 rounded-xl px-3 text-sm text-muted-foreground hover:bg-accent/40 disabled:opacity-50">
             <LogOut size={16} /> Выйти
           </button>
         </header>
@@ -366,14 +366,14 @@ function TrafficManagerPwa({ onSignedOut }: { onSignedOut: () => void }) {
           onManageVehicle={managed?.canManageFleet ? setSelected : undefined}
           mobileActions={managed?.canCreateFleetEntities ? (
             <div className="flex items-center">
-              <button type="button" aria-label="Добавить машину или водителя" onClick={() => setCreateOpen(true)} className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg text-amber-300">
+              <button type="button" aria-label="Добавить машину или водителя" onClick={() => setCreateOpen(true)} className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg text-amber-800">
                 <Plus aria-hidden size={22} />
               </button>
             </div>
           ) : undefined}
         />
       ) : (
-        <div role="alert" className="py-10 text-amber-200">{live.error}<button type="button" onClick={() => void live.refresh(true)} className="mt-3 block min-h-[48px] underline">Повторить</button></div>
+        <div role="alert" className="py-10 text-amber-800">{live.error}<button type="button" onClick={() => void live.refresh(true)} className="mt-3 block min-h-[48px] underline">Повторить</button></div>
       )}
       {managed?.canManageFleet && live.data ? (
         <TrafficFleetControls managed={managed} snapshot={live.data} selected={selected} onSelected={setSelected} stale={live.stale} refresh={live.refresh} />

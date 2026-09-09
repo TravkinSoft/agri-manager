@@ -23,7 +23,7 @@ export default function FleetPage() {
   }, [profile?.role, router]);
   const companyId = profile?.company_id;
   if (profile?.role === "fleet_manager") return null;
-  if (!user || !companyId) return <p className="p-4 text-slate-400">Выберите компанию для автопарка.</p>;
+  if (!user || !companyId) return <p className="p-4 text-muted-foreground">Выберите компанию для автопарка.</p>;
   // A company/account change unmounts all requests and assignment dialogs.
   return <FleetCabinet key={`${user.id}:${companyId}:${profile.role}`} companyId={companyId} />;
 }
@@ -154,68 +154,68 @@ function FleetCabinet({ companyId }: { companyId: string }) {
     <div className="mx-auto w-full min-w-0 max-w-5xl touch-pan-y lg:px-6">
       <header className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-100 lg:text-2xl">Автопарк</h1>
-          <p className="mt-1 text-sm text-slate-400">Машины и водители</p>
+          <h1 className="tf-manor-heading text-xl font-semibold text-foreground lg:text-2xl">Автопарк</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Машины и водители</p>
         </div>
-        <Link href="/traffic" className="flex min-h-[48px] items-center gap-2 rounded-xl px-3 text-sm text-amber-300 hover:bg-white/5">
+        <Link href="/traffic" className="flex min-h-[48px] items-center gap-2 rounded-xl px-3 text-sm text-amber-800 hover:bg-accent/40">
           Оборот машин <ArrowRight size={18} aria-hidden />
         </Link>
       </header>
-      <div className="sticky top-0 z-10 space-y-3 bg-[#0f1218] pb-3 pt-1">
+      <div className="sticky top-0 z-10 space-y-3 bg-card pb-3 pt-1">
         <label className="relative block">
-          <Search size={18} aria-hidden className="pointer-events-none absolute left-3 top-4 text-slate-400" />
+          <Search size={18} aria-hidden className="pointer-events-none absolute left-3 top-4 text-muted-foreground" />
           <input aria-label="Поиск по машине, номеру или водителю" placeholder="Машина, номер или водитель"
             value={search} onChange={event => setSearch(event.target.value)}
-            className="h-12 w-full min-w-0 rounded-xl border border-white/10 bg-white/5 pl-10 pr-3 text-base text-slate-100 placeholder:text-slate-500 focus:border-amber-400 focus:outline-none" />
+            className="h-12 w-full min-w-0 rounded-xl border border-border bg-accent/40 pl-10 pr-3 text-base text-foreground placeholder:text-muted-foreground focus:border-amber-400 focus:outline-none" />
         </label>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" aria-pressed={!unassigned && !repairsOnly} onClick={() => { setUnassigned(false); setRepairsOnly(false); }}
-            className={`min-h-[44px] rounded-xl px-3 text-sm ${!unassigned && !repairsOnly ? "bg-amber-400 text-slate-950" : "bg-white/5 text-slate-300"}`}>
+            className={`min-h-[44px] rounded-xl px-3 text-sm ${!unassigned && !repairsOnly ? "bg-primary text-primary-foreground" : "bg-accent/40 text-foreground"}`}>
             Все{data ? ` · ${vehicles.length}` : ""}
           </button>
           <button type="button" aria-pressed={unassigned} onClick={() => { setUnassigned(true); setRepairsOnly(false); }}
-            className={`min-h-[44px] rounded-xl px-3 text-sm ${unassigned ? "bg-amber-400 text-slate-950" : "bg-white/5 text-slate-300"}`}>
+            className={`min-h-[44px] rounded-xl px-3 text-sm ${unassigned ? "bg-primary text-primary-foreground" : "bg-accent/40 text-foreground"}`}>
             Без водителя{data ? ` · ${withoutDriver}` : ""}
           </button>
           <button type="button" aria-pressed={repairsOnly} onClick={() => { setUnassigned(false); setRepairsOnly(true); }}
-            className={`min-h-[44px] rounded-xl px-3 text-sm ${repairsOnly ? "bg-rose-400 text-slate-950" : "bg-rose-400/10 text-rose-300"}`}>
+            className={`min-h-[44px] rounded-xl px-3 text-sm ${repairsOnly ? "bg-rose-400 text-foreground" : "bg-rose-400/10 text-rose-800"}`}>
             Ремонт{data ? ` · ${inRepairCount}` : ""}
           </button>
           <button type="button" aria-label="Обновить машины" onClick={() => void refresh()}
-            className="ml-auto flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-slate-400 hover:bg-white/5">
+            className="ml-auto flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-muted-foreground hover:bg-accent/40">
             <RefreshCw size={18} />
           </button>
         </div>
       </div>
-      {error ? <p role="alert" className="mb-3 rounded-xl bg-amber-400/10 p-3 text-sm text-amber-200">{error}</p> : null}
-      {repairError ? <p role="alert" className="mb-3 rounded-xl bg-rose-400/10 p-3 text-sm text-rose-200">{repairError}</p> : null}
+      {error ? <p role="alert" className="mb-3 rounded-xl bg-amber-400/10 p-3 text-sm text-amber-800">{error}</p> : null}
+      {repairError ? <p role="alert" className="mb-3 rounded-xl bg-rose-400/10 p-3 text-sm text-rose-800">{repairError}</p> : null}
       {!data && !error ? <div role="status" aria-label="Загрузка автопарка" className="grid gap-2 sm:grid-cols-2">
-        {[0, 1, 2, 3].map(id => <div key={id} className="h-28 rounded-xl bg-white/5 motion-safe:animate-pulse" />)}
+        {[0, 1, 2, 3].map(id => <div key={id} className="h-28 rounded-xl bg-accent/40 motion-safe:animate-pulse" />)}
       </div> : null}
       {data ? <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {visible.map(vehicle => <article key={vehicle.id}
-          className={`min-w-0 rounded-xl border px-3 pt-3 ${vehicle.inRepair ? "border-rose-500/60 bg-rose-950/50" : "border-white/10 bg-gradient-to-br from-[#192230] to-[#111820]"}`}>
-          <div className="flex min-w-0 items-start gap-2 text-slate-300">
-            <Truck aria-hidden size={16} className="mt-0.5 shrink-0 text-amber-300" />
+          className={`min-w-0 rounded-xl border px-3 pt-3 ${vehicle.inRepair ? "border-rose-500/60 bg-rose-50" : "border-border bg-gradient-to-br from-card to-background"}`}>
+          <div className="flex min-w-0 items-start gap-2 text-foreground">
+            <Truck aria-hidden size={16} className="mt-0.5 shrink-0 text-amber-800" />
             <p className="min-w-0 break-words text-sm leading-5">{vehicle.name}</p>
           </div>
-          <p className="mt-1 break-words text-xl font-semibold tracking-wide text-slate-50">{vehicle.plate || "Без номера"}</p>
-          {vehicle.inRepair ? <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-rose-300"><Wrench size={12} aria-hidden /> На ремонте</p> : null}
-          {Object.prototype.hasOwnProperty.call(repairPending, vehicle.id) ? <p role="status" className="mt-1 text-xs text-slate-400">Подтверждаем изменение…</p> : null}
+          <p className="mt-1 break-words text-xl font-semibold tracking-wide text-foreground">{vehicle.plate || "Без номера"}</p>
+          {vehicle.inRepair ? <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-rose-800"><Wrench size={12} aria-hidden /> На ремонте</p> : null}
+          {Object.prototype.hasOwnProperty.call(repairPending, vehicle.id) ? <p role="status" className="mt-1 text-xs text-muted-foreground">Подтверждаем изменение…</p> : null}
           <div className="flex min-w-0 items-center gap-2">
           <VehicleDriverAssignment vehicleId={vehicle.id} companyId={companyId} driverName={vehicle.driver}
             vehicleLabel={`${vehicle.name} · ${vehicle.plate || "Без номера"}`} disabled={!!error}
-            className="mt-1 min-w-0 flex-1 justify-start border-0 bg-transparent px-0 text-sm text-slate-400 hover:bg-transparent hover:text-amber-300" />
+            className="mt-1 min-w-0 flex-1 justify-start border-0 bg-transparent px-0 text-sm text-muted-foreground hover:bg-transparent hover:text-amber-800" />
           <button type="button" onClick={() => setRepairSelection(vehicle)}
             disabled={!!error || Object.prototype.hasOwnProperty.call(repairPending, vehicle.id)}
             aria-label={`${vehicle.inRepair ? "Вернуть в работу" : "В ремонт"}: ${vehicle.name} · ${vehicle.plate || "Без номера"}`}
-            className="min-h-[48px] max-w-[128px] shrink-0 px-1 text-xs font-medium text-rose-300 hover:text-rose-200 disabled:opacity-40">
+            className="min-h-[48px] max-w-[128px] shrink-0 px-1 text-xs font-medium text-rose-800 hover:text-rose-800 disabled:opacity-40">
             {vehicle.inRepair ? "Вернуть в работу" : "В ремонт"}
           </button>
           </div>
         </article>)}
       </div> : null}
-      {data && visible.length === 0 ? <p className="py-10 text-center text-sm text-slate-400">
+      {data && visible.length === 0 ? <p className="py-10 text-center text-sm text-muted-foreground">
         {vehicles.length === 0 ? "В компании пока нет активных машин." : "По этому выбору машин нет."}
       </p> : null}
       <AlertDialog open={!!repairSelection} onOpenChange={open => { if (!open) setRepairSelection(null); }}>
@@ -223,7 +223,7 @@ function FleetCabinet({ companyId }: { companyId: string }) {
           <AlertDialogHeader>
             <AlertDialogTitle>{repairSelection?.inRepair ? "Вернуть машину в работу?" : "Поставить машину на ремонт?"}</AlertDialogTitle>
             <AlertDialogDescription>
-              <span className="block font-semibold text-slate-100">{repairSelection?.name} · {repairSelection?.plate || "Без номера"}</span>
+              <span className="block font-semibold text-foreground">{repairSelection?.name} · {repairSelection?.plate || "Без номера"}</span>
               <span className="mt-2 block">{repairSelection?.inRepair
                 ? "Снимется только отметка ремонта. Таймер текущего статуса начнётся заново; пустая машина встанет в конец очереди."
                 : "Таймер ремонта начнётся сразу. Новая загрузка станет недоступна, а текущий грузовой этап останется доступен весовщику или приёмке до завершения."}</span>
@@ -231,7 +231,7 @@ function FleetCabinet({ companyId }: { companyId: string }) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="min-h-[48px]">Отмена</AlertDialogCancel>
-            <Button className="min-h-[48px] bg-rose-500 text-white hover:bg-rose-400" onClick={() => void confirmRepair()} disabled={!!error}>Подтвердить</Button>
+            <Button className="min-h-[48px] bg-rose-700 text-white hover:bg-rose-800" onClick={() => void confirmRepair()} disabled={!!error}>Подтвердить</Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

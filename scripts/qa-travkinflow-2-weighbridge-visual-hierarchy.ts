@@ -52,9 +52,9 @@ check("transport and weight stay visible as separate steps", () => {
 });
 
 check("sections are separated by quiet dividers", () => {
-  assert.match(page, /const formSectionClass = "space-y-4 border-t border-slate-800\/70 pt-4/);
-  assert.match(page, /const formRailClass = "border-l-2 border-slate-700\/70/);
-  assert.match(page, /const formDataStripClass = "grid gap-2 border-y border-slate-800\/70/);
+  assert.match(page, /const formSectionClass = "space-y-4 border-t border-border pt-4/);
+  assert.match(page, /const formRailClass = "border-l-2 border-border/);
+  assert.match(page, /const formDataStripClass = "grid gap-2 border-y border-border/);
 });
 
 check("old framed supplier line cards are removed", () => {
@@ -63,12 +63,12 @@ check("old framed supplier line cards are removed", () => {
 });
 
 check("open tickets render as flat keyboard-focusable rows", () => {
-  assert.match(workspace, /w-full border-b border-slate-800\/70[\s\S]*focus-visible:ring-2[\s\S]*motion-reduce:transition-none/);
+  assert.match(workspace, /w-full border-b border-border[\s\S]*focus-visible:ring-2[\s\S]*motion-reduce:transition-none/);
   assert.doesNotMatch(workspace, /w-full rounded-xl border border-slate-800 bg-slate-950\/55/);
 });
 
 check("history renders as flat rows", () => {
-  assert.match(workspace, /border-b border-slate-800\/70 px-1 py-3 transition-colors hover:bg-slate-950\/30 motion-reduce:transition-none/);
+  assert.match(workspace, /border-b border-border px-1 py-3 transition-colors hover:bg-background motion-reduce:transition-none/);
   assert.doesNotMatch(workspace, /rounded-xl border border-slate-800 bg-slate-950\/45 px-3 py-2\.5/);
 });
 
@@ -78,7 +78,7 @@ check("correction comparison uses an accent rail", () => {
 });
 
 check("empty states avoid nested cards", () => {
-  assert.match(workspace, /border-y border-dashed border-slate-800\/70/);
+  assert.match(workspace, /border-y border-dashed border-border/);
   assert.doesNotMatch(workspace, /rounded-lg bg-slate-950\/35 p-6/);
 });
 
@@ -114,7 +114,7 @@ check("admin cleanup is a semantic top-level section", () => {
 
 check("mobile layout keeps base grids single-column", () => {
   assert.match(workspace, /grid gap-3 md:grid-cols-2 xl:grid-cols-3/);
-  assert.match(workspace, /grid gap-3 border-t border-slate-800\/70 pt-4 md:grid-cols/);
+  assert.match(workspace, /grid gap-3 border-t border-border pt-4 md:grid-cols/);
   assert.match(page, /space-y-2 px-2 pb-4 sm:px-3/);
 });
 
