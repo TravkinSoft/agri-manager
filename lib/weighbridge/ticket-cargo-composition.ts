@@ -1,11 +1,17 @@
 import type { WeighbridgeTicket } from "@/lib/types/weighbridge";
 
 export type TicketCargoLine = NonNullable<WeighbridgeTicket["lines"]>[number];
+type TicketJournalWeight = Partial<Pick<WeighbridgeTicket, "net_weight_kg" | "weigh_method">>;
 
 const clean = (value: unknown) => String(value ?? "").trim();
 const normalized = (value: unknown) => clean(value).toLocaleLowerCase("ru-RU");
 
 const identityPart = (id: unknown, name: unknown) => clean(id) || normalized(name) || "none";
+
+export function shouldUseCanonicalJournalNet(ticket: TicketJournalWeight | null | undefined): boolean {
+  return ticket?.net_weight_kg != null
+    && normalized(ticket.weigh_method) !== "manual_override_with_reason";
+}
 
 export function aggregateTicketCargoLines(lines: TicketCargoLine[]): TicketCargoLine[] {
   const grouped = new Map<string, TicketCargoLine>();
