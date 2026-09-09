@@ -94,7 +94,10 @@ check("map viewport and native scale reserve responsive shell space", () => {
 });
 
 check("engineering mutations are guarded by field-map write access", () => {
-  assert.match(source, /import \{ canWriteFieldMap \} from "@\/lib\/fields-map\/access"/);
+  assert.match(source, /import \{ canWriteFieldMap \} from "@\/lib\/fields-map\/access-policy"/);
+  const policy = read("lib/fields-map/access-policy.ts");
+  assert.doesNotMatch(policy, /^\s*import\b/m, "client role predicates must not import server code");
+  assert.doesNotMatch(policy, /process\.env|createClient|SessionAuthError/, "client role policy must stay side-effect free");
   assert.match(source, /const canWriteEngineering = canWriteFieldMap\(profile\?\.role\)/);
   assert.match(source, /canWriteEngineeringRef\.current && activeWorkMode === "engineering"/);
   assert.match(activeRender, /mapWorkMode === "engineering" && canWriteEngineering/);
