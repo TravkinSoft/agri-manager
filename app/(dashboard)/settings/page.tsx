@@ -196,11 +196,14 @@ export default function SettingsPage() {
       />
 
       <Tabs defaultValue="profile" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="profile">{t("Профиль", "Профиль", "Profile")}</TabsTrigger>
-          {!notificationOnly ? <TabsTrigger value="general">{t("Общие", "Жалпы", "General")}</TabsTrigger> : null}
-          <TabsTrigger value="notifications">{t("Уведомления", "Хабарламалар", "Notifications")}</TabsTrigger>
-          {!notificationOnly ? <TabsTrigger value="security">{t("Безопасность", "Қауіпсіздік", "Security")}</TabsTrigger> : null}
+        <TabsList
+          aria-label={t("Разделы настроек", "Баптаулар бөлімдері", "Settings sections")}
+          className="grid h-auto w-full grid-cols-2 gap-1 sm:inline-flex sm:h-11 sm:w-auto sm:gap-0"
+        >
+          <TabsTrigger className="min-h-[44px]" value="profile">{t("Профиль", "Профиль", "Profile")}</TabsTrigger>
+          {!notificationOnly ? <TabsTrigger className="min-h-[44px]" value="general">{t("Общие", "Жалпы", "General")}</TabsTrigger> : null}
+          <TabsTrigger className="min-h-[44px]" value="notifications">{t("Уведомления", "Хабарламалар", "Notifications")}</TabsTrigger>
+          {!notificationOnly ? <TabsTrigger className="min-h-[44px]" value="security">{t("Безопасность", "Қауіпсіздік", "Security")}</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="profile" className="space-y-4">
