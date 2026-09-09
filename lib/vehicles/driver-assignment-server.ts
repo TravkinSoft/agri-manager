@@ -21,6 +21,8 @@ export const assignmentQuery = z.object({
   vehicleId: z.string().uuid(),
 }).strict();
 export const assignmentCommand = assignmentQuery.extend({
+  // Old weighbridge tabs must not save a permanent assignment from the retired editor.
+  assignmentIntent: z.literal("current_fleet_driver"),
   driverPersonId: z.string().uuid().nullable(),
   expectedAssignmentId: z.string().uuid().nullable(),
 }).strict();
@@ -51,6 +53,8 @@ export function assignmentResponse(data: unknown, status = 200) {
 export function assignmentFailure(error: unknown) {
   if (error instanceof SessionAuthError)
     return assignmentResponse({ error: error.message }, error.status);
+  if (error instanceof z.ZodError && error.issues.some(issue => issue.path[0] === "assignmentIntent"))
+    return assignmentResponse({ error: "Обновите страницу. Водитель талона выбирается в весовой, текущий водитель машины — в автопарке или PTC." }, 400);
   if (error instanceof z.ZodError || error instanceof SyntaxError)
     return assignmentResponse({ error: "Проверьте машину и выбранного водителя" }, 400);
   // Never expose service-role/PostgREST error details to a client.

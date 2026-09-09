@@ -53,8 +53,7 @@ import {
 import { HarvestAllocationPicker } from "@/components/weighbridge/active-harvest-tabs";
 import { UniversalWorkspaceTabs, type UniversalWorkspaceTab } from "@/components/weighbridge/universal-workspace-tabs";
 import { TransportDriverSelects } from "@/components/weighbridge/transport-driver-picker";
-import { VehicleDriverAssignment } from "@/components/vehicles/vehicle-driver-assignment";
-import { subscribeVehicleDriverAssignments, type VehicleDriverAssignmentResult } from "@/lib/vehicles/driver-assignment-client";
+import { subscribeVehicleDriverAssignments } from "@/lib/vehicles/driver-assignment-client";
 import { ProcessingWorkspace } from "@/components/weighbridge/processing-workspace";
 import { isOpenProcessingWorkItem, processingMassSnapshot } from "@/lib/weighbridge/processing-work-state";
 import { DailyReconciliation } from "@/components/weighbridge/daily-reconciliation";
@@ -64,7 +63,7 @@ import {
   normalizeWeighbridgeTransportPickerData,
   type WeighbridgeTransportPickerData,
 } from "@/lib/weighbridge/transport-pairing";
-import { resolveTransportIdentity, transportPickerOptionLabel } from "@/lib/weighbridge/transport";
+import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { buildHarvestLotOptionLabel } from "@/lib/weighbridge/harvest-lot-option-label";
 import {
   UNIVERSAL_WORKSPACE_MAX_TABS,
@@ -3713,31 +3712,6 @@ export default function WeighbridgeOperationsPage() {
     () => vehicles.find((vehicle) => vehicle.id === form.vehicleId) || null,
     [vehicles, form.vehicleId]
   );
-  const assignmentFormContextRef = useRef({
-    companyId: profile?.company_id, workspaceId: selectedWorkspaceId,
-    savedTicketId: activeTicket?.id || pendingOpenTicket?.id, editingTicket: openTicketEditOpen || ticketCorrectionOpen || submitting,
-    openAssignments: transportPickerData.openAssignments,
-  });
-  assignmentFormContextRef.current = {
-    companyId: profile?.company_id, workspaceId: selectedWorkspaceId,
-    savedTicketId: activeTicket?.id || pendingOpenTicket?.id, editingTicket: openTicketEditOpen || ticketCorrectionOpen || submitting,
-    openAssignments: transportPickerData.openAssignments,
-  };
-  const applyAssignmentToNewDraft = (result: VehicleDriverAssignmentResult) => {
-    const current = assignmentFormContextRef.current;
-    if (current.companyId !== result.companyId || current.workspaceId !== selectedWorkspaceId) return;
-    if (current.savedTicketId || current.editingTicket) {
-      toast({ title: "Привязка сохранена", description: "Водитель уже созданного талона не изменён." });
-      return;
-    }
-    if (result.vehicle.driverPersonId && current.openAssignments.some((assignment) => assignment.driverId === result.vehicle.driverPersonId)) {
-      toast({ title: "Привязка сохранена", description: "Водитель занят открытым талоном. В новом рейсе водитель не изменён." });
-      return;
-    }
-    // Only this explicit save may update the still-selected, unsaved create form.
-    setForm((previous) => previous.vehicleId === result.vehicle.id
-      ? { ...previous, driverId: result.vehicle.driverPersonId || "" } : previous);
-  };
   const updateTransportPickerData = (
     updater: (current: WeighbridgeTransportPickerData) => WeighbridgeTransportPickerData
   ) => {
@@ -5823,17 +5797,6 @@ export default function WeighbridgeOperationsPage() {
                 onChange={(vehicleId, driverId) => setForm((previous) => ({ ...previous, vehicleId, driverId }))}
                 onBlockedAssignment={(assignment) => void handleBlockedTransportAssignment(assignment)}
                 onComplete={() => grossInputRef.current?.focus()}
-                vehicleAssignment={selectedVehicle?.source === "reference_vehicles" ? (
-                  <VehicleDriverAssignment
-                    key={`${profile?.company_id}:${selectedWorkspaceId}:${selectedVehicle.id}`}
-                    vehicleId={selectedVehicle.id}
-                    companyId={profile?.company_id}
-                    driverName={drivers.find((driver) => driver.assignedVehicleIds.includes(selectedVehicle.id))?.name}
-                    vehicleLabel={transportPickerOptionLabel(selectedVehicle)}
-                    disabled={loading || submitting}
-                    onAssigned={applyAssignmentToNewDraft}
-                  />
-                ) : null}
               />
               {drivers.length === 0 ? (
                 <div className="mt-1 text-xs text-amber-300">

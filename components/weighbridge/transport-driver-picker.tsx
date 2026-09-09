@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useMemo } from "react";
 import { Label } from "@/components/ui/label";
 import { SearchableCombobox, type SearchableComboboxOption } from "@/components/weighbridge/searchable-combobox";
 import type {
@@ -42,7 +42,6 @@ type Props = {
   onChange: (vehicleId: string, driverId: string) => void;
   onBlockedAssignment: (assignment: OpenTransportAssignment) => void;
   onComplete?: () => void;
-  vehicleAssignment?: ReactNode;
 };
 
 const vehicleTitle = (vehicle: Vehicle) => transportPickerOptionLabel(vehicle);
@@ -61,7 +60,6 @@ export function TransportDriverSelects({
   onChange,
   onBlockedAssignment,
   onComplete,
-  vehicleAssignment,
 }: Props) {
   const vehicleById = useMemo(() => new Map(vehicles.map((item) => [item.id, item])), [vehicles]);
   const driverById = useMemo(() => new Map(drivers.map((item) => [item.id, item])), [drivers]);
@@ -190,7 +188,6 @@ export function TransportDriverSelects({
           ariaLabel="Транспорт"
           disabled={disabled}
         />
-        {vehicleAssignment}
       </div>
       <div className="min-w-0 space-y-1.5">
         <Label>Водитель{optional ? "" : " *"}</Label>
@@ -204,6 +201,7 @@ export function TransportDriverSelects({
           ariaLabel="Водитель"
           disabled={disabled}
         />
+        <p className="text-xs text-muted-foreground">Водитель только для этого талона. Назначение в PTC не меняется.</p>
       </div>
     </div>
   );

@@ -129,7 +129,7 @@ function setup(options: Options = {}) {
     "@/lib/vehicles/driver-name": driverNames,
   });
   const route = load("app/api/vehicles/driver-assignment/route.ts", { "@/lib/vehicles/driver-assignment-server": helper });
-  const command = { vehicleId, driverPersonId: personId, expectedAssignmentId: null };
+  const command = { vehicleId, driverPersonId: personId, expectedAssignmentId: null, assignmentIntent: "current_fleet_driver" };
   function request(method = "GET", body: unknown = command, query = `vehicleId=${vehicleId}`, origin = "https://qa.travkinflow.com", site = "same-origin") {
     return { method, nextUrl: new URL(`https://qa.travkinflow.com/api/vehicles/driver-assignment?${query}`),
       headers: new Headers({ origin, "sec-fetch-site": site }), cookies: { get: () => ({ value: "test-pin-cookie" }) },
@@ -143,6 +143,25 @@ async function response(status: number, value: Promise<Response>) {
   check(res.status, status); check(res.headers.get("cache-control"), "no-store, private"); return res.json();
 }
 async function main() {
+  // Stale weighbridge tabs sent this valid old payload. Reject before opening
+  // a service-client context, including when the operator is a Global Admin.
+  for (const role of ["global_admin", "company_admin", "agronomist", "weighman", "fleet_manager"]) {
+    for (const assignmentIntent of [undefined, null, "historical_ticket_driver", "", true]) {
+      const stale = setup({ role,
+        people: [driver, { ...driver, id: person2, full_name: "Historical ticket driver" }],
+        specialists: [specialist, { ...specialist, id: specialist2, person_id: person2 }],
+        vehicles: [{ ...vehicle, primary_responsible_personnel_id: specialistId }],
+      });
+      const before = plain(stale.tables);
+      const oldCommand = { vehicleId, driverPersonId: person2, expectedAssignmentId: specialistId };
+      await response(400, stale.route.POST(stale.request("POST", assignmentIntent === undefined
+        ? oldCommand : { ...oldCommand, assignmentIntent })));
+      check(stale.auth.length, 0);
+      check(stale.pins.length, 0);
+      check(stale.calls.length, 0);
+      check(stale.tables, before);
+    }
+  }
   let s = setup({ specialists: [specialist], vehicles: [{ ...vehicle, primary_responsible_personnel_id: specialistId }], people: [driver,
     { ...driver, id: person2, company_id: other }, { ...driver, id: other, status: "inactive" }] });
   let body = await response(200, s.route.GET(s.request()));
@@ -154,7 +173,7 @@ async function main() {
   check(body.drivers, [{ id: personId, name: "Canonical Driver" }]);
   s = setup({ people: [mechanic] });
   await response(400, s.route.POST(s.request("POST", {
-    vehicleId, driverPersonId: mechanicPersonId, expectedAssignmentId: null,
+    ...s.command, driverPersonId: mechanicPersonId,
   })));
   check(s.calls.some(c => c.op !== "select"), false);
   s = setup({ people: [driver, mechanic], vehicles: [tractor] });
@@ -165,7 +184,7 @@ async function main() {
   ]);
   s = setup({ people: [mechanic], vehicles: [tractor] });
   body = await response(200, s.route.POST(s.request("POST", {
-    vehicleId, driverPersonId: mechanicPersonId, expectedAssignmentId: null,
+    ...s.command, driverPersonId: mechanicPersonId,
   })));
   check(body.vehicle.driverPersonId, mechanicPersonId);
   check(body.vehicle.driverRoleType, "mechanic_operator");
@@ -178,10 +197,10 @@ async function main() {
   check(body.vehicle.driverPersonId, null);
   check(body.vehicle.driverRoleType, null);
   body = await response(200, s.route.POST(s.request("POST", {
-    vehicleId, driverPersonId: null, expectedAssignmentId: specialist2,
+    ...s.command, driverPersonId: null, expectedAssignmentId: specialist2,
   })));
   check(body.vehicle.assignmentId, null);
-  for (const role of ["global_admin", "company_admin", "agronomist", "weighman"]) {
+  for (const role of ["global_admin", "company_admin", "agronomist", "weighman", "fleet_manager"]) {
     s = setup({ role }); body = await response(200, s.route.POST(s.request("POST")));
     check(body.vehicle.driverPersonId, personId); check(body.vehicle.assignmentId, specialistId);
     check(s.calls.filter(c => c.op === "update").map(c => [c.table, c.payload]), [["reference_vehicles", { primary_responsible_personnel_id: specialistId }]]);

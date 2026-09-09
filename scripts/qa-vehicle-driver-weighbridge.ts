@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import vm from "node:vm";
 import ts from "typescript";
@@ -74,9 +75,11 @@ check("reverse suggestion retains open-ticket busy guards", () => {
 const read = (file: string) => readFileSync(resolve(process.cwd(), file), "utf8");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
 const picker = read("components/weighbridge/transport-driver-picker.tsx");
-check("assignment editor label includes the same vehicle and plate as the transport picker", () => {
+check("transport picker retains the vehicle and plate while permanent assignment editor is absent", () => {
   assert.equal(transport.transportPickerOptionLabel({ name: "KAMAZ", plate: "QA-207" }), "KAMAZ · QA-207");
-  assert.match(page, /vehicleLabel=\{transportPickerOptionLabel\(selectedVehicle\)\}/);
+  assert.doesNotMatch(page, /import\s+\{[^}]*\bVehicleDriverAssignment\b|<VehicleDriverAssignment\b|vehicleAssignment=|applyAssignmentToNewDraft/);
+  assert.doesNotMatch(picker, /vehicleAssignment|driver-assignment-client|saveVehicleDriverAssignment/);
+  assert.match(picker, /Водитель только для этого талона\. Назначение в PTC не меняется\./);
 });
 check("UI still blocks selected busy vehicles and drivers", () => {
   assert.match(picker, /const assignment = assignmentByVehicle\.get\(nextVehicleId\);\s*if \(assignment\) \{\s*onBlockedAssignment\(assignment\);\s*return;/);
@@ -90,18 +93,70 @@ check("assignment broadcasts refresh only options and reject stale company resul
   assert.match(subscription, /requestController\?\.abort\(\)/);
   assert.doesNotMatch(subscription, /setForm\(|setTickets\(|setActiveTicket\(|patchTicket\(/);
 });
-check("explicit save updates only same-workspace unsaved form and checks busy drivers", () => {
-  const explicitSave = page.slice(page.indexOf("const applyAssignmentToNewDraft"), page.indexOf("const updateTransportPickerData"));
-  assert.match(explicitSave, /current\.companyId !== result\.companyId \|\| current\.workspaceId !== selectedWorkspaceId/);
-  assert.match(explicitSave, /current\.savedTicketId \|\| current\.editingTicket/);
-  assert.match(explicitSave, /current\.openAssignments\.some/);
-  assert.match(explicitSave, /previous\.vehicleId === result\.vehicle\.id/);
-  assert.doesNotMatch(explicitSave, /patchTicket\(|setTickets\(|setActiveTicket\(/);
-  assert.match(page, /key=\{`\$\{profile\?\.company_id\}:\$\{selectedWorkspaceId\}:\$\{selectedVehicle\.id\}`\}/);
+check("weighbridge wires driver selection to document form state only", () => {
+  const selector = page.slice(page.indexOf("<TransportDriverSelects"), page.indexOf("{drivers.length === 0"));
+  assert.match(selector, /onChange=\{\(vehicleId, driverId\) => setForm\(\(previous\) => \(\{ \.\.\.previous, vehicleId, driverId \}\)\)\}/);
+  assert.doesNotMatch(selector, /saveVehicleDriverAssignment|publishVehicleDriverAssignment|onAssigned/);
 });
 check("resource loads started before assignment cannot restore old driver links", () => {
   assert.match(page, /const assignmentRevision = vehicleAssignmentRevisionRef\.current/);
   assert.match(page, /!failedResources\.has\("company_people"\) && assignmentRevision === vehicleAssignmentRevisionRef\.current/);
+});
+
+check("choosing a historical driver changes only the ticket callback and leaves current fleet assignment intact", () => {
+  const changes: Array<[string, string]> = [];
+  const blocked: OpenTransportAssignment[] = [];
+  let completed = 0;
+  let requests = 0;
+  const fixtureVehicles = vehicles.map((vehicle) => ({ ...vehicle, name: "KAMAZ", model: "", plate: "QA-207", type: "truck" }));
+  const fixtureDrivers = drivers.map((driver) => ({ ...driver, name: driver.id, assignedVehicleIds: [...driver.assignedVehicleIds] }));
+  const before = JSON.stringify({ fixtureVehicles, fixtureDrivers });
+  const localRequire = createRequire(import.meta.url);
+  const SearchableCombobox = () => null;
+  const loaded = { exports: {} as any };
+  const dependencies: Record<string, unknown> = {
+    react: { useMemo: (factory: () => unknown) => factory() },
+    "react/jsx-runtime": localRequire("react/jsx-runtime"),
+    "@/components/ui/label": { Label: () => null },
+    "@/components/weighbridge/searchable-combobox": { SearchableCombobox },
+    "@/lib/weighbridge/transport-pairing": { preferredDriverForVehicle, preferredVehicleForDriver },
+    "@/lib/weighbridge/transport": transport,
+  };
+  vm.runInNewContext(ts.transpileModule(picker, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
+  } }).outputText, {
+    module: loaded, exports: loaded.exports,
+    fetch: () => { requests++; throw new Error("Document picker must not make network requests"); },
+    require: (key: string) => {
+      if (!(key in dependencies)) throw new Error(`Unexpected document picker dependency: ${key}`);
+      return dependencies[key];
+    },
+  });
+  const props = {
+    vehicleId: "vehicle-1", driverId: "current-person", vehicles: fixtureVehicles, drivers: fixtureDrivers,
+    recentPairs: [], latestDriverByVehicle: driverParams.latestDriverByVehicle,
+    latestVehicleByDriver: vehicleParams.latestVehicleByDriver, openAssignments: [],
+    onChange: (vehicleId: string, driverId: string) => changes.push([vehicleId, driverId]),
+    onBlockedAssignment: (assignment: OpenTransportAssignment) => blocked.push(assignment),
+    onComplete: () => { completed++; },
+  };
+  const nodes = (node: any): any[] => !node || typeof node !== "object" ? []
+    : Array.isArray(node) ? node.flatMap(nodes) : [node, ...nodes(node.props?.children)];
+  const driverPicker = (tree: any) => nodes(tree).find((node) => node.type === SearchableCombobox && node.props.ariaLabel === "Водитель");
+  const tree = loaded.exports.TransportDriverSelects(props);
+  driverPicker(tree).props.onValueChange("historical-person");
+  assert.deepEqual(changes, [["vehicle-1", "historical-person"]]);
+  assert.equal(completed, 1);
+  assert.deepEqual(blocked, []);
+  assert.equal(requests, 0);
+  assert.equal(JSON.stringify({ fixtureVehicles, fixtureDrivers }), before);
+
+  const busy = { ticketId: "other-open", ticketNo: "WB-other", vehicleId: "vehicle-2", driverId: "historical-person" };
+  driverPicker(loaded.exports.TransportDriverSelects({ ...props, openAssignments: [busy] })).props.onValueChange("historical-person");
+  assert.deepEqual(changes, [["vehicle-1", "historical-person"]]);
+  assert.deepEqual(blocked, [busy]);
+  assert.equal(requests, 0);
+  assert.equal(JSON.stringify({ fixtureVehicles, fixtureDrivers }), before);
 });
 
 async function checkCurrentResourceAssignmentBridges() {
@@ -128,9 +183,9 @@ async function checkCurrentResourceAssignmentBridges() {
     reference_vehicles: bridges.map((_, index) => ({
       id: `vehicle-${index}`, company_id: "company", name: index === 1 ? "МТЗ" : "KAMAZ",
       type: index === 1 ? "tractor" : "truck", fleet_type: index === 1 ? "tractor" : "truck",
-      primary_responsible_personnel_id: `bridge-${index}`, is_active: true, archived: false,
+      primary_responsible_personnel_id: `bridge-${index}`, source_machine_id: null, is_active: true, archived: false,
     })),
-    profiles: [], fields: [], warehouses: [],
+    reference_machines: [], profiles: [], fields: [], warehouses: [],
   };
   const db = {
     from(table: string) {
@@ -226,6 +281,15 @@ async function checkInitialWorkspaceAssignmentBridges() {
       return { data: { operator_state: {}, initial_workspace: payload }, error: null };
     },
     from(table: string) {
+      if (table === "reference_machines") {
+        const query: any = {
+          select() { return query; }, eq() { return query; }, order() { return query; },
+          then(done: (value: unknown) => unknown, failed: (reason: unknown) => unknown) {
+            return Promise.resolve({ data: [], error: null }).then(done, failed);
+          },
+        };
+        return query;
+      }
       assert.equal(table, "reference_specialists");
       const query: any = {
         select(fields: string) { assert.equal(fields, "id,person_id,personnel_type,status,archived"); return query; },
