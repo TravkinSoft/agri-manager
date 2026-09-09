@@ -6,6 +6,7 @@ import ts from "typescript";
 import { activeAssignedDriverName, vehicleAllowsMachineOperator } from "../lib/vehicles/driver-name";
 import * as model from "../lib/traffic/model";
 import * as eligibility from "../lib/traffic/vehicle-eligibility";
+import * as analytics from "../lib/traffic/analytics";
 
 let checks = 0;
 const check = (actual: unknown, expected: unknown) => { assert.deepEqual(actual, expected); checks++; };
@@ -30,6 +31,8 @@ check(activeAssignedDriverName(null, companyId), null);
 const queries: Array<{ table: string; columns: string }> = [];
 const fixture: Record<string, unknown> = {
   ptc_flows: { enabled: true, field_id: null },
+  ptc_last_vehicle_markers: null,
+  ptc_combine_operator_statuses: [],
   ptc_vehicle_states: [
     { vehicle_id: "vehicle", state: "loaded", version: 9, cycle: 3, assigned: true, since: "2026-09-04T10:00:00Z" },
     { vehicle_id: "light", state: "empty", version: 1, cycle: 0, assigned: true, since: "2026-09-04T10:00:00Z" },
@@ -69,6 +72,7 @@ const dependencies: Record<string, unknown> = {
   "@/lib/auth/server-session": {}, "@/lib/auth/server-acl": {},
   "@/lib/traffic/vehicle-eligibility": eligibility,
   "@/lib/vehicles/driver-name": { activeAssignedDriverName, vehicleAllowsMachineOperator }, "./model": model,
+  "./analytics": analytics,
 };
 vm.runInNewContext(code, { module: moduleScope, exports: moduleScope.exports, Date,
   require: (name: string) => dependencies[name] ?? localRequire(name) });
@@ -96,6 +100,10 @@ async function main() {
   check(references.includes("result.companyId !== companyId"), true);
   check(references.includes("assignmentUpdates.current.get(row.id)"), true);
   check(readFileSync("lib/services/references.ts", "utf8").includes("person:person_id(full_name,company_id,role_type,status,deleted_at)"), true);
+  for (const path of ["components/traffic/traffic-fleet-controls.tsx", "app/(dashboard)/fleet/page.tsx", "app/(dashboard)/references/page.tsx"]) {
+    check(readFileSync(path, "utf8").includes("<VehicleDriverAssignment"), true);
+  }
+  check(readFileSync("app/(dashboard)/weighbridge/page.tsx", "utf8").includes("<VehicleDriverAssignment"), false);
   console.log(`Vehicle driver surfaces PASS: ${checks} (canonical hydration, actual PTC snapshot, reference wiring; no database writes)`);
 }
 void main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -118,6 +118,7 @@ async function requestAssignment(
       method: command ? "POST" : "GET", credentials: "same-origin", cache: "no-store", headers,
       signal: controller.signal,
       body: command ? JSON.stringify({ ...(companyId ? { companyId } : {}), vehicleId,
+        assignmentIntent: "current_fleet_driver",
         driverPersonId: command.driverPersonId, expectedAssignmentId: command.expectedAssignmentId }) : undefined,
     });
     const result: unknown = await response.json().catch(() => null);

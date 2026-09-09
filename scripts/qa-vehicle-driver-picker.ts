@@ -261,7 +261,7 @@ async function main() {
   check(c.requests[0].options.body, undefined); c.respond(0, result()); check((await read).vehicle.id, "vehicle-a");
   const write = c.api.saveVehicleDriverAssignment({ vehicleId: "vehicle-a", driverPersonId: null, expectedAssignmentId: "assignment-a", companyId: "company-a", ignored: "never-send" }); await flush();
   check(c.requests[1].path, "/api/vehicles/driver-assignment"); check(c.headers[1], "json");
-  check(JSON.parse(c.requests[1].options.body as string), { companyId: "company-a", vehicleId: "vehicle-a", driverPersonId: null, expectedAssignmentId: "assignment-a" });
+  check(JSON.parse(c.requests[1].options.body as string), { companyId: "company-a", vehicleId: "vehicle-a", driverPersonId: null, expectedAssignmentId: "assignment-a", assignmentIntent: "current_fleet_driver" });
   c.respond(1, result("", "")); check((await write).vehicle.driverPersonId, null);
   const badScope = c.api.loadVehicleDriverAssignment("vehicle-a", "company-a"); await flush(); c.respond(2, result("driver-a", "assignment-a", "vehicle-other"));
   await assert.rejects(badScope, /не соответствует/); checks++;
