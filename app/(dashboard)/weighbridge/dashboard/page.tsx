@@ -46,8 +46,6 @@ export default function WeighbridgeDashboardPage() {
     })();
   }, [authLoading, profile?.company_id, profile?.id, isOperationalRole]);
 
-  if (authLoading || isOperationalRole) return null;
-
   const metrics = useMemo(() => {
     const today = todayDateOnlyLocal();
     const active = tickets.filter((t) => isActiveStatus(t.status)).length;
@@ -65,6 +63,8 @@ export default function WeighbridgeDashboardPage() {
     }, {});
     return { active, awaitingSecond, finalizedToday, byType };
   }, [tickets]);
+
+  if (authLoading || isOperationalRole) return null;
 
   return (
     <div className="space-y-6">
