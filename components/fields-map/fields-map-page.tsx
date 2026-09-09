@@ -38,6 +38,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
+import { canWriteFieldMap } from "@/lib/fields-map/access";
 import {
   CROP_COLOR_LEGEND,
   WORK_STATUS_COLOR_LEGEND,
@@ -938,6 +939,7 @@ export function FieldsMapPage() {
   const { toast } = useToast();
   const { profile } = useAuth();
   const router = useRouter();
+  const canWriteEngineering = canWriteFieldMap(profile?.role);
   const canMutateBoundaries = FIELD_BOUNDARY_UI_ENABLED && profile?.role === "global_admin";
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -958,6 +960,7 @@ export function FieldsMapPage() {
   const measurementModeRef = useRef<MeasurementMode>("none");
   const mapWorkModeRef = useRef<MapWorkMode>("agro");
   const engineeringDrawModeRef = useRef<EngineeringDrawMode>("none");
+  const canWriteEngineeringRef = useRef(canWriteEngineering);
   const boundaryEditModeRef = useRef(false);
   const boundaryBusyRef = useRef(false);
   const measurementDraggingIndexRef = useRef<number | null>(null);
@@ -1050,6 +1053,14 @@ export function FieldsMapPage() {
       return isSameMapDebugState(prev, next) ? prev : next;
     });
   }, []);
+
+  useEffect(() => {
+    canWriteEngineeringRef.current = canWriteEngineering;
+    if (canWriteEngineering) return;
+    setEngineeringDrawMode("none");
+    setEngineeringDraftPoints([]);
+    setEditingEngineeringObjectId(null);
+  }, [canWriteEngineering]);
 
   const fields = bootstrap?.fields || EMPTY_FIELDS;
   const engineeringObjects = bootstrap?.engineering_objects || EMPTY_ENGINEERING_OBJECTS;
@@ -1741,7 +1752,7 @@ export function FieldsMapPage() {
           }
           const activeWorkMode = mapWorkModeRef.current;
           const activeEngineeringDrawMode = engineeringDrawModeRef.current;
-          if (activeWorkMode === "engineering" && activeEngineeringDrawMode !== "none") {
+          if (canWriteEngineeringRef.current && activeWorkMode === "engineering" && activeEngineeringDrawMode !== "none") {
             const lng = Number(event?.lngLat?.lng);
             const lat = Number(event?.lngLat?.lat);
             if (Number.isFinite(lng) && Number.isFinite(lat)) {
@@ -2164,15 +2175,23 @@ export function FieldsMapPage() {
   }, []);
 
   const startEngineeringDraw = useCallback((mode: EngineeringDrawMode) => {
+    if (!canWriteEngineering) {
+      toast({ title: "Режим просмотра", description: "Изменение инженерных объектов недоступно для вашей роли." });
+      return;
+    }
     setMapWorkMode("engineering");
     setMeasurementMode("none");
     setMeasurementPoints([]);
     setEngineeringDrawMode(mode);
     setEngineeringDraftPoints([]);
     setSelectedEngineeringObjectId(null);
-  }, []);
+  }, [canWriteEngineering, toast]);
 
   const placeEngineeringDraftAtMapCenter = useCallback(() => {
+    if (!canWriteEngineering) {
+      toast({ title: "Режим просмотра", description: "Изменение инженерных объектов недоступно для вашей роли." });
+      return;
+    }
     const map = mapRef.current;
     if (!mapReady || !map) {
       toast({ title: "Карта ещё не готова", description: "Подождите загрузку карты и попробуйте снова.", variant: "destructive" });
@@ -2214,16 +2233,18 @@ export function FieldsMapPage() {
     setEngineeringDrawMode(geometryType === "Point" ? "point" : geometryType === "LineString" ? "line" : "polygon");
     setEngineeringDraftPoints(draftPoints);
     setSelectedEngineeringObjectId(null);
-  }, [mapReady, selectedEngineeringDefinition.geometry, toast]);
+  }, [canWriteEngineering, mapReady, selectedEngineeringDefinition.geometry, toast]);
 
   const handleEngineeringTypeChange = useCallback((value: FieldEngineeringObjectType) => {
+    if (!canWriteEngineering) return;
     const definition = getEngineeringDefinition(value);
     setEngineeringObjectType(value);
     setEngineeringDrawMode(definition.geometry === "Point" ? "point" : definition.geometry === "LineString" ? "line" : "polygon");
     setEngineeringDraftPoints([]);
-  }, []);
+  }, [canWriteEngineering]);
 
   const handleEditEngineeringObject = useCallback((object: FieldEngineeringObject) => {
+    if (!canWriteEngineering) return;
     setMapWorkMode("engineering");
     setEditingEngineeringObjectId(object.id);
     setSelectedEngineeringObjectId(object.id);
@@ -2233,9 +2254,13 @@ export function FieldsMapPage() {
     setEngineeringDescription(object.description || "");
     setEngineeringDrawMode("none");
     setEngineeringDraftPoints([]);
-  }, []);
+  }, [canWriteEngineering]);
 
   const handleSaveEngineeringObject = useCallback(async () => {
+    if (!canWriteEngineering) {
+      toast({ title: "Режим просмотра", description: "Изменение инженерных объектов недоступно для вашей роли." });
+      return;
+    }
     const definition = getEngineeringDefinition(engineeringObjectType);
     const existingObject = editingEngineeringObjectId
       ? engineeringObjects.find((item) => item.id === editingEngineeringObjectId) || null
@@ -2294,12 +2319,17 @@ export function FieldsMapPage() {
     engineeringName,
     engineeringObjectType,
     engineeringObjects,
+    canWriteEngineering,
     loadBootstrap,
     selectedSeasonId,
     toast,
   ]);
 
   const handleDeleteEngineeringObject = useCallback(async (objectId: string) => {
+    if (!canWriteEngineering) {
+      toast({ title: "Режим просмотра", description: "Удаление инженерных объектов недоступно для вашей роли." });
+      return;
+    }
     const confirmed = window.confirm("Удалить инженерный объект с карты?");
     if (!confirmed) return;
     setEngineeringBusy(true);
@@ -2318,7 +2348,7 @@ export function FieldsMapPage() {
     } finally {
       setEngineeringBusy(false);
     }
-  }, [loadBootstrap, selectedSeasonId, toast]);
+  }, [canWriteEngineering, loadBootstrap, selectedSeasonId, toast]);
 
   const handleToggleFollowMeasure = useCallback(() => {
     if (!navigator.geolocation) {
@@ -2966,7 +2996,7 @@ export function FieldsMapPage() {
               <Button className="tf2-control min-h-11 shrink-0" size="sm" disabled={Boolean(boundaryEdit)} variant={measurementMode === "area" ? "default" : "outline"} onClick={() => handleMeasurementMode("area")}><Ruler className="mr-2 h-4 w-4" />Площадь</Button>
               <Button className="tf2-control min-h-11 shrink-0" size="sm" disabled={Boolean(boundaryEdit)} variant={followMeasureActive ? "default" : "outline"} onClick={handleToggleFollowMeasure}><Crosshair className="mr-2 h-4 w-4" />Follow</Button>
               <Button className="tf2-control min-h-11 shrink-0" size="sm" disabled={Boolean(boundaryEdit)} variant="outline" onClick={clearMeasurement}><Trash2 className="mr-2 h-4 w-4" />Очистить</Button>
-              {mapWorkMode === "engineering" ? (
+              {mapWorkMode === "engineering" && canWriteEngineering ? (
                 <>
                   <div className="mx-1 hidden h-7 w-px bg-white/10 md:block" />
                   <Button className="min-h-11 shrink-0" size="sm" variant={engineeringDrawMode === "point" ? "default" : "outline"} onClick={() => startEngineeringDraw("point")}><MapPin className="mr-2 h-4 w-4" />Точка</Button>
@@ -3082,39 +3112,70 @@ export function FieldsMapPage() {
 
         {mapWorkMode === "engineering" ? (
           <aside data-testid="fields-map-inspector" className="tf2-map-inspector tf2-panel travkin-scrollbar pointer-events-auto absolute inset-x-3 bottom-28 top-[10.5rem] z-10 max-h-none overflow-y-auto rounded-2xl p-4 xl:inset-x-auto xl:bottom-auto xl:right-3 xl:top-3 xl:max-h-[calc(100%-112px)] xl:w-[420px]">
-            <div className="mb-3 flex items-start justify-between gap-3"><div><div className="text-xs uppercase tracking-[0.24em] text-cyan-300">Инженерия капельного</div><h2 className="mt-1 text-xl font-bold text-slate-50">{editingEngineeringObjectId ? "Редактировать объект" : "Добавить объект"}</h2></div><Button size="sm" variant="ghost" onClick={() => setSelectedEngineeringObjectId(null)}><X className="h-4 w-4" /></Button></div>
-            <div className="space-y-3">
-              <div className="grid grid-cols-[1fr_118px] gap-2">
-                <Select value={engineeringObjectType} onValueChange={(value) => handleEngineeringTypeChange(value as FieldEngineeringObjectType)}>
-                  <SelectTrigger className="bg-[#080D16]"><SelectValue /></SelectTrigger>
-                  <SelectContent>{ENGINEERING_OBJECT_DEFINITIONS.map((item) => <SelectItem key={item.type} value={item.type}>{item.label}</SelectItem>)}</SelectContent>
-                </Select>
-                <Button variant="outline" onClick={() => startEngineeringDraw(selectedEngineeringDefinition.geometry === "Point" ? "point" : selectedEngineeringDefinition.geometry === "LineString" ? "line" : "polygon")}><MousePointer2 className="mr-2 h-4 w-4" />Рисовать</Button>
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-[0.24em] text-cyan-300">Инженерия капельного</div>
+                <h2 className="mt-1 text-xl font-bold text-slate-50">{canWriteEngineering ? (editingEngineeringObjectId ? "Редактировать объект" : "Добавить объект") : "Инженерные объекты"}</h2>
               </div>
-              <input value={engineeringName} onChange={(event) => setEngineeringName(event.target.value)} placeholder={selectedEngineeringDefinition.label} className="h-10 w-full rounded-md border border-[#2B3448] bg-[#080D16] px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[#E0B100]" />
-              <Select value={engineeringFieldId} onValueChange={setEngineeringFieldId}>
-                <SelectTrigger className="bg-[#080D16]"><SelectValue placeholder="Поле необязательно" /></SelectTrigger>
-                <SelectContent><SelectItem value="none">Без привязки к полю</SelectItem>{fields.map((field) => <SelectItem key={`eng-field-${field.field_id}`} value={field.field_id}>Поле {field.field_display_name}</SelectItem>)}</SelectContent>
-              </Select>
-              <textarea value={engineeringDescription} onChange={(event) => setEngineeringDescription(event.target.value)} placeholder="Заметка инженера..." rows={3} className="w-full resize-none rounded-md border border-[#2B3448] bg-[#080D16] px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[#E0B100]" />
-              <div className="rounded-lg border border-white/10 bg-[#111A29] p-3 text-sm text-slate-300">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <div className="font-medium text-slate-100">Чертёж</div>
-                    <div className="mt-1 text-xs text-slate-400">Режим: {engineeringDrawMode === "point" ? "точка" : engineeringDrawMode === "line" ? "линия" : engineeringDrawMode === "polygon" ? "зона" : "не выбран"} • точек: {engineeringDraftPoints.length}</div>
-                  </div>
-                  <>
-                    <Button size="sm" variant="outline" className="h-8 shrink-0 px-2 text-xs" onClick={placeEngineeringDraftAtMapCenter}>
-                      В центр
-                    </Button>
-                  </>
-                </div>
-                {engineeringDraftGeometry?.type === "LineString" ? <div className="mt-2">Длина: {formatDistance(engineeringDraftDistanceMeters)}</div> : null}
-                {engineeringDraftGeometry?.type === "Polygon" ? <div className="mt-2">Площадь: {formatSquare(engineeringDraftAreaSqMeters)}</div> : null}
-              </div>
-              <div className="flex gap-2"><Button className="flex-1" disabled={engineeringBusy} onClick={() => void handleSaveEngineeringObject()}><Save className="mr-2 h-4 w-4" />{engineeringBusy ? "Сохранение..." : "Сохранить"}</Button><Button variant="outline" onClick={clearEngineeringDraft}>Очистить</Button></div>
+              <Button size="sm" variant="ghost" aria-label="Снять выбор инженерного объекта" onClick={() => setSelectedEngineeringObjectId(null)}><X className="h-4 w-4" /></Button>
             </div>
-            {selectedEngineeringObject ? <div className="mt-4 rounded-xl border border-cyan-400/25 bg-cyan-400/10 p-3"><div className="flex items-start justify-between gap-3"><div><div className="text-sm font-semibold text-slate-50">{selectedEngineeringObject.name}</div><div className="text-xs text-slate-400">{selectedObjectDefinition?.label || selectedEngineeringObject.object_type}{selectedObjectField ? ` • Поле ${selectedObjectField.field_display_name}` : ""}</div></div><Badge variant="outline">{selectedObjectMetric || "точка"}</Badge></div>{selectedEngineeringObject.description ? <div className="mt-2 text-sm text-slate-300">{selectedEngineeringObject.description}</div> : null}<div className="mt-3 flex gap-2"><Button size="sm" variant="outline" onClick={() => handleEditEngineeringObject(selectedEngineeringObject)}><Pencil className="mr-2 h-4 w-4" />Редактировать</Button><Button size="sm" variant="destructive" onClick={() => void handleDeleteEngineeringObject(selectedEngineeringObject.id)}><Trash2 className="mr-2 h-4 w-4" />Удалить</Button></div></div> : null}
+            {canWriteEngineering ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-[1fr_118px] gap-2">
+                  <Select value={engineeringObjectType} onValueChange={(value) => handleEngineeringTypeChange(value as FieldEngineeringObjectType)}>
+                    <SelectTrigger className="bg-[#080D16]"><SelectValue /></SelectTrigger>
+                    <SelectContent>{ENGINEERING_OBJECT_DEFINITIONS.map((item) => <SelectItem key={item.type} value={item.type}>{item.label}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Button variant="outline" onClick={() => startEngineeringDraw(selectedEngineeringDefinition.geometry === "Point" ? "point" : selectedEngineeringDefinition.geometry === "LineString" ? "line" : "polygon")}><MousePointer2 className="mr-2 h-4 w-4" />Рисовать</Button>
+                </div>
+                <input value={engineeringName} onChange={(event) => setEngineeringName(event.target.value)} placeholder={selectedEngineeringDefinition.label} className="h-10 w-full rounded-md border border-[#2B3448] bg-[#080D16] px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[#E0B100]" />
+                <Select value={engineeringFieldId} onValueChange={setEngineeringFieldId}>
+                  <SelectTrigger className="bg-[#080D16]"><SelectValue placeholder="Поле необязательно" /></SelectTrigger>
+                  <SelectContent><SelectItem value="none">Без привязки к полю</SelectItem>{fields.map((field) => <SelectItem key={`eng-field-${field.field_id}`} value={field.field_id}>Поле {field.field_display_name}</SelectItem>)}</SelectContent>
+                </Select>
+                <textarea value={engineeringDescription} onChange={(event) => setEngineeringDescription(event.target.value)} placeholder="Заметка инженера..." rows={3} className="w-full resize-none rounded-md border border-[#2B3448] bg-[#080D16] px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[#E0B100]" />
+                <div className="rounded-lg border border-white/10 bg-[#111A29] p-3 text-sm text-slate-300">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="font-medium text-slate-100">Чертёж</div>
+                      <div className="mt-1 text-xs text-slate-400">Режим: {engineeringDrawMode === "point" ? "точка" : engineeringDrawMode === "line" ? "линия" : engineeringDrawMode === "polygon" ? "зона" : "не выбран"} • точек: {engineeringDraftPoints.length}</div>
+                    </div>
+                    <Button size="sm" variant="outline" className="h-8 shrink-0 px-2 text-xs" onClick={placeEngineeringDraftAtMapCenter}>В центр</Button>
+                  </div>
+                  {engineeringDraftGeometry?.type === "LineString" ? <div className="mt-2">Длина: {formatDistance(engineeringDraftDistanceMeters)}</div> : null}
+                  {engineeringDraftGeometry?.type === "Polygon" ? <div className="mt-2">Площадь: {formatSquare(engineeringDraftAreaSqMeters)}</div> : null}
+                </div>
+                <div className="flex gap-2"><Button className="flex-1" disabled={engineeringBusy} onClick={() => void handleSaveEngineeringObject()}><Save className="mr-2 h-4 w-4" />{engineeringBusy ? "Сохранение..." : "Сохранить"}</Button><Button variant="outline" onClick={clearEngineeringDraft}>Очистить</Button></div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div data-testid="fields-map-engineering-readonly" role="status" className="rounded-xl border border-cyan-400/25 bg-cyan-400/10 p-3 text-sm text-cyan-50">
+                  <div className="flex items-center gap-2 font-semibold"><Eye className="h-4 w-4" />Только просмотр</div>
+                  <p className="mt-1 text-xs leading-5 text-slate-300">Можно смотреть слои и карточки объектов. Создание, рисование, редактирование и удаление недоступны для вашей роли.</p>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2 text-xs uppercase tracking-[0.18em] text-slate-400"><span>Объекты на карте</span><Badge variant="outline">{filteredEngineeringObjects.length}</Badge></div>
+                  {filteredEngineeringObjects.slice(0, 20).map((object) => {
+                    const definition = getEngineeringDefinition(object.object_type);
+                    return (
+                      <button key={object.id} type="button" aria-label={`Показать инженерный объект ${object.name}`} onClick={() => { setSelectedEngineeringObjectId(object.id); focusGeometryOnMap(object.geometry, object.name); }} className={`tf2-control w-full rounded-lg border px-3 py-2 text-left ${selectedEngineeringObjectId === object.id ? "border-cyan-300/60 bg-cyan-400/10" : "border-white/10 bg-[#111A29] hover:bg-white/[0.06]"}`}>
+                        <div className="truncate text-sm font-semibold text-slate-100">{object.name}</div>
+                        <div className="mt-0.5 text-xs text-slate-400">{definition.label}{object.field_id ? ` • Поле ${fields.find((field) => field.field_id === object.field_id)?.field_display_name || "не найдено"}` : ""}</div>
+                      </button>
+                    );
+                  })}
+                  {!filteredEngineeringObjects.length ? <div className="rounded-lg border border-dashed border-white/10 px-3 py-4 text-center text-sm text-slate-400">Объектов в выбранном слое нет.</div> : null}
+                  {filteredEngineeringObjects.length > 20 ? <div className="text-xs text-slate-400">Показаны первые 20 объектов из {filteredEngineeringObjects.length}.</div> : null}
+                </div>
+              </div>
+            )}
+            {selectedEngineeringObject ? (
+              <div className="mt-4 rounded-xl border border-cyan-400/25 bg-cyan-400/10 p-3">
+                <div className="flex items-start justify-between gap-3"><div><div className="text-sm font-semibold text-slate-50">{selectedEngineeringObject.name}</div><div className="text-xs text-slate-400">{selectedObjectDefinition?.label || selectedEngineeringObject.object_type}{selectedObjectField ? ` • Поле ${selectedObjectField.field_display_name}` : ""}</div></div><Badge variant="outline">{selectedObjectMetric || "точка"}</Badge></div>
+                {selectedEngineeringObject.description ? <div className="mt-2 text-sm text-slate-300">{selectedEngineeringObject.description}</div> : null}
+                {canWriteEngineering ? <div className="mt-3 flex gap-2"><Button size="sm" variant="outline" onClick={() => handleEditEngineeringObject(selectedEngineeringObject)}><Pencil className="mr-2 h-4 w-4" />Редактировать</Button><Button size="sm" variant="destructive" onClick={() => void handleDeleteEngineeringObject(selectedEngineeringObject.id)}><Trash2 className="mr-2 h-4 w-4" />Удалить</Button></div> : null}
+              </div>
+            ) : null}
           </aside>
         ) : null}
 

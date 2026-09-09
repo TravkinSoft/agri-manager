@@ -9,6 +9,7 @@ const outputDir = path.resolve("scripts/output/fields-map-browser-matrix");
 const userId = "11111111-1111-4111-8111-111111111111";
 const companyId = "22222222-2222-4222-8222-222222222222";
 const seasonId = "33333333-3333-4333-8333-333333333333";
+const qaRole = process.env.QA_FIELDS_MAP_ROLE || "global_admin";
 
 const field = (suffix, name, area, coordinates, crop, workStatus) => ({
   field_id: `44444444-4444-4444-8444-44444444440${suffix}`,
@@ -35,7 +36,25 @@ const bootstrap = {
     field(2, "1 (МашДвор)", 20, [[69.21, 54.87], [69.25, 54.87], [69.25, 54.91], [69.21, 54.91], [69.21, 54.87]], "Картофель", "not_started"),
     field(3, "Без контура", 45, null, null, "problem"),
   ],
-  engineering_objects: [],
+  engineering_objects: [{
+    id: "88888888-8888-4888-8888-888888888888",
+    company_id: companyId,
+    season_id: seasonId,
+    field_id: "44444444-4444-4444-8444-444444444401",
+    crop_structure_id: null,
+    object_type: "hydrant",
+    name: "Гидрант QA",
+    description: "Read-only browser contract",
+    geometry: { type: "Point", coordinates: [69.13, 54.875] },
+    geometry_type: "Point",
+    properties: {},
+    is_active: true,
+    created_by: userId,
+    created_by_name: "Browser QA Admin",
+    created_at: "2026-09-09T00:00:00.000Z",
+    updated_at: "2026-09-09T00:00:00.000Z",
+    deleted_at: null,
+  }],
 };
 
 const authUser = {
@@ -55,7 +74,7 @@ const profile = {
   id: userId,
   full_name: "Browser QA Admin",
   email: authUser.email,
-  role: "global_admin",
+  role: qaRole,
   company_id: companyId,
   is_owner: true,
   status: "active",
@@ -63,20 +82,24 @@ const profile = {
   updated_at: authUser.updated_at,
 };
 
-const viewports = [[320, 568], [360, 800], [390, 844], [667, 375], [768, 1024], [844, 390], [1024, 768], [1304, 930], [1440, 900]];
+const viewports = (process.env.QA_FIELDS_MAP_VIEWPORTS || "320x568,360x800,390x844,667x375,768x1024,844x390,1024x768,1304x930,1440x900")
+  .split(",")
+  .map((value) => value.split("x").map(Number))
+  .filter(([width, height]) => Number.isFinite(width) && Number.isFinite(height));
 const requestedEngines = new Set((process.env.QA_FIELDS_MAP_ENGINES || "chromium,webkit").split(",").map((value) => value.trim()));
 const expectOverlayBaseline = process.env.QA_FIELDS_MAP_OVERLAY_BASELINE === "1";
 const compactEvidence = process.env.QA_FIELDS_MAP_EVIDENCE_COMPACT === "1";
+const expectReadOnlyEngineering = process.env.QA_FIELDS_MAP_EXPECT_ENGINEERING_READONLY === "1";
 
 async function installMocks(page) {
   const json = (route, body) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   await page.route("**/rest/v1/**", (route) => json(route, []));
   await page.route("**/rest/v1/profiles**", (route) => json(route, [profile]));
   await page.route("**/auth/v1/user**", (route) => json(route, authUser));
-  await page.route("**/api/auth/actor**", (route) => json(route, { actor: { id: userId, role: "global_admin", companyId, contextCompanyId: companyId, isImpersonating: false } }));
+  await page.route("**/api/auth/actor**", (route) => json(route, { actor: { id: userId, role: qaRole, companyId, contextCompanyId: companyId, isImpersonating: false } }));
   await page.route("**/api/global-admin/companies**", (route) => json(route, { companies: [{ id: companyId, name: "Browser QA" }], selectedCompanyId: companyId }));
   await page.route("**/api/global-admin/company-users**", (route) => json(route, { users: [] }));
-  await page.route("**/api/assistant/context**", (route) => json(route, { role: "global_admin", companyId, requiresCompanySelection: false, source: "browser-qa" }));
+  await page.route("**/api/assistant/context**", (route) => json(route, { role: qaRole, companyId, requiresCompanySelection: false, source: "browser-qa" }));
   await page.route("**/api/assistant/proactive**", (route) => json(route, { signals: 0 }));
   await page.route("**/api/operations-health**", (route) => json(route, {
     status: "healthy",
@@ -198,7 +221,7 @@ async function runEngine(name, browserType) {
       const shortLandscape = width < 1280 && height <= 600 && width > height;
       if (!expectOverlayBaseline) {
         assert.equal(baseResult.documentOverflowPx, 0, `${name} ${label} base: document overflow`);
-        assert.equal(baseResult.mapViewportContained, true, `${name} ${label} base: map viewport exceeds browser viewport`);
+        assert.equal(baseResult.mapViewportContained, true, `${name} ${label} base: map viewport exceeds browser viewport ${JSON.stringify({ mapViewport: baseResult.mapViewport, mobileNav: baseResult.mobileNav })}`);
         assert.equal(baseResult.topDockContained, true, `${name} ${label} base: top dock exceeds map viewport`);
         assert.equal(baseResult.bottomDockContained, true, `${name} ${label} base: measurement dock exceeds map viewport`);
         assert.equal(baseResult.dockOverlap, false, `${name} ${label} base: docks overlap ${JSON.stringify({ topDock: baseResult.topDock, bottomDock: baseResult.bottomDock, mapViewport: baseResult.mapViewport })}`);
@@ -264,6 +287,25 @@ async function runEngine(name, browserType) {
       results.push({ viewport: [width, height], base: baseResult, selected: result, activeMeasure });
     }
 
+    await page.setViewportSize({ width: 390, height: 844 });
+    const closeFieldInspector = page.getByRole("button", { name: "Закрыть инспектор поля" });
+    if (await closeFieldInspector.isVisible()) await closeFieldInspector.click();
+    await page.getByRole("button", { name: "Инженерия", exact: true }).click();
+    const engineeringReadonly = page.getByTestId("fields-map-engineering-readonly");
+    if (expectReadOnlyEngineering) {
+      await engineeringReadonly.waitFor({ state: "visible" });
+      await page.getByRole("button", { name: "Показать инженерный объект Гидрант QA" }).click();
+      assert.equal(await page.getByRole("button", { name: "Рисовать", exact: true }).count(), 0, `${name}: read-only engineering draw action leaked`);
+      assert.equal(await page.getByRole("button", { name: "Сохранить", exact: true }).count(), 0, `${name}: read-only engineering save action leaked`);
+      assert.equal(await page.getByRole("button", { name: "Редактировать", exact: true }).count(), 0, `${name}: read-only engineering edit action leaked`);
+      assert.equal(await page.getByRole("button", { name: "Удалить", exact: true }).count(), 0, `${name}: read-only engineering delete action leaked`);
+      assert.equal(await page.getByRole("button", { name: /^(Точка|Линия|Зона)$/u }).count(), 0, `${name}: read-only engineering toolbar mutation leaked`);
+    } else {
+      assert.equal(await engineeringReadonly.count(), 0, `${name}: writer received read-only engineering banner`);
+      await page.getByRole("button", { name: "Рисовать", exact: true }).waitFor({ state: "visible" });
+      await page.getByRole("button", { name: "Сохранить", exact: true }).waitFor({ state: "visible" });
+    }
+
     await page.emulateMedia({ reducedMotion: "reduce" });
     const reducedMotion = await page.evaluate(() => {
       const durations = [...document.querySelectorAll(".tf2-shell *")].flatMap((element) =>
@@ -292,6 +334,8 @@ async function runEngine(name, browserType) {
   const output = compactEvidence
     ? {
         suite: "Fields Map browser matrix",
+        qaRole,
+        expectReadOnlyEngineering,
         expectOverlayBaseline,
         evidence: evidence.map(({ name, results, reducedMotion, fieldsMapWrites }) => ({
           name,

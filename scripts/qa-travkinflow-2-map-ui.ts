@@ -93,6 +93,16 @@ check("map viewport and native scale reserve responsive shell space", () => {
   assert.match(styles, /@media \(min-width: 1280px\)[^}]+maplibregl-ctrl-bottom-right[^}]+bottom: 4\.75rem/s);
 });
 
+check("engineering mutations are guarded by field-map write access", () => {
+  assert.match(source, /import \{ canWriteFieldMap \} from "@\/lib\/fields-map\/access"/);
+  assert.match(source, /const canWriteEngineering = canWriteFieldMap\(profile\?\.role\)/);
+  assert.match(source, /canWriteEngineeringRef\.current && activeWorkMode === "engineering"/);
+  assert.match(activeRender, /mapWorkMode === "engineering" && canWriteEngineering/);
+  assert.match(activeRender, /data-testid="fields-map-engineering-readonly"/);
+  assert.match(activeRender, /canWriteEngineering \? \([^]*Рисовать[^]*Сохранить[^]*\) : \(/);
+  assert.match(activeRender, /canWriteEngineering \? <div className="mt-3 flex gap-2">[^]*Редактировать[^]*Удалить/);
+});
+
 check("motion respects the operating-system preference", () => {
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(styles, /\.tf2-shell \*,/);
