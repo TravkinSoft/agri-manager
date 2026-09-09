@@ -4,16 +4,16 @@
 
 ## Текущая точка восстановления
 
-- Статус программы: `C01-C33 ЛОКАЛЬНО ЗАВЕРШЕНЫ / НОВЫЙ QA CANDIDATE ГОТОВИТСЯ / PRODUCT РЕЛИЗ TF2 НЕ НАЧАТ / POST-UPDATE AUDIT ЗАПЛАНИРОВАН`.
-- Общий прогресс: `C01-C33 выполнены / QA baseline развёрнут с flags=0 / C33 Preview pending / 0% Product-релизных волн / 0% финального аудита`.
+- Статус программы: `C01-C33 ЛОКАЛЬНО ЗАВЕРШЕНЫ / PRODUCT P0 ВКЛЮЧЁН / QA SCHEMA GAP ЗАКРЫТ / НОВЫЙ QA CANDIDATE ГОТОВИТСЯ / PRODUCT РЕЛИЗ TF2 НЕ НАЧАТ / POST-UPDATE AUDIT ЗАПЛАНИРОВАН`.
+- Общий прогресс: `C01-C33 выполнены / P0 merge и post-merge gates PASS / QA fleet/PTC prerequisite восстановлен / C33 Preview pending / 0% Product-релизных волн / 0% финального аудита`.
 - Worktree: `C:\Users\TRAVKIN\Downloads\CodecSaaS\.worktrees\travkinflow-2`.
 - Ветка: `codex/travkinflow-2`.
 - База ветки на старте программы: `3274331e7180252dd0f740222f6c4d15e4d20ebd`.
-- На момент старта `origin/master`, GitHub и Product health совпадали на `3274331e7180`. Во время C33 отдельный срочный P0 hotfix весовой был выпущен в Product как `9acb78b52d234cf43714c41b67f03f46b5b98347`; перед новым TF2 Preview этот commit должен быть включён без потери любой из двух реализаций.
+- На момент старта `origin/master`, GitHub и Product health совпадали на `3274331e7180`. Последний срочный P0 hotfix восстановления истёкшей browser-сессии выпущен в Product и `origin/master` как `07d134355fcd05df3288c980b294e4cbd8c607b0`. Он чисто включён в TF2 merge-коммит `389655a620d1456cdc539d9a237d55bfc0d04da7`; независимый аудит подтвердил сохранность обеих реализаций.
 - Corrective checkpoint зафиксирован коммитом `72918a8190c37fa1d9fe3437e50f54c6127956d2`; независимые corrective/search-path review дали GO (P0/P1/P2 = 0), все целевые suites, TypeScript, ESLint, diff-check и production build PASS.
-- QA branch `gsglkmudcwkdetqtocae` восстановлена точной цепочкой из десяти миграций. PRE был quiescent, POST дал неизменные двенадцать business fingerprints, ноль PTC/ticket/ledger writes, пустые новые PTC/map таблицы и точные ACL/index/function contracts. Permanent `qa.travkinflow.com` указывает на READY Preview `dpl_5S47LAWk79efWj57QTg3VuM2BGUS` точного `72918a`; client/server QA binding и вход Global Admin в пять QA-компаний доказаны. Все одиннадцать rollout-флагов остаются `0`.
+- QA branch `gsglkmudcwkdetqtocae` восстановлена первоначальной цепочкой из десяти миграций, а затем точечно дополнена четырьмя отсутствовавшими fleet/PTC prerequisite: `fleet_entity_creation_v1`, `ptc_company_fleet_scope_v1`, `fleet_entity_ptc_provenance_corrective_v1`, `ptc_fleet_transport_exposure_hardening_v1`. PRE был quiescent; POST сохранил counts и fingerprints tickets/lines/weighings/ledger/batches/lots/warehouses/fields/PTC/repairs, включил `ptc_enabled` ровно у одной уже assigned+loaded машины и не создал машин, людей, событий или движений. `fleet_transport` теперь `security_invoker=true`, anon/authenticated SELECT снят, функции после CRLF/LF normalization физически совпадают с Product. Старый Preview остаётся только историческим; нужен новый exact candidate. Все одиннадцать rollout-флагов остаются `0`.
 - C33 локально закрыт: независимый review P0/P1/P2=`0/0/0`; model 80, repair PGlite 86, manager 63, compact board 757, fast client 282, agronomist read-only 46, browser confirm 398 и fleet mobile 285 PASS, включая Chromium/WebKit, reload/realtime/idempotency и стабильный tie-break.
-- Следующий безопасный шаг: зафиксировать C33, включить новый Product P0 commit `9acb78b`, повторить полный local/build gate и развернуть новый immutable QA-кандидат с flags=0. Только после browser smoke продолжать последовательные server-first flag waves и M09. Blind rebase/db push, подмена Product и маскировка отсутствующих prerequisite через `IF EXISTS` запрещены.
+- Следующий безопасный шаг: зафиксировать обновлённый журнал, отправить интегрированную TF2-ветку и развернуть новый immutable QA-кандидат с flags=0. Только после exact-SHA/env/health/log/browser smoke продолжать последовательные server-first flag waves и M09. Blind rebase/db push, подмена Product и маскировка отсутствующих prerequisite через `IF EXISTS` запрещены.
 - Production rollout: `НЕ НАЧАТ`; каждую волну выкладывать отдельно после Preview/QA и свежей проверки Product.
 
 Если работа прерывается P0-задачей, продолжать с первого незакрытого чекбокса ниже. После каждого существенного рубежа обновлять этот раздел, а под выполненным пунктом писать краткое `Сделано` и доказательство проверки.
@@ -278,7 +278,7 @@ Data/write flags: `WAREHOUSE_ORDER_WRITE_V1`, `NEXT_PUBLIC_UI_WAREHOUSE_V2`, `NE
 ### Wave 5 — Full-story QA and rollout
 
 - [x] W5.1. TypeScript, scoped ESLint, unit/contract suites и production build.
-  - Сделано: post-corrective TypeScript, scoped ESLint, diff-check и production build PASS; warehouse 37/37 + 22 + 23, PTC 104 + 83 + 45, field harvest 13/13, field-map atomic/PGlite 22/22 + 21/21. Сборка выполнялась при всех новых data/write flags=`0` и подтверждённых QA env, загруженных только в память процесса; сохранились лишь известные warnings `realtime-js`, optional `bufferutil`/`utf-8-validate` и Browserslist.
+  - Сделано: post-corrective и post-P0-merge TypeScript, scoped ESLint, diff-check и production build PASS; warehouse 37/37 + 22 + 23, PTC 104 + 83 + 45, field harvest 13/13, field-map atomic/PGlite 22/22 + 21/21, session-refresh, close-state 22/22, weighbridge interface 32/32, lot stability 19/19, PIN 37/37 и ticket/session 10/10. Финальная локальная сборка выполнялась при всех новых data/write flags=`0` и QA binding только в памяти процесса; сохранились лишь известные warnings `realtime-js`, optional `bufferutil`/`utf-8-validate` и Browserslist.
 - [x] W5.2. Role matrix: global_admin, company_admin, agronomist, fleet manager, weighman, warehouse operator, harvester.
   - Сделано: локальные access/role contracts пройдены для карты, склада, профиля, crop structure, PTC и весовой; точный runtime role smoke остаётся частью W5.5 на восстановленной QA-среде.
 - [-] W5.3. Browser matrix: desktop/tablet/mobile, touch/keyboard, slow network, reload/back/forward, two tabs, reduced motion.
@@ -286,7 +286,7 @@ Data/write flags: `WAREHOUSE_ORDER_WRITE_V1`, `NEXT_PUBLIC_UI_WAREHOUSE_V2`, `NE
 - [-] W5.4. Data fingerprints: tickets/ledger/batches/warehouses/field boundaries before and after соответствующих волн.
   - Сделано: исходные ticket/ledger и STEM archive/KML fingerprints сохранены; post-import fingerprints невозможны до отдельного M09/Preview write.
 - [-] W5.5. Preview deployment на точный SHA; permanent QA only after slot/env confirmation.
-  - Сделано: prerequisite и пять TF2 migrations применены в QA после quiescent PRE; POST fingerprints/ACL/index contracts прошли. Permanent `qa.travkinflow.com` указывает на READY `dpl_5S47LAWk79efWj57QTg3VuM2BGUS` точного `72918a`; client/server QA binding и вход Global Admin в пять QA-компаний доказаны, все одиннадцать rollout flags=`0`. C33 появился позже и требует нового immutable Preview до flag waves.
+  - Сделано: prerequisite и пять TF2 migrations применены в QA после quiescent PRE; позднее обнаруженный fleet/PTC schema gap закрыт отдельной точной цепочкой из четырёх committed migrations с неизменными business counts/fingerprints и ожидаемым включением одной существующей PTC-машины. Permanent `qa.travkinflow.com` исторически указывал на READY `dpl_5S47LAWk79efWj57QTg3VuM2BGUS` точного `72918a`; C33 и Product auth P0 требуют нового immutable Preview до flag waves. Старый `dpl_6arh36yxbCUjgZ4oEfvpmuCCpi6D` на `1c0bd2` не переиспользовать и не продвигать.
 - [ ] W5.6. Release one wave at a time: fresh fast-forward proof → immutable Production build → alias → health/log/browser smoke.
 - [ ] W5.7. После W6.8 обновить этот журнал, CURRENT_HANDOFF и отправить один terminal signal только при настоящей финальной границе.
 
@@ -362,6 +362,8 @@ Validated boundary package зафиксирован в `c36f9ff`. Обе нов�
 
 ## Журнал рубежей
 
+- 2026-09-09 — Product auth P0 `07d1343` чисто включён в TF2 merge `389655a`; независимый merge-аудит не нашёл блокеров. Session-refresh, close-state, interface, lot-stability, PIN, ticket/session, TypeScript, diff-check и production build PASS при flags=`0`.
+- 2026-09-09 — QA fleet/PTC drift закрыт четырьмя точными migrations после quiescent PRE. POST: business counts/fingerprints неизменны, кроме ожидаемого `ptc_enabled=true` и технического `updated_at` одной уже loaded машины; Product-normalized function hashes совпадают, `fleet_transport` больше не отмечается advisor как SECURITY DEFINER. Product DB не изменялась.
 - 2026-09-09 — pre-release corrective: dashboard теперь учитывает effective impersonated agronomist, warehouse reorder сохраняет позиции скрытых QA-складов, live harvest защищён отдельным server flag. Независимый review GO, P0/P1/P2=0; targeted suites 37/37, 22, 23, 104/104, 83/83, 45/45 и 13/13, TypeScript/ESLint/diff-check/production build PASS. Corrective commit/Preview ещё не созданы.
 - 2026-09-09 — field-map atomic RPC усилены `search_path=''`; static contract 22/22, PGlite 21/21 и независимый review GO. Удалённые БД не изменялись.
 - 2026-09-09 — immutable Preview `dpl_EV6fwXmJrvfmbAa5wrLoovwtzw93` READY на `d86af53`, alias отсутствует; client Supabase binding соответствует QA branch. Server binding остаётся неподтверждённым, permanent QA/Product не переключались.
