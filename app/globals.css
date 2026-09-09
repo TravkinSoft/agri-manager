@@ -126,6 +126,38 @@
     }
   }
 
+  @media (max-width: 1279px) {
+    .tf2-map-viewport .maplibregl-ctrl-scale {
+      display: none;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .tf2-map-viewport .maplibregl-ctrl-bottom-right {
+      bottom: 4.75rem;
+    }
+  }
+
+  @media (max-width: 1279px) and (max-height: 600px) and (orientation: landscape) {
+    .tf2-map-top-dock > [data-testid="fields-map-top-dock"] {
+      padding: 0.5rem;
+    }
+
+    .tf2-map-viewport .tf2-map-measure-dock {
+      bottom: 0.25rem;
+    }
+
+    .tf2-map-viewport[data-has-open-inspector="true"] .tf2-map-secondary-controls,
+    .tf2-map-viewport[data-has-open-inspector="true"] .tf2-map-measure-dock {
+      display: none;
+    }
+
+    .tf2-map-viewport[data-has-open-inspector="true"] .tf2-map-inspector {
+      inset: 5.25rem 0.75rem 0.75rem;
+      max-height: none;
+    }
+  }
+
   .tf2-traffic-shell {
     background:
       radial-gradient(900px 520px at 12% -8%, rgba(224, 177, 0, 0.11), transparent 56%),

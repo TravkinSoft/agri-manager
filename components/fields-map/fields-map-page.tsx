@@ -14,6 +14,7 @@ import {
   LocateFixed,
   MapPinned,
   MapPin,
+  Minus,
   MousePointer2,
   Navigation,
   Pencil,
@@ -1510,7 +1511,6 @@ export function FieldsMapPage() {
           offset: 12,
         });
 
-        map.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-right");
         map.addControl(new maplibre.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-right");
         applyBaseLayerVisibility(map, selectedBaseLayerRef.current);
 
@@ -2024,6 +2024,18 @@ export function FieldsMapPage() {
   const handleShowAllFields = useCallback(() => {
     requestFitByReason("show_all_fields");
   }, [requestFitByReason]);
+
+  const handleZoomIn = useCallback(() => {
+    const map = mapRef.current;
+    if (!mapReady || !map) return;
+    map.zoomIn({ duration: mapMotionDuration(180) });
+  }, [mapReady]);
+
+  const handleZoomOut = useCallback(() => {
+    const map = mapRef.current;
+    if (!mapReady || !map) return;
+    map.zoomOut({ duration: mapMotionDuration(180) });
+  }, [mapReady]);
 
   const handleResetMapView = useCallback(() => {
     userInteractedRef.current = false;
@@ -2856,7 +2868,11 @@ export function FieldsMapPage() {
       <input ref={fileInputRef} type="file" accept=".kml" className="hidden" disabled={!canMutateBoundaries} onChange={handleKmlSelect} />
       {mapError ? <div className="mx-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100 md:mx-4">{mapError}</div> : null}
 
-      <section className="relative h-[calc(100vh-86px)] min-h-[720px] overflow-hidden rounded-[18px] border border-white/[0.07] bg-[#070B12] shadow-2xl">
+      <section
+        data-testid="fields-map-viewport"
+        data-has-open-inspector={hasOpenInspector ? "true" : "false"}
+        className="tf2-map-viewport relative h-[calc(100dvh_-_9.75rem_-_env(safe-area-inset-bottom))] min-h-0 overflow-hidden rounded-[18px] border border-white/[0.07] bg-[#070B12] shadow-2xl md:h-[calc(100vh-86px)]"
+      >
         <div className="absolute inset-0">
           <div
             ref={bindMapContainerRef}
@@ -2870,13 +2886,13 @@ export function FieldsMapPage() {
         </div>
 
         <div
-          className={`pointer-events-none absolute left-3 top-3 z-10 w-[calc(100%-24px)] transition-[width] duration-150 ${
+          className={`tf2-map-top-dock pointer-events-none absolute left-3 top-3 z-10 w-[calc(100%-24px)] transition-[width] duration-150 ${
             hasOpenInspector
               ? "xl:w-[calc(100%-466px)] 2xl:w-[680px]"
               : "xl:w-[min(860px,calc(100%-88px))]"
           }`}
         >
-          <div className="tf2-dock pointer-events-auto rounded-2xl p-2.5">
+          <div data-testid="fields-map-top-dock" className="tf2-dock pointer-events-auto rounded-2xl p-2.5">
             <div className="travkin-scrollbar flex flex-nowrap items-center gap-2 overflow-x-auto pb-0.5">
               <div className="shrink-0 text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Режим</div>
               <Button className="tf2-control min-h-11 shrink-0" size="sm" variant={mapWorkMode === "agro" ? "default" : "outline"} onClick={() => { setMapWorkMode("agro"); setEngineeringDrawMode("none"); setSelectedEngineeringObjectId(null); }}>
@@ -2913,18 +2929,20 @@ export function FieldsMapPage() {
                 </div>
               )}
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-white/[0.07] pt-2">
+            <div className="tf2-map-secondary-controls travkin-scrollbar mt-2 flex flex-nowrap items-center gap-2 overflow-x-auto border-t border-white/[0.07] pb-0.5 pt-2">
               <div className="flex min-w-[220px] flex-1 items-center gap-2">
                 <input value={fieldSearch} disabled={Boolean(boundaryEdit)} onChange={(event) => setFieldSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); runFieldSearch(); } }} placeholder="Найти поле..." className="h-11 min-w-0 flex-1 rounded-lg border border-white/10 bg-black/25 px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[#E0B100] focus:ring-1 focus:ring-[#E0B100]/30 disabled:cursor-not-allowed disabled:opacity-50" />
                 <Button aria-label="Найти поле" className="tf2-control h-11 w-11 shrink-0 p-0" size="sm" variant="outline" disabled={Boolean(boundaryEdit)} onClick={runFieldSearch}><Search className="h-4 w-4" /></Button>
                 <Button aria-label={`${showFieldListMobile ? "Скрыть" : "Показать"} список полей: ${filteredFields.length}`} className="tf2-control h-11 min-w-11 shrink-0 px-2" size="sm" variant="outline" disabled={Boolean(boundaryEdit)} onClick={() => setShowFieldListMobile((prev) => !prev)}>{filteredFields.length}</Button>
               </div>
-              <div className="travkin-scrollbar flex max-w-full items-center gap-1.5 overflow-x-auto pb-0.5">
+              <div className="flex shrink-0 items-center gap-1.5">
                 <Button className="tf2-control h-11 shrink-0" size="sm" variant={selectedBaseLayer === "map" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("map")}>Карта</Button>
                 <Button className="tf2-control h-11 shrink-0" size="sm" variant={selectedBaseLayer === "satellite" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("satellite")}>Спутник</Button>
                 <Button className="tf2-control h-11 shrink-0" size="sm" variant={selectedBaseLayer === "hybrid" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("hybrid")}>Гибрид</Button>
                 <Button aria-label="Моё местоположение" className="tf2-control h-11 w-11 shrink-0 p-0" size="sm" variant="outline" onClick={handleLocateMe}><Navigation className="h-4 w-4" /></Button>
                 <Button className="tf2-control h-11 shrink-0" size="sm" variant="outline" onClick={handleShowAllFields}>Все поля</Button>
+                <Button aria-label="Приблизить карту" className="tf2-control h-11 w-11 shrink-0 p-0" size="sm" variant="outline" disabled={!mapReady} onClick={handleZoomIn}><Plus className="h-4 w-4" /></Button>
+                <Button aria-label="Отдалить карту" className="tf2-control h-11 w-11 shrink-0 p-0" size="sm" variant="outline" disabled={!mapReady} onClick={handleZoomOut}><Minus className="h-4 w-4" /></Button>
                 {canMutateBoundaries ? <Button className="tf2-control h-11 shrink-0" size="sm" variant="outline" disabled={Boolean(boundaryEdit)} onClick={openKmlPicker}><FileUp className="mr-2 h-4 w-4" />KML</Button> : null}
               </div>
             </div>
@@ -2941,8 +2959,8 @@ export function FieldsMapPage() {
           </div>
         </div>
 
-        <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 w-[min(980px,calc(100%-24px))] -translate-x-1/2">
-          <div className="tf2-dock travkin-scrollbar pointer-events-auto overflow-x-auto rounded-2xl p-2">
+        <div className="tf2-map-measure-dock pointer-events-none absolute bottom-4 left-1/2 z-10 w-[min(980px,calc(100%-24px))] -translate-x-1/2">
+          <div data-testid="fields-map-measure-dock" className="tf2-dock travkin-scrollbar pointer-events-auto overflow-x-auto rounded-2xl p-2">
             <div className="flex min-w-max flex-nowrap items-center justify-start gap-2 sm:min-w-full sm:justify-center">
               <Button className="tf2-control min-h-11 shrink-0" size="sm" disabled={Boolean(boundaryEdit)} variant={measurementMode === "distance" ? "default" : "outline"} onClick={() => handleMeasurementMode("distance")}><Route className="mr-2 h-4 w-4" />Расстояние</Button>
               <Button className="tf2-control min-h-11 shrink-0" size="sm" disabled={Boolean(boundaryEdit)} variant={measurementMode === "area" ? "default" : "outline"} onClick={() => handleMeasurementMode("area")}><Ruler className="mr-2 h-4 w-4" />Площадь</Button>
@@ -2962,7 +2980,7 @@ export function FieldsMapPage() {
         </div>
 
         {mapWorkMode === "agro" && selectedField ? (
-          <aside className="tf2-panel travkin-scrollbar pointer-events-auto absolute inset-x-3 bottom-28 z-10 max-h-[48vh] overflow-y-auto rounded-2xl p-4 xl:inset-x-auto xl:bottom-auto xl:right-3 xl:top-3 xl:max-h-[calc(100%-112px)] xl:w-[430px]">
+          <aside data-testid="fields-map-inspector" className="tf2-map-inspector tf2-panel travkin-scrollbar pointer-events-auto absolute inset-x-3 bottom-28 top-[10.5rem] z-10 max-h-none overflow-y-auto rounded-2xl p-4 xl:inset-x-auto xl:bottom-auto xl:right-3 xl:top-3 xl:max-h-[calc(100%-112px)] xl:w-[430px]">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
                 <div className="text-xs uppercase tracking-[0.24em] text-emerald-300">Структура посевов</div>
@@ -3063,7 +3081,7 @@ export function FieldsMapPage() {
         ) : null}
 
         {mapWorkMode === "engineering" ? (
-          <aside className="tf2-panel travkin-scrollbar pointer-events-auto absolute inset-x-3 bottom-28 z-10 max-h-[48vh] overflow-y-auto rounded-2xl p-4 xl:inset-x-auto xl:bottom-auto xl:right-3 xl:top-3 xl:max-h-[calc(100%-112px)] xl:w-[420px]">
+          <aside data-testid="fields-map-inspector" className="tf2-map-inspector tf2-panel travkin-scrollbar pointer-events-auto absolute inset-x-3 bottom-28 top-[10.5rem] z-10 max-h-none overflow-y-auto rounded-2xl p-4 xl:inset-x-auto xl:bottom-auto xl:right-3 xl:top-3 xl:max-h-[calc(100%-112px)] xl:w-[420px]">
             <div className="mb-3 flex items-start justify-between gap-3"><div><div className="text-xs uppercase tracking-[0.24em] text-cyan-300">Инженерия капельного</div><h2 className="mt-1 text-xl font-bold text-slate-50">{editingEngineeringObjectId ? "Редактировать объект" : "Добавить объект"}</h2></div><Button size="sm" variant="ghost" onClick={() => setSelectedEngineeringObjectId(null)}><X className="h-4 w-4" /></Button></div>
             <div className="space-y-3">
               <div className="grid grid-cols-[1fr_118px] gap-2">

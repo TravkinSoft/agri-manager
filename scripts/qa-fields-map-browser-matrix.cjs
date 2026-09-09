@@ -63,8 +63,10 @@ const profile = {
   updated_at: authUser.updated_at,
 };
 
-const viewports = [[360, 800], [768, 1024], [1304, 930], [1440, 900]];
+const viewports = [[320, 568], [360, 800], [390, 844], [667, 375], [768, 1024], [844, 390], [1024, 768], [1304, 930], [1440, 900]];
 const requestedEngines = new Set((process.env.QA_FIELDS_MAP_ENGINES || "chromium,webkit").split(",").map((value) => value.trim()));
+const expectOverlayBaseline = process.env.QA_FIELDS_MAP_OVERLAY_BASELINE === "1";
+const compactEvidence = process.env.QA_FIELDS_MAP_EVIDENCE_COMPACT === "1";
 
 async function installMocks(page) {
   const json = (route, body) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
@@ -72,6 +74,17 @@ async function installMocks(page) {
   await page.route("**/rest/v1/profiles**", (route) => json(route, [profile]));
   await page.route("**/auth/v1/user**", (route) => json(route, authUser));
   await page.route("**/api/auth/actor**", (route) => json(route, { actor: { id: userId, role: "global_admin", companyId, contextCompanyId: companyId, isImpersonating: false } }));
+  await page.route("**/api/global-admin/companies**", (route) => json(route, { companies: [{ id: companyId, name: "Browser QA" }], selectedCompanyId: companyId }));
+  await page.route("**/api/global-admin/company-users**", (route) => json(route, { users: [] }));
+  await page.route("**/api/assistant/context**", (route) => json(route, { role: "global_admin", companyId, requiresCompanySelection: false, source: "browser-qa" }));
+  await page.route("**/api/assistant/proactive**", (route) => json(route, { signals: 0 }));
+  await page.route("**/api/operations-health**", (route) => json(route, {
+    status: "healthy",
+    warningCount: 0,
+    checks: [],
+    readiness: [],
+    readinessSummary: { ready: 0, missing: 0, needsReview: 0, blockers: [] },
+  }));
   await page.route("**/api/fields-map/imports**", (route) => json(route, { imports: [], map_revision: { active_import_id: null, active_geometry_count: 2 } }));
   await page.route("**/api/fields-map/bootstrap**", (route) => json(route, bootstrap));
 }
@@ -87,19 +100,49 @@ async function measure(page) {
       const value = element.getBoundingClientRect();
       return { x: value.x, y: value.y, right: value.right, bottom: value.bottom, width: value.width, height: value.height };
     };
-    const overlaps = (left, right) => !(left.right <= right.x || right.right <= left.x || left.bottom <= right.y || right.bottom <= left.y);
-    const docks = [...document.querySelectorAll(".tf2-dock")].filter(visible).map(rect);
-    const inspectorNode = document.querySelector(".tf2-panel");
-    const inspector = inspectorNode ? rect(inspectorNode) : null;
+    const maybeRect = (selector) => {
+      const element = document.querySelector(selector);
+      return element && visible(element) ? rect(element) : null;
+    };
+    const overlaps = (left, right) => Boolean(left && right) && !(left.right <= right.x || right.right <= left.x || left.bottom <= right.y || right.bottom <= left.y);
+    const containedBy = (child, parent) => Boolean(child && parent) && child.x >= parent.x - 1 && child.y >= parent.y - 1 && child.right <= parent.right + 1 && child.bottom <= parent.bottom + 1;
+    const topDock = maybeRect('[data-testid="fields-map-top-dock"]');
+    const bottomDock = maybeRect('[data-testid="fields-map-measure-dock"]');
+    const docks = [topDock, bottomDock].filter(Boolean);
+    const inspector = maybeRect('[data-testid="fields-map-inspector"]');
+    const mapViewportNode = document.querySelector('[data-testid="fields-map-viewport"]') || document.querySelector(".tf2-shell > section");
+    const mapViewport = mapViewportNode ? rect(mapViewportNode) : null;
+    const mobileNavNode = [...document.querySelectorAll("nav")].find((element) => getComputedStyle(element).position === "fixed" && visible(element));
+    const mobileNav = mobileNavNode ? rect(mobileNavNode) : null;
+    const nativeZoom = [...document.querySelectorAll(".maplibregl-ctrl-zoom-in,.maplibregl-ctrl-zoom-out")].filter(visible).map(rect);
+    const nativeScale = [...document.querySelectorAll(".maplibregl-ctrl-scale")].filter(visible).map(rect);
+    const zoomButtons = [...document.querySelectorAll('[aria-label="Приблизить карту"],[aria-label="Отдалить карту"]')].filter(visible).map(rect);
     const controls = [...document.querySelectorAll(".tf2-shell > section button,.tf2-shell > section input,.tf2-shell > section [role=combobox]")]
       .filter(visible)
       .map((element) => ({ name: (element.getAttribute("aria-label") || element.textContent || "").trim().slice(0, 60), ...rect(element) }));
     return {
       viewport: [innerWidth, innerHeight],
+      mapViewport,
+      mobileNav,
+      topDock,
+      bottomDock,
+      inspector,
       documentOverflowPx: document.documentElement.scrollWidth - innerWidth,
-      dockOverlap: overlaps(docks[0], docks[1]),
-      inspectorTopOverlap: inspector ? overlaps(inspector, docks[0]) : null,
-      inspectorBottomOverlap: inspector ? overlaps(inspector, docks[1]) : null,
+      mapViewportContained: mapViewport ? mapViewport.y >= -1 && mapViewport.bottom <= innerHeight + 1 : false,
+      topDockContained: containedBy(topDock, mapViewport),
+      bottomDockContained: bottomDock ? containedBy(bottomDock, mapViewport) : null,
+      inspectorContained: inspector ? containedBy(inspector, mapViewport) : null,
+      dockOverlap: overlaps(topDock, bottomDock),
+      inspectorTopOverlap: inspector ? overlaps(inspector, topDock) : null,
+      inspectorBottomOverlap: inspector ? overlaps(inspector, bottomDock) : null,
+      mapViewportNavOverlap: overlaps(mapViewport, mobileNav),
+      bottomDockNavOverlap: overlaps(bottomDock, mobileNav),
+      bottomDockBeyondViewport: bottomDock ? bottomDock.bottom > innerHeight + 1 : false,
+      nativeZoomDockOverlap: nativeZoom.some((control) => docks.some((dock) => overlaps(control, dock))),
+      nativeScaleDockOverlap: nativeScale.some((control) => docks.some((dock) => overlaps(control, dock))),
+      nativeZoomCount: nativeZoom.length,
+      nativeScaleCount: nativeScale.length,
+      zoomButtons,
       query: document.querySelector('input[placeholder="Найти поле..."]')?.value || "",
       smallTargets: innerWidth <= 1023 ? controls.filter((item) => item.width < 44 || item.height < 44) : [],
     };
@@ -112,56 +155,133 @@ async function runEngine(name, browserType) {
       ? { headless: true, channel: process.env.QA_FIELDS_MAP_CHROMIUM_CHANNEL || "chrome" }
       : { headless: true }
   );
-  const context = await browser.newContext();
-  await context.addInitScript({ path: path.resolve("scripts/qa-fields-map-browser-init.js") });
-  const page = await context.newPage();
-  const fieldsMapWrites = [];
-  const interceptedMockMutations = [];
-  page.on("request", (request) => {
-    if (!/^(GET|OPTIONS|HEAD)$/u.test(request.method()) && /api\/fields-map/u.test(request.url())) {
-      fieldsMapWrites.push(`${request.method()} ${request.url()}`);
-    }
-    if (!/^(GET|OPTIONS|HEAD)$/u.test(request.method()) && /rest\/v1/u.test(request.url())) {
-      interceptedMockMutations.push(`${request.method()} ${request.url()}`);
-    }
-  });
-  await installMocks(page);
-  await page.goto(`${baseUrl}/fields-map`, { waitUntil: "domcontentloaded" });
-  await page.locator('[aria-label="Интерактивная карта полей"]').waitFor({ state: "visible", timeout: 20000 });
-  await page.getByRole("button", { name: /список полей: 3/u }).waitFor({ state: "visible", timeout: 20000 });
+  try {
+    const context = await browser.newContext();
+    await context.addInitScript({ path: path.resolve("scripts/qa-fields-map-browser-init.js") });
+    const page = await context.newPage();
+    const fieldsMapWrites = [];
+    const interceptedMockMutations = [];
+    const pageErrors = [];
+    const consoleErrors = [];
+    const failedResponses = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error") consoleErrors.push(message.text());
+    });
+    page.on("response", (response) => {
+      if (response.status() >= 400) failedResponses.push(`${response.status()} ${response.url()}`);
+    });
+    page.on("request", (request) => {
+      if (!/^(GET|OPTIONS|HEAD)$/u.test(request.method()) && /api\/fields-map/u.test(request.url())) {
+        fieldsMapWrites.push(`${request.method()} ${request.url()}`);
+      }
+      if (!/^(GET|OPTIONS|HEAD)$/u.test(request.method()) && /rest\/v1/u.test(request.url())) {
+        interceptedMockMutations.push(`${request.method()} ${request.url()}`);
+      }
+    });
+    await installMocks(page);
+    await page.goto(`${baseUrl}/fields-map`, { waitUntil: "domcontentloaded" });
+    await page.locator('[aria-label="Интерактивная карта полей"]').waitFor({ state: "visible", timeout: 20000 });
+    await page.getByRole("button", { name: /список полей: 3/u }).waitFor({ state: "visible", timeout: 20000 });
 
-  const results = [];
-  for (const [width, height] of viewports) {
-    await page.setViewportSize({ width, height });
-    await page.waitForTimeout(220);
-    const search = page.locator('input[placeholder="Найти поле..."]');
-    await search.fill("19");
-    await search.press("Enter");
-    await page.getByRole("heading", { name: "Поле 19 терн" }).waitFor({ state: "visible" });
-    await page.waitForTimeout(220);
-    const result = await measure(page);
-    assert.equal(result.documentOverflowPx, 0, `${name} ${width}: document overflow`);
-    assert.equal(result.dockOverlap, false, `${name} ${width}: docks overlap`);
-    assert.equal(result.inspectorTopOverlap, false, `${name} ${width}: inspector overlaps top dock`);
-    assert.equal(result.inspectorBottomOverlap, false, `${name} ${width}: inspector overlaps bottom dock`);
-    assert.equal(result.query, "", `${name} ${width}: selected search remains expanded`);
-    assert.deepEqual(result.smallTargets, [], `${name} ${width}: compact touch target below 44px`);
-    await page.screenshot({ path: path.join(outputDir, `${name}-${width}x${height}.png`) });
-    results.push(result);
+    const results = [];
+    for (const [width, height] of viewports) {
+      const label = `${width}x${height}`;
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(220);
+      const closeInspector = page.getByRole("button", { name: "Закрыть инспектор поля" });
+      if (await closeInspector.isVisible()) {
+        await closeInspector.click();
+        await closeInspector.waitFor({ state: "hidden" });
+      }
+      const baseResult = await measure(page);
+      const shortLandscape = width < 1280 && height <= 600 && width > height;
+      if (!expectOverlayBaseline) {
+        assert.equal(baseResult.documentOverflowPx, 0, `${name} ${label} base: document overflow`);
+        assert.equal(baseResult.mapViewportContained, true, `${name} ${label} base: map viewport exceeds browser viewport`);
+        assert.equal(baseResult.topDockContained, true, `${name} ${label} base: top dock exceeds map viewport`);
+        assert.equal(baseResult.bottomDockContained, true, `${name} ${label} base: measurement dock exceeds map viewport`);
+        assert.equal(baseResult.dockOverlap, false, `${name} ${label} base: docks overlap ${JSON.stringify({ topDock: baseResult.topDock, bottomDock: baseResult.bottomDock, mapViewport: baseResult.mapViewport })}`);
+        assert.equal(baseResult.mapViewportNavOverlap, false, `${name} ${label} base: map viewport overlaps mobile navigation`);
+        assert.equal(baseResult.bottomDockNavOverlap, false, `${name} ${label} base: measurement dock overlaps mobile navigation`);
+        assert.equal(baseResult.bottomDockBeyondViewport, false, `${name} ${label} base: measurement dock is below browser viewport`);
+        assert.equal(baseResult.nativeZoomCount, 0, `${name} ${label} base: native floating zoom must be removed`);
+        assert.equal(baseResult.nativeScaleCount, width < 1280 ? 0 : 1, `${name} ${label} base: responsive scale visibility`);
+        assert.equal(baseResult.nativeScaleDockOverlap, false, `${name} ${label} base: native scale overlaps a dock`);
+        assert.equal(baseResult.zoomButtons.length, 2, `${name} ${label} base: unified dock zoom buttons missing`);
+        assert.ok(baseResult.zoomButtons.every((item) => item.width >= 44 && item.height >= 44), `${name} ${label} base: zoom target below 44px`);
+        assert.deepEqual(baseResult.smallTargets, [], `${name} ${label} base: compact touch target below 44px`);
+        await page.getByRole("button", { name: "Приблизить карту" }).click();
+        await page.getByRole("button", { name: "Отдалить карту" }).click();
+      }
+      const search = page.locator('input[placeholder="Найти поле..."]');
+      await search.fill("19");
+      await search.press("Enter");
+      await page.getByRole("heading", { name: "Поле 19 терн" }).waitFor({ state: "visible" });
+      await page.waitForTimeout(220);
+      const result = await measure(page);
+      if (expectOverlayBaseline && width < 768) {
+        assert.equal(
+          result.mapViewportNavOverlap || result.bottomDockNavOverlap || result.bottomDockBeyondViewport || result.nativeZoomDockOverlap || result.inspectorTopOverlap,
+          true,
+          `${name} ${label}: legacy overlay defect was not reproduced`
+        );
+        assert.equal(result.nativeZoomCount, 2, `${name} ${label}: legacy native zoom control count`);
+      } else if (!expectOverlayBaseline) {
+        assert.equal(result.documentOverflowPx, 0, `${name} ${label} selected: document overflow`);
+        assert.equal(result.mapViewportContained, true, `${name} ${label} selected: map viewport exceeds browser viewport`);
+        assert.equal(result.topDockContained, true, `${name} ${label} selected: top dock exceeds map viewport`);
+        assert.equal(result.inspectorContained, true, `${name} ${label} selected: inspector exceeds map viewport`);
+        assert.equal(result.bottomDockContained, shortLandscape ? null : true, `${name} ${label} selected: measurement dock responsive visibility/containment`);
+        assert.equal(result.dockOverlap, false, `${name} ${label} selected: docks overlap`);
+        assert.equal(result.inspectorTopOverlap, false, `${name} ${label} selected: inspector overlaps top dock ${JSON.stringify({ topDock: result.topDock, inspector: result.inspector })}`);
+        assert.equal(result.inspectorBottomOverlap, false, `${name} ${label} selected: inspector overlaps bottom dock`);
+        assert.equal(result.mapViewportNavOverlap, false, `${name} ${label}: map viewport overlaps mobile navigation`);
+        assert.equal(result.bottomDockNavOverlap, false, `${name} ${label}: measurement dock overlaps mobile navigation`);
+        assert.equal(result.bottomDockBeyondViewport, false, `${name} ${label}: measurement dock is below the viewport`);
+        assert.equal(result.nativeZoomDockOverlap, false, `${name} ${label}: native zoom overlaps a dock`);
+        assert.equal(result.nativeScaleDockOverlap, false, `${name} ${label}: native scale overlaps a dock`);
+        assert.equal(result.nativeZoomCount, 0, `${name} ${label}: native floating zoom must be removed`);
+        assert.equal(result.nativeScaleCount, width < 1280 ? 0 : 1, `${name} ${label}: responsive scale visibility`);
+        assert.equal(result.zoomButtons.length, shortLandscape ? 0 : 2, `${name} ${label}: responsive unified dock zoom visibility`);
+        assert.ok(result.zoomButtons.every((item) => item.width >= 44 && item.height >= 44), `${name} ${label}: zoom target below 44px`);
+      }
+      assert.equal(result.query, "", `${name} ${label}: selected search remains expanded`);
+      assert.deepEqual(result.smallTargets, [], `${name} ${label}: compact touch target below 44px`);
+      let activeMeasure = null;
+      if (!expectOverlayBaseline && !shortLandscape) {
+        const distanceButton = page.getByRole("button", { name: "Расстояние" });
+        await distanceButton.click();
+        await page.waitForTimeout(80);
+        activeMeasure = await measure(page);
+        assert.equal(activeMeasure.bottomDockContained, true, `${name} ${label} active measure: toolbar exceeds map viewport`);
+        assert.equal(activeMeasure.dockOverlap, false, `${name} ${label} active measure: docks overlap`);
+        assert.equal(activeMeasure.inspectorBottomOverlap, false, `${name} ${label} active measure: inspector overlaps expanded toolbar`);
+        assert.equal(activeMeasure.bottomDockNavOverlap, false, `${name} ${label} active measure: toolbar overlaps mobile navigation`);
+        await distanceButton.click();
+      }
+      await page.screenshot({ path: path.join(outputDir, `${name}-${label}.png`) });
+      results.push({ viewport: [width, height], base: baseResult, selected: result, activeMeasure });
+    }
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const reducedMotion = await page.evaluate(() => {
+      const durations = [...document.querySelectorAll(".tf2-shell *")].flatMap((element) =>
+        getComputedStyle(element).transitionDuration.split(",").map((value) => value.trim().endsWith("ms") ? parseFloat(value) : parseFloat(value) * 1000)
+      ).filter(Number.isFinite);
+      return { matches: matchMedia("(prefers-reduced-motion: reduce)").matches, maxTransitionMs: Math.max(0, ...durations) };
+    });
+    assert.equal(reducedMotion.matches, true, `${name}: reduced motion media not active`);
+    assert.ok(reducedMotion.maxTransitionMs <= 0.01, `${name}: reduced motion transition too long`);
+    assert.deepEqual(fieldsMapWrites, [], `${name}: unexpected Fields Map write request`);
+    assert.deepEqual(pageErrors, [], `${name}: unexpected page errors`);
+    const expectedHarnessConsoleErrors = consoleErrors.filter((message) => /^WebSocket connection to 'ws:\/\/localhost:54321\/realtime\/v1\/websocket\?apikey=local-browser-anon-key&vsn=1\.0\.0' failed: (?:Error in connection establishment: net::ERR_CONNECTION_REFUSED|WebSocket network error: error code 7)$/u.test(message));
+    const unexpectedConsoleErrors = consoleErrors.filter((message) => !expectedHarnessConsoleErrors.includes(message));
+    assert.deepEqual(unexpectedConsoleErrors, [], `${name}: unexpected console errors; failed responses ${JSON.stringify([...new Set(failedResponses)])}`);
+    return { name, results, reducedMotion, fieldsMapWrites, interceptedMockMutations, pageErrors, failedResponses, expectedHarnessConsoleErrors, unexpectedConsoleErrors };
+  } finally {
+    await browser.close();
   }
-
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  const reducedMotion = await page.evaluate(() => {
-    const durations = [...document.querySelectorAll(".tf2-shell *")].flatMap((element) =>
-      getComputedStyle(element).transitionDuration.split(",").map((value) => value.trim().endsWith("ms") ? parseFloat(value) : parseFloat(value) * 1000)
-    ).filter(Number.isFinite);
-    return { matches: matchMedia("(prefers-reduced-motion: reduce)").matches, maxTransitionMs: Math.max(0, ...durations) };
-  });
-  assert.equal(reducedMotion.matches, true, `${name}: reduced motion media not active`);
-  assert.ok(reducedMotion.maxTransitionMs <= 0.01, `${name}: reduced motion transition too long`);
-  assert.deepEqual(fieldsMapWrites, [], `${name}: unexpected Fields Map write request`);
-  await browser.close();
-  return { name, results, reducedMotion, fieldsMapWrites, interceptedMockMutations };
 }
 
 (async () => {
@@ -169,7 +289,41 @@ async function runEngine(name, browserType) {
   const evidence = [];
   if (requestedEngines.has("chromium")) evidence.push(await runEngine("chromium", chromium));
   if (requestedEngines.has("webkit")) evidence.push(await runEngine("webkit", webkit));
-  console.log(JSON.stringify({ suite: "Fields Map browser matrix", evidence }, null, 2));
+  const output = compactEvidence
+    ? {
+        suite: "Fields Map browser matrix",
+        expectOverlayBaseline,
+        evidence: evidence.map(({ name, results, reducedMotion, fieldsMapWrites }) => ({
+          name,
+          reducedMotion,
+          fieldsMapWrites,
+          results: results.map(({ viewport, base, selected }) => ({
+            viewport,
+            base: {
+              mapViewport: base.mapViewport,
+              mobileNav: base.mobileNav,
+              topDock: base.topDock,
+              bottomDock: base.bottomDock,
+              mapViewportNavOverlap: base.mapViewportNavOverlap,
+              dockOverlap: base.dockOverlap,
+              nativeZoomCount: base.nativeZoomCount,
+              nativeScaleCount: base.nativeScaleCount,
+              nativeScaleDockOverlap: base.nativeScaleDockOverlap,
+              zoomButtons: base.zoomButtons,
+            },
+            selected: {
+              topDock: selected.topDock,
+              bottomDock: selected.bottomDock,
+              inspector: selected.inspector,
+              inspectorTopOverlap: selected.inspectorTopOverlap,
+              inspectorBottomOverlap: selected.inspectorBottomOverlap,
+              bottomDockNavOverlap: selected.bottomDockNavOverlap,
+            },
+          })),
+        })),
+      }
+    : { suite: "Fields Map browser matrix", expectOverlayBaseline, evidence };
+  console.log(JSON.stringify(output, null, 2));
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;
