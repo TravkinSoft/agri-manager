@@ -14,8 +14,8 @@ function showValue(value: unknown): string {
 function Row({ label, value }: { label: string; value: unknown }) {
   return (
     <div className="flex items-start justify-between gap-3 text-xs">
-      <span className="text-slate-500">{label}</span>
-      <span className="max-w-[62%] text-right font-medium text-slate-900">{showValue(value)}</span>
+      <span className="text-muted-foreground">{label}</span>
+      <span className="max-w-[62%] text-right font-medium text-muted-foreground">{showValue(value)}</span>
     </div>
   );
 }
@@ -43,16 +43,16 @@ export function AssistantDebugMonitor() {
 
   return (
     <div className="pointer-events-none fixed right-4 top-20 z-[70] w-[360px] max-w-[calc(100vw-1rem)]">
-      <div className="pointer-events-auto overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b bg-slate-50 px-3 py-2">
+      <div className="pointer-events-auto overflow-hidden rounded-xl border border-border bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b bg-muted px-3 py-2">
           <div>
-            <div className="text-sm font-semibold text-slate-900">Assistant Debug</div>
-            <div className="text-[11px] text-slate-500">Только для admin ролей</div>
+            <div className="text-sm font-semibold text-muted-foreground">Assistant Debug</div>
+            <div className="text-[11px] text-muted-foreground">Только для admin ролей</div>
           </div>
           <div className="flex items-center gap-1">
             <button
               type="button"
-              className="rounded p-1 text-slate-600 hover:bg-slate-200"
+              className="rounded p-1 text-muted-foreground hover:bg-muted"
               onClick={() => setDebugMonitorCollapsed(!debugMonitorCollapsed)}
               aria-label={debugMonitorCollapsed ? "Развернуть" : "Свернуть"}
             >
@@ -60,7 +60,7 @@ export function AssistantDebugMonitor() {
             </button>
             <button
               type="button"
-              className="rounded p-1 text-slate-600 hover:bg-slate-200"
+              className="rounded p-1 text-muted-foreground hover:bg-muted"
               onClick={closeDebugMonitor}
               aria-label="Закрыть"
             >
@@ -72,13 +72,13 @@ export function AssistantDebugMonitor() {
         {!debugMonitorCollapsed ? (
           <div className="max-h-[75vh] space-y-3 overflow-y-auto px-3 py-3">
             {!debugSnapshot ? (
-              <div className="rounded-md border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500">
+              <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
                 Нет debug-данных. Отправьте сообщение ассистенту.
               </div>
             ) : (
               <>
                 <section className="space-y-1 rounded-md border p-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Модель</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Модель</div>
                   <Row label="Provider" value={debugSnapshot.model.provider} />
                   <Row label="Model actual" value={debugSnapshot.model.actualModel || debugSnapshot.model.configuredModel} />
                   <Row label="Settings source" value={debugSnapshot.model.settingsSource} />
@@ -99,7 +99,7 @@ export function AssistantDebugMonitor() {
                 </section>
 
                 <section className="space-y-1 rounded-md border p-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Доступ</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Доступ</div>
                   <Row label="Role" value={debugSnapshot.access.role} />
                   <Row label="Company" value={debugSnapshot.access.companyName || debugSnapshot.access.companyId} />
                   <Row label="Company context source" value={debugSnapshot.access.companyContextSource} />
@@ -109,7 +109,7 @@ export function AssistantDebugMonitor() {
                 </section>
 
                 <section className="space-y-1 rounded-md border p-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Context</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Context</div>
                   <Row label="Page" value={debugSnapshot.runtime.currentPage} />
                   <Row label="Route" value={debugSnapshot.runtime.currentRoute} />
                   <Row label="Entity" value={debugSnapshot.runtime.currentEntity} />
@@ -120,7 +120,7 @@ export function AssistantDebugMonitor() {
                 </section>
 
                 <section className="space-y-1 rounded-md border p-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Engine</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Engine</div>
                   <Row label="Endpoint" value={debugSnapshot.engine.endpoint} />
                   <Row label="Version" value={debugSnapshot.engine.engineVersion} />
                   <Row label="Intent" value={debugSnapshot.engine.intent} />
@@ -153,7 +153,7 @@ export function AssistantDebugMonitor() {
                   <Row label="Router error" value={debugSnapshot.engine.routerError} />
                   <Row label="Tools count" value={debugSnapshot.engine.toolCount} />
                   <Row label="Last tool error" value={debugSnapshot.engine.lastToolError} />
-                  <div className="pt-1 text-[11px] text-slate-500">Tools:</div>
+                  <div className="pt-1 text-[11px] text-muted-foreground">Tools:</div>
                   <div className="flex flex-wrap gap-1">
                     {debugSnapshot.engine.usedTools.length ? (
                       debugSnapshot.engine.usedTools.map((tool) => (
@@ -168,13 +168,13 @@ export function AssistantDebugMonitor() {
                         </span>
                       ))
                     ) : (
-                      <span className="text-[10px] text-slate-400">—</span>
+                      <span className="text-[10px] text-muted-foreground">—</span>
                     )}
                   </div>
                 </section>
 
                 <section className="space-y-1 rounded-md border p-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Memory</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Memory</div>
                   <Row label="Session id" value={debugSnapshot.memory.sessionId} />
                   <Row label="Last crop" value={debugSnapshot.memory.lastCrop} />
                   <Row label="Last variety" value={debugSnapshot.memory.lastVariety} />
@@ -189,7 +189,7 @@ export function AssistantDebugMonitor() {
                 </section>
 
                 <section className="space-y-1 rounded-md border p-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Performance</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Performance</div>
                   <Row label="Score (%)" value={debugSnapshot.performance.score} />
                   <Row label="Latency (ms)" value={debugSnapshot.performance.latencyMs} />
                   <Row label="Router (ms)" value={debugSnapshot.performance.routerMs} />
@@ -206,7 +206,7 @@ export function AssistantDebugMonitor() {
 
                 {debugSnapshot.trust ? (
                   <section className="space-y-1 rounded-md border p-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Trust</div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Trust</div>
                     <Row label="Score (%)" value={debugSnapshot.trust.score} />
                     <Row label="Source of truth" value={debugSnapshot.trust.sourceOfTruth} />
                     <Row label="Context memory" value={debugSnapshot.trust.contextMemory} />
@@ -219,7 +219,7 @@ export function AssistantDebugMonitor() {
                 ) : null}
 
                 <section className="space-y-1 rounded-md border p-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Warnings</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Warnings</div>
                   {debugSnapshot.warnings.length ? (
                     <div className="space-y-1">
                       {debugSnapshot.warnings.map((warning) => (
@@ -233,7 +233,7 @@ export function AssistantDebugMonitor() {
                       ))}
                     </div>
                   ) : (
-                    <div className="text-xs text-slate-500">Нет</div>
+                    <div className="text-xs text-muted-foreground">Нет</div>
                   )}
                 </section>
               </>

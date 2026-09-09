@@ -120,8 +120,8 @@ function saveRecent(location: RecentLocation): RecentLocation[] {
 
 function SectionTitle({ icon: Icon, children }: { icon: typeof Cloud; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2 text-sm font-semibold text-[#F4F6FA]">
-      <Icon className="h-4 w-4 text-[#E0B100]" />
+    <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+      <Icon className="h-4 w-4 text-primary" />
       {children}
     </div>
   );
@@ -129,22 +129,22 @@ function SectionTitle({ icon: Icon, children }: { icon: typeof Cloud; children: 
 
 function MetricTile({ label, value, hint, icon: Icon }: { label: string; value: string; hint?: string; icon: typeof Cloud }) {
   return (
-    <div className="min-w-0 rounded-lg border border-[#2A3344] bg-[#171D29] p-3 sm:p-4">
-      <div className="flex items-center gap-2 text-xs text-[#98A4B7]">
-        <Icon className="h-4 w-4 text-[#E0B100]" />
+    <div className="min-w-0 rounded-lg border border-border bg-card p-3 sm:p-4">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Icon className="h-4 w-4 text-primary" />
         <span className="truncate">{label}</span>
       </div>
-      <div className="mt-2 whitespace-nowrap text-xl font-semibold text-[#F6F7F9] sm:text-2xl">{value}</div>
-      {hint ? <div className="mt-1 truncate text-[11px] text-[#7F8A9B]">{hint}</div> : null}
+      <div className="mt-2 whitespace-nowrap text-xl font-semibold text-foreground sm:text-2xl">{value}</div>
+      {hint ? <div className="mt-1 truncate text-[11px] text-muted-foreground">{hint}</div> : null}
     </div>
   );
 }
 
 function AdditionalMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-4 border-b border-[#252D3C] py-2 text-sm last:border-0">
-      <span className="text-[#98A4B7]">{label}</span>
-      <span className="truncate text-right font-medium text-[#F3F4F6]">{value}</span>
+    <div className="flex min-w-0 items-center justify-between gap-4 border-b border-border py-2 text-sm last:border-0">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="truncate text-right font-medium text-foreground">{value}</span>
     </div>
   );
 }
@@ -201,7 +201,7 @@ function formatWindow(value: string, weather: NormalizedWeather, includeDate: bo
 }
 
 function statusDot(status: OperatingStatus): string {
-  return status === "green" ? "bg-emerald-400" : status === "yellow" ? "bg-amber-300" : status === "orange" ? "bg-orange-400" : status === "red" ? "bg-red-400" : "bg-slate-400";
+  return status === "green" ? "bg-emerald-400" : status === "yellow" ? "bg-amber-300" : status === "orange" ? "bg-orange-400" : status === "red" ? "bg-red-400" : "bg-muted";
 }
 
 function statusTrack(status: OperatingStatus): string {
@@ -209,26 +209,26 @@ function statusTrack(status: OperatingStatus): string {
   if (status === "yellow") return "bg-amber-300";
   if (status === "orange") return "bg-orange-500";
   if (status === "red") return "bg-red-600";
-  return "bg-slate-600";
+  return "bg-muted";
 }
 
 function OperatingHourDetails({ hour, weather }: { hour: OperatingHour; weather: NormalizedWeather }) {
   const point = hour.point;
   return (
-    <div className="grid gap-3 border-t border-[#2A3344] px-3 py-3 text-sm sm:grid-cols-[120px_1fr] sm:px-4">
+    <div className="grid gap-3 border-t border-border px-3 py-3 text-sm sm:grid-cols-[120px_1fr] sm:px-4">
       <div>
-        <div className="font-semibold text-white">{formatWindow(point.time, weather, true)}</div>
-        <div className="mt-1 flex items-center gap-2 text-xs text-[#A7B2C3]"><span className={cn("h-2 w-2 rounded-full", statusDot(hour.status))} />{STATUS_LABELS[hour.status]}</div>
+        <div className="font-semibold text-foreground">{formatWindow(point.time, weather, true)}</div>
+        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground"><span className={cn("h-2 w-2 rounded-full", statusDot(hour.status))} />{STATUS_LABELS[hour.status]}</div>
       </div>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[#C5CEDA] sm:grid-cols-3 lg:grid-cols-7">
-        <span>Температура <b className="text-white">{signedTemperature(point.temperatureC)}</b></span>
-        <span>Точка росы <b className="text-white">{signedTemperature(point.dewPointC)}</b></span>
-        <span>Ветер <b className="text-white">{metric(point.windMs)} м/с</b></span>
-        <span>Направление <b className="text-white">{windDirection(point.windBearingDeg)}</b></span>
-        <span>Порывы <b className="text-white">{metric(point.gustMs)} м/с</b></span>
-        <span>Осадки <b className="text-white">{metric(point.precipitationRateMmH)} мм/ч</b></span>
-        <span>Вероятность <b className="text-white">{metric(point.precipitationProbabilityPct, 0)}%</b></span>
-        {hour.reasons.length ? <span className="col-span-2 mt-1 text-[#AEB8C7] sm:col-span-3 lg:col-span-7">{hour.reasons.join(" · ")}</span> : null}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-foreground sm:grid-cols-3 lg:grid-cols-7">
+        <span>Температура <b className="text-foreground">{signedTemperature(point.temperatureC)}</b></span>
+        <span>Точка росы <b className="text-foreground">{signedTemperature(point.dewPointC)}</b></span>
+        <span>Ветер <b className="text-foreground">{metric(point.windMs)} м/с</b></span>
+        <span>Направление <b className="text-foreground">{windDirection(point.windBearingDeg)}</b></span>
+        <span>Порывы <b className="text-foreground">{metric(point.gustMs)} м/с</b></span>
+        <span>Осадки <b className="text-foreground">{metric(point.precipitationRateMmH)} мм/ч</b></span>
+        <span>Вероятность <b className="text-foreground">{metric(point.precipitationProbabilityPct, 0)}%</b></span>
+        {hour.reasons.length ? <span className="col-span-2 mt-1 text-foreground sm:col-span-3 lg:col-span-7">{hour.reasons.join(" · ")}</span> : null}
       </div>
     </div>
   );
@@ -236,8 +236,8 @@ function OperatingHourDetails({ hour, weather }: { hour: OperatingHour; weather:
 
 function CriterionRow({ label, enabled, onEnabledChange, children }: { label: string; enabled: boolean; onEnabledChange: (value: boolean) => void; children: React.ReactNode }) {
   return (
-    <div className="grid gap-2 border-b border-[#293244] py-3 last:border-0 sm:grid-cols-[150px_1fr] sm:items-center">
-      <label className="flex items-center gap-2 text-sm font-medium text-white">
+    <div className="grid gap-2 border-b border-border py-3 last:border-0 sm:grid-cols-[150px_1fr] sm:items-center">
+      <label className="flex items-center gap-2 text-sm font-medium text-foreground">
         <Switch checked={enabled} onCheckedChange={onEnabledChange} aria-label={`Учитывать: ${label}`} />
         {label}
       </label>
@@ -585,23 +585,23 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
   };
 
   return (
-    <div className="mx-auto w-full max-w-[1560px] space-y-4 text-[#D8DEE9]">
+    <div className="mx-auto w-full max-w-[1560px] space-y-4 text-foreground">
       <header>
         <div>
-          <h1 className="text-2xl font-semibold text-white sm:text-3xl">Погода</h1>
-          <p className="mt-1 text-sm text-[#98A4B7]">Лаборатория реального прогноза UAV Forecast</p>
+          <h1 className="text-2xl font-semibold text-foreground sm:text-3xl">Погода</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Лаборатория реального прогноза UAV Forecast</p>
         </div>
       </header>
 
-      <section className="flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-[#2A3344] bg-[#121722] p-1.5 sm:px-2 md:max-w-[360px]">
+      <section className="flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-border bg-card p-1.5 sm:px-2 md:max-w-[360px]">
         <button
           type="button"
           onClick={() => setPickerOpen(true)}
-          className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left hover:bg-[#1A2130]"
+          className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left hover:bg-card"
           aria-label="Выбрать населённый пункт"
         >
-          <MapPin className="h-4 w-4 shrink-0 text-[#E0B100]" />
-          <span className="min-w-0 truncate text-sm font-medium text-[#F3F4F6]">
+          <MapPin className="h-4 w-4 shrink-0 text-primary" />
+          <span className="min-w-0 truncate text-sm font-medium text-foreground">
             {selected?.displayName || "Выберите населённый пункт"}
           </span>
         </button>
@@ -613,7 +613,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
           disabled={resolving}
           title="Моё местоположение"
           aria-label="Моё местоположение"
-          className="h-9 w-9 shrink-0 text-[#B8C2D1] hover:bg-[#202839] hover:text-white"
+          className="h-9 w-9 shrink-0 text-foreground hover:bg-muted hover:text-foreground"
         >
           {resolving ? <Loader2 className="h-4 w-4 animate-spin" /> : <LocateFixed className="h-4 w-4" />}
         </Button>
@@ -625,7 +625,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
           disabled={loading || !selected}
           title="Обновить прогноз"
           aria-label="Обновить прогноз"
-          className="h-9 w-9 shrink-0 text-[#B8C2D1] hover:bg-[#202839] hover:text-white"
+          className="h-9 w-9 shrink-0 text-foreground hover:bg-muted hover:text-foreground"
         >
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
         </Button>
@@ -633,13 +633,13 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
 
       {pickerOpen ? (
       <Dialog open onOpenChange={setPickerOpen}>
-        <DialogContent className="max-h-[85dvh] w-[calc(100vw-24px)] max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border-[#303A4D] bg-[#121722] p-0 text-[#D8DEE9] sm:w-full">
-          <DialogHeader className="border-b border-[#293244] px-4 pb-3 pt-4 text-left">
-            <DialogTitle className="text-lg text-white">Местоположение</DialogTitle>
+        <DialogContent className="max-h-[85dvh] w-[calc(100vw-24px)] max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border-border bg-card p-0 text-foreground sm:w-full">
+          <DialogHeader className="border-b border-border px-4 pb-3 pt-4 text-left">
+            <DialogTitle className="text-lg text-foreground">Местоположение</DialogTitle>
             <DialogDescription className="sr-only">Найдите населённый пункт в официальном КАТО или выберите его по списку.</DialogDescription>
-            <div className="mt-3 grid grid-cols-2 rounded-md border border-[#303A4D] bg-[#0E121A] p-0.5">
-              <button type="button" onClick={() => setPickerMode("search")} className={cn("h-8 rounded text-xs", pickerMode === "search" ? "bg-[#E0B100] font-medium text-[#111827]" : "text-[#A8B2C2] hover:text-white")}>Поиск</button>
-              <button type="button" onClick={() => setPickerMode("list")} className={cn("h-8 rounded text-xs", pickerMode === "list" ? "bg-[#E0B100] font-medium text-[#111827]" : "text-[#A8B2C2] hover:text-white")}>По списку</button>
+            <div className="mt-3 grid grid-cols-2 rounded-md border border-border bg-card p-0.5">
+              <button type="button" onClick={() => setPickerMode("search")} className={cn("h-8 rounded text-xs", pickerMode === "search" ? "bg-primary font-medium text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>Поиск</button>
+              <button type="button" onClick={() => setPickerMode("list")} className={cn("h-8 rounded text-xs", pickerMode === "list" ? "bg-primary font-medium text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>По списку</button>
             </div>
           </DialogHeader>
 
@@ -647,29 +647,29 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
             {pickerMode === "search" ? (
               <div className="space-y-3">
                 <div className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#788397]" />
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     autoFocus
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="Населённый пункт, район или область"
-                    className="h-10 border-[#323C50] bg-[#0E121A] pl-9 text-[#F3F4F6]"
+                    className="h-10 border-border bg-card pl-9 text-foreground"
                   />
-                  {searching ? <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-[#E0B100]" /> : null}
+                  {searching ? <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-primary" /> : null}
                 </div>
-                {query.trim().length < 2 ? <div className="py-8 text-center text-sm text-[#8995A7]">Введите минимум 2 символа.</div> : null}
-                {query.trim().length >= 2 && !searching && !searchResults.length ? <div className="py-8 text-center text-sm text-[#8995A7]">В официальном КАТО совпадений нет.</div> : null}
+                {query.trim().length < 2 ? <div className="py-8 text-center text-sm text-muted-foreground">Введите минимум 2 символа.</div> : null}
+                {query.trim().length >= 2 && !searching && !searchResults.length ? <div className="py-8 text-center text-sm text-muted-foreground">В официальном КАТО совпадений нет.</div> : null}
                 <div className="space-y-1">
                   {searchResults.map((item) => (
-                    <button key={item.code} type="button" onClick={() => void chooseKatoLocation(item)} disabled={Boolean(resolvingCode)} className="flex w-full min-w-0 items-center gap-3 rounded-md border border-transparent px-3 py-2.5 text-left hover:border-[#39455B] hover:bg-[#1A2130] disabled:opacity-60">
-                      <MapPin className="h-4 w-4 shrink-0 text-[#E0B100]" />
+                    <button key={item.code} type="button" onClick={() => void chooseKatoLocation(item)} disabled={Boolean(resolvingCode)} className="flex w-full min-w-0 items-center gap-3 rounded-md border border-transparent px-3 py-2.5 text-left hover:border-border hover:bg-card disabled:opacity-60">
+                      <MapPin className="h-4 w-4 shrink-0 text-primary" />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-white">{item.nameRu}</span>
-                        <span className="block truncate text-xs text-[#8F9BAD]">
+                        <span className="block truncate text-sm font-medium text-foreground">{item.nameRu}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
                           {item.districtCode === item.regionCode ? item.regionRu : `${item.districtRu} · ${item.regionRu}`}
                         </span>
                       </span>
-                      {resolvingCode === item.code ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#E0B100]" /> : null}
+                      {resolvingCode === item.code ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" /> : null}
                     </button>
                   ))}
                 </div>
@@ -677,139 +677,139 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
             ) : (
               <div className="space-y-2">
                 {listRegion ? (
-                  <button type="button" onClick={() => { setListRegion(null); setListDistrict(null); }} className="mb-2 flex h-9 items-center gap-2 text-sm text-[#B7C1D0] hover:text-white">
+                  <button type="button" onClick={() => { setListRegion(null); setListDistrict(null); }} className="mb-2 flex h-9 items-center gap-2 text-sm text-foreground hover:text-foreground">
                     <ChevronLeft className="h-4 w-4" /> Регионы
                   </button>
                 ) : null}
                 {listDistrict ? (
-                  <button type="button" onClick={() => setListDistrict(null)} className="mb-2 flex h-9 items-center gap-2 text-sm text-[#B7C1D0] hover:text-white">
+                  <button type="button" onClick={() => setListDistrict(null)} className="mb-2 flex h-9 items-center gap-2 text-sm text-foreground hover:text-foreground">
                     <ChevronLeft className="h-4 w-4" /> {listRegion?.nameRu}
                   </button>
                 ) : null}
-                <div className="mb-2 text-xs text-[#7F8A9B]">
+                <div className="mb-2 text-xs text-muted-foreground">
                   {!listRegion ? "Выберите регион" : !listDistrict ? "Выберите район или городскую администрацию" : "Выберите населённый пункт"}
                 </div>
                 <div className="space-y-1">
                   {!listRegion ? regions.map((item) => (
-                    <button key={item.code} type="button" onClick={() => void chooseRegion(item)} className="w-full rounded-md px-3 py-2.5 text-left text-sm text-[#E5E9F0] hover:bg-[#1A2130]">{item.nameRu}</button>
+                    <button key={item.code} type="button" onClick={() => void chooseRegion(item)} className="w-full rounded-md px-3 py-2.5 text-left text-sm text-foreground hover:bg-card">{item.nameRu}</button>
                   )) : !listDistrict ? districts.map((item) => (
-                    <button key={item.code} type="button" onClick={() => void chooseDistrict(item)} className="w-full rounded-md px-3 py-2.5 text-left text-sm text-[#E5E9F0] hover:bg-[#1A2130]">{item.nameRu}</button>
+                    <button key={item.code} type="button" onClick={() => void chooseDistrict(item)} className="w-full rounded-md px-3 py-2.5 text-left text-sm text-foreground hover:bg-card">{item.nameRu}</button>
                   )) : localities.map((item) => (
-                    <button key={item.code} type="button" onClick={() => void chooseKatoLocation(item)} disabled={Boolean(resolvingCode)} className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2.5 text-left text-sm text-[#E5E9F0] hover:bg-[#1A2130] disabled:opacity-60">
+                    <button key={item.code} type="button" onClick={() => void chooseKatoLocation(item)} disabled={Boolean(resolvingCode)} className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2.5 text-left text-sm text-foreground hover:bg-card disabled:opacity-60">
                       <span className="truncate">{item.nameRu}</span>
-                      {resolvingCode === item.code ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#E0B100]" /> : null}
+                      {resolvingCode === item.code ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" /> : null}
                     </button>
                   ))}
                 </div>
               </div>
             )}
 
-            {pickerError ? <div role="alert" className="mt-3 rounded-md border border-red-900/70 bg-red-950/25 p-3 text-xs text-red-200">{pickerError}</div> : null}
+            {pickerError ? <div role="alert" className="mt-3 rounded-md border border-red-900/70 bg-red-50 p-3 text-xs text-red-800">{pickerError}</div> : null}
           </div>
-          <div className="border-t border-[#293244] px-4 py-2 text-[11px] text-[#748095]">Источник названий: официальный КАТО Республики Казахстан, редакция 17.07.2026.</div>
+          <div className="border-t border-border px-4 py-2 text-[11px] text-muted-foreground">Источник названий: официальный КАТО Республики Казахстан, редакция 17.07.2026.</div>
         </DialogContent>
       </Dialog>
       ) : null}
 
       {error ? (
-        <div role="alert" className="flex items-start gap-3 rounded-lg border border-red-900/70 bg-red-950/25 p-3 text-sm text-red-200">
+        <div role="alert" className="flex items-start gap-3 rounded-lg border border-red-900/70 bg-red-50 p-3 text-sm text-red-800">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <div><div className="font-medium">Прогноз недоступен</div><div className="mt-1 break-words text-xs text-red-200/80">{error}</div></div>
+          <div><div className="font-medium">Прогноз недоступен</div><div className="mt-1 break-words text-xs text-red-800/80">{error}</div></div>
         </div>
       ) : null}
 
-      <section className="min-w-0 rounded-lg border border-[#2A3344] bg-[#121722] p-2.5 sm:p-3">
+      <section className="min-w-0 rounded-lg border border-border bg-card p-2.5 sm:p-3">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="shrink-0 text-xs font-medium text-[#98A4B7]">Рабочий профиль</span>
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">Рабочий профиль</span>
           <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {profilesLoading ? <Loader2 className="h-4 w-4 animate-spin text-[#E0B100]" /> : null}
-            {!profilesLoading && !profiles.length ? <span className="truncate text-xs text-[#7F8A9B]">Не создан</span> : null}
+            {profilesLoading ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : null}
+            {!profilesLoading && !profiles.length ? <span className="truncate text-xs text-muted-foreground">Не создан</span> : null}
             {profiles.map((profile) => (
-              <div key={profile.id} className="flex shrink-0 items-center rounded-md border border-[#303A4D] bg-[#0E121A] p-0.5">
+              <div key={profile.id} className="flex shrink-0 items-center rounded-md border border-border bg-card p-0.5">
                 <button
                   type="button"
                   onClick={() => void selectProfile(profile)}
-                  className={cn("h-8 rounded px-3 text-xs", activeProfile?.id === profile.id ? "bg-[#E0B100] font-medium text-[#111827]" : "text-[#BAC4D2] hover:bg-[#1A2130] hover:text-white")}
+                  className={cn("h-8 rounded px-3 text-xs", activeProfile?.id === profile.id ? "bg-primary font-medium text-primary-foreground" : "text-foreground hover:bg-card hover:text-foreground")}
                 >
                   {profile.name}
                 </button>
-                <Button type="button" variant="ghost" size="icon" onClick={() => openProfileEditor(profile)} title="Изменить профиль" aria-label={`Изменить профиль ${profile.name}`} className="h-8 w-8 text-[#8F9BAD] hover:bg-[#202839] hover:text-white">
+                <Button type="button" variant="ghost" size="icon" onClick={() => openProfileEditor(profile)} title="Изменить профиль" aria-label={`Изменить профиль ${profile.name}`} className="h-8 w-8 text-muted-foreground hover:bg-muted hover:text-foreground">
                   <Settings2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
             ))}
           </div>
-          <Button type="button" variant="outline" size="sm" onClick={() => openProfileEditor()} className="h-9 shrink-0 border-[#39445A] bg-transparent px-2.5 text-[#E5E9F0] hover:bg-[#202839] hover:text-white">
+          <Button type="button" variant="outline" size="sm" onClick={() => openProfileEditor()} className="h-9 shrink-0 border-border bg-transparent px-2.5 text-foreground hover:bg-muted hover:text-foreground">
             <Plus className="mr-1 h-4 w-4" /> Профиль
           </Button>
         </div>
-        {profileError && !profileOpen ? <div role="alert" className="mt-2 text-xs text-red-300">{profileError}</div> : null}
+        {profileError && !profileOpen ? <div role="alert" className="mt-2 text-xs text-red-800">{profileError}</div> : null}
       </section>
 
       {profileOpen ? (
         <Dialog open onOpenChange={(open) => !profileSaving && setProfileOpen(open)}>
-          <DialogContent className="max-h-[88dvh] w-[calc(100vw-24px)] max-w-xl grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border-[#303A4D] bg-[#121722] p-0 text-[#D8DEE9] sm:w-full">
-            <DialogHeader className="border-b border-[#293244] px-4 pb-3 pt-4 text-left">
-              <DialogTitle className="text-lg text-white">{editingProfile ? "Параметры профиля" : "Новый профиль"}</DialogTitle>
-              <DialogDescription className="text-xs text-[#8F9BAD]">Статус часов рассчитывается только по включённым вами критериям.</DialogDescription>
+          <DialogContent className="max-h-[88dvh] w-[calc(100vw-24px)] max-w-xl grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border-border bg-card p-0 text-foreground sm:w-full">
+            <DialogHeader className="border-b border-border px-4 pb-3 pt-4 text-left">
+              <DialogTitle className="text-lg text-foreground">{editingProfile ? "Параметры профиля" : "Новый профиль"}</DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground">Статус часов рассчитывается только по включённым вами критериям.</DialogDescription>
             </DialogHeader>
             <div className="min-h-0 overflow-y-auto px-4 py-3 [scrollbar-width:thin]">
-              <label className="block text-xs font-medium text-[#AEB8C7]">
+              <label className="block text-xs font-medium text-foreground">
                 Название
-                <Input value={profileDraft.name} onChange={(event) => setProfileDraft((draft) => ({ ...draft, name: event.target.value }))} maxLength={80} autoFocus className="mt-1.5 h-10 border-[#323C50] bg-[#0E121A] text-white" />
+                <Input value={profileDraft.name} onChange={(event) => setProfileDraft((draft) => ({ ...draft, name: event.target.value }))} maxLength={80} autoFocus className="mt-1.5 h-10 border-border bg-card text-foreground" />
               </label>
-              <div className="mt-3 rounded-lg border border-[#293244] bg-[#10151F] px-3">
+              <div className="mt-3 rounded-lg border border-border bg-card px-3">
                 <CriterionRow label="Ветер" enabled={profileDraft.windEnabled} onEnabledChange={(windEnabled) => setProfileDraft((draft) => ({ ...draft, windEnabled }))}>
-                  <label className="text-xs text-[#98A4B7]">Максимум, м/с<Input inputMode="decimal" value={profileDraft.maxWindMs ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, maxWindMs: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-[#323C50] bg-[#0E121A] text-white" /></label>
+                  <label className="text-xs text-muted-foreground">Максимум, м/с<Input inputMode="decimal" value={profileDraft.maxWindMs ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, maxWindMs: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-border bg-card text-foreground" /></label>
                 </CriterionRow>
                 <CriterionRow label="Порывы" enabled={profileDraft.gustEnabled} onEnabledChange={(gustEnabled) => setProfileDraft((draft) => ({ ...draft, gustEnabled }))}>
-                  <label className="text-xs text-[#98A4B7]">Максимум, м/с<Input inputMode="decimal" value={profileDraft.maxGustMs ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, maxGustMs: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-[#323C50] bg-[#0E121A] text-white" /></label>
+                  <label className="text-xs text-muted-foreground">Максимум, м/с<Input inputMode="decimal" value={profileDraft.maxGustMs ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, maxGustMs: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-border bg-card text-foreground" /></label>
                 </CriterionRow>
                 <CriterionRow label="Осадки" enabled={profileDraft.precipitationEnabled} onEnabledChange={(precipitationEnabled) => setProfileDraft((draft) => ({ ...draft, precipitationEnabled }))}>
                   <div className="grid gap-2 sm:grid-cols-[1fr_150px]">
-                    <div className="grid grid-cols-2 rounded-md border border-[#323C50] bg-[#0E121A] p-0.5">
-                      {(["forbidden", "maximum"] as const).map((mode) => <button key={mode} type="button" onClick={() => setProfileDraft((draft) => ({ ...draft, precipitationMode: mode }))} className={cn("h-8 rounded px-2 text-xs", profileDraft.precipitationMode === mode ? "bg-[#E0B100] font-medium text-[#111827]" : "text-[#A8B2C2]")}>{mode === "forbidden" ? "Запрещены" : "До предела"}</button>)}
+                    <div className="grid grid-cols-2 rounded-md border border-border bg-card p-0.5">
+                      {(["forbidden", "maximum"] as const).map((mode) => <button key={mode} type="button" onClick={() => setProfileDraft((draft) => ({ ...draft, precipitationMode: mode }))} className={cn("h-8 rounded px-2 text-xs", profileDraft.precipitationMode === mode ? "bg-primary font-medium text-primary-foreground" : "text-muted-foreground")}>{mode === "forbidden" ? "Запрещены" : "До предела"}</button>)}
                     </div>
-                    {profileDraft.precipitationMode === "maximum" ? <label className="text-xs text-[#98A4B7]">Максимум, мм/ч<Input inputMode="decimal" value={profileDraft.maxPrecipitationMmH ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, maxPrecipitationMmH: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-[#323C50] bg-[#0E121A] text-white" /></label> : null}
+                    {profileDraft.precipitationMode === "maximum" ? <label className="text-xs text-muted-foreground">Максимум, мм/ч<Input inputMode="decimal" value={profileDraft.maxPrecipitationMmH ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, maxPrecipitationMmH: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-border bg-card text-foreground" /></label> : null}
                   </div>
                 </CriterionRow>
                 <CriterionRow label="Вероятность" enabled={profileDraft.precipitationProbabilityEnabled} onEnabledChange={(precipitationProbabilityEnabled) => setProfileDraft((draft) => ({ ...draft, precipitationProbabilityEnabled }))}>
-                  <label className="text-xs text-[#98A4B7]">Максимум, %<Input inputMode="decimal" value={profileDraft.maxPrecipitationProbabilityPct ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, maxPrecipitationProbabilityPct: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-[#323C50] bg-[#0E121A] text-white" /></label>
+                  <label className="text-xs text-muted-foreground">Максимум, %<Input inputMode="decimal" value={profileDraft.maxPrecipitationProbabilityPct ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, maxPrecipitationProbabilityPct: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-border bg-card text-foreground" /></label>
                 </CriterionRow>
                 <CriterionRow label="Температура" enabled={profileDraft.temperatureEnabled} onEnabledChange={(temperatureEnabled) => setProfileDraft((draft) => ({ ...draft, temperatureEnabled }))}>
                   <div className="grid grid-cols-2 gap-2">
-                    <label className="text-xs text-[#98A4B7]">Минимум, °C<Input inputMode="decimal" value={profileDraft.minTemperatureC ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, minTemperatureC: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-[#323C50] bg-[#0E121A] text-white" /></label>
-                    <label className="text-xs text-[#98A4B7]">Максимум, °C<Input inputMode="decimal" value={profileDraft.maxTemperatureC ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, maxTemperatureC: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-[#323C50] bg-[#0E121A] text-white" /></label>
+                    <label className="text-xs text-muted-foreground">Минимум, °C<Input inputMode="decimal" value={profileDraft.minTemperatureC ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, minTemperatureC: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-border bg-card text-foreground" /></label>
+                    <label className="text-xs text-muted-foreground">Максимум, °C<Input inputMode="decimal" value={profileDraft.maxTemperatureC ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, maxTemperatureC: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-border bg-card text-foreground" /></label>
                   </div>
                 </CriterionRow>
               </div>
-              {profileError ? <div role="alert" className="mt-3 rounded-md border border-red-900/70 bg-red-950/25 p-2.5 text-xs text-red-200">{profileError}</div> : null}
+              {profileError ? <div role="alert" className="mt-3 rounded-md border border-red-900/70 bg-red-50 p-2.5 text-xs text-red-800">{profileError}</div> : null}
             </div>
-            <DialogFooter className="gap-2 border-t border-[#293244] px-4 py-3 sm:space-x-0">
-              {editingProfile ? <Button type="button" variant="ghost" onClick={() => void deleteProfile(editingProfile)} disabled={profileSaving} className="mr-auto text-red-300 hover:bg-red-950/40 hover:text-red-200"><Trash2 className="mr-1.5 h-4 w-4" />Удалить</Button> : null}
-              <Button type="button" variant="outline" onClick={() => setProfileOpen(false)} disabled={profileSaving} className="border-[#39445A] bg-transparent text-[#D8DEE9] hover:bg-[#202839] hover:text-white">Отмена</Button>
-              <Button type="button" onClick={() => void saveProfile()} disabled={profileSaving} className="bg-[#E0B100] text-[#111827] hover:bg-[#F0C400]">{profileSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Сохранить</Button>
+            <DialogFooter className="gap-2 border-t border-border px-4 py-3 sm:space-x-0">
+              {editingProfile ? <Button type="button" variant="ghost" onClick={() => void deleteProfile(editingProfile)} disabled={profileSaving} className="mr-auto text-red-800 hover:bg-red-50 hover:text-red-800"><Trash2 className="mr-1.5 h-4 w-4" />Удалить</Button> : null}
+              <Button type="button" variant="outline" onClick={() => setProfileOpen(false)} disabled={profileSaving} className="border-border bg-transparent text-foreground hover:bg-muted hover:text-foreground">Отмена</Button>
+              <Button type="button" onClick={() => void saveProfile()} disabled={profileSaving} className="bg-primary text-primary-foreground hover:bg-primary">{profileSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Сохранить</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       ) : null}
 
       {!weather && !loading ? (
-        <div className="flex min-h-64 flex-col items-center justify-center rounded-lg border border-dashed border-[#303A4D] px-5 text-center">
-          <Navigation className="h-8 w-8 text-[#E0B100]" />
-          <div className="mt-3 font-medium text-[#F3F4F6]">Выберите населённый пункт</div>
-          <div className="mt-1 max-w-md text-sm text-[#8F9BAD]">Прогноз появится после определения координат выбранного города или села.</div>
+        <div className="flex min-h-64 flex-col items-center justify-center rounded-lg border border-dashed border-border px-5 text-center">
+          <Navigation className="h-8 w-8 text-primary" />
+          <div className="mt-3 font-medium text-foreground">Выберите населённый пункт</div>
+          <div className="mt-1 max-w-md text-sm text-muted-foreground">Прогноз появится после определения координат выбранного города или села.</div>
         </div>
       ) : null}
 
-      {loading && !weather ? <div className="h-72 animate-pulse rounded-lg bg-[#171D29]" /> : null}
+      {loading && !weather ? <div className="h-72 animate-pulse rounded-lg bg-card" /> : null}
 
       {weather && current ? (
         <>
           <section className="space-y-3">
-            <div className="text-xs text-[#8995A7]">
+            <div className="text-xs text-muted-foreground">
               {relativeWeatherAge(weather.updatedAt)}
-              {weather.stale ? <span className="ml-2 text-amber-300">· показаны последние сохранённые данные</span> : null}
+              {weather.stale ? <span className="ml-2 text-amber-800">· показаны последние сохранённые данные</span> : null}
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-7">
               <MetricTile label="Температура" value={signedTemperature(current.temperatureC)} icon={Thermometer} />
@@ -822,31 +822,31 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
             </div>
           </section>
 
-          <section className="min-w-0 overflow-hidden rounded-lg border border-[#2A3344] bg-[#121722]">
-            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#293244] p-3 sm:p-4">
+          <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border p-3 sm:p-4">
               <div>
                 <SectionTitle icon={Wind}>Рабочее окно</SectionTitle>
-                <div className="mt-1 text-xs text-[#8995A7]">{evaluationProfile?.name || "Профиль не выбран"}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{evaluationProfile?.name || "Профиль не выбран"}</div>
               </div>
-              <div className="grid grid-cols-2 rounded-md border border-[#303A4D] bg-[#0E121A] p-0.5 text-xs">
-                <button type="button" onClick={() => setTimelineMode("48h")} className={cn("h-8 rounded px-3", timelineMode === "48h" ? "bg-[#E0B100] font-medium text-[#111827]" : "text-[#A8B2C2]")}>48 часов</button>
-                <button type="button" onClick={() => setTimelineMode("7d")} className={cn("h-8 rounded px-3", timelineMode === "7d" ? "bg-[#E0B100] font-medium text-[#111827]" : "text-[#A8B2C2]")}>7 дней</button>
+              <div className="grid grid-cols-2 rounded-md border border-border bg-card p-0.5 text-xs">
+                <button type="button" onClick={() => setTimelineMode("48h")} className={cn("h-8 rounded px-3", timelineMode === "48h" ? "bg-primary font-medium text-primary-foreground" : "text-muted-foreground")}>48 часов</button>
+                <button type="button" onClick={() => setTimelineMode("7d")} className={cn("h-8 rounded px-3", timelineMode === "7d" ? "bg-primary font-medium text-primary-foreground" : "text-muted-foreground")}>7 дней</button>
               </div>
             </div>
-            <div className="border-b border-[#293244] px-3 py-2 sm:px-4">
+            <div className="border-b border-border px-3 py-2 sm:px-4">
               <div className="flex min-w-0 gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {WEATHER_OPERATION_MODES.map((mode) => (
                   <button
                     key={mode.value}
                     type="button"
                     onClick={() => setOperationMode(mode.value)}
-                    className={cn("h-9 shrink-0 rounded-md border px-3 text-xs font-medium", operationMode === mode.value ? "border-[#E0B100] bg-[#E0B100]/15 text-[#F4CF36]" : "border-[#303A4D] text-[#B2BDCC] hover:bg-[#1A2130]")}
+                    className={cn("h-9 shrink-0 rounded-md border px-3 text-xs font-medium", operationMode === mode.value ? "border-primary bg-primary/15 text-primary" : "border-border text-foreground hover:bg-card")}
                   >
                     {mode.label}
                   </button>
                 ))}
                 {activeProfile ? (
-                  <button type="button" onClick={() => setOperationMode("custom")} className={cn("h-9 shrink-0 rounded-md border px-3 text-xs font-medium", operationMode === "custom" ? "border-[#E0B100] bg-[#E0B100]/15 text-[#F4CF36]" : "border-[#303A4D] text-[#B2BDCC] hover:bg-[#1A2130]")}>Мой профиль</button>
+                  <button type="button" onClick={() => setOperationMode("custom")} className={cn("h-9 shrink-0 rounded-md border px-3 text-xs font-medium", operationMode === "custom" ? "border-primary bg-primary/15 text-primary" : "border-border text-foreground hover:bg-card")}>Мой профиль</button>
                 ) : null}
               </div>
             </div>
@@ -857,13 +857,13 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
                   className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain px-3 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 >
                   <div className="relative h-[126px] min-w-[760px] select-none" style={{ width: `${Math.max(760, operatingHours.length * 24)}px` }}>
-                    <div className="absolute inset-x-0 top-0 h-5 text-[10px] font-medium uppercase text-[#8793A5]">
+                    <div className="absolute inset-x-0 top-0 h-5 text-[10px] font-medium uppercase text-muted-foreground">
                       {operatingHours.map((hour, index) => {
                         const startsDay = index === 0 || dayKey(operatingHours[index - 1].point.time, weather) !== dayKey(hour.point.time, weather);
                         return startsDay ? <span key={hour.point.time} className="absolute whitespace-nowrap" style={{ left: `${(index / Math.max(1, operatingHours.length - 1)) * 100}%` }}>{formatWeatherDay(hour.point.time, weather)}</span> : null;
                       })}
                     </div>
-                    <div className="absolute inset-x-0 top-8 flex h-14 overflow-hidden rounded-md border border-[#3A4354] bg-[#0C1017]">
+                    <div className="absolute inset-x-0 top-8 flex h-14 overflow-hidden rounded-md border border-border bg-card">
                       {operatingHours.map((hour) => (
                         <div key={hour.point.time} title={`${formatWindow(hour.point.time, weather, true)} · ${STATUS_LABELS[hour.status]}`} className={cn("relative min-w-0 flex-1", statusTrack(hour.status))}>
                           {(hour.point.precipitationRateMmH || 0) > 0 ? (
@@ -872,11 +872,11 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
                         </div>
                       ))}
                     </div>
-                    <span className="pointer-events-none absolute bottom-5 top-6 z-10 w-px bg-white/65" style={{ left: `${(currentHourIndex / Math.max(1, operatingHours.length - 1)) * 100}%` }}>
-                      <span className="absolute -left-4 -top-5 whitespace-nowrap text-[10px] font-semibold text-white">Сейчас</span>
+                    <span className="pointer-events-none absolute bottom-5 top-6 z-10 w-px bg-accent/40" style={{ left: `${(currentHourIndex / Math.max(1, operatingHours.length - 1)) * 100}%` }}>
+                      <span className="absolute -left-4 -top-5 whitespace-nowrap text-[10px] font-semibold text-foreground">Сейчас</span>
                     </span>
-                    <span className="pointer-events-none absolute bottom-5 top-6 z-20 w-0.5 bg-[#F4CF36]" style={{ left: `${(selectedHourIndex / Math.max(1, operatingHours.length - 1)) * 100}%` }}>
-                      <span className="absolute -left-2.5 top-[34px] h-5 w-5 rounded-full border-2 border-[#111722] bg-[#F4CF36] shadow-[0_0_0_3px_rgba(244,207,54,0.25)]" />
+                    <span className="pointer-events-none absolute bottom-5 top-6 z-20 w-0.5 bg-primary" style={{ left: `${(selectedHourIndex / Math.max(1, operatingHours.length - 1)) * 100}%` }}>
+                      <span className="absolute -left-2.5 top-[34px] h-5 w-5 rounded-full border-2 border-border bg-primary shadow-[0_0_0_3px_rgba(244,207,54,0.25)]" />
                     </span>
                     <input
                       type="range"
@@ -888,7 +888,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
                       aria-label="Выбранный час прогноза"
                       className="absolute inset-x-0 top-8 z-30 h-14 w-full cursor-ew-resize appearance-none bg-transparent opacity-0"
                     />
-                    <div className="absolute inset-x-0 bottom-0 h-5 text-[10px] text-[#8995A7]">
+                    <div className="absolute inset-x-0 bottom-0 h-5 text-[10px] text-muted-foreground">
                       {operatingHours.map((hour, index) => index % 6 === 0 ? <span key={hour.point.time} className="absolute -translate-x-1/2" style={{ left: `${(index / Math.max(1, operatingHours.length - 1)) * 100}%` }}>{formatWindow(hour.point.time, weather, false)}</span> : null)}
                     </div>
                   </div>
@@ -898,41 +898,41 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
             ) : null}
             {timelineMode === "7d" ? (
               <div className="p-3 sm:p-4">
-                {dailyWeather.length < 7 ? <div className="mb-3 text-xs text-amber-200">Доступно {dailyWeather.length} из 7 дней в текущем ответе UAV Forecast.</div> : null}
+                {dailyWeather.length < 7 ? <div className="mb-3 text-xs text-amber-800">Доступно {dailyWeather.length} из 7 дней в текущем ответе UAV Forecast.</div> : null}
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   {dailyWeather.map((day) => (
-                  <div key={day.day} className="rounded-md border border-[#293244] bg-[#171D29] p-3">
-                    <div className="flex items-center justify-between gap-2"><span className="font-medium text-white">{new Date(`${day.day}T12:00:00`).toLocaleDateString("ru-RU", { weekday: "short", day: "2-digit", month: "2-digit" })}</span><span className={cn("h-2.5 w-2.5 rounded-full", statusDot(day.bestStatus))} /></div>
-                    <div className="mt-2 text-sm text-[#C5CEDA]">{signedTemperature(day.minTemperatureC)} — {signedTemperature(day.maxTemperatureC)}</div>
-                    <div className="mt-1 text-xs text-[#8995A7]">Осадки {metric(day.precipitationMm)} мм · ветер до {metric(day.maxWindMs)} м/с</div>
-                    <div className="mt-2 text-xs font-medium text-[#F4CF36]">Лучший индекс {day.bestScore}/10</div>
+                  <div key={day.day} className="rounded-md border border-border bg-card p-3">
+                    <div className="flex items-center justify-between gap-2"><span className="font-medium text-foreground">{new Date(`${day.day}T12:00:00`).toLocaleDateString("ru-RU", { weekday: "short", day: "2-digit", month: "2-digit" })}</span><span className={cn("h-2.5 w-2.5 rounded-full", statusDot(day.bestStatus))} /></div>
+                    <div className="mt-2 text-sm text-foreground">{signedTemperature(day.minTemperatureC)} — {signedTemperature(day.maxTemperatureC)}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">Осадки {metric(day.precipitationMm)} мм · ветер до {metric(day.maxWindMs)} м/с</div>
+                    <div className="mt-2 text-xs font-medium text-primary">Лучший индекс {day.bestScore}/10</div>
                   </div>
                   ))}
                 </div>
               </div>
             ) : null}
-            {!operatingHours.length ? <div className="p-6 text-center text-sm text-[#7F8A9B]">UAV Forecast не вернул почасовой ряд.</div> : null}
-            <div className="grid gap-2 border-t border-[#293244] p-3 text-xs lg:grid-cols-3 sm:p-4">
-              <div className="rounded-md border border-emerald-900/60 bg-emerald-950/20 p-3">
-                <div className="text-emerald-200/80">Лучшее ближайшее окно</div>
-                <div className="mt-1 font-medium text-white">{nearestWindow ? `${formatWindow(nearestWindow.start, weather, true)} — ${formatWindow(nearestWindow.end, weather, true)} · ${nearestWindow.hours} ч` : "В пределах 48 часов не найдено"}</div>
-                {nearestWindow ? <div className="mt-2 text-emerald-200">Индекс {nearestWindowScore}/10</div> : null}
+            {!operatingHours.length ? <div className="p-6 text-center text-sm text-muted-foreground">UAV Forecast не вернул почасовой ряд.</div> : null}
+            <div className="grid gap-2 border-t border-border p-3 text-xs lg:grid-cols-3 sm:p-4">
+              <div className="rounded-md border border-emerald-900/60 bg-emerald-50 p-3">
+                <div className="text-emerald-800/80">Лучшее ближайшее окно</div>
+                <div className="mt-1 font-medium text-foreground">{nearestWindow ? `${formatWindow(nearestWindow.start, weather, true)} — ${formatWindow(nearestWindow.end, weather, true)} · ${nearestWindow.hours} ч` : "В пределах 48 часов не найдено"}</div>
+                {nearestWindow ? <div className="mt-2 text-emerald-800">Индекс {nearestWindowScore}/10</div> : null}
               </div>
-              <div className="rounded-md border border-red-900/60 bg-red-950/20 p-3">
-                <div className="text-red-200/80">Избегать</div>
-                <div className="mt-1 font-medium text-white">{avoidWindow ? `${formatWindow(avoidWindow.start, weather, true)} — ${formatWindow(avoidWindow.end, weather, true)}` : "Критичных периодов не найдено"}</div>
-                {avoidReasons.length ? <div className="mt-2 text-red-200">{avoidReasons.join(" · ")}</div> : null}
+              <div className="rounded-md border border-red-900/60 bg-red-50 p-3">
+                <div className="text-red-800/80">Избегать</div>
+                <div className="mt-1 font-medium text-foreground">{avoidWindow ? `${formatWindow(avoidWindow.start, weather, true)} — ${formatWindow(avoidWindow.end, weather, true)}` : "Критичных периодов не найдено"}</div>
+                {avoidReasons.length ? <div className="mt-2 text-red-800">{avoidReasons.join(" · ")}</div> : null}
               </div>
-              <div className="rounded-md border border-[#293244] bg-[#171D29] p-3">
-                <div className="text-[#8995A7]">Самое длинное подходящее окно</div>
-                <div className="mt-1 font-medium text-white">{longestWindow ? `${formatWindow(longestWindow.start, weather, true)} — ${formatWindow(longestWindow.end, weather, true)} · ${longestWindow.hours} ч` : "В пределах 48 часов не найдено"}</div>
+              <div className="rounded-md border border-border bg-card p-3">
+                <div className="text-muted-foreground">Самое длинное подходящее окно</div>
+                <div className="mt-1 font-medium text-foreground">{longestWindow ? `${formatWindow(longestWindow.start, weather, true)} — ${formatWindow(longestWindow.end, weather, true)} · ${longestWindow.hours} ч` : "В пределах 48 часов не найдено"}</div>
               </div>
             </div>
           </section>
 
           {current.humidityPct != null || current.cloudCoverPct != null || current.cloudBaseM != null || current.pressureMslHpa != null ? (
-            <details className="rounded-lg border border-[#2A3344] bg-[#121722] p-3 text-sm sm:p-4">
-              <summary className="cursor-pointer font-medium text-[#D5DBE5]">Дополнительные погодные данные</summary>
+            <details className="rounded-lg border border-border bg-card p-3 text-sm sm:p-4">
+              <summary className="cursor-pointer font-medium text-foreground">Дополнительные погодные данные</summary>
               <div className="mt-3 grid gap-x-6 sm:grid-cols-2 lg:grid-cols-4">
                 {current.humidityPct != null ? <AdditionalMetric label="Влажность воздуха" value={`${metric(current.humidityPct, 0)}%`} /> : null}
                 {current.cloudCoverPct != null ? <AdditionalMetric label="Облачность" value={`${metric(current.cloudCoverPct, 0)}%`} /> : null}
@@ -942,20 +942,20 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
             </details>
           ) : null}
 
-          {showTechnicalDebug ? <details className="rounded-lg border border-[#2A3344] bg-[#10151F] p-3 text-xs text-[#909CAD]">
-            <summary className="cursor-pointer font-medium text-[#D5DBE5]">Служебная информация Global Admin</summary>
+          {showTechnicalDebug ? <details className="rounded-lg border border-border bg-card p-3 text-xs text-muted-foreground">
+            <summary className="cursor-pointer font-medium text-foreground">Служебная информация Global Admin</summary>
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <div>Источник: <span className="text-white">{weather.providerMeta.provider}</span></div>
-              <div>Кэш: <span className="text-white">{weather.providerMeta.cache}</span></div>
-              <div>Ответ: <span className="text-white">{metric(weather.providerMeta.responseTimeMs, 0)} мс</span></div>
-              <div>Точек: <span className="text-white">{weather.providerMeta.forecastPoints}</span></div>
-              <div>Timezone: <span className="text-white">{weather.providerMeta.timezone || "не указана"}</span></div>
-              <div>UTC offset: <span className="text-white">{weather.providerMeta.utcOffsetMinutes ?? "не указан"}</span></div>
-              <div>Координаты: <span className="text-white">{weather.location.latitude.toFixed(6)}, {weather.location.longitude.toFixed(6)}</span></div>
-              <div>Схема: <span className="text-white">{weather.providerMeta.schemaVersion}</span></div>
-              <div>Горизонт: <span className="text-white">{weather.providerMeta.forecastHours} ч</span></div>
-              <div>Высоты ветра: <span className="text-white">{weather.providerMeta.windAltitudesM.join(" / ")} м</span></div>
-              <div>Стоимость вызова: <span className="text-white">{weather.providerMeta.billing ? `${weather.providerMeta.billing.amount || "—"} ${weather.providerMeta.billing.currency || ""}`.trim() : "не указана"}</span></div>
+              <div>Источник: <span className="text-foreground">{weather.providerMeta.provider}</span></div>
+              <div>Кэш: <span className="text-foreground">{weather.providerMeta.cache}</span></div>
+              <div>Ответ: <span className="text-foreground">{metric(weather.providerMeta.responseTimeMs, 0)} мс</span></div>
+              <div>Точек: <span className="text-foreground">{weather.providerMeta.forecastPoints}</span></div>
+              <div>Timezone: <span className="text-foreground">{weather.providerMeta.timezone || "не указана"}</span></div>
+              <div>UTC offset: <span className="text-foreground">{weather.providerMeta.utcOffsetMinutes ?? "не указан"}</span></div>
+              <div>Координаты: <span className="text-foreground">{weather.location.latitude.toFixed(6)}, {weather.location.longitude.toFixed(6)}</span></div>
+              <div>Схема: <span className="text-foreground">{weather.providerMeta.schemaVersion}</span></div>
+              <div>Горизонт: <span className="text-foreground">{weather.providerMeta.forecastHours} ч</span></div>
+              <div>Высоты ветра: <span className="text-foreground">{weather.providerMeta.windAltitudesM.join(" / ")} м</span></div>
+              <div>Стоимость вызова: <span className="text-foreground">{weather.providerMeta.billing ? `${weather.providerMeta.billing.amount || "—"} ${weather.providerMeta.billing.currency || ""}`.trim() : "не указана"}</span></div>
             </div>
           </details> : null}
         </>

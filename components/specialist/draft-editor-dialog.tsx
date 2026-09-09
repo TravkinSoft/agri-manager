@@ -261,7 +261,7 @@ export function DraftEditorDialog({
             </div>
             <div className="space-y-2">
               {additionalChemicals.length === 0 && (
-                <div className="text-sm text-slate-500">Дополнительные препараты не добавлены</div>
+                <div className="text-sm text-muted-foreground">Дополнительные препараты не добавлены</div>
               )}
               {additionalChemicals.map((item, index) => (
                 <div key={index} className="grid grid-cols-12 gap-2 items-center">
@@ -354,9 +354,9 @@ export function DraftEditorDialog({
           </div>
         </div>
 
-        <div className="rounded-md border bg-slate-50 p-3">
+        <div className="rounded-md border bg-muted p-3">
           <div className="space-y-1 text-sm">
-            <div className="font-medium text-slate-900">Расчет</div>
+            <div className="font-medium text-muted-foreground">Расчет</div>
             <div>Площадь: {c.area.toFixed(2)} га</div>
             <div>Основной препарат: {c.area.toFixed(2)} × {c.ratePerHa.toFixed(2)} = {c.mainProductTotal.toFixed(2)} л</div>
             <div>Норма вылива: {c.area.toFixed(2)} × {c.mixtureVolumePerHa.toFixed(2)} = {c.finishedMixtureTotal.toFixed(2)} л</div>

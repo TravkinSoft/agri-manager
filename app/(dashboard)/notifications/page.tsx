@@ -103,8 +103,8 @@ export default function NotificationsPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-100">Уведомления</h1>
-          <p className="mt-1 text-sm text-slate-400">
+          <h1 className="text-2xl font-semibold text-foreground">Уведомления</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             {profile?.role === "global_admin"
               ? "События операций, склада, весовой, оборота машин и рекомендации Assist"
               : "События операций, склада, весовой и оборота машин"}
@@ -116,11 +116,11 @@ export default function NotificationsPage() {
         </Button>
       </div>
 
-      <div className="overflow-hidden rounded-md border border-slate-800 bg-slate-950/30">
+      <div className="overflow-hidden rounded-md border border-border bg-background">
         {loading ? (
-          <div className="p-8 text-center text-sm text-slate-400">Загрузка...</div>
+          <div className="p-8 text-center text-sm text-muted-foreground">Загрузка...</div>
         ) : notifications.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-400">Уведомлений пока нет</div>
+          <div className="p-8 text-center text-sm text-muted-foreground">Уведомлений пока нет</div>
         ) : (
           notifications.map((notification) => {
             const Icon = iconFor(notification.category);
@@ -130,20 +130,20 @@ export default function NotificationsPage() {
                 type="button"
                 onClick={() => void openNotification(notification)}
                 className={cn(
-                  "flex w-full items-start gap-3 border-b border-slate-800 px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-slate-900/80",
-                  !notification.read_at && "bg-slate-900/55"
+                  "flex w-full items-start gap-3 border-b border-border px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-background",
+                  !notification.read_at && "bg-background"
                 )}
               >
-                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-700 bg-slate-900 text-yellow-400">
+                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-amber-800">
                   <Icon className="h-4 w-4" />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-start gap-3">
-                    <span className="min-w-0 flex-1 text-sm font-medium text-slate-100">{notification.title}</span>
+                    <span className="min-w-0 flex-1 text-sm font-medium text-foreground">{notification.title}</span>
                     {!notification.read_at ? <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-yellow-400" /> : null}
                   </span>
-                  {notification.body ? <span className="mt-1 block text-sm text-slate-400">{notification.body}</span> : null}
-                  <span className="mt-1.5 block text-xs text-slate-500">{dateTime(notification.created_at)}</span>
+                  {notification.body ? <span className="mt-1 block text-sm text-muted-foreground">{notification.body}</span> : null}
+                  <span className="mt-1.5 block text-xs text-muted-foreground">{dateTime(notification.created_at)}</span>
                 </span>
               </button>
             );

@@ -365,15 +365,15 @@ function materialStatusText(requests: WarehouseIssueRequest[]): string {
 
 function taskStatusBadge(phase: TaskPhase) {
   const map: Record<TaskPhase, { label: string; className: string }> = {
-    active: { label: 'Новая', className: 'bg-slate-700 text-slate-100' },
-    accepted: { label: 'Принято', className: 'bg-blue-500/15 text-blue-200 border border-blue-400/30' },
-    in_progress: { label: 'В работе', className: 'bg-amber-500/15 text-amber-200 border border-amber-400/30' },
+    active: { label: 'Новая', className: 'bg-muted text-foreground' },
+    accepted: { label: 'Принято', className: 'bg-blue-500/15 text-blue-800 border border-blue-400/30' },
+    in_progress: { label: 'В работе', className: 'bg-amber-500/15 text-amber-800 border border-amber-400/30' },
     awaiting_reconciliation: {
       label: 'Ожидает сверку материалов',
-      className: 'bg-orange-500/15 text-orange-200 border border-orange-400/30',
+      className: 'bg-orange-500/15 text-orange-800 border border-orange-400/30',
     },
-    awaiting_approval: { label: 'На подтверждении агронома', className: 'bg-violet-500/15 text-violet-200 border border-violet-400/30' },
-    completed: { label: 'Завершено', className: 'bg-emerald-500/15 text-emerald-200 border border-emerald-400/30' },
+    awaiting_approval: { label: 'На подтверждении агронома', className: 'bg-violet-500/15 text-violet-800 border border-violet-400/30' },
+    completed: { label: 'Завершено', className: 'bg-emerald-500/15 text-emerald-800 border border-emerald-400/30' },
   };
   const item = map[phase];
   return <Badge className={item.className}>{item.label}</Badge>;
@@ -1118,17 +1118,17 @@ export default function TasksPage() {
           'w-full rounded-lg border p-3 text-left transition-colors',
           selected
             ? 'border-yellow-400/80 bg-yellow-400/10'
-            : 'border-slate-800 bg-slate-900/55 hover:border-slate-700 hover:bg-slate-900',
+            : 'border-border bg-background hover:border-border hover:bg-background',
         ].join(' ')}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="truncate text-[13px] font-semibold uppercase text-yellow-300">
+            <div className="truncate text-[13px] font-semibold uppercase text-amber-800">
               {operation.operation_number
                 ? `${operation.operation_number} · ${presentation.workTitle}`
                 : presentation.workTitle}
             </div>
-            <div className="mt-1 truncate text-base font-semibold text-slate-100">
+            <div className="mt-1 truncate text-base font-semibold text-foreground">
               {operation.fields?.field_code
                 ? `${operation.fields.field_code} · `
                 : ''}
@@ -1138,17 +1138,17 @@ export default function TasksPage() {
           </div>
           {taskStatusBadge(phase)}
         </div>
-        <div className="mt-3 flex items-center justify-between gap-3 text-[13px] text-slate-400">
+        <div className="mt-3 flex items-center justify-between gap-3 text-[13px] text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <CalendarDays className="h-3.5 w-3.5" />
             {formatDate(operation.date)}
           </span>
-          <span className="font-medium text-slate-200">
+          <span className="font-medium text-foreground">
             {formatQty(presentation.plannedAreaHa, 'га')}
           </span>
         </div>
         {requests.length > 0 ? (
-          <div className="mt-2 space-y-0.5 truncate text-[13px] text-slate-500">
+          <div className="mt-2 space-y-0.5 truncate text-[13px] text-muted-foreground">
             <div>{requests.map((request) => request.request_number).join(', ')}</div>
             <div>{materialStatusText(requests)}</div>
           </div>
@@ -1282,26 +1282,26 @@ export default function TasksPage() {
     return (
       <section className="space-y-4 pt-2" data-testid="shift-progress-form">
         <div>
-          <h3 className="text-base font-semibold text-slate-100">Сдача смены</h3>
+          <h3 className="text-base font-semibold text-foreground">Сдача смены</h3>
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <div>
-            <div className="text-[13px] text-slate-500">План</div>
-            <div className="mt-1 font-semibold text-slate-100">
+            <div className="text-[13px] text-muted-foreground">План</div>
+            <div className="mt-1 font-semibold text-foreground">
               {selectedAreaStats.planned.toFixed(2)} га
             </div>
           </div>
           <div>
-            <div className="text-[13px] text-slate-500">Выполнено ранее</div>
-            <div className="mt-1 font-semibold text-slate-100">
+            <div className="text-[13px] text-muted-foreground">Выполнено ранее</div>
+            <div className="mt-1 font-semibold text-foreground">
               {selectedAreaStats.completed.toFixed(2)} га
             </div>
           </div>
           <div>
-            <div className="text-[13px] text-slate-500">
+            <div className="text-[13px] text-muted-foreground">
               {selectedAreaStats.deviation > 0 ? 'Перевыполнение' : 'Осталось'}
             </div>
-            <div className="mt-1 font-semibold text-slate-100">
+            <div className="mt-1 font-semibold text-foreground">
               {selectedAreaStats.deviation > 0
                 ? `+${selectedAreaStats.deviation.toFixed(2)}`
                 : selectedAreaStats.remaining.toFixed(2)}{' '}
@@ -1309,9 +1309,9 @@ export default function TasksPage() {
             </div>
           </div>
         </div>
-        <div className="grid gap-4 rounded-lg border border-slate-800 bg-slate-900/45 p-4 sm:grid-cols-2">
+        <div className="grid gap-4 rounded-lg border border-border bg-background p-4 sm:grid-cols-2">
           <div>
-            <Label htmlFor="shift-area" className="text-[13px] text-slate-400">
+            <Label htmlFor="shift-area" className="text-[13px] text-muted-foreground">
               Выполнено за смену, га
             </Label>
             <Input
@@ -1325,7 +1325,7 @@ export default function TasksPage() {
               className="mt-1 h-12"
             />
             {Number(progressAreaDraft) > 0 ? (
-              <div className="mt-2 text-[13px] text-slate-400">
+              <div className="mt-2 text-[13px] text-muted-foreground">
                 Станет выполнено: {selectedFinalArea.toFixed(2)} га.{' '}
                 {selectedFinalArea > selectedAreaStats.planned
                   ? `Отклонение: +${(
@@ -1339,7 +1339,7 @@ export default function TasksPage() {
             ) : null}
           </div>
           <div>
-            <Label htmlFor="shift-comment" className="text-[13px] text-slate-400">
+            <Label htmlFor="shift-comment" className="text-[13px] text-muted-foreground">
               Комментарий
             </Label>
             <Input
@@ -1356,10 +1356,10 @@ export default function TasksPage() {
           </div>
         </div>
         {selectedIssuedItems.length > 0 ? (
-          <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900/45 p-4">
+          <div className="space-y-3 rounded-lg border border-border bg-background p-4">
             <div>
-              <h4 className="font-semibold text-slate-100">Факт по материалам</h4>
-              <p className="mt-1 text-[13px] text-slate-500">
+              <h4 className="font-semibold text-foreground">Факт по материалам</h4>
+              <p className="mt-1 text-[13px] text-muted-foreground">
                 Расход + возврат + потери должны точно равняться выданному количеству.
               </p>
             </div>
@@ -1372,13 +1372,13 @@ export default function TasksPage() {
               return (
                 <div
                   key={item.id}
-                  className="grid gap-3 border-t border-slate-800 pt-3 sm:grid-cols-[minmax(150px,1.2fr)_repeat(3,minmax(90px,0.7fr))]"
+                  className="grid gap-3 border-t border-border pt-3 sm:grid-cols-[minmax(150px,1.2fr)_repeat(3,minmax(90px,0.7fr))]"
                 >
                   <div>
-                    <div className="font-medium text-slate-100">
+                    <div className="font-medium text-foreground">
                       {item.product_name || 'Материал'}
                     </div>
-                    <div className="mt-1 text-[12px] text-slate-500">
+                    <div className="mt-1 text-[12px] text-muted-foreground">
                       {request.request_number} · выдано{' '}
                       {formatQty(item.issued_quantity, item.unit)}
                     </div>
@@ -1393,7 +1393,7 @@ export default function TasksPage() {
                     <div key={key}>
                       <Label
                         htmlFor={`material-${item.id}-${key}`}
-                        className="text-[12px] text-slate-500"
+                        className="text-[12px] text-muted-foreground"
                       >
                         {label}, {item.unit}
                       </Label>
@@ -1414,11 +1414,11 @@ export default function TasksPage() {
               );
             })}
             {materialFactErrors.length > 0 ? (
-              <div className="text-[13px] text-red-300">
+              <div className="text-[13px] text-red-800">
                 {materialFactErrors[0]}
               </div>
             ) : (
-              <div className="text-[13px] text-emerald-300">
+              <div className="text-[13px] text-emerald-800">
                 Материальный баланс сходится.
               </div>
             )}
@@ -1434,7 +1434,7 @@ export default function TasksPage() {
     }
     return (
       <section className="space-y-3 pt-2">
-        <h3 className="text-base font-semibold text-slate-100">История смен</h3>
+        <h3 className="text-base font-semibold text-foreground">История смен</h3>
         <div className="space-y-3">
           {(selectedOperation.operation_progress || [])
             .slice()
@@ -1449,13 +1449,13 @@ export default function TasksPage() {
                 className="flex flex-wrap items-start justify-between gap-3 text-sm"
               >
                 <div>
-                  <div className="font-medium text-slate-100">
+                  <div className="font-medium text-foreground">
                     {new Date(report.reported_at).toLocaleDateString('ru-RU')} · +
                     {Number(report.completed_area_ha).toFixed(2)} га
                   </div>
-                  {report.comment ? <div className="mt-1 text-[13px] text-slate-400">Комментарий: {report.comment}</div> : null}
+                  {report.comment ? <div className="mt-1 text-[13px] text-muted-foreground">Комментарий: {report.comment}</div> : null}
                 </div>
-                <div className="text-[13px] text-slate-500">
+                <div className="text-[13px] text-muted-foreground">
                   {new Date(report.reported_at).toLocaleTimeString('ru-RU', {
                     hour: '2-digit',
                     minute: '2-digit',
@@ -1482,20 +1482,20 @@ export default function TasksPage() {
     return (
       <section className="grid gap-3 pt-2 sm:grid-cols-3">
         <div>
-          <div className="text-[13px] text-slate-500">План</div>
-          <div className="mt-1 font-semibold text-slate-100">
+          <div className="text-[13px] text-muted-foreground">План</div>
+          <div className="mt-1 font-semibold text-foreground">
             {selectedPresentation.plannedAreaHa.toFixed(2)} га
           </div>
         </div>
         <div>
-          <div className="text-[13px] text-slate-500">Факт</div>
-          <div className="mt-1 font-semibold text-slate-100">
+          <div className="text-[13px] text-muted-foreground">Факт</div>
+          <div className="mt-1 font-semibold text-foreground">
             {selectedPresentation.completedAreaHa.toFixed(2)} га
           </div>
         </div>
         <div>
-          <div className="text-[13px] text-slate-500">Отклонение</div>
-          <div className="mt-1 font-semibold text-slate-100">
+          <div className="text-[13px] text-muted-foreground">Отклонение</div>
+          <div className="mt-1 font-semibold text-foreground">
             {deviation > 0 ? '+' : ''}
             {deviation.toFixed(2)} га
           </div>
@@ -1509,12 +1509,12 @@ export default function TasksPage() {
 
     if (selectedPhase === 'active') {
       return (
-        <div className="flex flex-col gap-3 border-t border-slate-800 bg-slate-950 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div className="text-[13px] text-slate-400">
+        <div className="flex flex-col gap-3 border-t border-border bg-background px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="text-[13px] text-muted-foreground">
             Примите задачу, чтобы начать работу.
           </div>
           <Button
-            className="h-12 w-full bg-yellow-400 text-slate-950 hover:bg-yellow-300 sm:w-auto sm:min-w-52"
+            className="h-12 w-full bg-primary text-primary-foreground hover:bg-primary sm:w-auto sm:min-w-52"
             onClick={() => setAcceptOperationId(selectedOperation.id)}
             disabled={busyKey === `accept:${selectedOperation.id}`}
           >
@@ -1527,12 +1527,12 @@ export default function TasksPage() {
 
     if (selectedPhase === 'accepted' && selectedReadyRequest) {
       return (
-        <div className="flex flex-col gap-3 border-t border-slate-800 bg-slate-950 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div className="text-[13px] text-slate-400">
+        <div className="flex flex-col gap-3 border-t border-border bg-background px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="text-[13px] text-muted-foreground">
             Склад подготовил материалы. Подтвердите физическое получение без изменения количества.
           </div>
           <Button
-            className="h-12 w-full bg-yellow-400 text-slate-950 hover:bg-yellow-300 sm:w-auto"
+            className="h-12 w-full bg-primary text-primary-foreground hover:bg-primary sm:w-auto"
             onClick={() => void handleConfirmReceipt(selectedReadyRequest.id)}
             disabled={busyKey === `receipt:${selectedReadyRequest.id}`}
           >
@@ -1548,7 +1548,7 @@ export default function TasksPage() {
       selectedReadyForProgress
     ) {
       return (
-        <div className="grid gap-2 border-t border-slate-800 bg-slate-950 px-4 py-4 sm:grid-cols-2 sm:px-6">
+        <div className="grid gap-2 border-t border-border bg-background px-4 py-4 sm:grid-cols-2 sm:px-6">
           <Button
             type="button"
             variant="outline"
@@ -1559,7 +1559,7 @@ export default function TasksPage() {
             Сдать прогресс
           </Button>
           <Button
-            className="h-12 bg-yellow-400 text-slate-950 hover:bg-yellow-300"
+            className="h-12 bg-primary text-primary-foreground hover:bg-primary"
             onClick={() => requestFinishConfirmation(selectedOperation)}
             disabled={busyKey === `complete:${selectedOperation.id}`}
           >
@@ -1572,7 +1572,7 @@ export default function TasksPage() {
 
     if (selectedPhase === 'accepted' && selectedRequests.length > 0) {
       return (
-        <div className="border-t border-slate-800 bg-slate-950 px-4 py-4 text-[13px] text-slate-400 sm:px-6">
+        <div className="border-t border-border bg-background px-4 py-4 text-[13px] text-muted-foreground sm:px-6">
           {materialStatusText(selectedRequests)}. План остаётся доступен только для чтения.
         </div>
       );
@@ -1584,7 +1584,7 @@ export default function TasksPage() {
   if (!isTaskRole) {
     return (
       <div className="space-y-4">
-        <h1 className="text-[28px] font-bold text-slate-100">Мои задачи</h1>
+        <h1 className="text-[28px] font-bold text-foreground">Мои задачи</h1>
         <Alert variant="destructive">
           <AlertDescription>Эта страница доступна специалистам и бригадирам.</AlertDescription>
         </Alert>
@@ -1597,8 +1597,8 @@ export default function TasksPage() {
       <header>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-[28px] font-bold text-slate-100 sm:text-[30px]">Мои задачи</h1>
-            <p className="mt-1 text-sm text-slate-400">
+            <h1 className="text-[28px] font-bold text-foreground sm:text-[30px]">Мои задачи</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
               Утверждённые планы, сменный прогресс и история выполнения
             </p>
           </div>
@@ -1609,7 +1609,7 @@ export default function TasksPage() {
                 checked={showTestData}
                 onCheckedChange={setShowTestData}
               />
-              <Label htmlFor="tasks-test-data" className="text-sm text-slate-300">
+              <Label htmlFor="tasks-test-data" className="text-sm text-foreground">
                 Показать тестовые данные
               </Label>
             </div>
@@ -1626,7 +1626,7 @@ export default function TasksPage() {
               setMobileDetailOpen(false);
             }}
           >
-            <TabsList className="grid h-11 w-full grid-cols-3 bg-slate-900">
+            <TabsList className="grid h-11 w-full grid-cols-3 bg-background">
               <TabsTrigger value="new" className="gap-1.5">
                 Новые <span className="text-xs">{activeOperations.length}</span>
               </TabsTrigger>
@@ -1640,12 +1640,12 @@ export default function TasksPage() {
           </Tabs>
 
           <div className="relative mt-3">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={taskSearch}
               onChange={(event) => setTaskSearch(event.target.value)}
               placeholder="Найти работу или поле"
-              className="h-11 border-slate-800 bg-slate-950 pl-9"
+              className="h-11 border-border bg-background pl-9"
             />
           </div>
 
@@ -1655,14 +1655,14 @@ export default function TasksPage() {
                 type="date"
                 value={historyFrom}
                 onChange={(event) => setHistoryFrom(event.target.value)}
-                className="h-10 border-slate-800 bg-slate-950"
+                className="h-10 border-border bg-background"
                 aria-label="История с даты"
               />
               <Input
                 type="date"
                 value={historyTo}
                 onChange={(event) => setHistoryTo(event.target.value)}
-                className="h-10 border-slate-800 bg-slate-950"
+                className="h-10 border-border bg-background"
                 aria-label="История по дату"
               />
             </div>
@@ -1670,9 +1670,9 @@ export default function TasksPage() {
 
           <div className="travkin-scrollbar mt-3 max-h-[calc(100dvh-250px)] space-y-2 overflow-y-auto pr-1">
             {loading ? (
-              <div className="py-10 text-center text-sm text-slate-400">Загрузка задач...</div>
+              <div className="py-10 text-center text-sm text-muted-foreground">Загрузка задач...</div>
             ) : visibleOperations.length === 0 ? (
-              <div className="py-10 text-center text-sm text-slate-400">
+              <div className="py-10 text-center text-sm text-muted-foreground">
                 В этой вкладке задач нет.
               </div>
             ) : (
@@ -1683,7 +1683,7 @@ export default function TasksPage() {
 
         <section
           className={[
-            'grid min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-slate-800 bg-slate-950 text-slate-100',
+            'grid min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-border bg-background text-foreground',
             mobileDetailOpen
               ? 'fixed inset-0 z-50 h-[100dvh] border'
               : 'hidden',
@@ -1693,20 +1693,20 @@ export default function TasksPage() {
         >
           {selectedOperation ? (
             <>
-              <header className="border-b border-slate-800 px-4 py-4 sm:px-6">
+              <header className="border-b border-border px-4 py-4 sm:px-6">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <div className="text-[13px] font-semibold uppercase text-yellow-300">
+                    <div className="text-[13px] font-semibold uppercase text-amber-800">
                       {selectedOperation.operation_number
                         ? `${selectedOperation.operation_number} · `
                         : ''}
                       {selectedPresentation?.categoryTitle}
                     </div>
-                    <h2 className="mt-1 text-2xl font-bold text-slate-100 sm:text-[26px]">
+                    <h2 className="mt-1 text-2xl font-bold text-foreground sm:text-[26px]">
                       {selectedPresentation?.workTitle}
                     </h2>
-                    <div className="mt-2 flex items-center gap-1.5 text-base font-semibold text-slate-200 sm:text-lg">
-                        <MapPin className="h-4 w-4 text-slate-500" />
+                    <div className="mt-2 flex items-center gap-1.5 text-base font-semibold text-foreground sm:text-lg">
+                        <MapPin className="h-4 w-4 text-muted-foreground" />
                         {selectedOperation.fields?.field_code
                           ? `${selectedOperation.fields.field_code} · `
                           : ''}
@@ -1715,7 +1715,7 @@ export default function TasksPage() {
                           ? ` · ${selectedPresentation.cropName}`
                           : ''}
                     </div>
-                    <div className="mt-2 flex items-center gap-1.5 text-[13px] text-slate-500">
+                    <div className="mt-2 flex items-center gap-1.5 text-[13px] text-muted-foreground">
                         <CalendarDays className="h-3.5 w-3.5" />
                         {formatDate(selectedOperation.date)}
                     </div>
@@ -1753,7 +1753,7 @@ export default function TasksPage() {
               {renderDetailFooter()}
             </>
           ) : (
-            <div className="hidden h-full place-items-center text-sm text-slate-500 lg:grid">
+            <div className="hidden h-full place-items-center text-sm text-muted-foreground lg:grid">
               Выберите задачу слева.
             </div>
           )}

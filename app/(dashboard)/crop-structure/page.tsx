@@ -787,7 +787,7 @@ export default function CropStructurePage() {
 
   const stateClass = (state: FieldState) => {
     if (state === "empty") return "border-amber-200 bg-amber-100 text-amber-800";
-    if (state === "partial") return "border-slate-200 bg-slate-100 text-slate-700";
+    if (state === "partial") return "border-border bg-muted text-muted-foreground";
     if (state === "over") return "border-rose-200 bg-rose-100 text-rose-800";
     return "border-emerald-200 bg-emerald-100 text-emerald-800";
   };
@@ -1832,11 +1832,11 @@ export default function CropStructurePage() {
           const pct = plannedArea > 0 ? Math.min(100, (done / plannedArea) * 100) : 0;
           return (
             <div key={stage.key} className="grid grid-cols-[104px_1fr_42px] items-center gap-2 text-[11px]">
-              <div className="truncate font-medium text-slate-600">{stage.label}</div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+              <div className="truncate font-medium text-muted-foreground">{stage.label}</div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                 <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
               </div>
-              <div className="text-right text-slate-500">{pct.toFixed(0)}%</div>
+              <div className="text-right text-muted-foreground">{pct.toFixed(0)}%</div>
             </div>
           );
         })}
@@ -1851,30 +1851,30 @@ export default function CropStructurePage() {
     return (
       <Card
         key={field.id}
-        className="h-[202px] cursor-pointer overflow-hidden border-slate-200 transition hover:border-emerald-300 hover:shadow-sm"
+        className="h-[202px] cursor-pointer overflow-hidden border-border transition hover:border-emerald-300 hover:shadow-sm"
         onClick={() => openField(field.id)}
       >
         <CardContent className="grid h-full grid-rows-[auto_minmax(0,1fr)_auto] gap-2 p-3">
           <div className="flex min-w-0 items-start justify-between gap-3">
-            <div className="min-w-0 truncate text-[20px] font-bold leading-tight text-[#facc15]">
+            <div className="min-w-0 truncate text-[20px] font-bold leading-tight text-primary">
               {fieldDisplayName(field)}
             </div>
-            <div className="shrink-0 rounded-md border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-amber-100">
+            <div className="shrink-0 rounded-md border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-amber-800">
               {fmtHa(field.area)}
             </div>
           </div>
 
           <div className="min-h-0 space-y-1 overflow-hidden">
             {visibleRows.length ? visibleRows.map((row, index) => (
-              <div key={`${field.id}-${row.id || index}`} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-1 py-0 text-[12px] leading-[18px] text-slate-100">
+              <div key={`${field.id}-${row.id || index}`} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-1 py-0 text-[12px] leading-[18px] text-foreground">
                 <span className="shrink-0 text-base leading-none">{cropIcon(cropName(row.crop_id))}</span>
                 <span className="min-w-0 truncate font-medium" title={allocationIdentityLabel(row)}>
                   {allocationIdentityLabel(row) || "Культура не задана"}
                 </span>
-                <span className="shrink-0 rounded-md bg-slate-800/80 px-1.5 py-0 text-[10px] font-semibold tabular-nums text-slate-100">{fmtHa(Number(row.area || 0))}</span>
+                <span className="shrink-0 rounded-md bg-muted px-1.5 py-0 text-[10px] font-semibold tabular-nums text-foreground">{fmtHa(Number(row.area || 0))}</span>
               </div>
             )) : (
-              <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-2 py-3 text-center text-xs text-slate-500">
+              <div className="rounded-md border border-dashed border-border bg-muted px-2 py-3 text-center text-xs text-muted-foreground">
                 Культура не задана
               </div>
             )}
@@ -1898,7 +1898,7 @@ export default function CropStructurePage() {
       <CardContent className="p-0">
         <div className="overflow-x-auto">
           <table className="w-full table-fixed text-left text-sm">
-            <thead className="border-b bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <thead className="border-b bg-muted text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="w-[220px] px-3 py-2 font-medium">Поле</th>
                 <th className="px-3 py-2 font-medium">Культуры</th>
@@ -1912,25 +1912,25 @@ export default function CropStructurePage() {
                 const visibleRows = rows.slice(0, 4);
                 const hiddenRows = Math.max(0, rows.length - visibleRows.length);
                 return (
-                  <tr key={field.id} className="cursor-pointer border-b border-slate-100 hover:bg-slate-50" onClick={() => openField(field.id)}>
-                    <td className="px-3 py-2 font-semibold text-[#facc15]">{fieldDisplayName(field)}</td>
-                    <td className="px-3 py-2 text-slate-700">
+                  <tr key={field.id} className="cursor-pointer border-b border-border hover:bg-muted" onClick={() => openField(field.id)}>
+                    <td className="px-3 py-2 font-semibold text-primary">{fieldDisplayName(field)}</td>
+                    <td className="px-3 py-2 text-muted-foreground">
                       {visibleRows.length ? (
                         <div className="flex min-w-0 flex-wrap gap-2">
                           {visibleRows.map((row, index) => (
-                            <span key={`${field.id}-table-${row.id || index}`} className="inline-flex max-w-[280px] items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1">
+                            <span key={`${field.id}-table-${row.id || index}`} className="inline-flex max-w-[280px] items-center gap-1.5 rounded-md bg-muted px-2 py-1">
                               <span className="shrink-0">{cropIcon(cropName(row.crop_id))}</span>
                               <span className="min-w-0 truncate">{allocationIdentityLabel(row)}</span>
-                              <span className="shrink-0 text-xs font-semibold tabular-nums text-slate-900">{fmtHa(Number(row.area || 0))}</span>
+                              <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">{fmtHa(Number(row.area || 0))}</span>
                             </span>
                           ))}
-                          {hiddenRows > 0 ? <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-slate-500">+ ещё {hiddenRows}</span> : null}
+                          {hiddenRows > 0 ? <span className="inline-flex items-center rounded-md bg-muted px-2 py-1 text-muted-foreground">+ ещё {hiddenRows}</span> : null}
                         </div>
                       ) : (
-                        <span className="text-slate-400">Культура не задана</span>
+                        <span className="text-muted-foreground">Культура не задана</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right font-semibold text-slate-900">{fmtHa(field.area)}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-muted-foreground">{fmtHa(field.area)}</td>
                     <td className="px-3 py-2 text-right">
                       <Button
                         type="button"
@@ -2090,9 +2090,9 @@ export default function CropStructurePage() {
 
   const operationStatusClass = (operation: StructureOperationFact) => {
     const label = operationStatusLabel(operation);
-    if (label === "Закрыта") return "border-emerald-400/30 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/10";
-    if (label === "В работе") return "border-amber-400/30 bg-amber-400/10 text-amber-200 hover:bg-amber-400/10";
-    return "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-800";
+    if (label === "Закрыта") return "border-emerald-400/30 bg-emerald-400/10 text-emerald-800 hover:bg-emerald-400/10";
+    if (label === "В работе") return "border-amber-400/30 bg-amber-400/10 text-amber-800 hover:bg-amber-400/10";
+    return "border-border bg-muted text-foreground hover:bg-muted";
   };
 
   const operationAreaLabel = (operation: StructureOperationFact) => {
@@ -2130,13 +2130,13 @@ export default function CropStructurePage() {
     const planned = sumArea(rows);
     const fieldConsumptions = consumptionsByField.get(selectedField.id) || [];
     return (
-      <div className="space-y-3 text-slate-100">
-        <div className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
+      <div className="space-y-3 text-foreground">
+        <div className="rounded-2xl border border-border bg-card p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Сезонный контур поля</div>
-              <div className="mt-1 text-2xl font-semibold text-white">{fieldDisplayName(selectedField)}</div>
-              <div className="mt-1 text-sm text-slate-400">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-800">Сезонный контур поля</div>
+              <div className="mt-1 text-2xl font-semibold text-foreground">{fieldDisplayName(selectedField)}</div>
+              <div className="mt-1 text-sm text-muted-foreground">
                 Всего {fmtHa(selectedField.area)} · структура {fmtHa(planned)} · сезон {season?.year || "-"} · фактических выдач {fieldConsumptions.length}
               </div>
             </div>
@@ -2144,17 +2144,17 @@ export default function CropStructurePage() {
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {rows.length ? rows.map((allocation) => (
-              <div key={`dossier-head-${allocation.id || allocation.crop_id}`} className="rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-2 text-sm">
-                <div className="truncate font-semibold text-slate-100">{allocationIdentityLabel(allocation)}</div>
+              <div key={`dossier-head-${allocation.id || allocation.crop_id}`} className="rounded-xl border border-border bg-background px-3 py-2 text-sm">
+                <div className="truncate font-semibold text-foreground">{allocationIdentityLabel(allocation)}</div>
                 {allocation.identity_review_required ? (
-                  <div className="mt-1 text-xs font-medium text-amber-300">
+                  <div className="mt-1 text-xs font-medium text-amber-800">
                     Требуется уточнить культуру, сорт и репродукцию до оформления урожая.
                   </div>
                 ) : null}
-                <div className="text-xs text-slate-400">{fmtHa(Number(allocation.area || 0))}</div>
+                <div className="text-xs text-muted-foreground">{fmtHa(Number(allocation.area || 0))}</div>
               </div>
             )) : (
-              <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/55 px-3 py-3 text-sm text-slate-400">Посевные строки ещё не заданы.</div>
+              <div className="rounded-xl border border-dashed border-border bg-background px-3 py-3 text-sm text-muted-foreground">Посевные строки ещё не заданы.</div>
             )}
           </div>
         </div>
@@ -2174,16 +2174,16 @@ export default function CropStructurePage() {
               const hasMaterials = materialRows.length > 0;
 
               return (
-                <div key={`detail-${allocation.id || allocation.crop_id}`} className="rounded-2xl border border-slate-800 bg-[#111827] p-3 shadow-sm">
+                <div key={`detail-${allocation.id || allocation.crop_id}`} className="rounded-2xl border border-border bg-card p-3 shadow-sm">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate text-base font-semibold text-white">{allocationIdentityLabel(allocation)}</div>
+                      <div className="truncate text-base font-semibold text-foreground">{allocationIdentityLabel(allocation)}</div>
                       {allocation.identity_review_required ? (
-                        <div className="mt-1 text-xs font-medium text-amber-300">
+                        <div className="mt-1 text-xs font-medium text-amber-800">
                           Требуется уточнить identity урожая
                         </div>
                       ) : null}
-                      <div className="mt-1 text-xs text-slate-400">
+                      <div className="mt-1 text-xs text-muted-foreground">
                         {fmtHa(plannedArea)} · операций {operationsForAllocation.length} · материалов {facts.rows.length}
                       </div>
                     </div>
@@ -2191,7 +2191,7 @@ export default function CropStructurePage() {
                       <Button
                         type="button"
                         size="sm"
-                        className="h-8 bg-yellow-400 px-3 text-xs font-semibold text-slate-950 hover:bg-yellow-300"
+                        className="h-8 bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary"
                         onClick={(event) => openOperationPlan(field, allocation, event)}
                       >
                         Запланировать
@@ -2200,28 +2200,28 @@ export default function CropStructurePage() {
                   </div>
 
                   <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                    <div className="rounded-xl border border-border bg-background p-3">
                       <div className="flex items-center justify-between gap-2">
                         <div>
-                          <div className="text-sm font-semibold text-slate-100">Материалы</div>
-                          <div className="text-[11px] text-slate-500">Факт: {rateBasis}</div>
+                          <div className="text-sm font-semibold text-foreground">Материалы</div>
+                          <div className="text-[11px] text-muted-foreground">Факт: {rateBasis}</div>
                         </div>
-                        <span className="rounded-full bg-slate-800 px-2 py-1 text-[11px] font-semibold text-slate-300">{materialRows.length}</span>
+                        <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-semibold text-foreground">{materialRows.length}</span>
                       </div>
 
                       {hasMaterials ? (
-                        <div className="mt-2 max-h-48 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
+                        <div className="mt-2 max-h-48 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
                           <table className="w-full text-left text-xs">
                             <tbody>
                               {materialRows.map((item) => (
-                                <tr key={`${item.category}-${item.identity}-${item.batchClass}`} className="border-t border-slate-800 first:border-t-0">
+                                <tr key={`${item.category}-${item.identity}-${item.batchClass}`} className="border-t border-border first:border-t-0">
                                   <td className="py-2 pr-2">
-                                    <div className="font-medium text-slate-100">{item.identity}</div>
-                                    <div className="text-[11px] text-slate-500">{item.categoryLabel} · {item.batchClass}</div>
+                                    <div className="font-medium text-foreground">{item.identity}</div>
+                                    <div className="text-[11px] text-muted-foreground">{item.categoryLabel} · {item.batchClass}</div>
                                   </td>
                                   <td className="py-2 text-right">
-                                    <div className="font-semibold text-slate-100">{item.total}</div>
-                                    <div className="text-[11px] text-slate-500">{item.perHa}</div>
+                                    <div className="font-semibold text-foreground">{item.total}</div>
+                                    <div className="text-[11px] text-muted-foreground">{item.perHa}</div>
                                   </td>
                                 </tr>
                               ))}
@@ -2229,25 +2229,25 @@ export default function CropStructurePage() {
                           </table>
                         </div>
                       ) : (
-                        <div className="mt-2 rounded-lg border border-dashed border-slate-700 bg-slate-950/60 px-3 py-3 text-xs text-slate-500">
+                        <div className="mt-2 rounded-lg border border-dashed border-border bg-background px-3 py-3 text-xs text-muted-foreground">
                           Фактических выдач пока нет.
                         </div>
                       )}
                     </div>
 
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                    <div className="rounded-xl border border-border bg-background p-3">
                       <div className="flex items-center justify-between gap-2">
                         <div>
-                          <div className="text-sm font-semibold text-slate-100">Операции</div>
-                          <div className="text-[11px] text-slate-500">План и факт по участку</div>
+                          <div className="text-sm font-semibold text-foreground">Операции</div>
+                          <div className="text-[11px] text-muted-foreground">План и факт по участку</div>
                         </div>
-                        <span className="rounded-full bg-slate-800 px-2 py-1 text-[11px] font-semibold text-slate-300">{operationsForAllocation.length}</span>
+                        <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-semibold text-foreground">{operationsForAllocation.length}</span>
                       </div>
 
                       {operationSummary.length ? (
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {operationSummary.slice(0, 4).map((item) => (
-                            <span key={item.label} className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-300">
+                            <span key={item.label} className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-foreground">
                               {item.label}: {item.count}
                             </span>
                           ))}
@@ -2255,11 +2255,11 @@ export default function CropStructurePage() {
                       ) : null}
 
                       {operationsForAllocation.length ? (
-                        <div className="mt-2 max-h-52 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
+                        <div className="mt-2 max-h-52 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
                           {operationsForAllocation.map(renderOperationCard)}
                         </div>
                       ) : (
-                        <div className="mt-2 rounded-lg border border-dashed border-slate-700 bg-slate-950/60 px-3 py-3 text-xs text-slate-500">
+                        <div className="mt-2 rounded-lg border border-dashed border-border bg-background px-3 py-3 text-xs text-muted-foreground">
                           Операций по этому участку пока нет.
                         </div>
                       )}
@@ -2270,7 +2270,7 @@ export default function CropStructurePage() {
             })}
           </div>
         ) : (
-          <div className="rounded-xl border border-dashed border-slate-700 bg-[#111827] p-5 text-sm text-slate-400">Посевные строки ещё не заданы.</div>
+          <div className="rounded-xl border border-dashed border-border bg-card p-5 text-sm text-muted-foreground">Посевные строки ещё не заданы.</div>
         )}
       </div>
     );
@@ -2282,28 +2282,28 @@ export default function CropStructurePage() {
       <button
         key={operation.id}
         type="button"
-        className="w-full rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2 text-left transition hover:border-yellow-400/50 hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+        className="w-full rounded-lg border border-border bg-card px-3 py-2 text-left transition hover:border-yellow-400/50 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={() => setSelectedOperationDetail(operation)}
         aria-label={`Открыть операцию ${operation.operation_type}`}
       >
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className="truncate text-xs font-semibold text-slate-100">{operation.operation_type}</div>
-            <div className="mt-0.5 text-[11px] text-slate-500">
+            <div className="truncate text-xs font-semibold text-foreground">{operation.operation_type}</div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">
               {fmtDate(operation.completed_at || operation.date)} · {operationKindLabel(operation)} · {operationAreaLabel(operation)}
             </div>
           </div>
           <Badge className={operationStatusClass(operation)}>{operationStatusLabel(operation)}</Badge>
         </div>
-        <div className="mt-1 truncate text-[11px] text-slate-400">{operationMaterialsPreview(operation)}</div>
+        <div className="mt-1 truncate text-[11px] text-muted-foreground">{operationMaterialsPreview(operation)}</div>
         <div className="mt-2 flex items-center gap-2" aria-label={`Прогресс ${progress.toFixed(0)} процентов`}>
-          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-800">
+          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
             <div
               className="h-full rounded-full bg-yellow-400 transition-[width]"
               style={{ width: `${progress}%` }}
             />
           </div>
-          <span className="w-9 shrink-0 text-right text-[10px] font-semibold tabular-nums text-slate-400">
+          <span className="w-9 shrink-0 text-right text-[10px] font-semibold tabular-nums text-muted-foreground">
             {progress.toFixed(0)}%
           </span>
         </div>
@@ -2345,39 +2345,39 @@ export default function CropStructurePage() {
     const totalMaterials = rowItems.reduce((sum, item) => sum + item.materialRows.length, 0);
 
     return (
-      <div className="space-y-6 text-slate-100" data-testid="field-dossier">
+      <div className="space-y-6 text-foreground" data-testid="field-dossier">
         <section aria-labelledby="field-season-summary-heading" className="space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 id="field-season-summary-heading" className="text-sm font-semibold text-white">
+              <h3 id="field-season-summary-heading" className="text-sm font-semibold text-foreground">
                 Состояние поля в сезоне {season?.year || "—"}
               </h3>
-              <p className="mt-1 text-xs leading-5 text-slate-400">
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
                 Поле {fmtHa(selectedField.area)} · структура {fmtHa(planned)} · фактических выдач {fieldConsumptions.length}
               </p>
             </div>
             <Badge className={stateClass(fieldState(selectedField.id))}>{stateText(fieldState(selectedField.id))}</Badge>
           </div>
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-slate-800 py-3 sm:grid-cols-4 sm:divide-x sm:divide-slate-800">
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-border py-3 sm:grid-cols-4 sm:divide-x sm:divide-border">
             <div className="sm:px-4 sm:first:pl-0">
-              <dt className="text-[11px] uppercase tracking-wide text-slate-500">Участков</dt>
-              <dd className="mt-1 text-lg font-semibold text-white">{rows.length}</dd>
+              <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Участков</dt>
+              <dd className="mt-1 text-lg font-semibold text-foreground">{rows.length}</dd>
             </div>
             <div className="sm:px-4">
-              <dt className="text-[11px] uppercase tracking-wide text-slate-500">Операций</dt>
-              <dd className="mt-1 text-lg font-semibold text-white">{totalOperations}</dd>
+              <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Операций</dt>
+              <dd className="mt-1 text-lg font-semibold text-foreground">{totalOperations}</dd>
             </div>
             <div className="sm:px-4">
-              <dt className="text-[11px] uppercase tracking-wide text-slate-500">Материалов</dt>
-              <dd className="mt-1 text-lg font-semibold text-white">{totalMaterials}</dd>
+              <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Материалов</dt>
+              <dd className="mt-1 text-lg font-semibold text-foreground">{totalMaterials}</dd>
             </div>
             <div className="sm:px-4 sm:last:pr-0">
-              <dt className="text-[11px] uppercase tracking-wide text-slate-500">В структуре</dt>
-              <dd className="mt-1 text-lg font-semibold text-white">{fmtHa(planned)}</dd>
+              <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">В структуре</dt>
+              <dd className="mt-1 text-lg font-semibold text-foreground">{fmtHa(planned)}</dd>
             </div>
           </dl>
           {FIELD_HARVEST_LIVE_ENABLED && activeCompanyId && seasonId ? (
-            <div className="border-t border-slate-800 pt-4">
+            <div className="border-t border-border pt-4">
               <FieldHarvestLive
                 companyId={activeCompanyId}
                 seasonId={seasonId}
@@ -2391,15 +2391,15 @@ export default function CropStructurePage() {
 
         {selectedItem ? (
           <div className="grid gap-5 lg:h-[min(600px,calc(92vh-220px))] lg:grid-cols-[280px_minmax(0,1fr)]">
-            <aside className="min-w-0 lg:flex lg:min-h-0 lg:flex-col lg:border-r lg:border-slate-800 lg:pr-5" aria-label="Участки поля">
+            <aside className="min-w-0 lg:flex lg:min-h-0 lg:flex-col lg:border-r lg:border-border lg:pr-5" aria-label="Участки поля">
               <div className="flex items-center justify-between pb-2 lg:pb-3">
                 <div>
-                  <div className="text-sm font-semibold text-white">Участки</div>
-                  <div className="text-xs text-slate-500">Выберите объект операции</div>
+                  <div className="text-sm font-semibold text-foreground">Участки</div>
+                  <div className="text-xs text-muted-foreground">Выберите объект операции</div>
                 </div>
-                <Badge className="border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-900">{rowItems.length}</Badge>
+                <Badge className="border-border bg-background text-foreground hover:bg-background">{rowItems.length}</Badge>
               </div>
-              <div className="flex min-h-0 gap-2 overflow-x-auto pb-2 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] lg:block lg:space-y-1 lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
+              <div className="flex min-h-0 gap-2 overflow-x-auto pb-2 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] lg:block lg:space-y-1 lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
                 {rowItems.map((item) => {
                   const isSelected = item.key === selectedItem.key;
                   return (
@@ -2409,7 +2409,7 @@ export default function CropStructurePage() {
                       className={`flex min-h-16 min-w-[220px] items-center justify-between gap-3 rounded-lg border-l-2 px-3 py-2 text-left transition-colors motion-reduce:transition-none lg:min-w-0 ${
                         isSelected
                           ? "border-yellow-400 bg-yellow-400/10"
-                          : "border-transparent bg-transparent hover:border-slate-600 hover:bg-slate-900/60"
+                          : "border-transparent bg-transparent hover:border-border hover:bg-background"
                       }`}
                       onClick={() => {
                         setSelectedDossierAllocationKey(item.key);
@@ -2417,12 +2417,12 @@ export default function CropStructurePage() {
                       }}
                     >
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-slate-100">{item.title}</div>
-                        <div className={`mt-1 text-xs ${item.reviewRequired ? "font-medium text-amber-300" : "text-slate-500"}`}>
+                        <div className="truncate text-sm font-semibold text-foreground">{item.title}</div>
+                        <div className={`mt-1 text-xs ${item.reviewRequired ? "font-medium text-amber-800" : "text-muted-foreground"}`}>
                           {item.reviewRequired ? "Требуется уточнить сорт и репродукцию" : fmtHa(item.plannedArea)}
                         </div>
                       </div>
-                      <div className="shrink-0 text-right text-[11px] leading-5 text-slate-400">
+                      <div className="shrink-0 text-right text-[11px] leading-5 text-muted-foreground">
                         <div>{item.operationsForAllocation.length} оп.</div>
                         <div>{item.materialRows.length} мат.</div>
                       </div>
@@ -2433,16 +2433,16 @@ export default function CropStructurePage() {
             </aside>
 
             <section className="flex min-h-0 min-w-0 flex-col overflow-hidden" aria-labelledby="selected-allocation-heading">
-              <div className="border-b border-slate-800 pb-4">
+              <div className="border-b border-border pb-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h3 id="selected-allocation-heading" className="truncate text-lg font-semibold text-white">{selectedItem.title}</h3>
+                    <h3 id="selected-allocation-heading" className="truncate text-lg font-semibold text-foreground">{selectedItem.title}</h3>
                     {selectedItem.reviewRequired ? (
-                      <div className="mt-1 text-xs font-medium text-amber-300">
+                      <div className="mt-1 text-xs font-medium text-amber-800">
                         До оформления урожая уточните культуру, сорт и репродукцию.
                       </div>
                     ) : null}
-                    <div className="mt-1 text-sm text-slate-400">
+                    <div className="mt-1 text-sm text-muted-foreground">
                       {fmtHa(selectedItem.plannedArea)} · операций {selectedItem.operationsForAllocation.length} · материалов {selectedItem.materialRows.length}
                     </div>
                   </div>
@@ -2450,7 +2450,7 @@ export default function CropStructurePage() {
                     <Button
                       type="button"
                       size="sm"
-                      className="h-9 bg-yellow-400 px-4 text-sm font-semibold text-slate-950 hover:bg-yellow-300"
+                      className="h-9 bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary"
                       onClick={(event) => openOperationPlan(selectedItemField, selectedItem.allocation, event)}
                     >
                       Запланировать
@@ -2475,8 +2475,8 @@ export default function CropStructurePage() {
                       onKeyDown={moveTabFocus}
                       className={`min-h-11 whitespace-nowrap border-b-2 px-3 py-2 text-xs font-semibold transition-colors motion-reduce:transition-none ${
                         dossierDetailTab === tab.key
-                          ? "border-yellow-400 text-yellow-300"
-                          : "border-transparent text-slate-400 hover:border-slate-600 hover:text-slate-100"
+                          ? "border-yellow-400 text-amber-800"
+                          : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
                       }`}
                       onClick={() => setDossierDetailTab(tab.key as "overview" | "operations" | "materials")}
                     >
@@ -2490,30 +2490,30 @@ export default function CropStructurePage() {
                 id="allocation-detail-panel"
                 role="tabpanel"
                 aria-labelledby={`allocation-tab-${dossierDetailTab}`}
-                className="min-h-0 flex-1 overflow-y-auto pt-4 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent"
+                className="min-h-0 flex-1 overflow-y-auto pt-4 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent"
               >
                 {dossierDetailTab === "overview" ? (
                   <div className="space-y-4">
-                    <dl className="grid grid-cols-3 divide-x divide-slate-800 border-y border-slate-800 py-3">
+                    <dl className="grid grid-cols-3 divide-x divide-border border-y border-border py-3">
                       <div className="px-3 first:pl-0">
-                        <dt className="text-[10px] uppercase tracking-wide text-slate-500 sm:text-[11px]">Площадь</dt>
-                        <dd className="mt-1 text-base font-semibold text-white sm:text-xl">{fmtHa(selectedItem.plannedArea)}</dd>
+                        <dt className="text-[10px] uppercase tracking-wide text-muted-foreground sm:text-[11px]">Площадь</dt>
+                        <dd className="mt-1 text-base font-semibold text-foreground sm:text-xl">{fmtHa(selectedItem.plannedArea)}</dd>
                       </div>
                       <div className="px-3">
-                        <dt className="text-[10px] uppercase tracking-wide text-slate-500 sm:text-[11px]">Операций</dt>
-                        <dd className="mt-1 text-base font-semibold text-white sm:text-xl">{selectedItem.operationsForAllocation.length}</dd>
+                        <dt className="text-[10px] uppercase tracking-wide text-muted-foreground sm:text-[11px]">Операций</dt>
+                        <dd className="mt-1 text-base font-semibold text-foreground sm:text-xl">{selectedItem.operationsForAllocation.length}</dd>
                       </div>
                       <div className="px-3 last:pr-0">
-                        <dt className="text-[10px] uppercase tracking-wide text-slate-500 sm:text-[11px]">Материалов</dt>
-                        <dd className="mt-1 text-base font-semibold text-white sm:text-xl">{selectedItem.materialRows.length}</dd>
+                        <dt className="text-[10px] uppercase tracking-wide text-muted-foreground sm:text-[11px]">Материалов</dt>
+                        <dd className="mt-1 text-base font-semibold text-foreground sm:text-xl">{selectedItem.materialRows.length}</dd>
                       </div>
                     </dl>
 
                     {selectedItem.allocation.land_use_type === "crop_mix" ? (
-                      <section className="border-t border-slate-800 pt-4" aria-labelledby="field-mixture-heading">
+                      <section className="border-t border-border pt-4" aria-labelledby="field-mixture-heading">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <h4 id="field-mixture-heading" className="text-sm font-semibold text-slate-100">Состав зерносмеси</h4>
-                          <div className="text-xs font-semibold text-yellow-300">
+                          <h4 id="field-mixture-heading" className="text-sm font-semibold text-foreground">Состав зерносмеси</h4>
+                          <div className="text-xs font-semibold text-amber-800">
                             Всего семян: {grainMixTotalKg(selectedItem.plannedArea, selectedItem.allocation.mix_components).toLocaleString("ru-RU")} кг
                           </div>
                         </div>
@@ -2521,13 +2521,13 @@ export default function CropStructurePage() {
                           {selectedItem.allocation.mix_components.map((component, index) => (
                             <div
                               key={component.id || `${component.crop_id}-${index}`}
-                              className="grid gap-2 border-b border-slate-800 py-2 text-xs last:border-b-0 sm:grid-cols-[minmax(0,1fr)_110px_120px] sm:items-center"
+                              className="grid gap-2 border-b border-border py-2 text-xs last:border-b-0 sm:grid-cols-[minmax(0,1fr)_110px_120px] sm:items-center"
                             >
-                              <div className="min-w-0 truncate font-semibold text-slate-100">
+                              <div className="min-w-0 truncate font-semibold text-foreground">
                                 {index + 1}. {cropName(component.crop_id)} · {varietyName(component.variety_id)} · {reproductionName(component.reproduction_id)}
                               </div>
-                              <div className="text-slate-300">{component.seed_rate_kg_ha} кг/га</div>
-                              <div className="font-semibold text-slate-100">
+                              <div className="text-foreground">{component.seed_rate_kg_ha} кг/га</div>
+                              <div className="font-semibold text-foreground">
                                 {grainMixComponentTotalKg(selectedItem.plannedArea, component.seed_rate_kg_ha).toLocaleString("ru-RU")} кг
                               </div>
                             </div>
@@ -2537,44 +2537,44 @@ export default function CropStructurePage() {
                     ) : null}
 
                     {selectedItem.operationSummary.length ? (
-                      <section className="border-t border-slate-800 pt-4" aria-labelledby="field-operation-summary-heading">
-                        <h4 id="field-operation-summary-heading" className="text-sm font-semibold text-slate-100">Сводка операций</h4>
+                      <section className="border-t border-border pt-4" aria-labelledby="field-operation-summary-heading">
+                        <h4 id="field-operation-summary-heading" className="text-sm font-semibold text-foreground">Сводка операций</h4>
                         <div className="mt-3 flex flex-wrap gap-2">
                           {selectedItem.operationSummary.map((item) => (
-                            <span key={item.label} className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300">
+                            <span key={item.label} className="rounded-full border border-border bg-background px-3 py-1 text-xs text-foreground">
                               {item.label}: {item.count}
                             </span>
                           ))}
                         </div>
                       </section>
                     ) : (
-                      <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/45 p-4 text-sm text-slate-500">
+                      <div className="rounded-xl border border-dashed border-border bg-background p-4 text-sm text-muted-foreground">
                         По участку пока нет операций.
                       </div>
                     )}
 
                     <div className="grid gap-3 lg:grid-cols-2">
-                      <section className="border-t border-slate-800 pt-4" aria-labelledby="latest-field-operations-heading">
-                        <h4 id="latest-field-operations-heading" className="text-sm font-semibold text-slate-100">Последние операции</h4>
+                      <section className="border-t border-border pt-4" aria-labelledby="latest-field-operations-heading">
+                        <h4 id="latest-field-operations-heading" className="text-sm font-semibold text-foreground">Последние операции</h4>
                         <div className="mt-3 space-y-2">
                           {selectedItem.operationsForAllocation.slice(0, 4).map(renderOperationCard)}
-                          {!selectedItem.operationsForAllocation.length ? <div className="text-xs text-slate-500">Операций нет.</div> : null}
+                          {!selectedItem.operationsForAllocation.length ? <div className="text-xs text-muted-foreground">Операций нет.</div> : null}
                         </div>
                       </section>
 
-                      <section className="border-t border-slate-800 pt-4" aria-labelledby="primary-field-materials-heading">
-                        <h4 id="primary-field-materials-heading" className="text-sm font-semibold text-slate-100">Основные материалы</h4>
+                      <section className="border-t border-border pt-4" aria-labelledby="primary-field-materials-heading">
+                        <h4 id="primary-field-materials-heading" className="text-sm font-semibold text-foreground">Основные материалы</h4>
                         <div className="mt-3 space-y-2">
                           {selectedItem.materialRows.slice(0, 4).map((item) => (
-                            <div key={`${item.category}-${item.identity}-${item.batchClass}`} className="flex items-center justify-between gap-3 border-b border-slate-800 py-2 text-xs last:border-b-0">
+                            <div key={`${item.category}-${item.identity}-${item.batchClass}`} className="flex items-center justify-between gap-3 border-b border-border py-2 text-xs last:border-b-0">
                               <div className="min-w-0">
-                                <div className="truncate font-semibold text-slate-100">{item.identity}</div>
-                                <div className="text-[11px] text-slate-500">{item.categoryLabel}</div>
+                                <div className="truncate font-semibold text-foreground">{item.identity}</div>
+                                <div className="text-[11px] text-muted-foreground">{item.categoryLabel}</div>
                               </div>
-                              <div className="shrink-0 text-right font-semibold text-slate-100">{item.total}</div>
+                              <div className="shrink-0 text-right font-semibold text-foreground">{item.total}</div>
                             </div>
                           ))}
-                          {!selectedItem.materialRows.length ? <div className="text-xs text-slate-500">Материалов нет.</div> : null}
+                          {!selectedItem.materialRows.length ? <div className="text-xs text-muted-foreground">Материалов нет.</div> : null}
                         </div>
                       </section>
                     </div>
@@ -2582,9 +2582,9 @@ export default function CropStructurePage() {
                 ) : null}
 
                 {dossierDetailTab === "operations" ? (
-                  <div className="overflow-x-auto border-y border-slate-800">
+                  <div className="overflow-x-auto border-y border-border">
                     <table className="min-w-[640px] w-full text-left text-xs">
-                      <thead className="bg-slate-950/70 text-[11px] uppercase tracking-wide text-slate-500">
+                      <thead className="bg-background text-[11px] uppercase tracking-wide text-muted-foreground">
                         <tr>
                           <th className="px-3 py-2 font-medium">Дата</th>
                           <th className="px-3 py-2 font-medium">Тип</th>
@@ -2597,30 +2597,30 @@ export default function CropStructurePage() {
                         {selectedItem.operationsForAllocation.map((operation) => (
                           <tr
                             key={operation.id}
-                            className="cursor-pointer border-t border-slate-800 transition hover:bg-slate-900/80"
+                            className="cursor-pointer border-t border-border transition hover:bg-background"
                             onClick={() => setSelectedOperationDetail(operation)}
                           >
-                            <td className="px-3 py-2 text-slate-400">{fmtDate(operation.completed_at || operation.date)}</td>
-                            <td className="px-3 py-2 text-slate-300">{operationKindLabel(operation)}</td>
-                            <td className="px-3 py-2 font-medium text-slate-100">{operation.operation_type}</td>
-                            <td className="px-3 py-2 text-right text-slate-300">{operationAreaLabel(operation)}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{fmtDate(operation.completed_at || operation.date)}</td>
+                            <td className="px-3 py-2 text-foreground">{operationKindLabel(operation)}</td>
+                            <td className="px-3 py-2 font-medium text-foreground">{operation.operation_type}</td>
+                            <td className="px-3 py-2 text-right text-foreground">{operationAreaLabel(operation)}</td>
                             <td className="px-3 py-2 text-right"><Badge className={operationStatusClass(operation)}>{operationStatusLabel(operation)}</Badge></td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                     {!selectedItem.operationsForAllocation.length ? (
-                      <div className="border-t border-slate-800 px-4 py-8 text-center text-sm text-slate-500">Операций по этому участку пока нет.</div>
+                      <div className="border-t border-border px-4 py-8 text-center text-sm text-muted-foreground">Операций по этому участку пока нет.</div>
                     ) : null}
                   </div>
                 ) : null}
 
                 {dossierDetailTab === "materials" ? (
                   <div className="space-y-3">
-                    <div className="text-xs text-slate-500">Расчёт факта: {selectedItem.rateBasis}</div>
-                    <div className="overflow-x-auto border-y border-slate-800">
+                    <div className="text-xs text-muted-foreground">Расчёт факта: {selectedItem.rateBasis}</div>
+                    <div className="overflow-x-auto border-y border-border">
                       <table className="min-w-[680px] w-full text-left text-xs">
-                        <thead className="bg-slate-950/70 text-[11px] uppercase tracking-wide text-slate-500">
+                        <thead className="bg-background text-[11px] uppercase tracking-wide text-muted-foreground">
                           <tr>
                             <th className="px-3 py-2 font-medium">Группа</th>
                             <th className="px-3 py-2 font-medium">Материал</th>
@@ -2632,19 +2632,19 @@ export default function CropStructurePage() {
                         </thead>
                         <tbody>
                           {selectedItem.materialRows.map((item) => (
-                            <tr key={`${item.category}-${item.identity}-${item.batchClass}`} className="border-t border-slate-800">
-                              <td className="px-3 py-2 text-slate-400">{item.categoryLabel}</td>
-                              <td className="px-3 py-2 font-medium text-slate-100">{item.identity}</td>
-                              <td className="px-3 py-2 text-slate-500">{item.batchClass}</td>
-                              <td className="px-3 py-2 text-right font-semibold text-slate-100">{item.total}</td>
-                              <td className="px-3 py-2 text-right text-slate-300">{item.perHa}</td>
-                              <td className="px-3 py-2 text-slate-500">{item.date}</td>
+                            <tr key={`${item.category}-${item.identity}-${item.batchClass}`} className="border-t border-border">
+                              <td className="px-3 py-2 text-muted-foreground">{item.categoryLabel}</td>
+                              <td className="px-3 py-2 font-medium text-foreground">{item.identity}</td>
+                              <td className="px-3 py-2 text-muted-foreground">{item.batchClass}</td>
+                              <td className="px-3 py-2 text-right font-semibold text-foreground">{item.total}</td>
+                              <td className="px-3 py-2 text-right text-foreground">{item.perHa}</td>
+                              <td className="px-3 py-2 text-muted-foreground">{item.date}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                       {!selectedItem.materialRows.length ? (
-                        <div className="border-t border-slate-800 px-4 py-8 text-center text-sm text-slate-500">Фактических выдач по этому участку пока нет.</div>
+                        <div className="border-t border-border px-4 py-8 text-center text-sm text-muted-foreground">Фактических выдач по этому участку пока нет.</div>
                       ) : null}
                     </div>
                   </div>
@@ -2653,7 +2653,7 @@ export default function CropStructurePage() {
             </section>
           </div>
         ) : (
-          <div className="rounded-xl border border-dashed border-slate-700 bg-[#111827] p-5 text-sm text-slate-400">Посевные строки ещё не заданы.</div>
+          <div className="rounded-xl border border-dashed border-border bg-card p-5 text-sm text-muted-foreground">Посевные строки ещё не заданы.</div>
         )}
       </div>
     );
@@ -2661,11 +2661,11 @@ export default function CropStructurePage() {
 
   const renderEditor = () => {
     if (!selectedField) return null;
-    const editorLabelClass = "mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400";
+    const editorLabelClass = "mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
     const editorControlClass =
-      "h-11 w-full min-w-0 border-slate-700 bg-[#0f1622] text-slate-100 shadow-inner shadow-black/20 placeholder:text-slate-500 focus-visible:border-yellow-400 focus-visible:ring-2 focus-visible:ring-yellow-400/50 focus-visible:ring-offset-0";
+      "h-11 w-full min-w-0 border-border bg-card text-foreground shadow-inner shadow-black/20 placeholder:text-muted-foreground focus-visible:border-yellow-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0";
     const editorNumberControlClass = `${editorControlClass} [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
-    const editorSelectContentClass = "border-slate-700 bg-[#101720] text-slate-100 shadow-xl";
+    const editorSelectContentClass = "border-border bg-card text-foreground shadow-xl";
     const plannedArea = sumArea(draftRows);
     const remainingArea = selectedField.area - plannedArea;
     const areaIsOver = remainingArea < -EPS;
@@ -2674,23 +2674,23 @@ export default function CropStructurePage() {
       : 0;
 
     return (
-      <section className="space-y-5 text-slate-100" aria-labelledby="crop-structure-editor-heading" data-testid="crop-structure-editor">
+      <section className="space-y-5 text-foreground" aria-labelledby="crop-structure-editor-heading" data-testid="crop-structure-editor">
         <div className="space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <h3 id="crop-structure-editor-heading" className="text-sm font-semibold text-slate-100">Площадь структуры</h3>
-              <p className={`mt-1 text-xs ${areaIsOver ? "font-semibold text-rose-300" : "text-slate-400"}`}>
+              <h3 id="crop-structure-editor-heading" className="text-sm font-semibold text-foreground">Площадь структуры</h3>
+              <p className={`mt-1 text-xs ${areaIsOver ? "font-semibold text-rose-800" : "text-muted-foreground"}`}>
                 План: {fmtHa(plannedArea)} / {fmtHa(selectedField.area)} · {areaIsOver ? "Превышение" : "Остаток"}: {fmtHa(Math.abs(remainingArea))}
               </p>
             </div>
             {hasUnsavedStructureChanges ? (
-              <Badge className="border border-amber-400/30 bg-amber-400/10 text-amber-200 hover:bg-amber-400/10">
+              <Badge className="border border-amber-400/30 bg-amber-400/10 text-amber-800 hover:bg-amber-400/10">
                 Не сохранено
               </Badge>
             ) : null}
           </div>
           <div
-            className="h-1.5 overflow-hidden rounded-full bg-slate-800"
+            className="h-1.5 overflow-hidden rounded-full bg-muted"
             role="progressbar"
             aria-label="Заполненная площадь структуры"
             aria-valuemin={0}
@@ -2703,12 +2703,12 @@ export default function CropStructurePage() {
             />
           </div>
           {!seasonId ? (
-            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-800">
               У этой компании нет активного сезона. Структуру нельзя сохранить; войдите в основную QA-компанию или сначала откройте сезон.
             </div>
           ) : null}
           {editorValidationError ? (
-            <div role="alert" className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+            <div role="alert" className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-800">
               {editorValidationError}
             </div>
           ) : null}
@@ -2727,19 +2727,19 @@ export default function CropStructurePage() {
             return (
               <section
                 key={`${row.id || "new"}-${index}`}
-                className="border-t border-slate-700/80 py-5 first:border-t-0 first:pt-0"
+                className="border-t border-border py-5 first:border-t-0 first:pt-0"
                 aria-labelledby={`crop-structure-row-${index}`}
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-yellow-500 text-[11px] font-bold text-slate-950">{index + 1}</span>
-                    <h4 id={`crop-structure-row-${index}`} className="text-sm font-semibold text-slate-100">Участок структуры</h4>
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-yellow-500 text-[11px] font-bold text-foreground">{index + 1}</span>
+                    <h4 id={`crop-structure-row-${index}`} className="text-sm font-semibold text-foreground">Участок структуры</h4>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-400">{fmtHa(Number(row.area || 0))}</span>
+                    <span className="text-xs text-muted-foreground">{fmtHa(Number(row.area || 0))}</span>
                     <Button
                       type="button"
-                      className="h-11 w-11 border border-transparent text-slate-400 hover:border-rose-500/40 hover:bg-rose-500/15 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="h-11 w-11 border border-transparent text-muted-foreground hover:border-rose-500/40 hover:bg-rose-500/15 hover:text-rose-800 disabled:cursor-not-allowed disabled:opacity-40"
                       variant="ghost"
                       size="icon"
                       title={isDeleteLocked ? "Почему нельзя удалить участок" : "Удалить участок"}
@@ -2751,7 +2751,7 @@ export default function CropStructurePage() {
                   </div>
                 </div>
                 <div className="grid grid-cols-12 items-end gap-3 pt-4">
-                <div className="col-span-12 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Посев и использование</div>
+                <div className="col-span-12 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Посев и использование</div>
                 <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
                   <Label className={editorLabelClass}>Использование участка *</Label>
                   <Select
@@ -2818,13 +2818,13 @@ export default function CropStructurePage() {
                   </>
                 ) : null}
                 {isCropMixRow ? (
-                  <section className="col-span-12 space-y-3 border-y border-slate-700/70 py-4" aria-labelledby={`crop-mixture-${index}`}>
+                  <section className="col-span-12 space-y-3 border-y border-border py-4" aria-labelledby={`crop-mixture-${index}`}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <h5 id={`crop-mixture-${index}`} className="text-sm font-semibold text-slate-100">Состав зерносмеси</h5>
-                        <div className="text-xs text-slate-400">Нормы задаются отдельно; площадь участка учитывается один раз.</div>
+                        <h5 id={`crop-mixture-${index}`} className="text-sm font-semibold text-foreground">Состав зерносмеси</h5>
+                        <div className="text-xs text-muted-foreground">Нормы задаются отдельно; площадь участка учитывается один раз.</div>
                       </div>
-                      <div className="text-sm font-semibold text-yellow-300">
+                      <div className="text-sm font-semibold text-amber-800">
                         Всего: {grainMixTotalKg(row.area, row.mix_components).toLocaleString("ru-RU")} кг
                       </div>
                     </div>
@@ -2833,7 +2833,7 @@ export default function CropStructurePage() {
                         const componentCropId = displayCropId(component.crop_id);
                         const componentVarieties = componentCropId ? varietiesByCrop.get(componentCropId) || [] : [];
                         return (
-                          <div key={`${component.id || "new"}-${componentIndex}`} className="grid grid-cols-12 items-end gap-2 border-b border-slate-800 py-3 last:border-b-0">
+                          <div key={`${component.id || "new"}-${componentIndex}`} className="grid grid-cols-12 items-end gap-2 border-b border-border py-3 last:border-b-0">
                             <div className="col-span-12 min-w-0 md:col-span-2">
                               <Label className={editorLabelClass}>Компонент {componentIndex + 1}: культура *</Label>
                               <Select
@@ -2895,7 +2895,7 @@ export default function CropStructurePage() {
                             </div>
                             <div className="col-span-3 min-w-0 md:col-span-1">
                               <Label className={editorLabelClass}>Всего</Label>
-                              <div className="flex h-11 items-center truncate text-xs font-semibold text-slate-200" title={`${grainMixComponentTotalKg(row.area, component.seed_rate_kg_ha)} кг`}>
+                              <div className="flex h-11 items-center truncate text-xs font-semibold text-foreground" title={`${grainMixComponentTotalKg(row.area, component.seed_rate_kg_ha)} кг`}>
                                 {grainMixComponentTotalKg(row.area, component.seed_rate_kg_ha).toLocaleString("ru-RU")} кг
                               </div>
                             </div>
@@ -2905,7 +2905,7 @@ export default function CropStructurePage() {
                                 variant="ghost"
                                 size="icon"
                                 title="Удалить компонент"
-                                className="h-11 w-11 text-slate-400 hover:bg-rose-500/15 hover:text-rose-200"
+                                className="h-11 w-11 text-muted-foreground hover:bg-rose-500/15 hover:text-rose-800"
                                 disabled={row.mix_components.length <= GRAIN_MIX_MIN_COMPONENTS}
                                 onClick={() => removeMixComponent(index, componentIndex)}
                               >
@@ -2920,7 +2920,7 @@ export default function CropStructurePage() {
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="min-h-11 border-slate-700 bg-[#0b1220] text-slate-100"
+                      className="min-h-11 border-border bg-card text-foreground"
                       disabled={row.mix_components.length >= GRAIN_MIX_MAX_COMPONENTS}
                       onClick={() => addMixComponent(index)}
                     >
@@ -2928,7 +2928,7 @@ export default function CropStructurePage() {
                     </Button>
                   </section>
                 ) : null}
-                <div className="col-span-12 mt-1 border-t border-slate-700/70 pt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Площадь и параметры</div>
+                <div className="col-span-12 mt-1 border-t border-border pt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Площадь и параметры</div>
                 <div className="col-span-12 min-w-0 sm:col-span-7 xl:col-span-4">
                   <Label className={editorLabelClass}>Площадь, га *</Label>
                   <div className="flex gap-1.5">
@@ -2937,7 +2937,7 @@ export default function CropStructurePage() {
                       type="button"
                       title="Заполнить остатком площади"
                       aria-label="Заполнить остатком площади"
-                      className="h-11 w-11 shrink-0 border border-slate-700 bg-[#0b1220] p-0 text-slate-400 hover:border-yellow-500/50 hover:bg-[#172033] hover:text-yellow-300"
+                      className="h-11 w-11 shrink-0 border border-border bg-card p-0 text-muted-foreground hover:border-yellow-500/50 hover:bg-card hover:text-amber-800"
                       variant="outline"
                       onClick={() => fillRemainingArea(index)}
                     >
@@ -2947,7 +2947,7 @@ export default function CropStructurePage() {
                 </div>
                 <div className="col-span-8 min-w-0 sm:col-span-3 xl:col-span-2">
                   <Label className={editorLabelClass}>%</Label>
-                  <div className="flex h-11 items-center border-b border-slate-700 px-1 text-sm font-semibold text-slate-200">{pct}</div>
+                  <div className="flex h-11 items-center border-b border-border px-1 text-sm font-semibold text-foreground">{pct}</div>
                 </div>
                 <div className={`col-span-12 grid grid-cols-1 gap-3 ${isFallowRow || isCropMixRow ? "" : "md:grid-cols-3"}`}>
                   <div>
@@ -3006,7 +3006,7 @@ export default function CropStructurePage() {
             );
           })}
           {!draftRows.length ? (
-            <div className="border-y border-dashed border-slate-700 py-8 text-center text-sm text-slate-400">
+            <div className="border-y border-dashed border-border py-8 text-center text-sm text-muted-foreground">
               В поле пока нет участков структуры. Добавьте первый участок в панели действий.
             </div>
           ) : null}
@@ -3032,25 +3032,25 @@ export default function CropStructurePage() {
           : "Нет кадастра";
 
     return (
-      <div className="space-y-5 text-slate-100" data-testid="field-legal-contour">
+      <div className="space-y-5 text-foreground" data-testid="field-legal-contour">
         <section aria-labelledby="field-legal-contour-heading" className="space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 id="field-legal-contour-heading" className="text-sm font-semibold text-white">Юридический контур</h3>
-              <p className="mt-1 text-sm text-slate-400">
+              <h3 id="field-legal-contour-heading" className="text-sm font-semibold text-foreground">Юридический контур</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
                 Агро-площадь {fmtHa(selectedField.area)} · юридическая {fmtHa(totalLegalArea)}
               </p>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Разница: {diff > 0 ? "+" : diff < 0 ? "−" : ""}{fmtHa(diffAbs).replace(" га", "")} га
               </p>
             </div>
             <Badge
               className={
                 diffStatus === "ok"
-                  ? "border border-emerald-400/30 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/10"
+                  ? "border border-emerald-400/30 bg-emerald-400/10 text-emerald-800 hover:bg-emerald-400/10"
                   : diffStatus === "warning"
-                    ? "border border-amber-400/30 bg-amber-400/10 text-amber-200 hover:bg-amber-400/10"
-                    : "border border-rose-400/30 bg-rose-400/10 text-rose-200 hover:bg-rose-400/10"
+                    ? "border border-amber-400/30 bg-amber-400/10 text-amber-800 hover:bg-amber-400/10"
+                    : "border border-rose-400/30 bg-rose-400/10 text-rose-800 hover:bg-rose-400/10"
               }
             >
               {diffStatusLabel}
@@ -3059,9 +3059,9 @@ export default function CropStructurePage() {
         </section>
 
         {links.length ? (
-          <div className="overflow-x-auto border-y border-slate-800">
+          <div className="overflow-x-auto border-y border-border">
               <table className="w-full min-w-[760px] text-left text-xs">
-                <thead className="bg-slate-950/60 text-[11px] uppercase tracking-wide text-slate-500">
+                <thead className="bg-background text-[11px] uppercase tracking-wide text-muted-foreground">
                   <tr>
                     <th className="px-3 py-2 font-medium">Кадастровый номер</th>
                     <th className="px-3 py-2 font-medium">Площадь</th>
@@ -3074,21 +3074,21 @@ export default function CropStructurePage() {
                 </thead>
                 <tbody>
                   {links.map((row) => (
-                    <tr key={row.id} className="border-t border-slate-800">
-                      <td className="px-3 py-2 font-medium text-slate-100">{row.cadastral_number}</td>
-                      <td className="px-3 py-2 text-slate-300">{fmtHa(row.area_ha)}</td>
-                      <td className="px-3 py-2 text-slate-300">{row.crop_id ? cropName(row.crop_id) : "—"}</td>
-                      <td className="px-3 py-2 text-slate-300">{row.legal_entity_name || "—"}</td>
-                      <td className="px-3 py-2 text-slate-300">{row.owner_legal_entity_name || row.usage_legal_entity_name || "—"}</td>
-                      <td className="px-3 py-2 text-slate-500">{row.allocation_method}</td>
-                      <td className="px-3 py-2 text-slate-500">{row.source}</td>
+                    <tr key={row.id} className="border-t border-border">
+                      <td className="px-3 py-2 font-medium text-foreground">{row.cadastral_number}</td>
+                      <td className="px-3 py-2 text-foreground">{fmtHa(row.area_ha)}</td>
+                      <td className="px-3 py-2 text-foreground">{row.crop_id ? cropName(row.crop_id) : "—"}</td>
+                      <td className="px-3 py-2 text-foreground">{row.legal_entity_name || "—"}</td>
+                      <td className="px-3 py-2 text-foreground">{row.owner_legal_entity_name || row.usage_legal_entity_name || "—"}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{row.allocation_method}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{row.source}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
           </div>
         ) : (
-          <div className="border-y border-dashed border-slate-700 py-6 text-sm text-slate-400">
+          <div className="border-y border-dashed border-border py-6 text-sm text-muted-foreground">
             Для этого поля пока нет юридической разбивки по кадастрам в выбранном сезоне.
           </div>
         )}
@@ -3117,7 +3117,7 @@ export default function CropStructurePage() {
             disabled={seasons.length === 0}
           >
             <SelectTrigger
-              className="h-8 min-w-[92px] border-slate-700 bg-transparent px-2 text-xs font-medium text-slate-400 shadow-none hover:border-slate-600 hover:text-slate-200 disabled:cursor-default disabled:opacity-70"
+              className="h-8 min-w-[92px] border-border bg-transparent px-2 text-xs font-medium text-muted-foreground shadow-none hover:border-border hover:text-foreground disabled:cursor-default disabled:opacity-70"
               aria-label="Сезон структуры посевов"
             >
               <SelectValue placeholder="Сезон не создан" />
@@ -3134,7 +3134,7 @@ export default function CropStructurePage() {
       </PageHeader>
 
       {season && !canEditSelectedSeason && canEditStructure ? (
-        <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+        <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-800">
           Сезон {season.year} доступен только для чтения. Редактирование возможно только в текущем открытом сезоне.
         </div>
       ) : null}
@@ -3143,7 +3143,7 @@ export default function CropStructurePage() {
         <CardContent className="p-3">
           <div className="grid items-center gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(180px,1fr)_minmax(140px,170px)_minmax(130px,150px)_minmax(135px,155px)_auto]">
             <div className="relative min-w-0">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input className="h-9 w-full pl-8" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск поля..." />
             </div>
             <Select value={cropFilter} onValueChange={setCropFilter}>
@@ -3180,7 +3180,7 @@ export default function CropStructurePage() {
                   <Plus className="mr-2 h-4 w-4" />Добавить поле
                 </Button>
               ) : null}
-              <div className="flex shrink-0 rounded-md border border-slate-200 bg-white p-0.5">
+              <div className="flex shrink-0 rounded-md border border-border bg-white p-0.5">
                 <Button
                   type="button"
                   size="sm"
@@ -3239,8 +3239,8 @@ export default function CropStructurePage() {
       {loadError ? (
         <Card>
           <CardContent className="p-8 text-center">
-            <div className="text-lg font-semibold text-slate-900">Не удалось загрузить структуру посевов</div>
-            <div className="mt-2 text-sm text-slate-500">{loadError}</div>
+            <div className="text-lg font-semibold text-muted-foreground">Не удалось загрузить структуру посевов</div>
+            <div className="mt-2 text-sm text-muted-foreground">{loadError}</div>
           </CardContent>
         </Card>
       ) : null}
@@ -3248,8 +3248,8 @@ export default function CropStructurePage() {
       {!loadError && !hasFields ? (
         <Card>
           <CardContent className="p-8 text-center">
-            <div className="text-lg font-semibold text-slate-900">Поля не найдены</div>
-            <div className="mt-2 text-sm text-slate-500">
+            <div className="text-lg font-semibold text-muted-foreground">Поля не найдены</div>
+            <div className="mt-2 text-sm text-muted-foreground">
               Создайте поля или импортируйте структуру посевов, чтобы заполнить сезон {season?.year || "2026"}.
             </div>
             {isGlobalAdmin ? (
@@ -3274,7 +3274,7 @@ export default function CropStructurePage() {
       {!loadError && hasFields && viewMode === "table" ? renderTableView() : null}
       {!loadError && hasFields && viewMode === "map" && isGlobalAdmin ? renderMapView() : null}
       {!loadError && hasFields && !filteredFields.length ? (
-        <Card><CardContent className="p-8 text-center text-sm text-slate-500">По заданным фильтрам поля не найдены.</CardContent></Card>
+        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">По заданным фильтрам поля не найдены.</CardContent></Card>
       ) : null}
 
       {canManageFields ? (
@@ -3291,15 +3291,15 @@ export default function CropStructurePage() {
           hideCloseButton
           data-testid="field-dialog-content"
           overlayClassName="motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none motion-reduce:duration-0"
-          className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-none flex-col gap-0 overflow-hidden border-slate-800 bg-[#0b1017] p-0 text-slate-100 shadow-2xl shadow-black/50 motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none motion-reduce:duration-0 sm:max-h-[92vh] sm:w-[94vw] sm:max-w-[1180px] sm:rounded-2xl"
+          className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-none flex-col gap-0 overflow-hidden border-border bg-card p-0 text-foreground shadow-2xl shadow-black/50 motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none motion-reduce:duration-0 sm:max-h-[92vh] sm:w-[94vw] sm:max-w-[1180px] sm:rounded-2xl"
         >
-          <DialogHeader className="shrink-0 gap-3 space-y-0 border-b border-slate-800 px-4 py-4 pr-4 text-left sm:px-6">
+          <DialogHeader className="shrink-0 gap-3 space-y-0 border-b border-border px-4 py-4 pr-4 text-left sm:px-6">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 pt-1">
                 <DialogTitle className="truncate text-lg leading-tight sm:text-xl">
                   {selectedField ? fieldDisplayName(selectedField) : "Поле"}
                 </DialogTitle>
-                <DialogDescription className="mt-1 text-xs text-slate-400 sm:text-sm">
+                <DialogDescription className="mt-1 text-xs text-muted-foreground sm:text-sm">
                   {selectedField ? `${fmtHa(selectedField.area)} · сезон ${season?.year || "—"}` : "Данные поля"}
                 </DialogDescription>
               </div>
@@ -3307,7 +3307,7 @@ export default function CropStructurePage() {
                 <Button
                   type="button"
                   variant="ghost"
-                  className="h-11 min-w-11 px-3 text-slate-300 hover:bg-slate-800 hover:text-white"
+                  className="h-11 min-w-11 px-3 text-foreground hover:bg-muted hover:text-foreground"
                   onClick={exportFieldPdf}
                   disabled={pdfLoading || !selectedFieldId || !seasonId}
                   aria-label={pdfLoading ? "Формируется PDF поля" : "Скачать PDF поля"}
@@ -3319,7 +3319,7 @@ export default function CropStructurePage() {
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-11 w-11 text-slate-300 hover:bg-slate-800 hover:text-white"
+                  className="h-11 w-11 text-foreground hover:bg-muted hover:text-foreground"
                   onClick={requestCloseField}
                   aria-label="Закрыть карточку поля"
                 >
@@ -3336,7 +3336,7 @@ export default function CropStructurePage() {
                 tabIndex={fieldDialogTab === "dossier" ? 0 : -1}
                 variant="ghost"
                 size="sm"
-                className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "dossier" ? "border-yellow-400 text-yellow-300" : "border-transparent text-slate-400 hover:border-slate-600 hover:text-slate-100"}`}
+                className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "dossier" ? "border-yellow-400 text-amber-800" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
                 onClick={() => setFieldDialogTab("dossier")}
                 onKeyDown={moveTabFocus}
               >
@@ -3351,7 +3351,7 @@ export default function CropStructurePage() {
                   tabIndex={fieldDialogTab === "editor" ? 0 : -1}
                   variant="ghost"
                   size="sm"
-                  className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "editor" ? "border-yellow-400 text-yellow-300" : "border-transparent text-slate-400 hover:border-slate-600 hover:text-slate-100"}`}
+                  className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "editor" ? "border-yellow-400 text-amber-800" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
                   onClick={() => setFieldDialogTab("editor")}
                   onKeyDown={moveTabFocus}
                   disabled={!canEditSelectedSeason}
@@ -3369,7 +3369,7 @@ export default function CropStructurePage() {
                   tabIndex={fieldDialogTab === "legal" ? 0 : -1}
                   variant="ghost"
                   size="sm"
-                  className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "legal" ? "border-yellow-400 text-yellow-300" : "border-transparent text-slate-400 hover:border-slate-600 hover:text-slate-100"}`}
+                  className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "legal" ? "border-yellow-400 text-amber-800" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
                   onClick={() => setFieldDialogTab("legal")}
                   onKeyDown={moveTabFocus}
                 >
@@ -3382,17 +3382,17 @@ export default function CropStructurePage() {
             id="field-dialog-panel"
             role="tabpanel"
             aria-labelledby={`field-tab-${fieldDialogTab}`}
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] sm:px-6 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700/80 [&::-webkit-scrollbar-track]:bg-transparent"
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] sm:px-6 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent"
           >
             {fieldDialogTab === "dossier" ? renderFieldDossier() : null}
             {fieldDialogTab === "editor" ? renderEditor() : null}
             {fieldDialogTab === "legal" ? renderLegalContour() : null}
           </div>
           <div
-            className="sticky bottom-0 z-20 flex shrink-0 flex-col gap-2 border-t border-slate-800 bg-[#0b1017]/95 px-4 py-3 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:px-6"
+            className="sticky bottom-0 z-20 flex shrink-0 flex-col gap-2 border-t border-border bg-card px-4 py-3 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:px-6"
             data-testid="field-dialog-action-bar"
           >
-            <div className="min-h-5 text-xs text-slate-400" aria-live="polite">
+            <div className="min-h-5 text-xs text-muted-foreground" aria-live="polite">
               {hasUnsavedStructureChanges
                 ? "Есть несохранённые изменения"
                 : fieldDialogTab === "editor"
@@ -3404,7 +3404,7 @@ export default function CropStructurePage() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-11 border-slate-700 bg-transparent text-slate-100 hover:border-yellow-500/50 hover:bg-slate-800 hover:text-white"
+                  className="h-11 border-border bg-transparent text-foreground hover:border-yellow-500/50 hover:bg-muted hover:text-foreground"
                   onClick={addRow}
                 >
                   <Plus className="mr-2 h-4 w-4" />Добавить участок
@@ -3422,36 +3422,36 @@ export default function CropStructurePage() {
       </Dialog>
 
       <AlertDialog open={saveConfirmationOpen} onOpenChange={setSaveConfirmationOpen}>
-        <AlertDialogContent className="border-slate-700 bg-[#0b1017] text-slate-100">
+        <AlertDialogContent className="border-border bg-card text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>Подтвердить изменения структуры?</AlertDialogTitle>
-            <AlertDialogDescription className="text-slate-400">
+            <AlertDialogDescription className="text-muted-foreground">
               Только после подтверждения изменения будут записаны в сезон {season?.year || "—"}.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="grid grid-cols-3 gap-2">
-            <div className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2">
-              <div className="text-xs text-slate-400">Добавить</div>
-              <div className="mt-1 text-lg font-semibold text-slate-100">{pendingSaveSummary.added}</div>
+            <div className="rounded-lg border border-border bg-background px-3 py-2">
+              <div className="text-xs text-muted-foreground">Добавить</div>
+              <div className="mt-1 text-lg font-semibold text-foreground">{pendingSaveSummary.added}</div>
             </div>
-            <div className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2">
-              <div className="text-xs text-slate-400">Изменить</div>
-              <div className="mt-1 text-lg font-semibold text-slate-100">{pendingSaveSummary.updated}</div>
+            <div className="rounded-lg border border-border bg-background px-3 py-2">
+              <div className="text-xs text-muted-foreground">Изменить</div>
+              <div className="mt-1 text-lg font-semibold text-foreground">{pendingSaveSummary.updated}</div>
             </div>
-            <div className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2">
-              <div className="text-xs text-slate-400">Удалить</div>
-              <div className="mt-1 text-lg font-semibold text-slate-100">{pendingSaveSummary.deleted}</div>
+            <div className="rounded-lg border border-border bg-background px-3 py-2">
+              <div className="text-xs text-muted-foreground">Удалить</div>
+              <div className="mt-1 text-lg font-semibold text-foreground">{pendingSaveSummary.deleted}</div>
             </div>
           </div>
-          <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+          <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-800">
             Итоговая площадь структуры: {fmtHa(sumArea(pendingSaveRows))} из {fmtHa(selectedField?.area || 0)}.
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-slate-600 bg-transparent text-slate-100 hover:bg-slate-800 hover:text-white">
+            <AlertDialogCancel className="border-border bg-transparent text-foreground hover:bg-muted hover:text-foreground">
               Вернуться к редактированию
             </AlertDialogCancel>
             <AlertDialogAction
-              className="bg-yellow-400 text-slate-950 hover:bg-yellow-300"
+              className="bg-primary text-primary-foreground hover:bg-primary"
               onClick={() => void confirmSave()}
             >
               Подтвердить и сохранить
@@ -3461,15 +3461,15 @@ export default function CropStructurePage() {
       </AlertDialog>
 
       <AlertDialog open={discardConfirmationOpen} onOpenChange={setDiscardConfirmationOpen}>
-        <AlertDialogContent className="border-slate-700 bg-[#0b1017] text-slate-100">
+        <AlertDialogContent className="border-border bg-card text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>Закрыть без сохранения?</AlertDialogTitle>
-            <AlertDialogDescription className="text-slate-400">
+            <AlertDialogDescription className="text-muted-foreground">
               Несохранённые добавления, изменения и удаления будут отменены. «Агро-контур» и база уже сохранённые данные не меняли.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-slate-600 bg-transparent text-slate-100 hover:bg-slate-800 hover:text-white">
+            <AlertDialogCancel className="border-border bg-transparent text-foreground hover:bg-muted hover:text-foreground">
               Продолжить редактирование
             </AlertDialogCancel>
             <AlertDialogAction className="bg-rose-600 text-white hover:bg-rose-500" onClick={closeField}>
@@ -3480,19 +3480,19 @@ export default function CropStructurePage() {
       </AlertDialog>
 
       <Dialog open={Boolean(selectedOperationDetail)} onOpenChange={(open) => !open && setSelectedOperationDetail(null)}>
-        <DialogContent className="max-h-[92vh] w-[94vw] max-w-none overflow-y-auto border-slate-800 bg-[#0b1017] text-slate-100 shadow-2xl shadow-black/50 sm:max-w-[1040px] travkin-scrollbar">
+        <DialogContent className="max-h-[92vh] w-[94vw] max-w-none overflow-y-auto border-border bg-card text-foreground shadow-2xl shadow-black/50 sm:max-w-[1040px] travkin-scrollbar">
           {selectedOperationDetail ? (
             <>
               <DialogHeader>
                 <div className="flex flex-wrap items-start justify-between gap-3 pr-6">
                   <div className="min-w-0">
-                    <div className="text-xs font-semibold uppercase text-yellow-300">
+                    <div className="text-xs font-semibold uppercase text-amber-800">
                       {selectedOperationDetail.presentation.categoryTitle}
                     </div>
                     <DialogTitle className="mt-1 text-2xl">
                       {selectedOperationDetail.presentation.workTitle}
                     </DialogTitle>
-                    <div className="mt-2 text-sm text-slate-400">
+                    <div className="mt-2 text-sm text-muted-foreground">
                       {fieldDisplayName(selectedField || fieldMap.get(selectedOperationDetail.field_id) || { id: "", name: "Поле", area: 0 })}
                       {selectedOperationDetail.presentation.cropName ? ` · ${selectedOperationDetail.presentation.cropName}` : ""}
                       {selectedOperationDetail.presentation.varietyName ? ` · ${selectedOperationDetail.presentation.varietyName}` : ""}
@@ -3508,27 +3508,27 @@ export default function CropStructurePage() {
 
               <SpecialistOperationPlan presentation={selectedOperationDetail.presentation} />
 
-              <section className="rounded-xl border border-slate-800 bg-slate-950/45 p-4">
-                <div className="text-sm font-semibold text-slate-100">Прогресс по сменам</div>
+              <section className="rounded-xl border border-border bg-background p-4">
+                <div className="text-sm font-semibold text-foreground">Прогресс по сменам</div>
                 {selectedOperationDetail.presentation.progressReports.length ? (
                   <div className="mt-3 space-y-2">
                     {selectedOperationDetail.presentation.progressReports.map((report) => (
-                      <div key={report.id} className="rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2">
+                      <div key={report.id} className="rounded-lg border border-border bg-card px-3 py-2">
                         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                          <span className="font-semibold text-slate-200">
+                          <span className="font-semibold text-foreground">
                             {fmtDate(report.reported_at)} · +{fmtHa(Number(report.completed_area_ha || 0))}
                           </span>
-                          <span className="tabular-nums text-slate-400">
+                          <span className="tabular-nums text-muted-foreground">
                             {Number(report.progress_percent || 0).toLocaleString("ru-RU", { maximumFractionDigits: 1 })}% · осталось {fmtHa(Number(report.remaining_area_ha || 0))}
                           </span>
                         </div>
-                        {report.comment ? <div className="mt-1 text-xs text-slate-400">{report.comment}</div> : null}
-                        {report.stop_reason ? <div className="mt-1 text-xs text-amber-300">Причина остановки: {report.stop_reason}</div> : null}
+                        {report.comment ? <div className="mt-1 text-xs text-muted-foreground">{report.comment}</div> : null}
+                        {report.stop_reason ? <div className="mt-1 text-xs text-amber-800">Причина остановки: {report.stop_reason}</div> : null}
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="mt-2 text-sm text-slate-500">Сменный прогресс ещё не сдавался.</div>
+                  <div className="mt-2 text-sm text-muted-foreground">Сменный прогресс ещё не сдавался.</div>
                 )}
               </section>
 
@@ -3541,16 +3541,16 @@ export default function CropStructurePage() {
       </Dialog>
 
       <Dialog open={pendingDeleteIndex !== null} onOpenChange={(open) => !open && setPendingDeleteIndex(null)}>
-        <DialogContent className="max-w-md border-slate-800 bg-[#0b1017] text-slate-100 shadow-2xl shadow-black/50">
+        <DialogContent className="max-w-md border-border bg-card text-foreground shadow-2xl shadow-black/50">
           <DialogHeader>
             <DialogTitle>Удалить участок структуры?</DialogTitle>
-            <DialogDescription className="text-slate-400">
+            <DialogDescription className="text-muted-foreground">
               {pendingDeleteRow
                 ? `Будет удалена строка на ${fmtHa(Number(pendingDeleteRow.area || 0))}. Это действие применится после сохранения структуры.`
                 : "Будет удалена выбранная строка структуры после сохранения."}
             </DialogDescription>
           </DialogHeader>
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
             Если у участка уже есть операции, материалы или история, удаление заблокируется.
           </div>
           <DialogFooter>
@@ -3577,11 +3577,11 @@ export default function CropStructurePage() {
               <button
                 key={allocation.id}
                 type="button"
-                className="w-full rounded-lg border border-slate-700 bg-[#111827] px-3 py-2 text-left text-sm text-slate-100 transition hover:border-yellow-400"
+                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-left text-sm text-foreground transition hover:border-yellow-400"
                 onClick={(event) => sectionChoiceField && openOperationPlan(sectionChoiceField, allocation, event)}
               >
                 <div className="font-semibold">{allocationTitle(allocation)}</div>
-                <div className="mt-1 text-xs text-slate-400">
+                <div className="mt-1 text-xs text-muted-foreground">
                   Операция будет привязана к этому участку структуры.
                 </div>
               </button>
@@ -3589,11 +3589,11 @@ export default function CropStructurePage() {
             {sectionChoiceField ? (
               <button
                 type="button"
-                className="w-full rounded-lg border border-dashed border-slate-600 bg-slate-950 px-3 py-2 text-left text-sm text-slate-200 transition hover:border-yellow-400"
+                className="w-full rounded-lg border border-dashed border-border bg-background px-3 py-2 text-left text-sm text-foreground transition hover:border-yellow-400"
                 onClick={(event) => openWholeFieldOperationPlan(sectionChoiceField, event)}
               >
                 <div className="font-semibold">Всё поле — {fmtHa(Number(sectionChoiceField.area || 0))}</div>
-                <div className="mt-1 text-xs text-slate-400">
+                <div className="mt-1 text-xs text-muted-foreground">
                   Только для уборки, логистики, сервиса и послеуборочных работ.
                 </div>
               </button>

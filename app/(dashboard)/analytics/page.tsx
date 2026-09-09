@@ -150,7 +150,7 @@ export default function AnalyticsPage() {
 
       {state === "loading" ? (
         <div className="text-center py-12">
-          <p className="text-slate-500">{t("Загрузка аналитики...", "Аналитика жүктелуде...", "Loading analytics...")}</p>
+          <p className="text-muted-foreground">{t("Загрузка аналитики...", "Аналитика жүктелуде...", "Loading analytics...")}</p>
         </div>
       ) : state === "error" ? (
         <Card className="border-red-500/40">
@@ -162,7 +162,7 @@ export default function AnalyticsPage() {
         </Card>
       ) : state === "no-season" ? (
         <Card>
-          <CardContent className="py-8 text-center text-sm text-slate-500">
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">
             {t("Нет активного сезона.", "Белсенді маусым жоқ.", "No active season.")}
           </CardContent>
         </Card>
@@ -171,14 +171,14 @@ export default function AnalyticsPage() {
           <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-5">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-slate-600">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
                   {t("Всего полей", "Барлық алаңдар", "Total Fields")}
                 </CardTitle>
-                <MapPin className="h-4 w-4 text-slate-400" />
+                <MapPin className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{seasonSummary.totalFields}</div>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   {selectedSeasonId ? t("Поля в выбранном сезоне", "Таңдалған маусымдағы алаңдар", "Fields in selected season") : t("Выберите сезон", "Маусымды таңдаңыз", "Select a season")}
                 </p>
               </CardContent>
@@ -186,59 +186,59 @@ export default function AnalyticsPage() {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-slate-600">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
                   {t("Площадь посева", "Егіс ауданы", "Planted Area")}
                 </CardTitle>
-                <Maximize className="h-4 w-4 text-slate-400" />
+                <Maximize className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
                   {seasonSummary.totalPlantedArea.toFixed(2)} {localizeUnit("ha", language)}
                 </div>
-                <p className="text-xs text-slate-500 mt-1">{t("Общая площадь в обработке", "Өңделіп жатқан жалпы аудан", "Total area under cultivation")}</p>
+                <p className="text-xs text-muted-foreground mt-1">{t("Общая площадь в обработке", "Өңделіп жатқан жалпы аудан", "Total area under cultivation")}</p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-slate-600">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
                   {t("Ожидаемый урожай", "Күтілетін өнім", "Expected Yield")}
                 </CardTitle>
-                <TrendingUp className="h-4 w-4 text-slate-400" />
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
                   {seasonSummary.totalExpectedYield.toFixed(2)} {localizeUnit("t", language)}
                 </div>
-                <p className="text-xs text-slate-500 mt-1">{t("Прогноз общего урожая", "Жалпы өнім болжамы", "Projected total harvest")}</p>
+                <p className="text-xs text-muted-foreground mt-1">{t("Прогноз общего урожая", "Жалпы өнім болжамы", "Projected total harvest")}</p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-slate-600">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
                   {t("Площадь пара", "Сүрі жер ауданы", "Fallow Area")}
                 </CardTitle>
-                <Maximize className="h-4 w-4 text-slate-400" />
+                <Maximize className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
                   {seasonSummary.totalFallowArea.toFixed(2)} {localizeUnit("ha", language)}
                 </div>
-                <p className="mt-1 text-xs text-slate-500">{t("Не входит в площадь посева", "Егіс ауданына кірмейді", "Excluded from planted area")}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{t("Не входит в площадь посева", "Егіс ауданына кірмейді", "Excluded from planted area")}</p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-slate-600">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
                   {t("Операции", "Операциялар", "Operations")}
                 </CardTitle>
-                <Activity className="h-4 w-4 text-slate-400" />
+                <Activity className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{seasonSummary.totalOperations}</div>
-                <p className="text-xs text-slate-500 mt-1">{t("Всего зафиксировано операций", "Тіркелген операциялар саны", "Total operations recorded")}</p>
+                <p className="text-xs text-muted-foreground mt-1">{t("Всего зафиксировано операций", "Тіркелген операциялар саны", "Total operations recorded")}</p>
               </CardContent>
             </Card>
           </div>
@@ -249,7 +249,7 @@ export default function AnalyticsPage() {
             </CardHeader>
             <CardContent>
               {cropReport.length === 0 ? (
-                <p className="text-sm text-slate-500">
+                <p className="text-sm text-muted-foreground">
                   {t("Нет данных по структуре посевов для выбранного сезона.", "Таңдалған маусым үшін егіс құрылымы деректері жоқ.", "No crop structure data for the selected season.")}
                 </p>
               ) : (
@@ -289,7 +289,7 @@ export default function AnalyticsPage() {
             </CardHeader>
             <CardContent>
               {operationsSummary.length === 0 ? (
-                <p className="text-sm text-slate-500">{t("Операции пока не зафиксированы.", "Операциялар әлі тіркелмеген.", "No operations recorded yet.")}</p>
+                <p className="text-sm text-muted-foreground">{t("Операции пока не зафиксированы.", "Операциялар әлі тіркелмеген.", "No operations recorded yet.")}</p>
               ) : (
                 <Table>
                   <TableHeader>
@@ -321,7 +321,7 @@ export default function AnalyticsPage() {
             </CardHeader>
             <CardContent>
               {inventorySummary.length === 0 ? (
-                <p className="text-sm text-slate-500">{t("Нет данных по остаткам.", "Қалдық деректері жоқ.", "No inventory data available.")}</p>
+                <p className="text-sm text-muted-foreground">{t("Нет данных по остаткам.", "Қалдық деректері жоқ.", "No inventory data available.")}</p>
               ) : (
                 <Table>
                   <TableHeader>

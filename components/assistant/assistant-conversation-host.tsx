@@ -23,7 +23,7 @@ export function AssistantConversationHost({
 
   if (engine.surface !== "legacy_persistent_chat") {
     return (
-      <div className="flex h-full items-center justify-center rounded-lg border border-[#2B3448] bg-[#151C28] text-sm text-[#9CA3AF]">
+      <div className="flex h-full items-center justify-center rounded-lg border border-border bg-card text-sm text-muted-foreground">
         Режим ассистента не сконфигурирован.
       </div>
     );

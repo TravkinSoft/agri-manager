@@ -2022,64 +2022,64 @@ export function AssistantChatPane({
           key={card.id}
           type="button"
           onClick={() => setDraftCollapsed(messageId, card.id, false)}
-          className="flex w-full items-center justify-between rounded-lg border border-[#334058] bg-[#111827] px-3 py-2 text-left text-xs text-[#CBD5E1] transition hover:border-[#E0B100]/70"
+          className="flex w-full items-center justify-between rounded-lg border border-border bg-card px-3 py-2 text-left text-xs text-foreground transition hover:border-primary/70"
         >
           <span>
             {card.title} {card.status === "cancelled" ? "(отменён)" : ""}
           </span>
-          <span className="text-[#E0B100]">Открыть</span>
+          <span className="text-primary">Открыть</span>
         </button>
       );
     }
 
     return (
-      <div key={card.id} className="overflow-hidden rounded-xl border border-[#334058] bg-[#111827] shadow-[0_12px_28px_rgba(0,0,0,0.22)]">
-        <div className="flex items-start justify-between gap-3 border-b border-[#263247] bg-[#151E2D] px-3 py-2.5">
+      <div key={card.id} className="overflow-hidden rounded-xl border border-border bg-card shadow-[0_12px_28px_rgba(0,0,0,0.22)]">
+        <div className="flex items-start justify-between gap-3 border-b border-border bg-card px-3 py-2.5">
           <div className="min-w-0">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[#E0B100]">{card.title}</div>
-            <div className="mt-0.5 line-clamp-2 text-sm font-semibold text-[#F8FAFC]">{card.summary}</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-primary">{card.title}</div>
+            <div className="mt-0.5 line-clamp-2 text-sm font-semibold text-foreground">{card.summary}</div>
           </div>
           <span
             className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${
               card.status === "cancelled"
-                ? "border-slate-500/50 bg-slate-600/20 text-slate-200"
-                : "border-[#E0B100]/50 bg-[#E0B100]/10 text-[#FDE68A]"
+                ? "border-border bg-muted text-foreground"
+                : "border-primary/50 bg-primary/10 text-amber-800"
             }`}
           >
             {statusLabel}
           </span>
         </div>
 
-        <div className="space-y-2 px-3 py-2.5 text-xs text-[#CBD5E1]">
+        <div className="space-y-2 px-3 py-2.5 text-xs text-foreground">
           {card.items.length ? (
-            <div className="rounded-lg border border-[#2A3448] bg-[#0F141E] p-2">
+            <div className="rounded-lg border border-border bg-card p-2">
               <div className="space-y-1">
                 {card.items.slice(0, 8).map((item) => (
                   <div key={item.id} className="grid grid-cols-[94px_1fr] gap-2">
-                    <span className="truncate text-[#94A3B8]">{item.label}</span>
-                    <span className="line-clamp-2 text-[#E5E7EB]">{item.value}</span>
+                    <span className="truncate text-muted-foreground">{item.label}</span>
+                    <span className="line-clamp-2 text-foreground">{item.value}</span>
                   </div>
                 ))}
               </div>
             </div>
           ) : (
-            <div className="rounded-lg border border-[#2A3448] bg-[#0F141E] px-2 py-1.5 text-[#94A3B8]">
+            <div className="rounded-lg border border-border bg-card px-2 py-1.5 text-muted-foreground">
               Данных пока мало. Можно уточнить детали в чате.
             </div>
           )}
 
           {card.missingFields.length ? (
-            <div className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-[11px] text-amber-100">
+            <div className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-[11px] text-amber-800">
               Нужно уточнить: {card.missingFields.join(", ")}.
             </div>
           ) : null}
 
           {card.note ? (
-            <div className="text-[11px] text-[#94A3B8]">{card.note}</div>
+            <div className="text-[11px] text-muted-foreground">{card.note}</div>
           ) : null}
 
           {card.error ? (
-            <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-100">
+            <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-800">
               {card.error}
             </div>
           ) : null}
@@ -2089,7 +2089,7 @@ export function AssistantChatPane({
               <button
                 type="button"
                 onClick={() => restoreDraftCard(messageId, card.id)}
-                className="rounded-lg bg-[#E0B100] px-3 py-1.5 text-xs font-semibold text-[#111827] transition hover:bg-[#C89F00]"
+                className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
               >
                 Вернуть в работу
               </button>
@@ -2099,7 +2099,7 @@ export function AssistantChatPane({
                   type="button"
                   onClick={() => void openGenericDraftModule(card)}
                   disabled={card.status !== "draft"}
-                  className="rounded-lg bg-[#E0B100] px-3 py-1.5 text-xs font-semibold text-[#111827] transition hover:bg-[#C89F00] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {card.actionLabel}
                 </button>
@@ -2107,7 +2107,7 @@ export function AssistantChatPane({
                   type="button"
                   onClick={() => startDraftChange(card)}
                   disabled={card.status !== "draft"}
-                  className="rounded-lg border border-[#334058] bg-[#141B29] px-3 py-1.5 text-xs text-[#E5E7EB] transition hover:border-[#E0B100]/70 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground transition hover:border-primary/70 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Изменить
                 </button>
@@ -2115,7 +2115,7 @@ export function AssistantChatPane({
                   type="button"
                   onClick={() => cancelDraftCard(messageId, card.id)}
                   disabled={card.status !== "draft"}
-                  className="rounded-lg border border-[#334058] bg-[#141B29] px-3 py-1.5 text-xs text-[#E5E7EB] transition hover:border-red-400/60 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground transition hover:border-red-400/60 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Отменить
                 </button>
@@ -2152,92 +2152,92 @@ export function AssistantChatPane({
           key={card.id}
           type="button"
           onClick={() => setDraftCollapsed(messageId, card.id, false)}
-          className="flex w-full items-center justify-between rounded-lg border border-[#334058] bg-[#111827] px-3 py-2 text-left text-xs text-[#CBD5E1] transition hover:border-[#E0B100]/70"
+          className="flex w-full items-center justify-between rounded-lg border border-border bg-card px-3 py-2 text-left text-xs text-foreground transition hover:border-primary/70"
         >
           <span>Черновик операции {card.status === "cancelled" ? "(отменён)" : ""}</span>
-          <span className="text-[#E0B100]">Открыть</span>
+          <span className="text-primary">Открыть</span>
         </button>
       );
     }
 
     return (
-      <div key={card.id} className="overflow-hidden rounded-xl border border-[#334058] bg-[#111827] shadow-[0_12px_28px_rgba(0,0,0,0.22)]">
-        <div className="flex items-start justify-between gap-3 border-b border-[#263247] bg-[#151E2D] px-3 py-2.5">
+      <div key={card.id} className="overflow-hidden rounded-xl border border-border bg-card shadow-[0_12px_28px_rgba(0,0,0,0.22)]">
+        <div className="flex items-start justify-between gap-3 border-b border-border bg-card px-3 py-2.5">
           <div className="min-w-0">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[#E0B100]">{card.title}</div>
-            <div className="mt-0.5 truncate text-sm font-semibold text-[#F8FAFC]">{card.operationType || "Операция"}</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-primary">{card.title}</div>
+            <div className="mt-0.5 truncate text-sm font-semibold text-foreground">{card.operationType || "Операция"}</div>
           </div>
           <span
             className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${
               card.status === "confirmed"
-                ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
+                ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-800"
                 : card.status === "cancelled"
-                  ? "border-slate-500/50 bg-slate-600/20 text-slate-200"
-                  : "border-[#E0B100]/50 bg-[#E0B100]/10 text-[#FDE68A]"
+                  ? "border-border bg-muted text-foreground"
+                  : "border-primary/50 bg-primary/10 text-amber-800"
             }`}
           >
             {statusLabel}
           </span>
         </div>
 
-        <div className="space-y-2 px-3 py-2.5 text-xs text-[#CBD5E1]">
+        <div className="space-y-2 px-3 py-2.5 text-xs text-foreground">
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <div className="text-[10px] uppercase text-[#64748B]">Поле</div>
-              <div className="truncate font-medium text-[#F8FAFC]">{card.field || "Уточнить"}</div>
+              <div className="text-[10px] uppercase text-muted-foreground">Поле</div>
+              <div className="truncate font-medium text-foreground">{card.field || "Уточнить"}</div>
             </div>
             <div>
-              <div className="text-[10px] uppercase text-[#64748B]">Площадь</div>
-              <div className="font-medium text-[#F8FAFC]">{card.areaHa != null ? `${formatDraftNumber(card.areaHa)} га` : "Уточнить"}</div>
+              <div className="text-[10px] uppercase text-muted-foreground">Площадь</div>
+              <div className="font-medium text-foreground">{card.areaHa != null ? `${formatDraftNumber(card.areaHa)} га` : "Уточнить"}</div>
             </div>
             {card.section ? (
               <div className="col-span-2">
-                <div className="text-[10px] uppercase text-[#64748B]">Участок</div>
-                <div className="truncate font-medium text-[#F8FAFC]">{card.section}</div>
+                <div className="text-[10px] uppercase text-muted-foreground">Участок</div>
+                <div className="truncate font-medium text-foreground">{card.section}</div>
               </div>
             ) : null}
             {card.crop ? (
               <div>
-                <div className="text-[10px] uppercase text-[#64748B]">Культура</div>
-                <div className="truncate font-medium text-[#F8FAFC]">{card.crop}</div>
+                <div className="text-[10px] uppercase text-muted-foreground">Культура</div>
+                <div className="truncate font-medium text-foreground">{card.crop}</div>
               </div>
             ) : null}
             {card.sprayVolumeLHa != null ? (
               <div>
-                <div className="text-[10px] uppercase text-[#64748B]">Норма вылива</div>
-                <div className="font-medium text-[#F8FAFC]">{formatDraftNumber(card.sprayVolumeLHa)} л/га</div>
+                <div className="text-[10px] uppercase text-muted-foreground">Норма вылива</div>
+                <div className="font-medium text-foreground">{formatDraftNumber(card.sprayVolumeLHa)} л/га</div>
               </div>
             ) : null}
           </div>
 
           {card.materials.length ? (
-            <div className="rounded-lg border border-[#2A3448] bg-[#0F141E] p-2">
-              <div className="mb-1 text-[10px] font-semibold uppercase text-[#94A3B8]">Материалы</div>
+            <div className="rounded-lg border border-border bg-card p-2">
+              <div className="mb-1 text-[10px] font-semibold uppercase text-muted-foreground">Материалы</div>
               <div className="space-y-1">
                 {visibleMaterials.map((material) => (
                   <div key={material.id} className="flex items-center justify-between gap-2">
-                    <span className="truncate text-[#E5E7EB]">{material.name}</span>
-                    <span className="shrink-0 text-[#CBD5E1]">
+                    <span className="truncate text-foreground">{material.name}</span>
+                    <span className="shrink-0 text-foreground">
                       {material.ratePerHa != null ? `${formatDraftNumber(material.ratePerHa)}${material.unit ? ` ${localizeUnit(`${material.unit}/ha`, "ru")}` : ""}` : ""}
                     </span>
                   </div>
                 ))}
-                {hiddenMaterialsCount ? <div className="text-[#94A3B8]">+ ещё {hiddenMaterialsCount}</div> : null}
+                {hiddenMaterialsCount ? <div className="text-muted-foreground">+ ещё {hiddenMaterialsCount}</div> : null}
               </div>
             </div>
           ) : null}
 
           {card.materials.some((item) => item.calculation) ? (
-            <div className="rounded-lg border border-[#2A3448] bg-[#0F141E] p-2">
-              <div className="mb-1 text-[10px] font-semibold uppercase text-[#94A3B8]">Расчёт потребности</div>
+            <div className="rounded-lg border border-border bg-card p-2">
+              <div className="mb-1 text-[10px] font-semibold uppercase text-muted-foreground">Расчёт потребности</div>
               <div className="space-y-1">
                 {card.materials
                   .filter((item) => item.calculation)
                   .slice(0, 4)
                   .map((material) => (
                     <div key={`calc-${material.id}`} className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[#E5E7EB]">{material.name}</span>
-                      <span className="shrink-0 text-[#CBD5E1]">{material.calculation}</span>
+                      <span className="truncate text-foreground">{material.name}</span>
+                      <span className="shrink-0 text-foreground">{material.calculation}</span>
                     </div>
                   ))}
               </div>
@@ -2245,52 +2245,52 @@ export function AssistantChatPane({
           ) : null}
 
           {card.tankTotals.length ? (
-            <div className="rounded-lg border border-[#2A3448] bg-[#0F141E] p-2">
-              <div className="mb-1 text-[10px] font-semibold uppercase text-[#94A3B8]">Итого в раствор</div>
+            <div className="rounded-lg border border-border bg-card p-2">
+              <div className="mb-1 text-[10px] font-semibold uppercase text-muted-foreground">Итого в раствор</div>
               <div className="space-y-1">
                 {visibleTankTotals.map((line) => (
                   <div key={line.id} className="flex items-center justify-between gap-2">
-                    <span className="truncate text-[#E5E7EB]">{line.name}</span>
-                    <span className="shrink-0 text-[#CBD5E1]">{formatDraftQuantity(line.quantity, line.unit)}</span>
+                    <span className="truncate text-foreground">{line.name}</span>
+                    <span className="shrink-0 text-foreground">{formatDraftQuantity(line.quantity, line.unit)}</span>
                   </div>
                 ))}
-                {hiddenTankCount ? <div className="text-[#94A3B8]">+ ещё {hiddenTankCount}</div> : null}
+                {hiddenTankCount ? <div className="text-muted-foreground">+ ещё {hiddenTankCount}</div> : null}
               </div>
             </div>
           ) : null}
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <div className="text-[10px] uppercase text-[#64748B]">Дата</div>
-              <div className="font-medium text-[#F8FAFC]">{card.date || "Уточнить"}</div>
+              <div className="text-[10px] uppercase text-muted-foreground">Дата</div>
+              <div className="font-medium text-foreground">{card.date || "Уточнить"}</div>
             </div>
             <div>
-              <div className="text-[10px] uppercase text-[#64748B]">Ответственный</div>
-              <div className="truncate font-medium text-[#F8FAFC]">{card.responsible || "Не назначен"}</div>
+              <div className="text-[10px] uppercase text-muted-foreground">Ответственный</div>
+              <div className="truncate font-medium text-foreground">{card.responsible || "Не назначен"}</div>
             </div>
           </div>
 
           {card.comment ? (
             <div>
-              <div className="text-[10px] uppercase text-[#64748B]">Комментарий</div>
-              <div className="line-clamp-2 text-[#E5E7EB]">{card.comment}</div>
+              <div className="text-[10px] uppercase text-muted-foreground">Комментарий</div>
+              <div className="line-clamp-2 text-foreground">{card.comment}</div>
             </div>
           ) : null}
 
           {card.recommendations.length ? (
-            <div className="rounded-lg border border-[#2A3448] bg-[#0F141E]">
+            <div className="rounded-lg border border-border bg-card">
               <button
                 type="button"
                 onClick={() =>
                   setExpandedDraftRecommendations((prev) => ({ ...prev, [card.id]: !recommendationsOpen }))
                 }
-                className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs text-[#E5E7EB]"
+                className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs text-foreground"
               >
                 <span>Рекомендации</span>
-                <span className="text-[#E0B100]">{recommendationsOpen ? "Скрыть" : "Показать"}</span>
+                <span className="text-primary">{recommendationsOpen ? "Скрыть" : "Показать"}</span>
               </button>
               {recommendationsOpen ? (
-                <ol className="space-y-1 border-t border-[#2A3448] px-4 py-2 text-[#CBD5E1]">
+                <ol className="space-y-1 border-t border-border px-4 py-2 text-foreground">
                   {card.recommendations.map((item, index) => (
                     <li key={`${card.id}-rec-${index}`}>{index + 1}. {item}</li>
                   ))}
@@ -2300,20 +2300,20 @@ export function AssistantChatPane({
           ) : null}
 
           {card.confirm.missingFields.length ? (
-            <div className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-[11px] text-amber-100">
+            <div className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-[11px] text-amber-800">
               Нужно уточнить: {card.confirm.missingFields.join(", ")}.
             </div>
           ) : null}
 
           {card.error ? (
-            <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-100">
+            <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-800">
               {card.error}
             </div>
           ) : null}
 
           {isEditing ? (
             <form
-              className="grid gap-2 rounded-lg border border-[#334058] bg-[#0F141E] p-2"
+              className="grid gap-2 rounded-lg border border-border bg-card p-2"
               onSubmit={(event) => {
                 event.preventDefault();
                 const data = new FormData(event.currentTarget);
@@ -2327,41 +2327,41 @@ export function AssistantChatPane({
               }}
             >
               <div className="grid grid-cols-2 gap-2">
-                <label className="text-[11px] text-[#CBD5E1]">
+                <label className="text-[11px] text-foreground">
                   Площадь, га
                   <input
                     name="areaHa"
                     defaultValue={card.areaHa ?? ""}
-                    className="mt-1 w-full rounded-md border border-[#334058] bg-[#111827] px-2 py-1 text-xs text-[#F8FAFC]"
+                    className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
                   />
                 </label>
-                <label className="text-[11px] text-[#CBD5E1]">
+                <label className="text-[11px] text-foreground">
                   Дата
                   <input
                     name="date"
                     type="date"
                     defaultValue={card.date || ""}
-                    className="mt-1 w-full rounded-md border border-[#334058] bg-[#111827] px-2 py-1 text-xs text-[#F8FAFC]"
+                    className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
                   />
                 </label>
               </div>
-              <label className="text-[11px] text-[#CBD5E1]">
+              <label className="text-[11px] text-foreground">
                 Комментарий
                 <textarea
                   name="comment"
                   defaultValue={card.comment || ""}
                   rows={2}
-                  className="mt-1 w-full resize-none rounded-md border border-[#334058] bg-[#111827] px-2 py-1 text-xs text-[#F8FAFC]"
+                  className="mt-1 w-full resize-none rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
                 />
               </label>
               <div className="flex gap-1.5">
-                <button type="submit" className="rounded-md bg-[#E0B100] px-2.5 py-1 text-xs font-medium text-[#111827]">
+                <button type="submit" className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground">
                   Сохранить
                 </button>
                 <button
                   type="button"
                   onClick={() => setEditingDraftId(null)}
-                  className="rounded-md border border-[#334058] px-2.5 py-1 text-xs text-[#E5E7EB]"
+                  className="rounded-md border border-border px-2.5 py-1 text-xs text-foreground"
                 >
                   Отмена
                 </button>
@@ -2374,7 +2374,7 @@ export function AssistantChatPane({
               <button
                 type="button"
                 onClick={() => restoreDraftCard(messageId, card.id)}
-                className="rounded-lg bg-[#E0B100] px-3 py-1.5 text-xs font-semibold text-[#111827] transition hover:bg-[#C89F00]"
+                className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
               >
                 Вернуть в работу
               </button>
@@ -2384,7 +2384,7 @@ export function AssistantChatPane({
                   type="button"
                   onClick={() => void confirmDraftCard(messageId, card)}
                   disabled
-                  className="rounded-lg bg-[#E0B100] px-3 py-1.5 text-xs font-semibold text-[#111827] transition hover:bg-[#C89F00] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Только чтение
                 </button>
@@ -2392,7 +2392,7 @@ export function AssistantChatPane({
                   type="button"
                   onClick={() => startDraftChange(card)}
                   disabled={card.status !== "draft"}
-                  className="rounded-lg border border-[#334058] bg-[#141B29] px-3 py-1.5 text-xs text-[#E5E7EB] transition hover:border-[#E0B100]/70 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground transition hover:border-primary/70 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Изменить
                 </button>
@@ -2400,7 +2400,7 @@ export function AssistantChatPane({
                   type="button"
                   onClick={() => cancelDraftCard(messageId, card.id)}
                   disabled={card.status !== "draft"}
-                  className="rounded-lg border border-[#334058] bg-[#141B29] px-3 py-1.5 text-xs text-[#E5E7EB] transition hover:border-red-400/60 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground transition hover:border-red-400/60 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Отменить
                 </button>
@@ -2413,15 +2413,15 @@ export function AssistantChatPane({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#0D121B] text-[#E5E7EB]">
+    <div className="flex h-full min-h-0 flex-col bg-card text-foreground">
       {disabledReason ? (
-        <div className="mx-3 mt-3 rounded-md border border-amber-400/50 bg-amber-200/10 px-3 py-2 text-xs text-amber-100">
+        <div className="mx-3 mt-3 rounded-md border border-amber-400/50 bg-amber-200/10 px-3 py-2 text-xs text-amber-800">
           {disabledReason}
         </div>
       ) : null}
 
       {requestError ? (
-        <div className="mx-3 mt-3 flex items-start gap-2 rounded-md border border-red-500/50 bg-red-500/15 px-3 py-2 text-xs text-red-100">
+        <div className="mx-3 mt-3 flex items-start gap-2 rounded-md border border-red-500/50 bg-red-500/15 px-3 py-2 text-xs text-red-800">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{requestError}</span>
         </div>
@@ -2432,25 +2432,25 @@ export function AssistantChatPane({
         onValueChange={(value) => setActiveTab(value as "chat" | "history" | "settings")}
         className="flex min-h-0 flex-1 flex-col"
       >
-        <div className="border-b border-[#1F2937] bg-[#0D121B] px-1 pb-2">
-          <TabsList className="inline-flex h-8 w-auto rounded-xl border border-[#253044] bg-[#0A0F18] p-0.5">
+        <div className="border-b border-border bg-card px-1 pb-2">
+          <TabsList className="inline-flex h-8 w-auto rounded-xl border border-border bg-card p-0.5">
             <TabsTrigger
               value="chat"
-              className="h-7 rounded-lg px-3 text-xs text-[#CBD5E1] data-[state=active]:bg-[#1B2435] data-[state=active]:text-[#F8FAFC]"
+              className="h-7 rounded-lg px-3 text-xs text-foreground data-[state=active]:bg-muted data-[state=active]:text-foreground"
             >
               <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
               Chat
             </TabsTrigger>
             <TabsTrigger
               value="history"
-              className="h-7 rounded-lg px-3 text-xs text-[#CBD5E1] data-[state=active]:bg-[#1B2435] data-[state=active]:text-[#F8FAFC]"
+              className="h-7 rounded-lg px-3 text-xs text-foreground data-[state=active]:bg-muted data-[state=active]:text-foreground"
             >
               <Clock3 className="mr-1.5 h-3.5 w-3.5" />
               History
             </TabsTrigger>
             <TabsTrigger
               value="settings"
-              className="h-7 rounded-lg px-3 text-xs text-[#CBD5E1] data-[state=active]:bg-[#1B2435] data-[state=active]:text-[#F8FAFC]"
+              className="h-7 rounded-lg px-3 text-xs text-foreground data-[state=active]:bg-muted data-[state=active]:text-foreground"
             >
               <Settings2 className="mr-1.5 h-3.5 w-3.5" />
               Settings
@@ -2465,24 +2465,24 @@ export function AssistantChatPane({
             className="travkin-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4"
           >
             {messagesLoading && messages.length === 0 ? (
-              <div className="flex items-center gap-2 px-1 py-2 text-xs text-[#94A3B8]">
-                <Loader2 className="h-4 w-4 animate-spin text-[#E0B100]" />
+              <div className="flex items-center gap-2 px-1 py-2 text-xs text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
                 Загружаю сообщения...
               </div>
             ) : messages.length === 0 ? (
               <div className="space-y-4 px-1 py-2">
                 <div>
                   <div className="flex items-start gap-3">
-                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center text-[#E0B100]">
+                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center text-primary">
                       <Sparkles className="h-5 w-5" />
                     </div>
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-[#F8FAFC]">Контекст готов</div>
+                      <div className="text-sm font-semibold text-foreground">Контекст готов</div>
                       <div className="mt-1 flex flex-wrap gap-1.5">
                         {contextPills.slice(0, 5).map((pill) => (
                           <span
                             key={pill}
-                            className="max-w-[220px] truncate rounded-md border border-[#2A3448] px-2 py-1 text-[11px] text-[#CBD5E1]"
+                            className="max-w-[220px] truncate rounded-md border border-border px-2 py-1 text-[11px] text-foreground"
                           >
                             {pill}
                           </span>
@@ -2498,10 +2498,10 @@ export function AssistantChatPane({
                       key={`${item.label}-${item.prompt}`}
                       type="button"
                       onClick={() => applyQuickPrompt(item.prompt)}
-                      className="group flex items-center justify-between gap-2 rounded-lg border border-[#2A3448] px-3 py-2 text-left text-sm text-[#E5E7EB] transition hover:border-[#E0B100]/70 hover:bg-[#151C28]"
+                      className="group flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-left text-sm text-foreground transition hover:border-primary/70 hover:bg-card"
                     >
                       <span className="truncate">{item.label}</span>
-                      <Compass className="h-3.5 w-3.5 shrink-0 text-[#E0B100] transition group-hover:translate-x-0.5" />
+                      <Compass className="h-3.5 w-3.5 shrink-0 text-primary transition group-hover:translate-x-0.5" />
                     </button>
                   ))}
                 </div>
@@ -2509,8 +2509,8 @@ export function AssistantChatPane({
             ) : (
               <>
                 {messagesLoading ? (
-                  <div className="flex items-center gap-2 px-1 py-1 text-xs text-[#94A3B8]">
-                    <Loader2 className="h-4 w-4 animate-spin text-[#E0B100]" />
+                  <div className="flex items-center gap-2 px-1 py-1 text-xs text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
                     <span>Обновляю историю...</span>
                   </div>
                 ) : null}
@@ -2522,7 +2522,7 @@ export function AssistantChatPane({
                     className={`flex items-start gap-2.5 ${message.role === "user" ? "justify-end" : "justify-start"}`}
                   >
                   {message.role !== "user" ? (
-                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center text-[#E0B100]">
+                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center text-primary">
                       <Bot className="h-3.5 w-3.5" />
                     </div>
                   ) : null}
@@ -2531,8 +2531,8 @@ export function AssistantChatPane({
                     <div
                       className={`whitespace-pre-wrap text-sm leading-relaxed ${
                         message.role === "user"
-                          ? "rounded-2xl bg-[#242B3A] px-3 py-2 text-[#F8FAFC]"
-                          : "px-0 py-0 text-[#E5E7EB]"
+                          ? "rounded-2xl bg-muted px-3 py-2 text-foreground"
+                          : "px-0 py-0 text-foreground"
                       }`}
                     >
                       {visibleContent}
@@ -2545,8 +2545,8 @@ export function AssistantChatPane({
                     ) : null}
 
                     {debugMonitorEnabled && debugMonitorOpen && message.role !== "user" && message.meta?.toolActivity?.length ? (
-                      <div className="rounded-md border border-[#334058] bg-[#101725] px-2.5 py-2 text-[11px] text-[#9CA3AF]">
-                        <div className="mb-1 flex items-center gap-1 text-[#CBD5E1]">
+                      <div className="rounded-md border border-border bg-card px-2.5 py-2 text-[11px] text-muted-foreground">
+                        <div className="mb-1 flex items-center gap-1 text-foreground">
                           <TerminalSquare className="h-3.5 w-3.5" />
                           Tool activity
                         </div>
@@ -2567,7 +2567,7 @@ export function AssistantChatPane({
                             key={action.id}
                             type="button"
                             onClick={() => executeAction(action)}
-                            className="rounded-lg border border-[#334058] px-2.5 py-1 text-xs text-[#E5E7EB] transition hover:border-[#E0B100]/70 hover:bg-[#151C28]"
+                            className="rounded-lg border border-border px-2.5 py-1 text-xs text-foreground transition hover:border-primary/70 hover:bg-card"
                           >
                             {action.label}
                           </button>
@@ -2577,7 +2577,7 @@ export function AssistantChatPane({
                   </div>
 
                   {message.role === "user" ? (
-                    <div className="mt-1 hidden h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#E0B100] text-[#111827] shadow-[0_0_0_1px_rgba(224,177,0,0.25)]">
+                    <div className="mt-1 hidden h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_0_0_1px_rgba(224,177,0,0.25)]">
                       <User className="h-4 w-4" />
                     </div>
                   ) : null}
@@ -2588,9 +2588,9 @@ export function AssistantChatPane({
             )}
 
             {loading ? (
-              <div className="px-1 py-1 text-xs text-[#CBD5E1]">
+              <div className="px-1 py-1 text-xs text-foreground">
                 <div className="flex items-center gap-2">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[#E0B100]" />
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
                   {loadingText}
                 </div>
               </div>
@@ -2605,24 +2605,24 @@ export function AssistantChatPane({
               aria-label="Перейти к последнему сообщению"
               title="Перейти к последнему сообщению"
               onClick={() => scrollToBottom("smooth")}
-              className="absolute bottom-[92px] left-1/2 z-20 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-[#334058] bg-[#0B111B]/95 text-[#E0B100] shadow-[0_10px_28px_rgba(0,0,0,0.38)] backdrop-blur transition hover:-translate-y-0.5 hover:border-[#E0B100]/70 hover:bg-[#151C28] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E0B100]/70"
+              className="absolute bottom-[92px] left-1/2 z-20 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-border bg-card/95 text-primary shadow-[0_10px_28px_rgba(0,0,0,0.38)] backdrop-blur transition hover:-translate-y-0.5 hover:border-primary/70 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
             >
               <ArrowDown className="h-4 w-4" />
             </button>
           ) : null}
 
-          <div className="border-t border-[#1F2937] bg-[#0D121B] px-1 pt-3">
+          <div className="border-t border-border bg-card px-1 pt-3">
             {voiceState === "recording" ? (
               <div
                 data-testid="assistant-voice-status"
-                className="mb-2 flex items-center gap-2 rounded-lg border border-[#3B465C] bg-[#151C28] px-2.5 py-1.5 text-xs text-[#E5E7EB]"
+                className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-foreground"
               >
-                <AudioLines className="h-4 w-4 text-[#E0B100]" />
+                <AudioLines className="h-4 w-4 text-primary" />
                 <div className="flex h-5 items-end gap-0.5">
                   {Array.from({ length: 14 }).map((_, index) => (
                     <span
                       key={index}
-                      className="w-1 animate-pulse rounded-full bg-[#E0B100]"
+                      className="w-1 animate-pulse rounded-full bg-primary"
                       style={{
                         height: `${6 + ((index * 7) % 16)}px`,
                         animationDelay: `${index * 55}ms`,
@@ -2630,15 +2630,15 @@ export function AssistantChatPane({
                     />
                   ))}
                 </div>
-                <span className="text-[#CBD5E1]">Запись идет</span>
-                <span className="ml-auto font-mono text-[11px] text-[#E0B100]">{formatVoiceDuration(voiceSeconds)}</span>
+                <span className="text-foreground">Запись идет</span>
+                <span className="ml-auto font-mono text-[11px] text-primary">{formatVoiceDuration(voiceSeconds)}</span>
               </div>
             ) : null}
 
-            {voiceError ? <div className="mb-2 text-xs text-red-200">{voiceError}</div> : null}
+            {voiceError ? <div className="mb-2 text-xs text-red-800">{voiceError}</div> : null}
 
             <form
-              className="flex items-end gap-2 rounded-2xl border border-[#2A3448] bg-[#0A0F18] p-2 shadow-[0_12px_28px_rgba(0,0,0,0.18)] transition focus-within:border-[#E0B100]/60"
+              className="flex items-end gap-2 rounded-2xl border border-border bg-card p-2 shadow-[0_12px_28px_rgba(0,0,0,0.18)] transition focus-within:border-primary/60"
               onSubmit={(event) => {
                 event.preventDefault();
                 void sendMessage();
@@ -2649,7 +2649,7 @@ export function AssistantChatPane({
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="Спросите про поле, склад, операцию или талон..."
-                className="min-h-[44px] resize-none border-0 bg-transparent px-2 py-2 text-sm text-[#F8FAFC] shadow-none placeholder:text-[#64748B] focus-visible:ring-0"
+                className="min-h-[44px] resize-none border-0 bg-transparent px-2 py-2 text-sm text-foreground shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
                 disabled={loading || !!disabledReason}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
@@ -2666,7 +2666,7 @@ export function AssistantChatPane({
                 size="icon"
                 variant="outline"
                 disabled={loading || !!disabledReason || voiceState === "transcribing"}
-                className="h-9 w-9 shrink-0 rounded-xl border-0 bg-transparent text-[#CBD5E1] hover:bg-[#172033] hover:text-[#F8FAFC]"
+                className="h-9 w-9 shrink-0 rounded-xl border-0 bg-transparent text-foreground hover:bg-card hover:text-foreground"
                 data-testid="assistant-voice-button"
                 aria-label={voiceState === "recording" ? "Остановить запись" : "Голосовой ввод"}
                 aria-pressed={voiceState === "recording"}
@@ -2692,7 +2692,7 @@ export function AssistantChatPane({
                 size="icon"
                 disabled={!canSend}
                 aria-label={loading ? "Ответ формируется" : "Отправить"}
-                className="h-9 w-9 shrink-0 rounded-xl bg-[#E0B100] text-[#111827] hover:bg-[#C89F00] disabled:bg-[#1B2435] disabled:text-[#64748B] disabled:opacity-100"
+                className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
               >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </Button>
@@ -2702,14 +2702,14 @@ export function AssistantChatPane({
 
         <TabsContent value="history" className="travkin-scrollbar mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3 data-[state=inactive]:hidden">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <div className="text-xs text-[#9CA3AF]">Потоки диалогов</div>
+            <div className="text-xs text-muted-foreground">Потоки диалогов</div>
             <div className="flex items-center gap-2">
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
                 onClick={() => void loadThreads()}
-                className="border-[#334058] bg-[#141B29] text-[#E5E7EB] hover:bg-[#202738]"
+                className="border-border bg-card text-foreground hover:bg-muted"
               >
                 <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
                 Обновить
@@ -2719,7 +2719,7 @@ export function AssistantChatPane({
                 size="sm"
                 onClick={() => void onNewChat()}
                 disabled={!!disabledReason}
-                className="bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]"
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 Новый чат
               </Button>
@@ -2727,7 +2727,7 @@ export function AssistantChatPane({
           </div>
 
           {threadsLoading ? (
-            <div className="flex items-center gap-2 text-xs text-[#94A3B8]">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               Загружаю историю...
             </div>
@@ -2743,17 +2743,17 @@ export function AssistantChatPane({
                   }}
                   className={`w-full rounded-md border px-2.5 py-2 text-left transition ${
                     activeThreadId === thread.id
-                      ? "border-[#E0B100] bg-[#1C2433] text-[#F3F4F6]"
-                      : "border-[#2A3448] bg-[#141B29] text-[#CBD5E1] hover:bg-[#202738]"
+                      ? "border-primary bg-muted text-foreground"
+                      : "border-border bg-card text-foreground hover:bg-muted"
                   }`}
                 >
                   <div className="line-clamp-1 text-sm font-medium">{thread.title || "Новый чат"}</div>
-                  <div className="mt-0.5 text-[11px] text-[#94A3B8]">{formatThreadDate(thread.updated_at)}</div>
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">{formatThreadDate(thread.updated_at)}</div>
                 </button>
               ))}
             </div>
           ) : (
-            <div className="rounded-md border border-dashed border-[#334058] px-3 py-4 text-xs text-[#94A3B8]">
+            <div className="rounded-md border border-dashed border-border px-3 py-4 text-xs text-muted-foreground">
               История пока пустая. Создайте первый чат.
             </div>
           )}
@@ -2761,32 +2761,32 @@ export function AssistantChatPane({
 
         <TabsContent value="settings" className="travkin-scrollbar mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3 data-[state=inactive]:hidden">
           <div className="space-y-3">
-            <div className="rounded-md border border-[#2A3448] bg-[#141B29] px-3 py-2 text-sm">
-              <div className="mb-1 text-xs text-[#94A3B8]">Режим и модель</div>
-              <div className="text-xs text-[#E5E7EB]">
+            <div className="rounded-md border border-border bg-card px-3 py-2 text-sm">
+              <div className="mb-1 text-xs text-muted-foreground">Режим и модель</div>
+              <div className="text-xs text-foreground">
                 Mode: <span className="font-semibold">{lastMode}</span>
               </div>
-              <div className="text-xs text-[#E5E7EB]">
+              <div className="text-xs text-foreground">
                 Model: <span className="font-semibold">{debugSnapshot?.model.actualModel || debugSnapshot?.model.configuredModel || "не определена"}</span>
               </div>
-              <div className="text-xs text-[#E5E7EB]">
+              <div className="text-xs text-foreground">
                 LLM status: <span className="font-semibold">{debugSnapshot?.model.llmStatus || "n/a"}</span>
               </div>
             </div>
 
-            <div className="rounded-md border border-[#2A3448] bg-[#141B29] px-3 py-2 text-sm">
-              <div className="mb-1 text-xs text-[#94A3B8]">Права</div>
-              <div className="text-xs text-[#E5E7EB]">
+            <div className="rounded-md border border-border bg-card px-3 py-2 text-sm">
+              <div className="mb-1 text-xs text-muted-foreground">Права</div>
+              <div className="text-xs text-foreground">
                 Роль: <span className="font-semibold">{access.role || "не определена"}</span>
               </div>
-              <div className="text-xs text-[#E5E7EB]">{rolePermissionsLabel(access.role)}</div>
+              <div className="text-xs text-foreground">{rolePermissionsLabel(access.role)}</div>
             </div>
 
-            <div className="rounded-md border border-[#2A3448] bg-[#141B29] px-3 py-2 text-sm">
+            <div className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <div className="mb-2 flex items-start justify-between gap-2">
                 <div>
-                  <div className="text-xs font-semibold text-[#F8FAFC]">Личная память</div>
-                  <p className="mt-1 text-[11px] leading-relaxed text-[#94A3B8]">
+                  <div className="text-xs font-semibold text-foreground">Личная память</div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
                     Только для этого пользователя. Стиль и привычки не применяются к другим ролям и не считаются ERP-фактами.
                   </p>
                 </div>
@@ -2796,7 +2796,7 @@ export function AssistantChatPane({
                   variant="outline"
                   onClick={() => void loadPersonalMemory()}
                   disabled={memoryLoading || !!disabledReason}
-                  className="h-8 w-8 shrink-0 border-[#334058] bg-[#0F141E] text-[#CBD5E1] hover:bg-[#202738]"
+                  className="h-8 w-8 shrink-0 border-border bg-card text-foreground hover:bg-muted"
                   aria-label="Обновить память"
                   title="Обновить память"
                 >
@@ -2805,45 +2805,45 @@ export function AssistantChatPane({
               </div>
 
               {memoryWarning ? (
-                <div className="mb-2 rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-[11px] text-amber-100">
+                <div className="mb-2 rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-[11px] text-amber-800">
                   {memoryWarning}
                 </div>
               ) : null}
 
               {memoryLoading && memoryRecords.length === 0 ? (
-                <div className="flex items-center gap-2 py-2 text-xs text-[#94A3B8]">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[#E0B100]" />
+                <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
                   Загружаю память...
                 </div>
               ) : memoryRecords.length === 0 ? (
-                <div className="rounded-md border border-dashed border-[#334058] px-2.5 py-3 text-xs text-[#94A3B8]">
+                <div className="rounded-md border border-dashed border-border px-2.5 py-3 text-xs text-muted-foreground">
                   Пока нет сохранённых личных предпочтений. Ассист запоминает только явные фразы вроде “запомни...” или “пиши мне коротко”.
                 </div>
               ) : (
                 <div className="space-y-1.5">
                   {memoryRecords.slice(0, 8).map((memory) => (
-                    <div key={memory.id} className="rounded-md border border-[#253044] bg-[#0F141E] px-2.5 py-2">
+                    <div key={memory.id} className="rounded-md border border-border bg-card px-2.5 py-2">
                       <div className="mb-1 flex items-center justify-between gap-2">
-                        <span className="rounded-full border border-[#334058] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[#CBD5E1]">
+                        <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wide text-foreground">
                           {memoryCategoryLabel(memory.category)}
                         </span>
                         <button
                           type="button"
                           onClick={() => void forgetPersonalMemory(memory.id)}
                           disabled={memoryBusyId === memory.id || memoryBusyId === "__all__"}
-                          className="rounded-md p-1 text-[#94A3B8] transition hover:bg-[#1B2435] hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-50"
                           aria-label="Удалить запись памяти"
                           title="Удалить запись памяти"
                         >
                           {memoryBusyId === memory.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                         </button>
                       </div>
-                      <div className="line-clamp-3 text-xs leading-relaxed text-[#E5E7EB]">{memory.value}</div>
-                      <div className="mt-1 text-[10px] text-[#64748B]">обновлено: {formatThreadDate(memory.updated_at)}</div>
+                      <div className="line-clamp-3 text-xs leading-relaxed text-foreground">{memory.value}</div>
+                      <div className="mt-1 text-[10px] text-muted-foreground">обновлено: {formatThreadDate(memory.updated_at)}</div>
                     </div>
                   ))}
                   {memoryRecords.length > 8 ? (
-                    <div className="text-[11px] text-[#94A3B8]">+ ещё {memoryRecords.length - 8} записей</div>
+                    <div className="text-[11px] text-muted-foreground">+ ещё {memoryRecords.length - 8} записей</div>
                   ) : null}
                   <Button
                     type="button"
@@ -2851,7 +2851,7 @@ export function AssistantChatPane({
                     size="sm"
                     onClick={() => void forgetPersonalMemory(null, true)}
                     disabled={memoryBusyId !== null || memoryRecords.length === 0}
-                    className="mt-1 w-full justify-start border-[#334058] bg-[#0F141E] text-[#E5E7EB] hover:bg-[#202738] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="mt-1 w-full justify-start border-border bg-card text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {memoryBusyId === "__all__" ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-2 h-3.5 w-3.5" />}
                     Очистить личную память
@@ -2866,7 +2866,7 @@ export function AssistantChatPane({
                 variant="outline"
                 onClick={onExportChat}
                 disabled={!canExportChat}
-                className="justify-start border-[#334058] bg-[#141B29] text-[#E5E7EB] hover:bg-[#202738] disabled:cursor-not-allowed disabled:opacity-60"
+                className="justify-start border-border bg-card text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Download className="mr-2 h-4 w-4" />
                 Экспортировать чат
@@ -2877,7 +2877,7 @@ export function AssistantChatPane({
                   type="button"
                   variant="outline"
                   onClick={toggleDebugMonitor}
-                  className="justify-start border-[#334058] bg-[#141B29] text-[#E5E7EB] hover:bg-[#202738]"
+                  className="justify-start border-border bg-card text-foreground hover:bg-muted"
                 >
                   <Settings2 className="mr-2 h-4 w-4" />
                   {debugMonitorOpen ? "Скрыть Debug" : "Показать Debug"}
@@ -2888,7 +2888,7 @@ export function AssistantChatPane({
                 type="button"
                 variant="outline"
                 onClick={clearCurrentThreadView}
-                className="justify-start border-[#334058] bg-[#141B29] text-[#E5E7EB] hover:bg-[#202738]"
+                className="justify-start border-border bg-card text-foreground hover:bg-muted"
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Очистить текущий поток

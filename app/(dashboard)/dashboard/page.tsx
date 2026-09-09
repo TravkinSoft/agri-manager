@@ -26,7 +26,7 @@ import { HarvestDashboard } from "@/components/dashboard/harvest-dashboard";
 
 export default function DashboardPage() {
   const { profile, loading } = useAuth();
-  if (loading) return <div className="py-12 text-center text-sm text-slate-400">Загрузка...</div>;
+  if (loading) return <div className="py-12 text-center text-sm text-muted-foreground">Загрузка...</div>;
   if (profile?.role === "agronomist" || profile?.role === "director") return <HarvestDashboard />;
   return <LegacyDashboard />;
 }
@@ -115,7 +115,7 @@ function LegacyDashboard() {
       <div>
         <PageHeader title={t("dashboard_title")} description={t("dashboard_desc")} />
         <div className="text-center py-12">
-          <p className="text-slate-500">{t("dashboard_loading")}</p>
+          <p className="text-muted-foreground">{t("dashboard_loading")}</p>
         </div>
       </div>
     );
@@ -144,27 +144,27 @@ function LegacyDashboard() {
         <div className="grid gap-3 md:hidden">
           <Card>
             <CardContent className="pt-4">
-              <div className="text-sm text-slate-500">{t("warehouses_metric")}</div>
+              <div className="text-sm text-muted-foreground">{t("warehouses_metric")}</div>
               <div className="mt-1 text-2xl font-semibold">{warehouseCount}</div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-4">
-              <div className="text-sm text-slate-500">{t("stock_positions_metric")}</div>
+              <div className="text-sm text-muted-foreground">{t("stock_positions_metric")}</div>
               <div className="mt-1 text-2xl font-semibold">{stockRows}</div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-4">
-              <div className="text-sm text-slate-500">{t("recent_confirmed_movements_metric")}</div>
+              <div className="text-sm text-muted-foreground">{t("recent_confirmed_movements_metric")}</div>
               <div className="mt-1 text-2xl font-semibold">{recentMovements}</div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-4">
-              <div className="text-sm text-slate-500">Ключевой остаток</div>
+              <div className="text-sm text-muted-foreground">Ключевой остаток</div>
               <div className="mt-1 text-base font-semibold">{topStock ? topStock.productName : "Нет данных"}</div>
-              {topStock ? <div className="text-sm text-slate-500">{topStock.quantity.toFixed(2)}</div> : null}
+              {topStock ? <div className="text-sm text-muted-foreground">{topStock.quantity.toFixed(2)}</div> : null}
             </CardContent>
           </Card>
         </div>
@@ -196,41 +196,41 @@ function LegacyDashboard() {
       <div className="grid gap-3 md:hidden">
         <Card>
           <CardContent className="pt-4">
-            <div className="text-sm text-slate-500">Активные операции</div>
+            <div className="text-sm text-muted-foreground">Активные операции</div>
             <div className="mt-1 text-2xl font-semibold">{recentOperations.length}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-sm text-slate-500">{t("total_area_metric")}</div>
+            <div className="text-sm text-muted-foreground">{t("total_area_metric")}</div>
             <div className="mt-1 text-2xl font-semibold">{metrics.totalArea}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-sm text-slate-500">Проблемные поля</div>
+            <div className="text-sm text-muted-foreground">Проблемные поля</div>
             <div className="mt-1 text-2xl font-semibold">{Math.max(metrics.totalFields - metrics.activeCrops, 0)}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-sm text-slate-500">Доминирующая культура</div>
+            <div className="text-sm text-muted-foreground">Доминирующая культура</div>
             <div className="mt-1 text-base font-semibold">{dominantCrop ? dominantCrop.crop : "Нет данных"}</div>
-            {dominantCrop ? <div className="text-sm text-slate-500">{dominantCrop.totalArea} га</div> : null}
+            {dominantCrop ? <div className="text-sm text-muted-foreground">{dominantCrop.totalArea} га</div> : null}
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-sm text-slate-500">Последние события</div>
+            <div className="text-sm text-muted-foreground">Последние события</div>
             <div className="mt-1 text-base font-semibold">
               {lastOperation ? `${lastOperation.operationType} — ${lastOperation.fieldName}` : "Событий пока нет"}
             </div>
-            {lastOperation?.cropName ? <div className="text-sm text-slate-500">{lastOperation.cropName}</div> : null}
+            {lastOperation?.cropName ? <div className="text-sm text-muted-foreground">{lastOperation.cropName}</div> : null}
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-sm text-slate-500">Остатки материалов</div>
+            <div className="text-sm text-muted-foreground">Остатки материалов</div>
             <div className="mt-1 text-base font-semibold">
               {inventoryPreview.length ? inventoryPreview.map((item) => item.productName).join(", ") : "Нет данных"}
             </div>

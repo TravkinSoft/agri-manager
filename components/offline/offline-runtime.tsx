@@ -159,13 +159,13 @@ export function OfflineRuntime() {
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-[80] flex justify-center px-3 md:bottom-4">
-      <div className="pointer-events-auto flex max-w-[min(94vw,560px)] items-start gap-3 rounded-lg border border-slate-700 bg-[#101826]/95 px-3 py-2 text-sm text-slate-100 shadow-2xl shadow-black/40 backdrop-blur">
-        <div className={!isOnline ? "mt-0.5 text-amber-300" : syncState === "failed" ? "mt-0.5 text-red-300" : "mt-0.5 text-emerald-300"}>
+      <div className="pointer-events-auto flex max-w-[min(94vw,560px)] items-start gap-3 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground shadow-2xl shadow-black/40 backdrop-blur">
+        <div className={!isOnline ? "mt-0.5 text-amber-800" : syncState === "failed" ? "mt-0.5 text-red-800" : "mt-0.5 text-emerald-800"}>
           {icon}
         </div>
         <div className="min-w-0">
           <div className="font-semibold">{title}</div>
-          <div className="text-xs leading-5 text-slate-300">{description}</div>
+          <div className="text-xs leading-5 text-foreground">{description}</div>
         </div>
       </div>
     </div>

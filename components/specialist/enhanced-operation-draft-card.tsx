@@ -45,7 +45,7 @@ function valueRow(label: string, value?: string | number | null) {
 
   return (
     <div className="grid grid-cols-[190px_1fr] gap-2 text-sm">
-      <span className="text-slate-500">{label}</span>
+      <span className="text-muted-foreground">{label}</span>
       <span className="font-medium whitespace-pre-wrap">{shown}</span>
     </div>
   );
@@ -78,7 +78,7 @@ export function EnhancedOperationDraftCard({
   const cardClass = isConfirmed
     ? "border-emerald-400 bg-emerald-50 ring-1 ring-emerald-200"
     : isCancelled
-      ? "border-slate-300 bg-slate-50"
+      ? "border-border bg-muted"
       : "border-green-200 bg-green-50/40";
 
   const handleConfirm = async () => {
@@ -112,7 +112,7 @@ export function EnhancedOperationDraftCard({
               isConfirmed
                 ? "bg-emerald-100 text-emerald-800 border-emerald-300"
                 : isCancelled
-                  ? "bg-slate-100 text-slate-700 border-slate-300"
+                  ? "bg-muted text-muted-foreground border-border"
                   : "bg-white"
             }
           >
@@ -148,7 +148,7 @@ export function EnhancedOperationDraftCard({
         )}
 
         <div className="rounded-md bg-white p-3 space-y-2">
-          <div className="text-xs uppercase tracking-wide text-slate-500">
+          <div className="text-xs uppercase tracking-wide text-muted-foreground">
             {t("Кратко", "Қысқаша", "Summary")}
           </div>
           {valueRow(
@@ -184,7 +184,7 @@ export function EnhancedOperationDraftCard({
         {(!isConfirmed && !isCancelled) || showDetails ? (
           <>
             <div className="rounded-md bg-white p-3 space-y-2">
-              <div className="text-xs uppercase tracking-wide text-slate-500">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">
                 {t("Препараты и смесь", "Препараттар мен қоспа", "Chemicals and mixture")}
               </div>
               {valueRow(
@@ -231,11 +231,11 @@ export function EnhancedOperationDraftCard({
             </div>
 
             <div className="rounded-md bg-white p-3 space-y-2">
-              <div className="text-xs uppercase tracking-wide text-slate-500">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">
                 {t("Исполнение", "Орындау", "Execution")}
               </div>
               <div className="grid grid-cols-[190px_1fr] gap-2 text-sm">
-                <span className="text-slate-500 flex items-center gap-1">
+                <span className="text-muted-foreground flex items-center gap-1">
                   <Calendar className="h-3.5 w-3.5" />
                   {t("Техника / агрегат", "Техника / агрегат", "Machine / equipment")}
                 </span>

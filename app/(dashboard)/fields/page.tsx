@@ -315,9 +315,9 @@ export default function FieldsPage() {
 
       <Card>
         <CardContent className="p-0">
-          <div className="border-b border-slate-200 p-3 md:p-4">
+          <div className="border-b border-border p-3 md:p-4">
             <div className="relative max-w-md">
-              <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
+              <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
               <Input
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
@@ -329,25 +329,25 @@ export default function FieldsPage() {
 
           <div className="space-y-2 p-3 md:hidden">
             {loading ? (
-              <div className="rounded-lg border border-dashed border-slate-300 px-3 py-4 text-center text-sm text-slate-500">
+              <div className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground">
                 {text.loading}
               </div>
             ) : filteredFields.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-300 px-3 py-4 text-center text-sm text-slate-500">
+              <div className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground">
                 {searchQuery.trim() ? "Поля по вашему запросу не найдены." : text.empty}
               </div>
             ) : (
               filteredFields.map((field) => (
-                <div key={`mobile-${field.id}`} className="rounded-xl border border-slate-200 bg-white p-3">
-                  <Link href={`/fields/${field.id}`} className="block rounded-md focus:outline-none focus:ring-2 focus:ring-amber-400">
-                    <div className="text-base font-semibold text-slate-900">{getFieldDisplayName(field)}</div>
-                    <div className="mt-1 text-sm text-slate-600">
+                <div key={`mobile-${field.id}`} className="rounded-xl border border-border bg-white p-3">
+                  <Link href={`/fields/${field.id}`} className="block rounded-md focus:outline-none focus:ring-2 focus:ring-ring">
+                    <div className="text-base font-semibold text-muted-foreground">{getFieldDisplayName(field)}</div>
+                    <div className="mt-1 text-sm text-muted-foreground">
                       {text.area}: {field.area.toFixed(2)} {localizeUnit("ha", language)}
                     </div>
-                    <div className="mt-1 text-sm text-slate-600">
+                    <div className="mt-1 text-sm text-muted-foreground">
                       {text.soilType}: {field.soil_type || "-"}
                     </div>
-                    <div className="mt-2 text-xs text-slate-500">{renderFieldNotes(field)}</div>
+                    <div className="mt-2 text-xs text-muted-foreground">{renderFieldNotes(field)}</div>
                   </Link>
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     <Button type="button" variant="outline" className="h-11" onClick={() => openEditDialog(field)}>
@@ -384,13 +384,13 @@ export default function FieldsPage() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-slate-500">
+                    <TableCell colSpan={6} className="text-center text-muted-foreground">
                       {text.loading}
                     </TableCell>
                   </TableRow>
                 ) : filteredFields.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-slate-500">
+                    <TableCell colSpan={6} className="text-center text-muted-foreground">
                       {searchQuery.trim() ? "No fields match this query." : text.empty}
                     </TableCell>
                   </TableRow>
@@ -398,7 +398,7 @@ export default function FieldsPage() {
                   filteredFields.map((field) => (
                     <TableRow key={field.id}>
                       <TableCell className="font-medium">
-                        <Link href={`/fields/${field.id}`} className="text-slate-900 hover:underline">
+                        <Link href={`/fields/${field.id}`} className="text-muted-foreground hover:underline">
                           {getFieldDisplayName(field)}
                         </Link>
                       </TableCell>

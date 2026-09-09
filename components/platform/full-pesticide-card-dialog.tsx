@@ -39,8 +39,8 @@ export function FullPesticideCardDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-1rem)] w-[calc(100vw-1rem)] max-w-4xl overflow-y-auto rounded-none border border-[#9ca3af] bg-white p-0 text-black shadow-xl sm:w-full">
-        <DialogHeader className="border-b border-[#c7c7c7] bg-white px-4 py-4 text-left sm:px-6">
+      <DialogContent className="max-h-[calc(100vh-1rem)] w-[calc(100vw-1rem)] max-w-4xl overflow-y-auto rounded-none border border-border bg-white p-0 text-black shadow-xl sm:w-full">
+        <DialogHeader className="border-b border-border bg-white px-4 py-4 text-left sm:px-6">
           <DialogTitle className="pr-8 text-xl font-semibold leading-tight tracking-normal text-black sm:text-2xl">
             {card?.product.tradeName || "Карточка пестицида"}
           </DialogTitle>
@@ -51,20 +51,20 @@ export function FullPesticideCardDialog({
 
         <div className="px-4 py-5 sm:px-6">
           {loading ? (
-            <div className="flex min-h-52 items-center justify-center text-sm text-[#374151]">
+            <div className="flex min-h-52 items-center justify-center text-sm text-muted-foreground">
               Загрузка карточки...
             </div>
           ) : null}
 
           {!loading && error ? (
-            <div className="border border-[#9ca3af] bg-white p-4 text-sm text-black">
+            <div className="border border-border bg-white p-4 text-sm text-black">
               <p>{error}</p>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={onRetry}
-                className="mt-3 rounded-none border-[#6b7280] bg-white text-black"
+                className="mt-3 rounded-none border-border bg-white text-black"
               >
                 Повторить
               </Button>
@@ -73,18 +73,18 @@ export function FullPesticideCardDialog({
 
           {!loading && !error && card ? (
             <div>
-              <div className="overflow-x-auto border-l border-t border-[#b8b8b8]">
+              <div className="overflow-x-auto border-l border-t border-border">
                 <table className="w-full table-fixed border-collapse bg-white">
                   <tbody>
                     {card.rows.map((row) => (
                       <tr key={row.label}>
                         <th
                           scope="row"
-                          className="w-[36%] border-b border-r border-[#b8b8b8] bg-white px-3 py-3 text-left align-top text-sm font-semibold leading-5 tracking-normal text-black sm:w-[31%] sm:px-4"
+                          className="w-[36%] border-b border-r border-border bg-white px-3 py-3 text-left align-top text-sm font-semibold leading-5 tracking-normal text-black sm:w-[31%] sm:px-4"
                         >
                           {row.label}
                         </th>
-                        <td className="border-b border-r border-[#b8b8b8] bg-white px-3 py-3 align-top sm:px-4">
+                        <td className="border-b border-r border-border bg-white px-3 py-3 align-top sm:px-4">
                           <MultilineValue value={row.value} />
                         </td>
                       </tr>

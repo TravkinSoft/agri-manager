@@ -82,13 +82,13 @@ export default function TicketsPage() {
 
   return (
     <div className="mx-auto w-full max-w-[1350px] space-y-4 overflow-x-hidden">
-      <div><h1 className="text-2xl font-semibold text-slate-100 sm:text-3xl">Талоны</h1><p className="mt-1 text-sm text-slate-400">Просмотр документов весовой</p></div>
-      <div className="travkin-scrollbar flex gap-1 overflow-x-auto rounded-lg border border-slate-800 bg-slate-950/40 p-1" role="tablist">
+      <div><h1 className="text-2xl font-semibold text-foreground sm:text-3xl">Талоны</h1><p className="mt-1 text-sm text-muted-foreground">Просмотр документов весовой</p></div>
+      <div className="travkin-scrollbar flex gap-1 overflow-x-auto rounded-lg border border-border bg-background p-1" role="tablist">
         {modes.map(({ id, label, icon: Icon }) => <Button key={id} type="button" size="sm" variant={mode === id ? "default" : "ghost"} className="h-9 shrink-0" onClick={() => setMode(id)}><Icon className="mr-2 h-4 w-4" />{label}</Button>)}
       </div>
 
-      {error ? <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</div> : null}
-      {loading ? <div className="flex min-h-48 items-center justify-center text-slate-400"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Загрузка талонов...</div> : (
+      {error ? <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-800">{error}</div> : null}
+      {loading ? <div className="flex min-h-48 items-center justify-center text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Загрузка талонов...</div> : (
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((ticket) => {
             const identity = ticketIdentity(ticket);
@@ -98,43 +98,43 @@ export default function TicketsPage() {
             return (
               <Card key={ticket.id} className="min-w-0 rounded-lg">
                 <CardContent className="p-0">
-                  <button type="button" onClick={() => setTicketId(ticket.id)} className="block w-full min-w-0 p-3 text-left hover:bg-slate-800/40">
+                  <button type="button" onClick={() => setTicketId(ticket.id)} className="block w-full min-w-0 p-3 text-left hover:bg-muted">
                     <div className="flex items-start justify-between gap-2">
-                      <span className="min-w-0 truncate text-base font-semibold text-slate-100">{ticket.field_name_snapshot || "Поле не указано"}</span>
-                      <span className="shrink-0 rounded border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-300">{statusLabel(ticket)}</span>
+                      <span className="min-w-0 truncate text-base font-semibold text-foreground">{ticket.field_name_snapshot || "Поле не указано"}</span>
+                      <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground">{statusLabel(ticket)}</span>
                     </div>
-                    <div className="mt-2 min-w-0 text-sm text-slate-300">
+                    <div className="mt-2 min-w-0 text-sm text-foreground">
                       <div className="truncate font-medium">{identity.crop}</div>
-                      <div className="truncate text-xs text-slate-500">
+                      <div className="truncate text-xs text-muted-foreground">
                         Сорт: {identity.variety || "не указан"} · Репродукция: {identity.reproduction || "не указана"}
                       </div>
                     </div>
                     {moisturePercent != null && Number.isFinite(Number(moisturePercent)) ? (
-                      <div className="mt-2 text-xs text-sky-200">
+                      <div className="mt-2 text-xs text-sky-800">
                         Влажность: <span className="font-semibold">{Number(moisturePercent).toLocaleString("ru-RU", { maximumFractionDigits: 2 })}%</span>
                       </div>
                     ) : null}
                     {paperNo ? (
-                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-amber-200">
+                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-amber-800">
                         <span>Бумажный № <span className="font-semibold">{paperNo}</span></span>
                         <span>Тара: <span className="font-semibold">{kg(ticket.tare_weight_kg)}</span></span>
                       </div>
                     ) : null}
                     <div className="mt-3 flex items-end justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="truncate text-[10px] text-slate-600">№ {ticket.ticket_no}</div>
-                        <div className="text-xs text-slate-500">
+                        <div className="truncate text-[10px] text-muted-foreground">№ {ticket.ticket_no}</div>
+                        <div className="text-xs text-muted-foreground">
                           {paperNo ? "Дата рейса: " : ""}{dateTime(paperNo ? ticket.created_at : (finalized ? ticket.finalized_at : ticket.created_at))}
                         </div>
                       </div>
-                      <span className="text-base font-semibold text-[#E0B100]">{kg(finalized ? ticket.net_weight_kg : ticket.gross_weight_kg)}</span>
+                      <span className="text-base font-semibold text-primary">{kg(finalized ? ticket.net_weight_kg : ticket.gross_weight_kg)}</span>
                     </div>
                   </button>
                 </CardContent>
               </Card>
             );
           })}
-          {!rows.length ? <div className="py-16 text-center text-sm text-slate-500 md:col-span-2 xl:col-span-3">В этом разделе талонов нет</div> : null}
+          {!rows.length ? <div className="py-16 text-center text-sm text-muted-foreground md:col-span-2 xl:col-span-3">В этом разделе талонов нет</div> : null}
         </div>
       )}
       <TicketPreviewDialog ticketId={ticketId} open={Boolean(ticketId)} onOpenChange={(open) => !open && setTicketId(null)} />

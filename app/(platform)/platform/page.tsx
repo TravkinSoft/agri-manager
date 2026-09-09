@@ -40,10 +40,10 @@ function ConsolePanel({
   className?: string;
 }) {
   return (
-    <section className={`border border-[#9aa8ba] bg-white shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset] ${className}`}>
-      <div className="flex items-center justify-between border-b border-[#9aa8ba] bg-[#d7dde6] px-2 py-1.5">
-        <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-[#16324f]">{title}</h2>
-        <span className="border border-[#9aa8ba] bg-[#eef1f5] px-1.5 py-0.5 font-mono text-[10px] uppercase text-[#42566f]">
+    <section className={`border border-border bg-white shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset] ${className}`}>
+      <div className="flex items-center justify-between border-b border-border bg-muted px-2 py-1.5">
+        <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground">{title}</h2>
+        <span className="border border-border bg-card px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
           {code}
         </span>
       </div>
@@ -54,15 +54,15 @@ function ConsolePanel({
 
 function ConsoleRow({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "neutral" | "ok" | "warn" }) {
   return (
-    <div className="grid grid-cols-[minmax(120px,0.9fr)_minmax(0,1fr)] border-b border-[#d5dbe5] py-1 text-[12px] last:border-b-0">
-      <span className="text-[#536276]">{label}</span>
+    <div className="grid grid-cols-[minmax(120px,0.9fr)_minmax(0,1fr)] border-b border-border py-1 text-[12px] last:border-b-0">
+      <span className="text-muted-foreground">{label}</span>
       <span
         className={
           tone === "ok"
             ? "font-mono font-semibold text-[#155e3b]"
             : tone === "warn"
               ? "font-mono font-semibold text-[#8a2f2f]"
-              : "font-mono text-[#1f2937]"
+              : "font-mono text-foreground"
         }
       >
         {value}
@@ -287,33 +287,33 @@ export default function PlatformCompaniesPage() {
 
   return (
     <div className="space-y-3">
-      <div className="border border-[#6e7f95] bg-[#0f2946] px-3 py-2 text-slate-100">
+      <div className="border border-border bg-muted px-3 py-2 text-foreground">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-300">
+            <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-foreground">
               ГЛОБАЛЬНАЯ КОНСОЛЬ / ВНУТРЕННИЙ ДОСТУП
             </div>
             <h1 className="mt-1 text-xl font-semibold tracking-tight">TravkinFlow: глобальная консоль</h1>
           </div>
-          <div className="grid grid-cols-2 gap-1 font-mono text-[10px] uppercase text-slate-300 sm:flex sm:flex-wrap">
-            <span className="border border-slate-400/25 px-2 py-1">kno:v0</span>
-            <span className="border border-slate-400/25 px-2 py-1">pp:v1</span>
-            <span className="border border-slate-400/25 px-2 py-1">rls:draft</span>
-            <span className="border border-slate-400/25 px-2 py-1">
+          <div className="grid grid-cols-2 gap-1 font-mono text-[10px] uppercase text-foreground sm:flex sm:flex-wrap">
+            <span className="border border-border px-2 py-1">kno:v0</span>
+            <span className="border border-border px-2 py-1">pp:v1</span>
+            <span className="border border-border px-2 py-1">rls:draft</span>
+            <span className="border border-border px-2 py-1">
               env:{runtime?.environment || (platformStatusError ? "error" : "loading")}
             </span>
-            <span className="border border-slate-400/25 px-2 py-1">
+            <span className="border border-border px-2 py-1">
               branch:{runtime?.branch || (platformStatusError ? "unknown" : "loading")}
             </span>
           </div>
         </div>
       </div>
 
-      <Card className="rounded-none border-[#9aa8ba] bg-white shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
-        <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-[#9aa8ba] bg-[#d7dde6] text-[#111827]">
+      <Card className="rounded-none border-border bg-white shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+        <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-border bg-muted text-foreground">
           <div>
-            <CardTitle className="text-[#111827]">Компании платформы</CardTitle>
-            <CardDescription className="text-[#5a6677]">
+            <CardTitle className="text-foreground">Компании платформы</CardTitle>
+            <CardDescription className="text-muted-foreground">
               Создание компаний и вход в контекст выбранной компании без изменения глобального профиля.
             </CardDescription>
           </div>
@@ -322,30 +322,30 @@ export default function PlatformCompaniesPage() {
             Создать компанию
           </Button>
         </CardHeader>
-        <CardContent className="space-y-2 text-[#111827]">
-          {loading ? <p className="text-sm text-slate-500">Загрузка...</p> : null}
-          {!loading && companies.length === 0 ? <p className="text-sm text-slate-500">Компаний пока нет.</p> : null}
+        <CardContent className="space-y-2 text-foreground">
+          {loading ? <p className="text-sm text-muted-foreground">Загрузка...</p> : null}
+          {!loading && companies.length === 0 ? <p className="text-sm text-muted-foreground">Компаний пока нет.</p> : null}
           {companies.map((company) => {
             const isOpening = openingCompanyId === company.id;
 
             return (
-              <div key={company.id} className="relative border border-[#9aa8ba] bg-white text-[#111827]">
+              <div key={company.id} className="relative border border-border bg-white text-foreground">
                 <button
                   type="button"
-                  className="flex min-h-12 w-full items-center justify-between gap-3 px-3 py-2 pr-16 text-left transition-colors hover:bg-[#eef1f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16324f] focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-60"
+                  className="flex min-h-12 w-full items-center justify-between gap-3 px-3 py-2 pr-16 text-left transition-colors hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={openingCompanyId !== null}
                   aria-label={`Открыть компанию ${company.name}`}
                   aria-busy={isOpening}
                   onClick={() => openCompanyContext(company.id)}
                 >
                   <span className="flex min-w-0 items-center gap-2">
-                    <Building2 aria-hidden="true" className="h-4 w-4 shrink-0 text-slate-500" />
+                    <Building2 aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span className="truncate font-medium">{company.name}</span>
                   </span>
                   {isOpening ? (
-                    <span className="shrink-0 text-xs font-medium text-[#42566f]">Открываем...</span>
+                    <span className="shrink-0 text-xs font-medium text-muted-foreground">Открываем...</span>
                   ) : (
-                    <ArrowRightCircle aria-hidden="true" className="h-4 w-4 shrink-0 text-[#42566f]" />
+                    <ArrowRightCircle aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
                   )}
                 </button>
                 <Button
@@ -391,7 +391,7 @@ export default function PlatformCompaniesPage() {
             <ConsoleRow label="Следующий слой" value="черновик OpenAI" tone="warn" />
             <Button
               variant="outline"
-              className="mt-3 h-8 rounded-none border-[#9aa8ba] bg-[#eef1f5] text-[12px]"
+              className="mt-3 h-8 rounded-none border-border bg-card text-[12px]"
               onClick={() => router.push("/platform/knowledge/intake")}
             >
               <FileText className="mr-2 h-3.5 w-3.5" />
@@ -451,14 +451,14 @@ export default function PlatformCompaniesPage() {
 
         <ConsolePanel title="Системные заметки" code="SYS" className="h-fit">
           <div className="space-y-2 text-[12px]">
-            <div className="border border-[#c3ccd8] bg-[#f6f7f9] p-2">
-              <div className="flex items-center gap-2 font-semibold text-[#16324f]">
+            <div className="border border-border bg-card p-2">
+              <div className="flex items-center gap-2 font-semibold text-foreground">
                 <ShieldCheck className="h-4 w-4" />
                 Боевой контур
               </div>
-              <p className="mt-1 leading-5 text-[#536276]">Бизнес-логика изолирована от этого изменения консоли.</p>
+              <p className="mt-1 leading-5 text-muted-foreground">Бизнес-логика изолирована от этого изменения консоли.</p>
             </div>
-            <div className="border border-[#c3ccd8] bg-[#f6f7f9] p-2 font-mono text-[11px] leading-5">
+            <div className="border border-border bg-card p-2 font-mono text-[11px] leading-5">
               Текущий сезон: 2026<br />
               Движок знаний: V0<br />
               Паспорт продукта: V1<br />
@@ -519,14 +519,14 @@ export default function PlatformCompaniesPage() {
           <div className="space-y-4">
             <div className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm">
               <div className="font-semibold">Компания: {deleteTarget?.name}</div>
-              <div className="mt-1 text-slate-400">
+              <div className="mt-1 text-muted-foreground">
                 Будут удалены пользователи этой компании. Саму компанию можно удалить только если нет
                 производственных данных, которые нельзя безопасно удалить автоматически.
               </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="delete-confirmation">Для подтверждения введите точную фразу:</Label>
-              <div className="rounded-md bg-slate-950 p-2 font-mono text-xs text-slate-200">
+              <div className="rounded-md bg-background p-2 font-mono text-xs text-foreground">
                 {expectedDeletePhrase}
               </div>
               <Input

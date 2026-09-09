@@ -775,7 +775,7 @@ export function ChatInterface({
 
   return (
     <div className="flex flex-col h-[calc(100vh-12rem)] overflow-hidden min-h-0">
-      <div className="mb-2 flex items-center gap-2 text-xs text-slate-600">
+      <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
         <span
           className={`inline-flex items-center rounded-full border px-2 py-0.5 ${
             accessMode === "full"
@@ -785,7 +785,7 @@ export function ChatInterface({
         >
           {accessMode === "full" ? "Full Access" : "Limited Access"}
         </span>
-        <span className="text-slate-500">Role: {userRole || "unknown"}</span>
+        <span className="text-muted-foreground">Role: {userRole || "unknown"}</span>
       </div>
       <Card className="flex-1 flex flex-col overflow-hidden min-h-0">
         <CardContent className="flex-1 flex flex-col p-4 min-h-0 overflow-hidden">
@@ -844,7 +844,7 @@ export function ChatInterface({
                                   className="max-h-44 rounded-md border object-cover"
                                 />
                               ) : (
-                                <div className="flex items-center gap-2 text-slate-700">
+                                <div className="flex items-center gap-2 text-muted-foreground">
                                   <FileText className="h-4 w-4" />
                                   <span className="truncate">{attachment.name}</span>
                                 </div>
@@ -886,7 +886,7 @@ export function ChatInterface({
                     {message.role === "user" && (
                       <div className="flex-shrink-0">
                         <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center">
-                          <User className="h-5 w-5 text-white" />
+                          <User className="h-5 w-5 text-foreground" />
                         </div>
                       </div>
                     )}
@@ -911,20 +911,20 @@ export function ChatInterface({
 
           <form onSubmit={handleSubmit} className="mt-3 space-y-2">
             {attachments.length > 0 && (
-              <div className="rounded-md border bg-slate-50 p-2">
-                <div className="mb-1 text-xs text-slate-600">Вложения ({attachments.length})</div>
+              <div className="rounded-md border bg-muted p-2">
+                <div className="mb-1 text-xs text-muted-foreground">Вложения ({attachments.length})</div>
                 <div className="flex flex-wrap gap-2">
                   {attachments.map((attachment) => (
                     <div key={attachment.id} className="relative rounded border bg-white p-2 pr-7 text-xs max-w-[220px]">
                       <button
                         type="button"
-                        className="absolute right-1 top-1 text-slate-400 hover:text-red-600"
+                        className="absolute right-1 top-1 text-muted-foreground hover:text-red-600"
                         onClick={() => removeAttachment(attachment.id)}
                         title="Удалить"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
-                      <div className="flex items-center gap-1 text-slate-700">
+                      <div className="flex items-center gap-1 text-muted-foreground">
                         {attachment.kind === "image" ? <ImageIcon className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}
                         <span className="truncate">{attachment.name}</span>
                       </div>
@@ -987,7 +987,7 @@ export function ChatInterface({
                       )}
                     </Button>
                   </div>
-                  <div className="text-[11px] text-slate-500 min-w-[220px] text-right">
+                  <div className="text-[11px] text-muted-foreground min-w-[220px] text-right">
                     {recordingState === "recording"
                       ? "Идёт запись..."
                       : recordingState === "processing"
@@ -1013,7 +1013,7 @@ export function ChatInterface({
                   )}
                 </div>
                 {(recordingState === "recording" || recordingState === "processing") && (
-                  <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                  <div className="mt-2 rounded-lg border border-border bg-muted px-2 py-1.5">
                     {recordingState === "recording" ? (
                       <div className="flex items-end gap-1 h-7">
                         {Array.from({ length: 22 }).map((_, barIndex) => {
@@ -1031,14 +1031,14 @@ export function ChatInterface({
                         })}
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2 text-xs text-slate-600">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         <span>Р Р°СЃРїРѕР·РЅР°РІР°РЅРёРµ РіРѕР»РѕСЃР°...</span>
                       </div>
                     )}
                   </div>
                 )}
-                <div className="mt-1 text-[11px] text-slate-500">
+                <div className="mt-1 text-[11px] text-muted-foreground">
                   Форматы: изображения jpg/jpeg/png/webp, документы pdf/docx/txt.
                 </div>
               </div>

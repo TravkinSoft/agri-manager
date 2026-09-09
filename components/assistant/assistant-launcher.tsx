@@ -25,9 +25,9 @@ export function AssistantLauncher() {
         onClick={open}
         aria-label="Открыть Travkin Copilot"
         title="Travkin Copilot"
-        className="absolute inset-y-0 right-0 flex w-6 items-center justify-center border-l border-[#E0B100]/0 bg-[#E0B100]/0 text-[#E0B100]/0 transition duration-150 hover:border-[#E0B100]/45 hover:bg-[#E0B100]/10 hover:text-[#E0B100]"
+        className="absolute inset-y-0 right-0 flex w-6 items-center justify-center border-l border-primary/0 bg-primary/0 text-primary/0 transition duration-150 hover:border-primary/45 hover:bg-primary/10 hover:text-primary"
       >
-        <span className="flex h-9 w-5 items-center justify-center rounded-l-full bg-[#0F141E]/0 transition hover:bg-[#0F141E]/75">
+        <span className="flex h-9 w-5 items-center justify-center rounded-l-full bg-card/0 transition hover:bg-card/75">
           <Sparkles className="h-3.5 w-3.5" />
         </span>
       </button>

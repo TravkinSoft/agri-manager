@@ -82,9 +82,9 @@ export function ProfileAvatar({ profileId, fullName, email, version, className }
   }, [profileId, version]);
 
   return (
-    <Avatar className={cn("h-8 w-8 border border-white/10 bg-[#202738]", className)}>
+    <Avatar className={cn("h-8 w-8 border border-border bg-muted", className)}>
       {avatarUrl ? <AvatarImage src={avatarUrl} alt="" className="object-cover" /> : null}
-      <AvatarFallback className="bg-[#202738] text-xs font-semibold text-slate-100">{initials}</AvatarFallback>
+      <AvatarFallback className="bg-muted text-xs font-semibold text-foreground">{initials}</AvatarFallback>
     </Avatar>
   );
 }

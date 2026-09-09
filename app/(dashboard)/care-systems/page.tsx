@@ -316,9 +316,9 @@ const STATUS_TONE: Record<string, "neutral" | "success" | "warning" | "danger" |
 
 function ProgressBar({ value }: { value: number }) {
   return (
-    <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+    <div className="h-1.5 overflow-hidden rounded-full bg-accent/40">
       <div
-        className="h-full rounded-full bg-[#E0B100] transition-all"
+        className="h-full rounded-full bg-primary transition-all"
         style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
       />
     </div>
@@ -491,7 +491,7 @@ function SearchableSelect(props: {
                   <Check className={cn("mr-2 h-4 w-4", option.id === value ? "opacity-100" : "opacity-0")} />
                   <div className="min-w-0">
                     <div className="truncate">{option.label}</div>
-                    {option.hint ? <div className="truncate text-xs text-[#9CA3AF]">{option.hint}</div> : null}
+                    {option.hint ? <div className="truncate text-xs text-muted-foreground">{option.hint}</div> : null}
                   </div>
                 </CommandItem>
               ))}
@@ -1049,7 +1049,7 @@ export default function CareSystemsPage() {
     return (
       <div className="space-y-4">
         <PageHeader title="Системы защиты и ухода" description="Схемы обработок, питания и фертигации" />
-        <div className="flex min-h-[360px] items-center justify-center rounded-lg border border-[#1F2937] bg-[#111827] text-[#9CA3AF]">
+        <div className="flex min-h-[360px] items-center justify-center rounded-lg border border-border bg-card text-muted-foreground">
           <Loader2 className="mr-2 h-5 w-5 animate-spin" />
           Загрузка схем...
         </div>
@@ -1061,10 +1061,10 @@ export default function CareSystemsPage() {
     return (
       <div className="space-y-4">
         <PageHeader title="Системы защиты и ухода" description="Схемы обработок, питания и фертигации" />
-        <div className="rounded-lg border border-[#273449] bg-[#111827] p-6">
-          <h2 className="text-lg font-semibold text-[#F9FAFB]">Компания не выбрана</h2>
-          <p className="mt-2 text-sm text-[#9CA3AF]">Для систем защиты и ухода нужен активный профиль компании. Обновите страницу или выберите компанию в верхней панели.</p>
-          <Button className="mt-4 bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]" onClick={() => void load()}>
+        <div className="rounded-lg border border-border bg-card p-6">
+          <h2 className="text-lg font-semibold text-foreground">Компания не выбрана</h2>
+          <p className="mt-2 text-sm text-muted-foreground">Для систем защиты и ухода нужен активный профиль компании. Обновите страницу или выберите компанию в верхней панели.</p>
+          <Button className="mt-4 bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => void load()}>
             Обновить страницу
           </Button>
         </div>
@@ -1076,10 +1076,10 @@ export default function CareSystemsPage() {
     return (
       <div className="space-y-4">
         <PageHeader title="Системы защиты и ухода" description="Схемы обработок, питания и фертигации" />
-        <div className="rounded-lg border border-red-900/50 bg-red-950/30 p-6">
-          <h2 className="text-lg font-semibold text-red-100">Не удалось загрузить схемы</h2>
-          <p className="mt-2 text-sm text-red-200">{loadError}</p>
-          <Button className="mt-4 bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]" onClick={() => void load()}>
+        <div className="rounded-lg border border-red-900/50 bg-red-50 p-6">
+          <h2 className="text-lg font-semibold text-red-800">Не удалось загрузить схемы</h2>
+          <p className="mt-2 text-sm text-red-800">{loadError}</p>
+          <Button className="mt-4 bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => void load()}>
             Повторить загрузку
           </Button>
         </div>
@@ -1091,37 +1091,37 @@ export default function CareSystemsPage() {
     return (
       <div className="space-y-4">
         <PageHeader title="Системы защиты и ухода" description="Схемы обработок, питания и фертигации" />
-        <div className="rounded-lg border border-[#273449] bg-[#111827] p-6">
-          <h2 className="text-lg font-semibold text-[#F9FAFB]">Нет активного сезона</h2>
-          <p className="mt-2 text-sm text-[#9CA3AF]">Сначала откройте сезон, затем создавайте схемы ухода.</p>
+        <div className="rounded-lg border border-border bg-card p-6">
+          <h2 className="text-lg font-semibold text-foreground">Нет активного сезона</h2>
+          <p className="mt-2 text-sm text-muted-foreground">Сначала откройте сезон, затем создавайте схемы ухода.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="relative min-h-[calc(100vh-104px)] overflow-hidden rounded-lg bg-[#070B12] p-3 text-[#F8FAFC] sm:p-4">
+    <div className="relative min-h-[calc(100vh-104px)] overflow-hidden rounded-lg bg-card p-3 text-foreground sm:p-4">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(148,163,184,0.08),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.035),transparent_34%)]" />
       <div className="relative grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
         <GlassSidebar className="min-h-[calc(100vh-136px)]">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <div className="text-lg font-semibold">Схемы</div>
-              <div className="text-xs text-[#93A4B8]">Сезон {data.season.year}</div>
+              <div className="text-xs text-muted-foreground">Сезон {data.season.year}</div>
             </div>
-            <Button variant="ghost" size="icon" onClick={() => void load()} className="h-9 w-9 text-[#D7DEEA] hover:bg-white/10">
+            <Button variant="ghost" size="icon" onClick={() => void load()} className="h-9 w-9 text-foreground hover:bg-accent/40">
               <RefreshCw className="h-4 w-4" />
             </Button>
           </div>
 
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
-              <Button disabled={!canEdit} className="mb-3 w-full bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]">
+              <Button disabled={!canEdit} className="mb-3 w-full bg-primary text-primary-foreground hover:bg-primary/90">
                 <Plus className="mr-2 h-4 w-4" />
                 Создать схему
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto border-white/10 bg-[#0A101A]/95 text-[#F9FAFB] shadow-2xl backdrop-blur-xl">
+            <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto border-border bg-card/95 text-foreground shadow-2xl backdrop-blur-xl">
               <DialogHeader>
                 <DialogTitle>Новая схема ухода</DialogTitle>
                 <DialogDescription>Схема сохраняется как черновик. Операции создаются только после активации.</DialogDescription>
@@ -1168,15 +1168,15 @@ export default function CareSystemsPage() {
               <GlassCard className="p-3">
                 <div className="mb-3 flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-semibold text-[#F9FAFB]">Участки из структуры</div>
-                    <div className="text-xs text-[#93A4B8]">Система подтягивает участки текущего сезона</div>
+                    <div className="text-sm font-semibold text-foreground">Участки из структуры</div>
+                    <div className="text-xs text-muted-foreground">Система подтягивает участки текущего сезона</div>
                   </div>
-                  {sectionsLoading && <Loader2 className="h-4 w-4 animate-spin text-[#E0B100]" />}
+                  {sectionsLoading && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
                 </div>
                 {!newScheme.crop_id ? (
                   <EmptyState>Сначала выберите культуру.</EmptyState>
                 ) : sections.length === 0 && !sectionsLoading ? (
-                  <EmptyState className="text-[#FCA5A5]">В структуре сезона нет участков по выбранной культуре.</EmptyState>
+                  <EmptyState className="text-red-800">В структуре сезона нет участков по выбранной культуре.</EmptyState>
                 ) : (
                   <div className="space-y-2">
                     <Input
@@ -1186,7 +1186,7 @@ export default function CareSystemsPage() {
                     />
                     <div className="grid max-h-72 gap-2 overflow-y-auto pr-1 md:grid-cols-2">
                       {filteredSections.map((section) => (
-                        <label key={section.crop_structure_id} className="flex gap-3 rounded-lg border border-white/10 bg-white/[0.035] p-3 text-sm">
+                        <label key={section.crop_structure_id} className="flex gap-3 rounded-lg border border-border bg-accent/40 p-3 text-sm">
                           <Checkbox
                             checked={includedSectionIds.has(section.crop_structure_id)}
                             onCheckedChange={(checked) => {
@@ -1199,9 +1199,9 @@ export default function CareSystemsPage() {
                             }}
                           />
                           <span className="min-w-0">
-                            <span className="block font-semibold text-[#F9FAFB]">{section.field_name}</span>
-                            <span className="block truncate text-[#93A4B8]">{section.crop_name} / {section.variety_name || "без сорта"}</span>
-                            <span className="text-[#FDE68A]">{formatHa(section.area_ha)}</span>
+                            <span className="block font-semibold text-foreground">{section.field_name}</span>
+                            <span className="block truncate text-muted-foreground">{section.crop_name} / {section.variety_name || "без сорта"}</span>
+                            <span className="text-amber-800">{formatHa(section.area_ha)}</span>
                           </span>
                         </label>
                       ))}
@@ -1211,7 +1211,7 @@ export default function CareSystemsPage() {
               </GlassCard>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setCreateOpen(false)}>Отмена</Button>
-                <Button onClick={submitCreateScheme} disabled={saving || !canEdit} className="bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]">
+                <Button onClick={submitCreateScheme} disabled={saving || !canEdit} className="bg-primary text-primary-foreground hover:bg-primary/90">
                   {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Создать
                 </Button>
@@ -1250,13 +1250,13 @@ export default function CareSystemsPage() {
                   key={scheme.id}
                   onClick={() => setSelectedSchemeId(scheme.id)}
                   className={cn(
-                    selectedScheme?.id === scheme.id && "border-[#E0B100]/60 bg-[#E0B100]/10 shadow-[0_0_0_1px_rgba(224,177,0,0.25)]"
+                    selectedScheme?.id === scheme.id && "border-primary/60 bg-primary/10 shadow-[0_0_0_1px_rgba(224,177,0,0.25)]"
                   )}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-[#F8FAFC]">{scheme.name}</div>
-                      <div className="mt-1 truncate text-xs text-[#93A4B8]">
+                      <div className="truncate text-sm font-semibold text-foreground">{scheme.name}</div>
+                      <div className="mt-1 truncate text-xs text-muted-foreground">
                         {formatHa(scheme.total_area_ha)} • {scheme.included_field_count} участка
                       </div>
                     </div>
@@ -1264,7 +1264,7 @@ export default function CareSystemsPage() {
                   </div>
                   <div className="mt-3 flex items-center gap-2">
                     <ProgressBar value={scheme.progress_percent} />
-                    <span className="min-w-8 text-right text-[11px] text-[#93A4B8]">{scheme.progress_percent}%</span>
+                    <span className="min-w-8 text-right text-[11px] text-muted-foreground">{scheme.progress_percent}%</span>
                   </div>
                 </EntityListItem>
               ))
@@ -1275,7 +1275,7 @@ export default function CareSystemsPage() {
         <div className="min-w-0 space-y-4">
           <GlassToolbar className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <div className="text-xs text-[#93A4B8]">Схемы › {selectedScheme?.name || "обзор"}</div>
+              <div className="text-xs text-muted-foreground">Схемы › {selectedScheme?.name || "обзор"}</div>
               <h1 className="mt-1 text-2xl font-semibold">Системы защиты и ухода</h1>
             </div>
             <div className="grid gap-2 sm:grid-cols-4 lg:min-w-[560px]">
@@ -1286,7 +1286,7 @@ export default function CareSystemsPage() {
           </GlassToolbar>
 
           {data.read_only && (
-            <GlassCard className="flex items-center gap-2 border-amber-300/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+            <GlassCard className="flex items-center gap-2 border-amber-300/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-800">
               <AlertTriangle className="h-4 w-4" />
               {data.read_only_reason || "Сезон доступен только для просмотра."}
             </GlassCard>
@@ -1301,17 +1301,17 @@ export default function CareSystemsPage() {
                       <h2 className="text-2xl font-semibold">{selectedScheme.name}</h2>
                       <StatusPill tone={STATUS_TONE[selectedScheme.status] || "neutral"}>{STATUS_LABELS[selectedScheme.status] || selectedScheme.status}</StatusPill>
                     </div>
-                    <div className="mt-2 text-sm text-[#A8B3C7]">
+                    <div className="mt-2 text-sm text-foreground">
                       {selectedScheme.crop_name}{selectedScheme.variety_name ? ` / ${selectedScheme.variety_name}` : ""} • {SCHEME_TYPE_LABELS[selectedScheme.scheme_type]}
                     </div>
-                    {selectedScheme.description && <div className="mt-2 max-w-3xl text-sm text-[#D7DEEA]">{selectedScheme.description}</div>}
+                    {selectedScheme.description && <div className="mt-2 max-w-3xl text-sm text-foreground">{selectedScheme.description}</div>}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button
                       disabled={!canEdit || saving || selectedScheme.status === "active"}
                       title="Перевести схему в работу. Только активная схема может создавать операции."
                       onClick={() => updateScheme(`/api/crop-care-schemes/${selectedScheme.id}/activate`, {}, "Схема активирована")}
-                      className="bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]"
+                      className="bg-primary text-primary-foreground hover:bg-primary/90"
                     >
                       <PlayCircle className="mr-2 h-4 w-4" />
                       Активировать
@@ -1319,7 +1319,7 @@ export default function CareSystemsPage() {
                     <Button
                       disabled={!canEdit || saving || selectedScheme.status !== "active"}
                       variant="outline"
-                      className="border-white/10 bg-white/5 text-[#E7EDF7] hover:bg-white/10"
+                      className="border-border bg-accent/40 text-foreground hover:bg-accent/40"
                       title="Поставить активную схему на паузу. Генерация операций будет заблокирована."
                       onClick={() => updateScheme(`/api/crop-care-schemes/${selectedScheme.id}/pause`, {}, "Схема поставлена на паузу")}
                     >
@@ -1328,20 +1328,20 @@ export default function CareSystemsPage() {
                     </Button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="icon" className="border-white/10 bg-white/5 text-[#E7EDF7] hover:bg-white/10">
+                        <Button variant="outline" size="icon" className="border-border bg-accent/40 text-foreground hover:bg-accent/40">
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-56 border-white/10 bg-[#111827]/95 text-[#F8FAFC] backdrop-blur-xl">
+                      <DropdownMenuContent align="end" className="w-56 border-border bg-card text-foreground backdrop-blur-xl">
                         <DropdownMenuItem onSelect={openEditScheme}><Pencil className="mr-2 h-4 w-4" />Редактировать</DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => showNotReady("Дублирование схемы")}><Copy className="mr-2 h-4 w-4" />Дублировать</DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => showNotReady("Экспорт PDF")}><Download className="mr-2 h-4 w-4" />Экспортировать PDF</DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => showNotReady("История изменений")}><History className="mr-2 h-4 w-4" />История изменений</DropdownMenuItem>
-                        <DropdownMenuSeparator className="bg-white/10" />
+                        <DropdownMenuSeparator className="bg-accent/40" />
                         <DropdownMenuItem disabled={!canEdit || selectedScheme.status === "archived"} onSelect={() => setArchiveOpen(true)}>
                           <Archive className="mr-2 h-4 w-4" />Архивировать
                         </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => showNotReady("Удаление схемы")} className="text-red-200 focus:bg-red-500/15 focus:text-red-100">
+                        <DropdownMenuItem onSelect={() => showNotReady("Удаление схемы")} className="text-red-800 focus:bg-red-500/15 focus:text-red-800">
                           <Trash2 className="mr-2 h-4 w-4" />Удалить схему
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -1359,7 +1359,7 @@ export default function CareSystemsPage() {
                   <CompactStat label="Обновлена" value={formatDate(selectedScheme.updated_at)} />
                 </div>
 
-                <GlassCard className="mt-4 p-3 text-xs text-[#A8B3C7]">
+                <GlassCard className="mt-4 p-3 text-xs text-foreground">
                   {data?.read_only ? (
                     <span>{data.read_only_reason || "Сезон закрыт. Схемы доступны только для просмотра."}</span>
                   ) : selectedSchemeFieldsLocked ? (
@@ -1374,7 +1374,7 @@ export default function CareSystemsPage() {
                 <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 className="text-base font-semibold">Участки схемы</h3>
-                    <div className="text-xs text-[#93A4B8]">Новые участки после sync добавляются выключенными</div>
+                    <div className="text-xs text-muted-foreground">Новые участки после sync добавляются выключенными</div>
                   </div>
                   <div className="flex gap-2">
                     <Input
@@ -1386,7 +1386,7 @@ export default function CareSystemsPage() {
                     <Button
                       disabled={!canEdit || saving || selectedSchemeFieldsLocked}
                       variant="outline"
-                      className="border-white/10 bg-white/5 text-[#E7EDF7] hover:bg-white/10"
+                      className="border-border bg-accent/40 text-foreground hover:bg-accent/40"
                       title="Обновить участки из структуры. Новые найденные участки добавятся выключенными."
                       onClick={() => updateScheme(`/api/crop-care-schemes/${selectedScheme.id}/fields/sync-from-crop-structure`, {}, "Участки обновлены")}
                     >
@@ -1400,7 +1400,7 @@ export default function CareSystemsPage() {
                     <label
                       key={field.id}
                       className={cn(
-                        "inline-flex min-h-11 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2",
+                        "inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-accent/40 px-3 py-2",
                         !field.included && "opacity-55",
                         selectedSchemeFieldsLocked && "opacity-70"
                       )}
@@ -1411,8 +1411,8 @@ export default function CareSystemsPage() {
                         onCheckedChange={(checked) => void toggleSchemeField(field, Boolean(checked))}
                       />
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-[#F8FAFC]">{field.field_name}</span>
-                        <span className="block truncate text-xs text-[#93A4B8]">{field.variety_name || field.crop_name} • {formatHa(field.area_ha)}</span>
+                        <span className="block truncate text-sm font-semibold text-foreground">{field.field_name}</span>
+                        <span className="block truncate text-xs text-muted-foreground">{field.variety_name || field.crop_name} • {formatHa(field.area_ha)}</span>
                       </span>
                     </label>
                   ))}
@@ -1423,29 +1423,29 @@ export default function CareSystemsPage() {
                 <div className="mb-3 flex items-center justify-between">
                   <div>
                     <h3 className="text-lg font-semibold">Этапы схемы</h3>
-                    <div className="text-xs text-[#93A4B8]">Главный рабочий план: материалы, нормы и создание операций</div>
+                    <div className="text-xs text-muted-foreground">Главный рабочий план: материалы, нормы и создание операций</div>
                   </div>
                 </div>
                 {selectedScheme.steps.length === 0 ? (
                   <EmptyState>Этапов пока нет.</EmptyState>
                 ) : (
-                  <div className="overflow-hidden rounded-lg border border-white/10">
-                    <div className="hidden grid-cols-[72px_minmax(160px,1fr)_minmax(220px,1.4fr)_130px_150px] gap-3 bg-white/[0.045] px-3 py-2 text-xs uppercase text-[#93A4B8] lg:grid">
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <div className="hidden grid-cols-[72px_minmax(160px,1fr)_minmax(220px,1.4fr)_130px_150px] gap-3 bg-accent/40 px-3 py-2 text-xs uppercase text-muted-foreground lg:grid">
                       <div>№</div>
                       <div>Этап</div>
                       <div>Материалы</div>
                       <div>Операции</div>
                       <div>Статус</div>
                     </div>
-                    <div className="divide-y divide-white/10">
+                    <div className="divide-y divide-border">
                       {selectedScheme.steps.map((step) => (
                         <div key={step.id} className="grid gap-3 px-3 py-3 lg:grid-cols-[72px_minmax(160px,1fr)_minmax(220px,1.4fr)_130px_150px] lg:items-start">
                           <div className="flex items-center gap-2">
                             <StatusPill tone="muted">#{step.step_no}</StatusPill>
                           </div>
                           <div className="min-w-0">
-                            <div className="font-semibold text-[#F8FAFC]">{step.title}</div>
-                            <div className="mt-1 flex flex-wrap gap-2 text-xs text-[#93A4B8]">
+                            <div className="font-semibold text-foreground">{step.title}</div>
+                            <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
                               {step.planned_date && <span className="inline-flex items-center"><CalendarDays className="mr-1 h-3 w-3" />{formatDate(step.planned_date)}</span>}
                               <span>{OPERATION_TYPE_OPTIONS.find((item) => item.value === step.operation_type)?.label || step.operation_type}</span>
                               {step.phenological_phase && <span>{step.phenological_phase}</span>}
@@ -1453,24 +1453,24 @@ export default function CareSystemsPage() {
                           </div>
                           <div className="min-w-0">
                             {step.materials.length > 0 ? (
-                              <div className="overflow-hidden rounded-lg border border-white/10">
+                              <div className="overflow-hidden rounded-lg border border-border">
                                 {step.materials.map((material) => (
-                                  <div key={material.id} className="grid grid-cols-[minmax(0,1fr)_96px_96px] gap-2 border-b border-white/8 px-3 py-2 text-sm last:border-b-0">
-                                    <div className="truncate font-medium text-[#F8FAFC]">{materialDisplayName(material)}</div>
-                                    <div className="text-[#A8B3C7]">{material.rate} {UNIT_LABELS[materialDisplayUnit(material, material.rate_unit)]}</div>
-                                    <div className="text-right text-[#FDE68A]">{formatQuantity(material.planned_quantity, materialDisplayUnit(material, material.planned_unit))}</div>
+                                  <div key={material.id} className="grid grid-cols-[minmax(0,1fr)_96px_96px] gap-2 border-b border-border px-3 py-2 text-sm last:border-b-0">
+                                    <div className="truncate font-medium text-foreground">{materialDisplayName(material)}</div>
+                                    <div className="text-foreground">{material.rate} {UNIT_LABELS[materialDisplayUnit(material, material.rate_unit)]}</div>
+                                    <div className="text-right text-amber-800">{formatQuantity(material.planned_quantity, materialDisplayUnit(material, material.planned_unit))}</div>
                                   </div>
                                 ))}
                               </div>
                             ) : (
-                              <span className="text-sm text-[#93A4B8]">Материалов нет</span>
+                              <span className="text-sm text-muted-foreground">Материалов нет</span>
                             )}
                           </div>
                           <div>
                             <Button
                               disabled={!canEdit || saving || Boolean(step.generated_operation_id) || selectedScheme.status !== "active"}
                               onClick={() => void generateOperation(step)}
-                              className="w-full bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]"
+                              className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
                             >
                               {step.generated_operation_id ? <CheckCircle2 className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
                               {step.generated_operation_id ? "Создана" : "Создать"}
@@ -1481,7 +1481,7 @@ export default function CareSystemsPage() {
                             {step.generated_operation_id && <StatusPill tone="accent">Locked</StatusPill>}
                           </div>
                           {step.generated_operation_id && (
-                            <div className="rounded-lg border border-amber-300/15 bg-amber-400/10 px-3 py-2 text-xs text-amber-100 lg:col-span-5">
+                            <div className="rounded-lg border border-amber-300/15 bg-amber-400/10 px-3 py-2 text-xs text-amber-800 lg:col-span-5">
                               Этап связан с операцией. Нормы, вода, дата, материалы и участки заблокированы до отдельного regenerate/supersede flow.
                             </div>
                           )}
@@ -1495,7 +1495,7 @@ export default function CareSystemsPage() {
               <GlassPanel className="p-4">
                 <div className="mb-4">
                   <h3 className="text-lg font-semibold">Добавить этап</h3>
-                  <div className="text-xs text-[#93A4B8]">Ответственный обязателен. Расчёт материалов идёт по включённым участкам.</div>
+                  <div className="text-xs text-muted-foreground">Ответственный обязателен. Расчёт материалов идёт по включённым участкам.</div>
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-2">
@@ -1543,11 +1543,11 @@ export default function CareSystemsPage() {
                   disabled={!canEdit}
                 />
                 {needsSolutionRate && (
-                  <div className="rounded-lg border border-[#273449] bg-[#0B0F17] p-3">
+                  <div className="rounded-lg border border-border bg-card p-3">
                     <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px] md:items-end">
                       <div>
-                        <div className="font-semibold text-[#F9FAFB]">Рабочий раствор</div>
-                        <div className="mt-1 text-xs text-[#9CA3AF]">
+                        <div className="font-semibold text-foreground">Рабочий раствор</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
                           Вода считается автоматически: общий раствор минус жидкие препараты. Сухие материалы учитываются отдельно.
                         </div>
                       </div>
@@ -1564,34 +1564,34 @@ export default function CareSystemsPage() {
                       </div>
                     </div>
                     <div className="mt-3 grid gap-2 text-xs md:grid-cols-4">
-                      <div className="rounded-md bg-[#111827] p-2 text-[#D1D5DB]">
-                        <div className="text-[#9CA3AF]">Жидкие препараты</div>
-                        <div className="mt-1 font-semibold text-[#F9FAFB]">{formatQuantity(stepMix.liquidMaterialsL, "l")}</div>
+                      <div className="rounded-md bg-card p-2 text-foreground">
+                        <div className="text-muted-foreground">Жидкие препараты</div>
+                        <div className="mt-1 font-semibold text-foreground">{formatQuantity(stepMix.liquidMaterialsL, "l")}</div>
                       </div>
-                      <div className="rounded-md bg-[#111827] p-2 text-[#D1D5DB]">
-                        <div className="text-[#9CA3AF]">Вода автоматически</div>
-                        <div className={cn("mt-1 font-semibold", stepMix.waterL !== null && stepMix.waterL < 0 ? "text-[#FCA5A5]" : "text-[#F9FAFB]")}>
+                      <div className="rounded-md bg-card p-2 text-foreground">
+                        <div className="text-muted-foreground">Вода автоматически</div>
+                        <div className={cn("mt-1 font-semibold", stepMix.waterL !== null && stepMix.waterL < 0 ? "text-red-800" : "text-foreground")}>
                           {formatQuantity(stepMix.waterL, "l")}
                         </div>
                       </div>
-                      <div className="rounded-md bg-[#111827] p-2 text-[#D1D5DB]">
-                        <div className="text-[#9CA3AF]">Концентрация</div>
-                        <div className="mt-1 font-semibold text-[#F9FAFB]">
+                      <div className="rounded-md bg-card p-2 text-foreground">
+                        <div className="text-muted-foreground">Концентрация</div>
+                        <div className="mt-1 font-semibold text-foreground">
                           {stepMix.concentrationPercent === null ? "не рассчитано" : `${stepMix.concentrationPercent}%`}
                         </div>
                       </div>
-                      <div className="rounded-md bg-[#111827] p-2 text-[#D1D5DB]">
-                        <div className="text-[#9CA3AF]">Готовый раствор</div>
-                        <div className="mt-1 font-semibold text-[#F9FAFB]">{formatQuantity(stepMix.totalSolutionL, "l")}</div>
+                      <div className="rounded-md bg-card p-2 text-foreground">
+                        <div className="text-muted-foreground">Готовый раствор</div>
+                        <div className="mt-1 font-semibold text-foreground">{formatQuantity(stepMix.totalSolutionL, "l")}</div>
                       </div>
                     </div>
                   </div>
                 )}
-                <Separator className="bg-[#273449]" />
+                <Separator className="bg-muted" />
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="font-semibold text-[#F9FAFB]">Материалы этапа</div>
-                    <div className="text-xs text-[#9CA3AF]">Расчёт идёт по выбранным участкам: {formatHa(selectedScheme.total_area_ha)}</div>
+                    <div className="font-semibold text-foreground">Материалы этапа</div>
+                    <div className="text-xs text-muted-foreground">Расчёт идёт по выбранным участкам: {formatHa(selectedScheme.total_area_ha)}</div>
                   </div>
                   <Button variant="outline" onClick={addMaterialRow} disabled={!canEdit}>
                     <Plus className="mr-2 h-4 w-4" />
@@ -1606,7 +1606,7 @@ export default function CareSystemsPage() {
                     );
                     const selectedProduct = activeProducts.find((product) => product.id === material.product_id);
                     return (
-                      <div key={index} className="rounded-lg border border-[#273449] bg-[#0B0F17] p-3">
+                      <div key={index} className="rounded-lg border border-border bg-card p-3">
                         <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_110px_120px_180px_140px_44px]">
                           <SearchableSelect
                             value={material.product_id || "none"}
@@ -1645,24 +1645,24 @@ export default function CareSystemsPage() {
                           </Button>
                         </div>
                         {selectedProduct?.manufacturer && (
-                          <div className="mt-2 text-xs text-[#9CA3AF]">Производитель: {selectedProduct.manufacturer}</div>
+                          <div className="mt-2 text-xs text-muted-foreground">Производитель: {selectedProduct.manufacturer}</div>
                         )}
                         {selectedProduct?.master_product_id ? (
-                          <div className="mt-1 flex items-center gap-1 text-xs text-[#9CA3AF]">
+                          <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
                             <PesticideCardLink productId={selectedProduct.master_product_id} />
                             <span>Карточка препарата</span>
                           </div>
                         ) : null}
-                        <div className={`mt-2 text-xs ${preview.error ? "text-[#FCA5A5]" : "text-[#A7F3D0]"}`}>
+                        <div className={`mt-2 text-xs ${preview.error ? "text-red-800" : "text-emerald-800"}`}>
                           {preview.error ? preview.error : `План: ${formatQuantity(preview.value, preview.unit)}`}
                         </div>
                       </div>
                     );
                   })}
                 </div>
-                {stepValidationError && <div className="text-sm text-[#FCA5A5]">{stepValidationError}</div>}
+                {stepValidationError && <div className="text-sm text-red-800">{stepValidationError}</div>}
                 <div className="flex justify-end">
-                  <Button onClick={submitStep} disabled={!canEdit || saving || Boolean(stepValidationError)} className="bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]">
+                  <Button onClick={submitStep} disabled={!canEdit || saving || Boolean(stepValidationError)} className="bg-primary text-primary-foreground hover:bg-primary/90">
                     {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Добавить этап
                   </Button>
@@ -1676,7 +1676,7 @@ export default function CareSystemsPage() {
       </div>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-2xl border-white/10 bg-[#0A101A]/95 text-[#F9FAFB] shadow-2xl backdrop-blur-xl">
+        <DialogContent className="max-w-2xl border-border bg-card/95 text-foreground shadow-2xl backdrop-blur-xl">
           <DialogHeader>
             <DialogTitle>Редактировать схему</DialogTitle>
             <DialogDescription>
@@ -1709,13 +1709,13 @@ export default function CareSystemsPage() {
             <Textarea value={editScheme.description} onChange={(event) => setEditScheme((value) => ({ ...value, description: event.target.value }))} />
           </div>
           {selectedSchemeHasGenerated && (
-            <GlassCard className="border-amber-300/20 bg-amber-500/10 p-3 text-xs text-amber-100">
+            <GlassCard className="border-amber-300/20 bg-amber-500/10 p-3 text-xs text-amber-800">
               По схеме уже создана операция. Критичные поля изменяются только через будущую ревизию/regenerate flow.
             </GlassCard>
           )}
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setEditOpen(false)}>Отмена</Button>
-            <Button onClick={submitEditScheme} disabled={!canEdit || saving} className="bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]">
+            <Button onClick={submitEditScheme} disabled={!canEdit || saving} className="bg-primary text-primary-foreground hover:bg-primary/90">
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Сохранить
             </Button>
@@ -1724,7 +1724,7 @@ export default function CareSystemsPage() {
       </Dialog>
 
       <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
-        <AlertDialogContent className="border-white/10 bg-[#0A101A] text-[#F9FAFB]">
+        <AlertDialogContent className="border-border bg-card text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>Архивировать схему?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -1732,8 +1732,8 @@ export default function CareSystemsPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-white/10 bg-white/5 text-[#F8FAFC] hover:bg-white/10">Отмена</AlertDialogCancel>
-            <AlertDialogAction onClick={archiveScheme} className="bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]">
+            <AlertDialogCancel className="border-border bg-accent/40 text-foreground hover:bg-accent/40">Отмена</AlertDialogCancel>
+            <AlertDialogAction onClick={archiveScheme} className="bg-primary text-primary-foreground hover:bg-primary/90">
               Архивировать
             </AlertDialogAction>
           </AlertDialogFooter>

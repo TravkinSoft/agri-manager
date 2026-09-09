@@ -26,17 +26,17 @@ export function RecentOperationsTable({ data }: RecentOperationsTableProps) {
       </CardHeader>
       <CardContent>
         {data.length === 0 ? (
-          <p className="text-sm text-slate-500">{t("no_operations_data")}</p>
+          <p className="text-sm text-muted-foreground">{t("no_operations_data")}</p>
         ) : (
           <>
             <div className="space-y-2 md:hidden">
               {data.map((item) => (
-                <div key={item.id} className="rounded-lg border border-slate-200 p-3">
-                  <div className="mb-1 text-xs text-slate-500">{formatDateOnly(item.date, locale)}</div>
-                  <div className="text-sm font-semibold text-slate-900">{item.operationType}</div>
-                  <div className="mt-1 text-sm text-slate-700">{item.fieldName}</div>
-                  <div className="text-xs text-slate-500">{item.cropName || "-"}</div>
-                  {item.notes ? <div className="mt-2 text-xs text-slate-600">{item.notes}</div> : null}
+                <div key={item.id} className="rounded-lg border border-border p-3">
+                  <div className="mb-1 text-xs text-muted-foreground">{formatDateOnly(item.date, locale)}</div>
+                  <div className="text-sm font-semibold text-muted-foreground">{item.operationType}</div>
+                  <div className="mt-1 text-sm text-muted-foreground">{item.fieldName}</div>
+                  <div className="text-xs text-muted-foreground">{item.cropName || "-"}</div>
+                  {item.notes ? <div className="mt-2 text-xs text-muted-foreground">{item.notes}</div> : null}
                 </div>
               ))}
             </div>

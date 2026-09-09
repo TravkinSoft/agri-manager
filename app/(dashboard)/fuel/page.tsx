@@ -363,23 +363,23 @@ export default function FuelPage() {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {bootstrap.sources.map((source) => (
-          <Card key={source.id} className="border-slate-200">
+          <Card key={source.id} className="border-border">
             <CardContent className="space-y-2 p-4">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-slate-900">{source.name}</div>
-                  <div className="text-xs text-slate-500">{SOURCE_TYPE_LABELS[source.source_type as FuelSourceType] || source.source_type}</div>
+                  <div className="truncate text-sm font-semibold text-muted-foreground">{source.name}</div>
+                  <div className="text-xs text-muted-foreground">{SOURCE_TYPE_LABELS[source.source_type as FuelSourceType] || source.source_type}</div>
                 </div>
                 <Badge variant="outline">{FUEL_LABELS[source.fuel_type as FuelType] || source.fuel_type}</Badge>
               </div>
-              <div className="text-xl font-semibold text-slate-950">{liters(source.current_balance_liters)}</div>
-              <div className="text-xs text-slate-500">{source.capacity_liters ? `Вместимость: ${liters(source.capacity_liters)}` : "Вместимость не задана"}</div>
+              <div className="text-xl font-semibold text-foreground">{liters(source.current_balance_liters)}</div>
+              <div className="text-xs text-muted-foreground">{source.capacity_liters ? `Вместимость: ${liters(source.capacity_liters)}` : "Вместимость не задана"}</div>
             </CardContent>
           </Card>
         ))}
         {!bootstrap.sources.length && !loading ? (
           <Card className="sm:col-span-2 xl:col-span-4">
-            <CardContent className="p-5 text-sm text-slate-500">Источники топлива ещё не добавлены.</CardContent>
+            <CardContent className="p-5 text-sm text-muted-foreground">Источники топлива ещё не добавлены.</CardContent>
           </Card>
         ) : null}
       </div>
@@ -450,8 +450,8 @@ export default function FuelPage() {
               </div>
             </div>
             {selectedIssueSource ? (
-              <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                Остаток в источнике: <span className="font-semibold text-slate-900">{liters(selectedIssueSource.current_balance_liters)}</span>
+              <div className="rounded-md border bg-muted px-3 py-2 text-xs text-muted-foreground">
+                Остаток в источнике: <span className="font-semibold text-muted-foreground">{liters(selectedIssueSource.current_balance_liters)}</span>
               </div>
             ) : null}
             {selectedVehicle?.primary_responsible_personnel_id ? (
@@ -535,8 +535,8 @@ export default function FuelPage() {
               </div>
             </div>
             {selectedTransferSource ? (
-              <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                Остаток в источнике: <span className="font-semibold text-slate-900">{liters(selectedTransferSource.current_balance_liters)}</span>
+              <div className="rounded-md border bg-muted px-3 py-2 text-xs text-muted-foreground">
+                Остаток в источнике: <span className="font-semibold text-muted-foreground">{liters(selectedTransferSource.current_balance_liters)}</span>
               </div>
             ) : null}
             <div className="space-y-1">
@@ -632,14 +632,14 @@ export default function FuelPage() {
 
             <div className="space-y-2 border-t pt-3">
               {bootstrap.limits.slice(0, 8).map((limit) => (
-                <div key={limit.id} className="rounded-md border bg-slate-50 px-3 py-2">
+                <div key={limit.id} className="rounded-md border bg-muted px-3 py-2">
                   <div className="flex items-center justify-between gap-2 text-xs">
-                    <span className="font-medium text-slate-700">{limit.target_label}</span>
+                    <span className="font-medium text-muted-foreground">{limit.target_label}</span>
                     <Badge variant={limit.exceeded ? "destructive" : "outline"}>
                       {FUEL_LABELS[limit.fuel_type as FuelType]}
                     </Badge>
                   </div>
-                  <div className="mt-1 text-xs text-slate-600">
+                  <div className="mt-1 text-xs text-muted-foreground">
                     Лимит: {liters(limit.limit_liters)} · Выдано: {liters(limit.issued_liters)} · Остаток:{" "}
                     <span className={limit.remaining_liters < 0 ? "font-semibold text-rose-700" : "font-semibold text-emerald-700"}>
                       {liters(limit.remaining_liters)}
@@ -647,7 +647,7 @@ export default function FuelPage() {
                   </div>
                 </div>
               ))}
-              {!bootstrap.limits.length ? <div className="text-sm text-slate-500">Лимитка ещё не задана.</div> : null}
+              {!bootstrap.limits.length ? <div className="text-sm text-muted-foreground">Лимитка ещё не задана.</div> : null}
             </div>
           </CardContent>
         </Card>
@@ -659,17 +659,17 @@ export default function FuelPage() {
             </CardHeader>
             <CardContent className="space-y-2">
               {bootstrap.recentIssues.slice(0, 10).map((issue) => (
-                <div key={issue.id} className="rounded-md border bg-slate-50 px-3 py-2">
+                <div key={issue.id} className="rounded-md border bg-muted px-3 py-2">
                   <div className="flex items-center justify-between gap-2 text-sm">
-                    <span className="font-semibold text-slate-900">{issue.vehicle_name}</span>
-                    <span className="font-semibold text-slate-900">{liters(issue.liters)}</span>
+                    <span className="font-semibold text-muted-foreground">{issue.vehicle_name}</span>
+                    <span className="font-semibold text-muted-foreground">{liters(issue.liters)}</span>
                   </div>
-                  <div className="text-xs text-slate-600">
+                  <div className="text-xs text-muted-foreground">
                     {issue.fuel_source_name} · {issue.mechanizator_name || "Без механизатора"} · {dateTime(issue.issued_at)}
                   </div>
                 </div>
               ))}
-              {!bootstrap.recentIssues.length ? <div className="text-sm text-slate-500">Выдач пока нет.</div> : null}
+              {!bootstrap.recentIssues.length ? <div className="text-sm text-muted-foreground">Выдач пока нет.</div> : null}
             </CardContent>
           </Card>
 
@@ -679,17 +679,17 @@ export default function FuelPage() {
             </CardHeader>
             <CardContent className="space-y-2">
               {bootstrap.recentTransfers.slice(0, 8).map((transfer) => (
-                <div key={transfer.id} className="rounded-md border bg-slate-50 px-3 py-2">
+                <div key={transfer.id} className="rounded-md border bg-muted px-3 py-2">
                   <div className="flex items-center justify-between gap-2 text-sm">
-                    <span className="font-medium text-slate-900">
+                    <span className="font-medium text-muted-foreground">
                       {transfer.from_fuel_source_name} → {transfer.to_fuel_source_name}
                     </span>
-                    <span className="font-semibold text-slate-900">{liters(transfer.liters)}</span>
+                    <span className="font-semibold text-muted-foreground">{liters(transfer.liters)}</span>
                   </div>
-                  <div className="text-xs text-slate-600">{dateTime(transfer.transferred_at)}</div>
+                  <div className="text-xs text-muted-foreground">{dateTime(transfer.transferred_at)}</div>
                 </div>
               ))}
-              {!bootstrap.recentTransfers.length ? <div className="text-sm text-slate-500">Перемещений пока нет.</div> : null}
+              {!bootstrap.recentTransfers.length ? <div className="text-sm text-muted-foreground">Перемещений пока нет.</div> : null}
             </CardContent>
           </Card>
         </div>

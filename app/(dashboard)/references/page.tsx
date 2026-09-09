@@ -202,13 +202,13 @@ function DataTable(props: { headers: string[]; rows: ReactNode[][]; loading: boo
       <TableBody>
         {props.loading ? (
           <TableRow>
-            <TableCell colSpan={props.headers.length} className="text-center text-slate-500">
+            <TableCell colSpan={props.headers.length} className="text-center text-muted-foreground">
               Загрузка...
             </TableCell>
           </TableRow>
         ) : props.rows.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={props.headers.length} className="text-center text-slate-500">
+            <TableCell colSpan={props.headers.length} className="text-center text-muted-foreground">
               {props.empty}
             </TableCell>
           </TableRow>
@@ -241,7 +241,7 @@ function TabLabel({ label, count }: { label: string; count: string }) {
   return (
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
       <span>{label}</span>
-      <span className="rounded-full border border-slate-700/70 bg-slate-950/70 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-slate-300">
+      <span className="rounded-full border border-border bg-background px-1.5 py-0.5 text-[10px] font-semibold leading-none text-foreground">
         {count}
       </span>
     </span>
@@ -255,7 +255,7 @@ function reproductionDisplay(value?: string | null) {
   const display = (code: string, description: string) => (
     <div>
       <div className="font-medium">{code}</div>
-      <div className="text-xs text-slate-500">{description}</div>
+      <div className="text-xs text-muted-foreground">{description}</div>
     </div>
   );
   if (/(ориг|original|^os$|^oc$)/i.test(normalized)) return display("ОС", "Оригинальные семена");
@@ -948,7 +948,7 @@ export default function ReferencesPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-muted-foreground">
                 Это read-only срез из структуры посевов компании. Глобальные культуры и демо-справочник здесь не показываются.
               </p>
               <DataTable
@@ -973,7 +973,7 @@ export default function ReferencesPage() {
               <CardTitle>Материалы компании</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-muted-foreground">
                 Здесь отображаются только препараты, удобрения и добавки, уже подключённые к компании.
               </p>
               <DataTable
@@ -997,7 +997,7 @@ export default function ReferencesPage() {
 
         <TabsContent value="machine-yard" className="space-y-4">
           <Tabs value={machineYardTab} onValueChange={(value) => setMachineYardTab(value as MachineYardTab)}>
-            <div className="space-y-3 rounded-lg border border-slate-800/80 bg-slate-950/30 p-3">
+            <div className="space-y-3 rounded-lg border border-border bg-background p-3">
               <TabsList aria-label="Раздел машин и техники" className="w-full justify-start overflow-auto sm:w-auto">
                 <TabsTrigger value="park"><TabLabel label="Парк компании" count={countText(machines.length + equipment.length + vehicles.length)} /></TabsTrigger>
                 <TabsTrigger value="catalog"><TabLabel label="Каталог техники" count={countText(machineModels.length + equipmentModels.length + transportModels.length)} /></TabsTrigger>
@@ -1040,7 +1040,7 @@ export default function ReferencesPage() {
               </div>
 
               <p
-                className="text-xs text-slate-500"
+                className="text-xs text-muted-foreground"
                 role="status"
                 aria-live="polite"
                 aria-busy={machineYardSearch !== deferredMachineYardSearch}
@@ -1245,13 +1245,13 @@ export default function ReferencesPage() {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-slate-500">
+                      <TableCell colSpan={7} className="text-center text-muted-foreground">
                         Загрузка...
                       </TableCell>
                     </TableRow>
                   ) : filteredWorkers.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-slate-500">
+                      <TableCell colSpan={7} className="text-center text-muted-foreground">
                         Сотрудники не найдены
                       </TableCell>
                     </TableRow>
@@ -1260,7 +1260,7 @@ export default function ReferencesPage() {
                       <TableRow key={worker.id}>
                         <TableCell className="font-medium">
                           <div>{worker.full_name}</div>
-                          {worker.short_name ? <div className="text-xs text-slate-500">{worker.short_name}</div> : null}
+                          {worker.short_name ? <div className="text-xs text-muted-foreground">{worker.short_name}</div> : null}
                         </TableCell>
                         <TableCell>{workerRoleLabels[worker.role_type] || worker.role_type}</TableCell>
                         <TableCell>{employmentTypeLabels[worker.employment_type] || worker.employment_type}</TableCell>
@@ -1336,7 +1336,7 @@ export default function ReferencesPage() {
                     </SelectContent>
                   </Select>
                   {filteredAssetModels.length === 0 ? (
-                    <p className="text-sm text-amber-300">Модель отсутствует в ГЛБД. Обратитесь к Global Admin.</p>
+                    <p className="text-sm text-amber-800">Модель отсутствует в ГЛБД. Обратитесь к Global Admin.</p>
                   ) : null}
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
@@ -1424,30 +1424,30 @@ export default function ReferencesPage() {
                 </div>
 
                 {editingWorkerId && (editingWorkerRole === "weighbridge_operator" || form.role_type === "weighbridge_operator") ? (
-                  <div className="space-y-3 rounded-lg border border-slate-700 bg-slate-950/40 p-4">
+                  <div className="space-y-3 rounded-lg border border-border bg-background p-4">
                     <div>
-                      <div className="font-semibold text-slate-100">Доступ к Весовой</div>
-                      <div className="text-sm text-slate-400">PIN хранится в защищённом виде и никогда не показывается.</div>
+                      <div className="font-semibold text-foreground">Доступ к Весовой</div>
+                      <div className="text-sm text-muted-foreground">PIN хранится в защищённом виде и никогда не показывается.</div>
                     </div>
 
                     {editingWorkerRole !== "weighbridge_operator" ? (
-                      <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+                      <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
                         Сначала сохраните сотрудника с ролью «Весовщик», затем откройте карточку снова для установки PIN.
                       </div>
                     ) : workerAccessLoading ? (
-                      <div className="text-sm text-slate-400">Проверка доступа...</div>
+                      <div className="text-sm text-muted-foreground">Проверка доступа...</div>
                     ) : workerAccess ? (
                       <>
                         <div className="grid gap-2 text-sm sm:grid-cols-2">
-                          <div className="rounded-md border border-slate-700 px-3 py-2">
-                            <div className="text-slate-400">Доступ</div>
-                            <div className={workerAccess.access_enabled ? "font-medium text-emerald-300" : "font-medium text-slate-200"}>
+                          <div className="rounded-md border border-border px-3 py-2">
+                            <div className="text-muted-foreground">Доступ</div>
+                            <div className={workerAccess.access_enabled ? "font-medium text-emerald-800" : "font-medium text-foreground"}>
                               {workerAccess.access_enabled ? "Включён" : "Отключён"}
                             </div>
                           </div>
-                          <div className="rounded-md border border-slate-700 px-3 py-2">
-                            <div className="text-slate-400">PIN</div>
-                            <div className="font-medium text-slate-200">
+                          <div className="rounded-md border border-border px-3 py-2">
+                            <div className="text-muted-foreground">PIN</div>
+                            <div className="font-medium text-foreground">
                               {workerAccess.pin_configured ? "Установлен" : "Не установлен"}
                             </div>
                           </div>
@@ -1530,7 +1530,7 @@ export default function ReferencesPage() {
                                 variant="outline"
                                 onClick={() => void disableWorkerWeighbridgeAccess()}
                                 disabled={workerAccessSaving}
-                                className="border-red-500/40 text-red-200 hover:bg-red-500/10 hover:text-red-100"
+                                className="border-red-500/40 text-red-800 hover:bg-red-500/10 hover:text-red-800"
                               >
                                 <ShieldOff className="mr-2 h-4 w-4" />
                                 Отключить доступ к Весовой
@@ -1540,7 +1540,7 @@ export default function ReferencesPage() {
                         )}
                       </>
                     ) : (
-                      <div className="text-sm text-red-300">Не удалось получить состояние доступа.</div>
+                      <div className="text-sm text-red-800">Не удалось получить состояние доступа.</div>
                     )}
                   </div>
                 ) : null}

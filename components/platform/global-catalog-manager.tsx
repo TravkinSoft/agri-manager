@@ -64,13 +64,13 @@ type Option = { label: string; value: string };
 type SearchConflict = { message: string; components: string[] };
 type CategoryCount = { key: string; label: string; count: number };
 
-const CONSOLE_LABEL_CLASS = "font-mono text-[11px] uppercase tracking-[0.12em] !text-[#42566f]";
+const CONSOLE_LABEL_CLASS = "font-mono text-[11px] uppercase tracking-[0.12em] !text-muted-foreground";
 const CONSOLE_CONTROL_CLASS =
-  "rounded-none border-[#9aa8ba] bg-white !text-[#111827] placeholder:!text-[#69788d] focus-visible:ring-[#163d68]";
+  "rounded-none border-border bg-white !text-foreground placeholder:!text-muted-foreground focus-visible:ring-ring";
 const CONSOLE_SELECT_TRIGGER_CLASS =
-  "rounded-none border-[#9aa8ba] bg-white !text-[#111827] data-[placeholder]:!text-[#69788d]";
-const CONSOLE_MENU_CLASS = "rounded-none border-[#9aa8ba] bg-white !text-[#111827]";
-const CONSOLE_TABLE_CELL_CLASS = "border-[#c3ccd8] px-4 py-3 !text-[#1f2937]";
+  "rounded-none border-border bg-white !text-foreground data-[placeholder]:!text-muted-foreground";
+const CONSOLE_MENU_CLASS = "rounded-none border-border bg-white !text-foreground";
+const CONSOLE_TABLE_CELL_CLASS = "border-border px-4 py-3 !text-foreground";
 
 function optionLabel(entity: GlobalCatalogEntity, row: RowRecord): string {
   if (entity === "varieties" || entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators") {
@@ -778,7 +778,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
         <Label className={CONSOLE_LABEL_CLASS}>{label}</Label>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="w-full justify-between rounded-none border-[#9aa8ba] bg-white font-normal !text-[#111827] hover:bg-[#eef1f5]">
+            <Button variant="outline" className="w-full justify-between rounded-none border-border bg-white font-normal !text-foreground hover:bg-card">
               <span className="truncate">{triggerLabel}</span>
               <ChevronDown className="h-4 w-4 opacity-70" />
             </Button>
@@ -789,7 +789,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                 key={`${label}-${option.value}`}
                 checked={selectedSet.has(option.value)}
                 onCheckedChange={() => onToggle(option.value)}
-                className="rounded-none !text-[#111827] focus:bg-[#dfe7f1] focus:!text-[#0c2544]"
+                className="rounded-none !text-foreground focus:bg-card focus:!text-foreground"
               >
                 {option.label}
               </DropdownMenuCheckboxItem>
@@ -799,10 +799,10 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
         {selectedLabels.length ? (
           <div className="flex flex-wrap gap-1">
             {selectedLabels.slice(0, 6).map((name) => (
-              <Badge key={name} variant="secondary" className="rounded-none border border-[#9aa8ba] bg-[#eef1f5] font-normal !text-[#16324f]">{name}</Badge>
+              <Badge key={name} variant="secondary" className="rounded-none border border-border bg-card font-normal !text-foreground">{name}</Badge>
             ))}
             {selectedLabels.length > 6 ? (
-              <Badge variant="secondary" className="rounded-none border border-[#9aa8ba] bg-[#eef1f5] !text-[#16324f]">
+              <Badge variant="secondary" className="rounded-none border border-border bg-card !text-foreground">
                 +{selectedLabels.length - 6}
               </Badge>
             ) : null}
@@ -824,7 +824,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
             checked={Boolean(value)}
             onCheckedChange={(checked) => setFormState((prev) => ({ ...prev, [field.key]: Boolean(checked) }))}
           />
-          <Label htmlFor={field.key} className="!text-[#1f2937]">{field.label}</Label>
+          <Label htmlFor={field.key} className="!text-foreground">{field.label}</Label>
         </div>
       );
     }
@@ -859,7 +859,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
             </SelectTrigger>
             <SelectContent className={CONSOLE_MENU_CLASS}>
               {options.map((option) => (
-                <SelectItem key={`${field.key}-${option.value}`} value={option.value} className="rounded-none !text-[#111827] focus:bg-[#dfe7f1] focus:!text-[#0c2544]">
+                <SelectItem key={`${field.key}-${option.value}`} value={option.value} className="rounded-none !text-foreground focus:bg-card focus:!text-foreground">
                   {option.label}
                 </SelectItem>
               ))}
@@ -921,7 +921,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
           </SelectTrigger>
           <SelectContent className={CONSOLE_MENU_CLASS}>
             {options.map((option) => (
-              <SelectItem key={`${filter.key}-${option.value}`} value={option.value} className="rounded-none !text-[#111827] focus:bg-[#dfe7f1] focus:!text-[#0c2544]">
+              <SelectItem key={`${filter.key}-${option.value}`} value={option.value} className="rounded-none !text-foreground focus:bg-card focus:!text-foreground">
                 {option.label}
               </SelectItem>
             ))}
@@ -938,14 +938,14 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
           <button
             type="button"
             onClick={() => void loadComponentCard(row.glbd_component_id)}
-            className="inline-flex items-center gap-1.5 text-left font-medium text-[#174f84] underline-offset-4 hover:underline"
+            className="inline-flex items-center gap-1.5 text-left font-medium text-muted-foreground underline-offset-4 hover:underline"
             title="Открыть карточку компонента"
           >
             <BookOpen className="h-3.5 w-3.5 shrink-0" />
             {row.name_ru || row.canonical_name || "Компонент"}
           </button>
           {row.matched_alias ? (
-            <div className="mt-1 text-xs text-[#68788d]">Найдено по варианту: «{row.matched_alias}»</div>
+            <div className="mt-1 text-xs text-muted-foreground">Найдено по варианту: «{row.matched_alias}»</div>
           ) : null}
         </div>
       );
@@ -964,7 +964,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                 void loadComponentCard(component.id);
               }}
               onKeyDown={(event) => event.stopPropagation()}
-              className="inline-flex items-center gap-1 border border-[#9aa8ba] bg-[#f6f8fb] px-2 py-1 text-left text-xs font-medium text-[#174f84] hover:bg-[#e8edf3]"
+              className="inline-flex items-center gap-1 border border-border bg-card px-2 py-1 text-left text-xs font-medium text-muted-foreground hover:bg-card"
               title={`Открыть карточку: ${component.displayName}`}
             >
               <BookOpen className="h-3 w-3 shrink-0" />
@@ -1006,15 +1006,15 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
   };
 
   return (
-    <div className="w-full space-y-3 text-[#111827]">
-      <Card className="w-full rounded-none border-[#9aa8ba] bg-white !text-[#111827] shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
-        <CardHeader className="gap-3 border-b border-[#9aa8ba] bg-[#d7dde6]">
+    <div className="w-full space-y-3 text-foreground">
+      <Card className="w-full rounded-none border-border bg-white !text-foreground shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+        <CardHeader className="gap-3 border-b border-border bg-muted">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <CardTitle className="font-mono text-[15px] uppercase tracking-[0.12em] text-[#16324f]">{config.title}</CardTitle>
-              <CardDescription className="text-[12px] text-[#536276]">{config.description}</CardDescription>
+              <CardTitle className="font-mono text-[15px] uppercase tracking-[0.12em] text-foreground">{config.title}</CardTitle>
+              <CardDescription className="text-[12px] text-muted-foreground">{config.description}</CardDescription>
             </div>
-            <Button onClick={openCreate} className="h-8 rounded-none bg-[#15395f] px-3 text-[12px] text-white hover:bg-[#0f2946]">
+            <Button onClick={openCreate} className="h-8 rounded-none bg-primary px-3 text-[12px] text-primary-foreground hover:bg-muted">
               <Plus className="mr-2 h-4 w-4" />
               {config.createLabel}
             </Button>
@@ -1022,9 +1022,9 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
 
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
             <div className="space-y-2 md:col-span-2 xl:col-span-2">
-              <Label className="font-mono text-[11px] uppercase tracking-[0.12em] text-[#42566f]">Поиск</Label>
+              <Label className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Поиск</Label>
               <div className="relative">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#69788d]" />
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
@@ -1032,7 +1032,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                   placeholder={config.searchPlaceholder}
                 />
                 {loading && rows.length ? (
-                  <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-[#536276]" aria-label="Обновление результатов" />
+                  <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-muted-foreground" aria-label="Обновление результатов" />
                 ) : null}
               </div>
             </div>
@@ -1049,15 +1049,15 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
 
       <div className={isCanonicalPesticideList ? "grid min-w-0 gap-3 lg:grid-cols-[220px_minmax(0,1fr)]" : "block"}>
         {isCanonicalPesticideList ? (
-          <aside className="h-fit border border-[#9aa8ba] bg-white" aria-label="Категории пестицидов">
-            <div className="border-b border-[#9aa8ba] bg-[#d7dde6] px-3 py-2 font-mono text-[11px] uppercase tracking-[0.12em] text-[#42566f]">
+          <aside className="h-fit border border-border bg-white" aria-label="Категории пестицидов">
+            <div className="border-b border-border bg-muted px-3 py-2 font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
               Категории
             </div>
             <div className="p-1.5">
               <button
                 type="button"
                 onClick={() => selectCategory("all")}
-                className={`flex w-full items-center justify-between gap-3 px-2 py-1.5 text-left text-sm ${selectedCategory === "all" ? "bg-[#15395f] text-white" : "text-[#1f2937] hover:bg-[#eef1f5]"}`}
+                className={`flex w-full items-center justify-between gap-3 px-2 py-1.5 text-left text-sm ${selectedCategory === "all" ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-card"}`}
               >
                 <span>Все</span>
                 <span className="tabular-nums">{allCategoryCount}</span>
@@ -1067,7 +1067,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                   type="button"
                   key={category.key}
                   onClick={() => selectCategory(category.key)}
-                  className={`flex w-full items-center justify-between gap-3 px-2 py-1.5 text-left text-sm ${selectedCategory === category.key ? "bg-[#15395f] text-white" : "text-[#1f2937] hover:bg-[#eef1f5]"}`}
+                  className={`flex w-full items-center justify-between gap-3 px-2 py-1.5 text-left text-sm ${selectedCategory === category.key ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-card"}`}
                 >
                   <span className="min-w-0 truncate" title={category.label}>{category.label}</span>
                   <span className="shrink-0 tabular-nums">{category.count}</span>
@@ -1077,35 +1077,35 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
           </aside>
         ) : null}
 
-      <Card className="min-w-0 w-full rounded-none border-[#9aa8ba] bg-white !text-[#111827] shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+      <Card className="min-w-0 w-full rounded-none border-border bg-white !text-foreground shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
         <CardContent className="p-0">
           {isCanonicalPesticideList ? (
-            <div className="flex min-h-10 items-center justify-between border-b border-[#c3ccd8] bg-[#f6f8fb] px-3 py-2 text-sm text-[#42566f]">
-              <span>Найдено: <strong className="text-[#111827]">{totalRows}</strong></span>
+            <div className="flex min-h-10 items-center justify-between border-b border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+              <span>Найдено: <strong className="text-foreground">{totalRows}</strong></span>
               <span className="tabular-nums">Страница {currentPage}</span>
             </div>
           ) : null}
           <div ref={listScrollRef} className="max-h-[calc(100vh-330px)] min-h-[320px] w-full overflow-auto">
-            <Table className="min-w-[1200px] !text-[#111827]">
-              <TableHeader className="sticky top-0 z-20 bg-[#eef1f5] shadow-[0_1px_0_#9aa8ba]">
-                <TableRow className="border-[#9aa8ba] hover:bg-[#eef1f5]">
+            <Table className="min-w-[1200px] !text-foreground">
+              <TableHeader className="sticky top-0 z-20 bg-card shadow-[0_1px_0_#9aa8ba]">
+                <TableRow className="border-border hover:bg-card">
                   {config.columns.map((column) => (
-                    <TableHead key={column.key} className="border-[#c3ccd8] bg-[#eef1f5] px-4 py-2 font-semibold !text-[#536276]">
+                    <TableHead key={column.key} className="border-border bg-card px-4 py-2 font-semibold !text-muted-foreground">
                       {column.label}
                     </TableHead>
                   ))}
-                  <TableHead className="w-[150px] border-[#c3ccd8] px-4 py-2 text-right font-semibold !text-[#536276]">Действия</TableHead>
+                  <TableHead className="w-[150px] border-border px-4 py-2 text-right font-semibold !text-muted-foreground">Действия</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading && rows.length === 0 ? (
-                  <TableRow className="border-[#c3ccd8] hover:bg-[#f6f8fb]">
-                    <TableCell colSpan={config.columns.length + 1} className="px-4 py-6 text-center !text-[#536276]">Загрузка...</TableCell>
+                  <TableRow className="border-border hover:bg-card">
+                    <TableCell colSpan={config.columns.length + 1} className="px-4 py-6 text-center !text-muted-foreground">Загрузка...</TableCell>
                   </TableRow>
                 ) : null}
                 {!loading && rows.length === 0 ? (
-                  <TableRow className="border-[#c3ccd8] hover:bg-[#f6f8fb]">
-                    <TableCell colSpan={config.columns.length + 1} className="px-4 py-6 text-center !text-[#536276]">Записей нет.</TableCell>
+                  <TableRow className="border-border hover:bg-card">
+                    <TableCell colSpan={config.columns.length + 1} className="px-4 py-6 text-center !text-muted-foreground">Записей нет.</TableCell>
                   </TableRow>
                 ) : null}
                 {rows.map((row) => (
@@ -1121,7 +1121,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                         openPesticideCard(row.id);
                       }
                     } : undefined}
-                    className={`border-[#c3ccd8] bg-white hover:bg-[#f6f8fb] ${isCanonicalPesticideList ? "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#163d68]" : ""}`}
+                    className={`border-border bg-white hover:bg-card ${isCanonicalPesticideList ? "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" : ""}`}
                   >
                     {config.columns.map((column) => (
                       <TableCell key={`${row.id}-${column.key}`} className={CONSOLE_TABLE_CELL_CLASS}>
@@ -1130,10 +1130,10 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                     ))}
                     <TableCell className={CONSOLE_TABLE_CELL_CLASS}>
                       <div className="flex items-center justify-end gap-2">
-                        <Button variant="outline" size="icon" onKeyDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void openEdit(row); }} className="rounded-none border-[#9aa8ba] bg-white !text-[#16324f] hover:bg-[#eef1f5]">
+                        <Button variant="outline" size="icon" onKeyDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void openEdit(row); }} className="rounded-none border-border bg-white !text-foreground hover:bg-card">
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button variant="outline" size="icon" onKeyDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void archiveRow(row.id); }} disabled={saving} className="rounded-none border-[#9aa8ba] bg-white !text-[#9f1239] hover:bg-[#fff1f2]">
+                        <Button variant="outline" size="icon" onKeyDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void archiveRow(row.id); }} disabled={saving} className="rounded-none border-border bg-white !text-[#9f1239] hover:bg-[#fff1f2]">
                           <Trash2 className="h-4 w-4 text-rose-600" />
                         </Button>
                       </div>
@@ -1144,14 +1144,14 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
             </Table>
           </div>
           {isCanonicalPesticideList ? (
-            <div className="flex items-center justify-end gap-2 border-t border-[#c3ccd8] bg-[#f6f8fb] px-3 py-2">
+            <div className="flex items-center justify-end gap-2 border-t border-border bg-card px-3 py-2">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={goToPreviousPage}
                 disabled={!cursorHistory.length || loading}
-                className="rounded-none border-[#9aa8ba] bg-white text-[#16324f]"
+                className="rounded-none border-border bg-white text-foreground"
               >
                 <ChevronLeft className="mr-1 h-4 w-4" />
                 Назад
@@ -1162,7 +1162,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                 size="sm"
                 onClick={goToNextPage}
                 disabled={!nextCursor || loading}
-                className="rounded-none border-[#9aa8ba] bg-white text-[#16324f]"
+                className="rounded-none border-border bg-white text-foreground"
               >
                 Далее
                 <ChevronRight className="ml-1 h-4 w-4" />

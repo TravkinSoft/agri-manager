@@ -74,9 +74,9 @@ export default function LedgerPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="text-sm text-slate-500">Загрузка...</div>
+            <div className="text-sm text-muted-foreground">Загрузка...</div>
           ) : filtered.length === 0 ? (
-            <div className="text-sm text-slate-500">Проводок не найдено.</div>
+            <div className="text-sm text-muted-foreground">Проводок не найдено.</div>
           ) : (
             <div className="space-y-2">
               {filtered.map((row) => (
@@ -85,12 +85,12 @@ export default function LedgerPage() {
                     <div className="font-medium">
                       {row.direction === "in" ? "+" : "-"}{Number(row.quantity || 0).toFixed(3)} кг · {row.product_name}
                     </div>
-                    <div className="text-xs rounded-full px-2 py-1 bg-slate-100">{row.direction}</div>
+                    <div className="text-xs rounded-full px-2 py-1 bg-muted">{row.direction}</div>
                   </div>
-                  <div className="text-sm text-slate-600">
+                  <div className="text-sm text-muted-foreground">
                     Склад: {row.warehouse_name} · Причина: {row.reason_type}
                   </div>
-                  <div className="text-xs text-slate-500">
+                  <div className="text-xs text-muted-foreground">
                     {new Date(row.occurred_at).toLocaleString()} · ticket: {row.ticket_id || "-"} · processing: {row.processing_id || "-"}
                   </div>
                   {row.is_storno && (

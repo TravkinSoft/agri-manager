@@ -114,19 +114,19 @@ export function PushNotificationsToggle({ companyId, role }: PushNotificationsTo
   const denied = state === "denied";
   const enabled = state === "on";
   return (
-    <div className="border-t border-[#2C3446] px-3 py-2">
+    <div className="border-t border-border px-3 py-2">
       <button
         type="button"
         onClick={() => void toggle()}
         disabled={denied || state === "working"}
-        className="flex min-h-10 w-full items-center gap-2 rounded-md px-2 text-left text-xs text-[#CBD5E1] hover:bg-[#1A2230] disabled:cursor-default disabled:opacity-70"
+        className="flex min-h-10 w-full items-center gap-2 rounded-md px-2 text-left text-xs text-foreground hover:bg-card disabled:cursor-default disabled:opacity-70"
       >
         {state === "working" ? (
-          <Loader2 className="h-4 w-4 animate-spin text-[#FACC15]" />
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
         ) : enabled ? (
-          <BellRing className="h-4 w-4 text-emerald-400" />
+          <BellRing className="h-4 w-4 text-emerald-800" />
         ) : (
-          <BellOff className="h-4 w-4 text-[#FACC15]" />
+          <BellOff className="h-4 w-4 text-primary" />
         )}
         <span>
           {denied
@@ -136,7 +136,7 @@ export function PushNotificationsToggle({ companyId, role }: PushNotificationsTo
               : "Включить уведомления на телефоне"}
         </span>
       </button>
-      {message ? <div className="px-2 pb-1 text-[11px] text-rose-300">{message}</div> : null}
+      {message ? <div className="px-2 pb-1 text-[11px] text-rose-800">{message}</div> : null}
     </div>
   );
 }

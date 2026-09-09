@@ -74,7 +74,7 @@ export function ChatSidebar({
   };
 
   return (
-    <div className="flex flex-col h-full border-r bg-slate-50">
+    <div className="flex flex-col h-full border-r bg-muted">
       <div className="p-3 border-b bg-white space-y-2">
         <Button onClick={onCreateProject} className="w-full" variant="outline" disabled={loading}>
           <Folder className="h-4 w-4 mr-2" />
@@ -93,17 +93,17 @@ export function ChatSidebar({
       <ScrollArea className="flex-1">
         {loading ? (
           <div className="flex items-center justify-center p-8">
-            <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
           <div className="p-2 space-y-2">
             <div className="px-2 pb-1 flex items-center justify-between">
-              <div className="text-xs font-semibold text-slate-500">Проекты</div>
-              <div className="text-[11px] text-slate-400">{totalChatsCount} чатов</div>
+              <div className="text-xs font-semibold text-muted-foreground">Проекты</div>
+              <div className="text-[11px] text-muted-foreground">{totalChatsCount} чатов</div>
             </div>
 
             {projects.length === 0 ? (
-              <div className="px-2 py-2 text-xs text-slate-500">Нет проектов</div>
+              <div className="px-2 py-2 text-xs text-muted-foreground">Нет проектов</div>
             ) : (
               projects.map((project) => {
                 const isActiveProject = selectedProjectId === project.id;
@@ -123,7 +123,7 @@ export function ChatSidebar({
                       <div className="flex items-start gap-1">
                         <button
                           type="button"
-                          className="mt-0.5 text-slate-500 hover:text-slate-700 p-0.5"
+                          className="mt-0.5 text-muted-foreground hover:text-muted-foreground p-0.5"
                           onClick={() => toggleProject(project.id)}
                           title={isExpanded ? 'Свернуть проект' : 'Развернуть проект'}
                         >
@@ -146,11 +146,11 @@ export function ChatSidebar({
                           {isExpanded || isActiveProject ? (
                             <FolderOpen className="h-4 w-4 mt-0.5 text-green-600 flex-shrink-0" />
                           ) : (
-                            <Folder className="h-4 w-4 mt-0.5 text-slate-500 flex-shrink-0" />
+                            <Folder className="h-4 w-4 mt-0.5 text-muted-foreground flex-shrink-0" />
                           )}
                           <div className="min-w-0 flex-1">
-                            <div className="text-sm font-medium truncate text-slate-900">{project.name}</div>
-                            <div className="text-[11px] text-slate-500">
+                            <div className="text-sm font-medium truncate text-muted-foreground">{project.name}</div>
+                            <div className="text-[11px] text-muted-foreground">
                               {projectChats.length} чатов · {format(new Date(project.updated_at), 'dd.MM.yyyy HH:mm')}
                             </div>
                           </div>
@@ -159,7 +159,7 @@ export function ChatSidebar({
                         <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
                             type="button"
-                            className="text-slate-400 hover:text-slate-700 p-1"
+                            className="text-muted-foreground hover:text-muted-foreground p-1"
                             onClick={() => onRenameProject(project.id)}
                             title="Переименовать"
                           >
@@ -167,7 +167,7 @@ export function ChatSidebar({
                           </button>
                           <button
                             type="button"
-                            className="text-slate-400 hover:text-red-600 p-1"
+                            className="text-muted-foreground hover:text-red-600 p-1"
                             onClick={() => onDeleteProject(project.id)}
                             title="Удалить проект"
                           >
@@ -178,9 +178,9 @@ export function ChatSidebar({
                     </div>
 
                     {isExpanded && (
-                      <div className="mt-1 ml-6 pl-2 border-l border-slate-200 space-y-1">
+                      <div className="mt-1 ml-6 pl-2 border-l border-border space-y-1">
                         {projectChats.length === 0 ? (
-                          <div className="px-2 py-1.5 text-xs text-slate-500">
+                          <div className="px-2 py-1.5 text-xs text-muted-foreground">
                             Нет чатов в проекте
                           </div>
                         ) : (
@@ -199,16 +199,16 @@ export function ChatSidebar({
                               )}
                             >
                               <div className="flex items-start gap-2">
-                                <MessageSquare className="h-4 w-4 mt-0.5 flex-shrink-0 text-slate-400" />
+                                <MessageSquare className="h-4 w-4 mt-0.5 flex-shrink-0 text-muted-foreground" />
                                 <div className="flex-1 min-w-0">
-                                  <div className="font-medium text-sm text-slate-900 truncate">{chat.title}</div>
-                                  <div className="text-[11px] text-slate-500 mt-0.5">
+                                  <div className="font-medium text-sm text-muted-foreground truncate">{chat.title}</div>
+                                  <div className="text-[11px] text-muted-foreground mt-0.5">
                                     {format(new Date(chat.updated_at), 'dd.MM.yyyy HH:mm')}
                                   </div>
                                 </div>
                                 <button
                                   type="button"
-                                  className="text-slate-400 hover:text-red-600 p-1"
+                                  className="text-muted-foreground hover:text-red-600 p-1"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     onDeleteChat(chat.id);

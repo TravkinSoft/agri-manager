@@ -11,13 +11,13 @@ export function MetricCard({ title, value, icon: Icon }: MetricCardProps) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-slate-600">
+        <CardTitle className="text-sm font-medium text-muted-foreground">
           {title}
         </CardTitle>
         <Icon className="h-5 w-5 text-green-600" />
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold text-slate-900">{value}</div>
+        <div className="text-2xl font-bold text-muted-foreground">{value}</div>
       </CardContent>
     </Card>
   );

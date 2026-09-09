@@ -587,7 +587,7 @@ export default function LandLegalPage() {
       <div className="space-y-4">
         <PageHeader title="Кадастр и право" description="Недостаточно прав для просмотра этого раздела." />
         <Card>
-          <CardContent className="pt-6 text-sm text-slate-700">
+          <CardContent className="pt-6 text-sm text-muted-foreground">
             Доступ разрешён ролям: <b>global_admin</b>, <b>company_admin</b>, <b>director</b>.
           </CardContent>
         </Card>
@@ -600,16 +600,16 @@ export default function LandLegalPage() {
       <PageHeader title="Кадастр и право" description={`Юридическая разбивка по полям. Компания: ${companyName}`} />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <Card><CardContent className="pt-4"><div className="text-xs text-slate-500">Кадастров</div><div className="text-xl font-semibold">{summary?.cadastral_count || 0}</div></CardContent></Card>
-        <Card><CardContent className="pt-4"><div className="text-xs text-slate-500">Юридическое покрытие</div><div className="text-xl font-semibold">{fmtHa((summary?.legal_coverage_area_ha ?? summary?.legal_total_area_ha) || 0)}</div></CardContent></Card>
-        <Card><CardContent className="pt-4"><div className="text-xs text-slate-500">Агро-площадь</div><div className="text-xl font-semibold">{fmtHa(summary?.agro_total_area_ha || 0)}</div></CardContent></Card>
-        <Card><CardContent className="pt-4"><div className="text-xs text-slate-500">Без юр покрытия</div><div className="text-xl font-semibold">{fmtHa(summary?.gap_total_area_ha || 0)}</div></CardContent></Card>
-        <Card><CardContent className="pt-4"><div className="text-xs text-slate-500">Уникальная площадь кадастров</div><div className="text-xl font-semibold">{fmtHa(summary?.unique_cadastral_area_ha || 0)}</div></CardContent></Card>
-        <Card><CardContent className="pt-4"><div className="text-xs text-slate-500">Активные документы</div><div className="text-xl font-semibold">{summary?.active_documents || 0}</div></CardContent></Card>
+        <Card><CardContent className="pt-4"><div className="text-xs text-muted-foreground">Кадастров</div><div className="text-xl font-semibold">{summary?.cadastral_count || 0}</div></CardContent></Card>
+        <Card><CardContent className="pt-4"><div className="text-xs text-muted-foreground">Юридическое покрытие</div><div className="text-xl font-semibold">{fmtHa((summary?.legal_coverage_area_ha ?? summary?.legal_total_area_ha) || 0)}</div></CardContent></Card>
+        <Card><CardContent className="pt-4"><div className="text-xs text-muted-foreground">Агро-площадь</div><div className="text-xl font-semibold">{fmtHa(summary?.agro_total_area_ha || 0)}</div></CardContent></Card>
+        <Card><CardContent className="pt-4"><div className="text-xs text-muted-foreground">Без юр покрытия</div><div className="text-xl font-semibold">{fmtHa(summary?.gap_total_area_ha || 0)}</div></CardContent></Card>
+        <Card><CardContent className="pt-4"><div className="text-xs text-muted-foreground">Уникальная площадь кадастров</div><div className="text-xl font-semibold">{fmtHa(summary?.unique_cadastral_area_ha || 0)}</div></CardContent></Card>
+        <Card><CardContent className="pt-4"><div className="text-xs text-muted-foreground">Активные документы</div><div className="text-xl font-semibold">{summary?.active_documents || 0}</div></CardContent></Card>
       </div>
 
       <Card>
-        <CardContent className="pt-4 text-xs text-slate-600">
+        <CardContent className="pt-4 text-xs text-muted-foreground">
           <div className="flex flex-wrap gap-4">
             <span>rows: <b>{diagnostics.legal_breakdown_rows_total}</b></span>
             <span>canonical: <b>{diagnostics.legal_breakdown_rows_canonical ?? 0}</b></span>
@@ -629,7 +629,7 @@ export default function LandLegalPage() {
       <Card>
         <CardContent className="pt-4">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-sm text-slate-600">Сезон</span>
+            <span className="text-sm text-muted-foreground">Сезон</span>
             <Select value={currentSeasonId} onValueChange={setSeasonId}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Выберите сезон" />
@@ -640,7 +640,7 @@ export default function LandLegalPage() {
                 ))}
               </SelectContent>
             </Select>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin text-slate-500" /> : null}
+            {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
           </div>
         </CardContent>
       </Card>
@@ -785,7 +785,7 @@ export default function LandLegalPage() {
                         <TableCell>{fmtHa(row.areaHa)}</TableCell>
                         <TableCell>
                           {row.cropName ? (
-                            <Badge className="bg-slate-100 text-slate-800 hover:bg-slate-100">{row.cropName}</Badge>
+                            <Badge className="bg-muted text-muted-foreground hover:bg-muted">{row.cropName}</Badge>
                           ) : (
                             <Badge variant="outline">{CROP_NOT_SET_LABEL}</Badge>
                           )}
@@ -1141,7 +1141,7 @@ export default function LandLegalPage() {
             <CardHeader>
               <CardTitle className="text-base">Импорт</CardTitle>
             </CardHeader>
-            <CardContent className="text-sm text-slate-700">
+            <CardContent className="text-sm text-muted-foreground">
               Импорт юридических документов выполняется через pipeline preview → confirm с сохранением import batch и warnings.
             </CardContent>
           </Card>

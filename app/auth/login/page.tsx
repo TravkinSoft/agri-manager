@@ -102,7 +102,7 @@ export default function LoginPage() {
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Войти
             </Button>
-            <div className="text-center text-sm text-slate-600">
+            <div className="text-center text-sm text-muted-foreground">
               Нет аккаунта?{" "}
               <Link href="/auth/register" className="font-medium text-blue-600 hover:underline">
                 Зарегистрироваться

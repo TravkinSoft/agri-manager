@@ -142,7 +142,7 @@ export default function InventoryPage() {
 
       <div className="grid gap-3 sm:grid-cols-[1fr_240px]">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-500" />
+          <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
           <Input className="pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Найти материал" />
         </div>
         <Select value={category} onValueChange={setCategory}>
@@ -156,18 +156,18 @@ export default function InventoryPage() {
         </Select>
       </div>
 
-      <div className="overflow-x-auto border-y border-slate-800">
+      <div className="overflow-x-auto border-y border-border">
         <Table>
           <TableHeader><TableRow><TableHead>Материал</TableHead><TableHead>Категория</TableHead><TableHead>Единица</TableHead><TableHead className="text-right">Всего в компании</TableHead><TableHead className="text-right">Зарезервировано</TableHead><TableHead className="text-right">Доступно</TableHead><TableHead className="text-right">Складов</TableHead></TableRow></TableHeader>
           <TableBody>
-            {loading ? <TableRow><TableCell colSpan={7} className="py-10 text-center text-slate-500">Загрузка...</TableCell></TableRow> : filtered.length === 0 ? <TableRow><TableCell colSpan={7} className="py-10 text-center text-slate-500">Агрохимические остатки не найдены</TableCell></TableRow> : filtered.map((row) => (
-              <TableRow key={row.key} className="cursor-pointer hover:bg-slate-900/70" onClick={() => setSelectedKey(row.key)}>
+            {loading ? <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Загрузка...</TableCell></TableRow> : filtered.length === 0 ? <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Агрохимические остатки не найдены</TableCell></TableRow> : filtered.map((row) => (
+              <TableRow key={row.key} className="cursor-pointer hover:bg-background" onClick={() => setSelectedKey(row.key)}>
                 <TableCell className="font-medium">{row.product_name}</TableCell>
                 <TableCell><Badge variant="outline">{CATEGORY_LABELS[row.category] || "Другое"}</Badge></TableCell>
                 <TableCell>{localizeUnit(row.unit, language)}</TableCell>
                 <TableCell className="text-right">{row.total.toLocaleString("ru-RU")}</TableCell>
                 <TableCell className="text-right">{row.reserved.toLocaleString("ru-RU")}</TableCell>
-                <TableCell className="text-right font-semibold text-emerald-300">{row.available.toLocaleString("ru-RU")}</TableCell>
+                <TableCell className="text-right font-semibold text-emerald-800">{row.available.toLocaleString("ru-RU")}</TableCell>
                 <TableCell className="text-right">{row.warehouses.size}</TableCell>
               </TableRow>
             ))}
@@ -178,10 +178,10 @@ export default function InventoryPage() {
       <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelectedKey(null)}>
         <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl">
           {selected ? <>
-            <DialogHeader><DialogTitle className="flex items-center gap-2"><Package className="h-5 w-5 text-yellow-400" />{selected.product_name}</DialogTitle><DialogDescription>{CATEGORY_LABELS[selected.category] || "Агрохимия"} · доступно {selected.available.toLocaleString("ru-RU")} {localizeUnit(selected.unit, language)}</DialogDescription></DialogHeader>
-            <section className="space-y-2"><h3 className="font-semibold">Распределение по складам</h3>{selected.rows.map((row) => <div key={`${row.warehouse_id}-${row.batch_id || ""}`} className="flex items-center justify-between border-b border-slate-800 py-2 text-sm"><span>{row.warehouse_name}{row.batch_id ? ` · партия ${row.batch_id}` : ""}</span><span className="font-medium">{Number(row.quantity).toLocaleString("ru-RU")} {localizeUnit(row.unit, language)}</span></div>)}</section>
-            <section className="space-y-2"><h3 className="font-semibold">Партии и сроки годности</h3>{selectedLots.length ? selectedLots.map(({ receipt, line }) => <div key={line.id} className="grid gap-1 border-b border-slate-800 py-2 text-sm sm:grid-cols-[1fr_180px_180px]"><span>{line.lot_id || "Партия не указана"}</span><span>{String(line.quality_json?.expires_at || "Срок не указан")}</span><span className="text-slate-400">{receipt.ticket_no}</span></div>) : <div className="text-sm text-slate-500">Партии не указаны</div>}</section>
-            <section className="space-y-2"><h3 className="font-semibold">Последние движения</h3>{selectedMovements.length ? selectedMovements.map((row) => <div key={row.id} className="grid gap-1 border-b border-slate-800 py-2 text-sm sm:grid-cols-[170px_1fr_160px]"><span className="text-slate-400">{formatDate(row.operation_datetime || row.created_at)}</span><span>{row.warehouse_name}</span><span>{Number(row.quantity_delta || row.quantity).toLocaleString("ru-RU")} {localizeUnit(row.product_unit || selected.unit, language)}</span></div>) : <div className="text-sm text-slate-500">Движений нет</div>}</section>
+            <DialogHeader><DialogTitle className="flex items-center gap-2"><Package className="h-5 w-5 text-amber-800" />{selected.product_name}</DialogTitle><DialogDescription>{CATEGORY_LABELS[selected.category] || "Агрохимия"} · доступно {selected.available.toLocaleString("ru-RU")} {localizeUnit(selected.unit, language)}</DialogDescription></DialogHeader>
+            <section className="space-y-2"><h3 className="font-semibold">Распределение по складам</h3>{selected.rows.map((row) => <div key={`${row.warehouse_id}-${row.batch_id || ""}`} className="flex items-center justify-between border-b border-border py-2 text-sm"><span>{row.warehouse_name}{row.batch_id ? ` · партия ${row.batch_id}` : ""}</span><span className="font-medium">{Number(row.quantity).toLocaleString("ru-RU")} {localizeUnit(row.unit, language)}</span></div>)}</section>
+            <section className="space-y-2"><h3 className="font-semibold">Партии и сроки годности</h3>{selectedLots.length ? selectedLots.map(({ receipt, line }) => <div key={line.id} className="grid gap-1 border-b border-border py-2 text-sm sm:grid-cols-[1fr_180px_180px]"><span>{line.lot_id || "Партия не указана"}</span><span>{String(line.quality_json?.expires_at || "Срок не указан")}</span><span className="text-muted-foreground">{receipt.ticket_no}</span></div>) : <div className="text-sm text-muted-foreground">Партии не указаны</div>}</section>
+            <section className="space-y-2"><h3 className="font-semibold">Последние движения</h3>{selectedMovements.length ? selectedMovements.map((row) => <div key={row.id} className="grid gap-1 border-b border-border py-2 text-sm sm:grid-cols-[170px_1fr_160px]"><span className="text-muted-foreground">{formatDate(row.operation_datetime || row.created_at)}</span><span>{row.warehouse_name}</span><span>{Number(row.quantity_delta || row.quantity).toLocaleString("ru-RU")} {localizeUnit(row.product_unit || selected.unit, language)}</span></div>) : <div className="text-sm text-muted-foreground">Движений нет</div>}</section>
           </> : null}
         </DialogContent>
       </Dialog>

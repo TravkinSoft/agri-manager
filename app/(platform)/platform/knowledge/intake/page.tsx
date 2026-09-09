@@ -451,8 +451,8 @@ function resolutionWithOptions(
 
 function catalogChipClass(tone: "found" | "review" | "missing") {
   if (tone === "found") return "border-[#5e8d74] bg-[#edf8f1] text-[#064e3b]";
-  if (tone === "review") return "border-[#c4a445] bg-[#fff8d8] text-[#4f3d00]";
-  return "border-[#c3ccd8] bg-[#eef1f5] text-[#42566f]";
+  if (tone === "review") return "border-amber-300 bg-amber-50 text-amber-800";
+  return "border-border bg-card text-muted-foreground";
 }
 
 function targetTypeLabel(type: string) {
@@ -590,10 +590,10 @@ function CatalogLinkedDraftFields({
 
   return (
     <div className="mt-3 space-y-3">
-      <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Связанные справочники</div>
+      <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Связанные справочники</div>
 
       <div className="grid gap-3 lg:grid-cols-3">
-        <div className="rounded-none border border-[#c3ccd8] bg-[#f8fafc] p-3">
+        <div className="rounded-none border border-border bg-card p-3">
           <div className="mb-2 text-sm font-semibold">Действующие вещества</div>
           <div className="flex flex-wrap gap-2">
             {resolution.resolved.active_ingredients.map((item) => (
@@ -617,7 +617,7 @@ function CatalogLinkedDraftFields({
           </div>
         </div>
 
-        <div className="rounded-none border border-[#c3ccd8] bg-[#f8fafc] p-3">
+        <div className="rounded-none border border-border bg-card p-3">
           <div className="mb-2 text-sm font-semibold">Культуры</div>
           <div className="flex flex-wrap gap-2">
             {resolution.resolved.crops.map((item) => (
@@ -639,7 +639,7 @@ function CatalogLinkedDraftFields({
           </div>
         </div>
 
-        <div className="rounded-none border border-[#c3ccd8] bg-[#f8fafc] p-3">
+        <div className="rounded-none border border-border bg-card p-3">
           <div className="mb-2 text-sm font-semibold">Объекты применения</div>
           <div className="flex flex-wrap gap-2">
             {resolution.resolved.targets.map((item) => (
@@ -761,23 +761,23 @@ const CONFIDENCE_OPTIONS = [
 const consoleNotice = {
   error: "rounded-none border border-[#b95b5b] bg-[#fff1f1] px-3 py-2 text-sm font-medium text-[#7f1d1d]",
   success: "rounded-none border border-[#5e8d74] bg-[#edf8f1] px-3 py-2 text-sm font-medium text-[#064e3b]",
-  warning: "rounded-none border border-[#9f8f55] bg-[#fff8d8] px-3 py-2 text-xs leading-5 text-[#4f3d00]",
+  warning: "rounded-none border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800",
   danger: "rounded-none border border-[#b95b5b] bg-[#fff1f1] px-3 py-3 text-sm font-semibold text-[#7f1d1d]",
-  info: "rounded-none border border-[#7d96b3] bg-[#eef5ff] px-3 py-3 text-sm leading-6 text-[#10243d]",
-  infoSmall: "mt-3 rounded-none border border-[#9aa8ba] bg-[#f4f7fb] px-3 py-2 text-xs leading-5 text-[#243247]",
-  sourceCard: "rounded-none border border-[#c3ccd8] bg-[#f8fafc] px-3 py-3 text-[#111827]",
-  sourceSummary: "mt-2 rounded-none border border-[#d1d8e2] bg-[#eef1f5] px-3 py-2 text-xs leading-5 text-[#243247]",
-  draftPanel: "mt-4 rounded-none border border-[#9aa8ba] bg-[#f8fafc] p-4 text-[#111827]",
-  draftSubCard: "rounded-none border border-[#c3ccd8] bg-white px-3 py-2 text-[#111827]",
-  disabledAction: "mt-4 rounded-none border-[#9aa8ba] bg-[#eef1f5] text-[#42566f] opacity-100 disabled:opacity-100",
+  info: "rounded-none border border-border bg-card px-3 py-3 text-sm leading-6 text-foreground",
+  infoSmall: "mt-3 rounded-none border border-border bg-card px-3 py-2 text-xs leading-5 text-foreground",
+  sourceCard: "rounded-none border border-border bg-card px-3 py-3 text-foreground",
+  sourceSummary: "mt-2 rounded-none border border-border bg-card px-3 py-2 text-xs leading-5 text-foreground",
+  draftPanel: "mt-4 rounded-none border border-border bg-card p-4 text-foreground",
+  draftSubCard: "rounded-none border border-border bg-white px-3 py-2 text-foreground",
+  disabledAction: "mt-4 rounded-none border-border bg-card text-muted-foreground opacity-100 disabled:opacity-100",
 };
 
 const consoleReadableStat =
-  "rounded-none border border-[#c3ccd8] !bg-[#eef1f5] text-[#10243d] shadow-none [&_*]:!text-[#10243d]";
+  "rounded-none border border-border !bg-card text-foreground shadow-none [&_*]:!text-foreground";
 const consoleReadableCard =
-  "rounded-none border-[#9aa8ba] !bg-white text-[#111827] shadow-none [&_.text-slate-50]:!text-[#111827] [&_.text-slate-100]:!text-[#111827] [&_.text-slate-400]:!text-[#42566f]";
+  "rounded-none border-border !bg-white text-foreground shadow-none [&_.text-foreground]:!text-foreground [&_.text-foreground]:!text-foreground [&_.text-muted-foreground]:!text-muted-foreground";
 const consoleReadablePill =
-  "rounded-none border-[#9f8f55] !bg-[#fff8d8] !text-[#4f3d00]";
+  "rounded-none border-amber-300 !bg-amber-50 !text-amber-800";
 
 export default function KnowledgeIntakePage() {
   const { profile, loading: authLoading } = useAuth();
@@ -1083,8 +1083,8 @@ export default function KnowledgeIntakePage() {
 
   if (authLoading) {
     return (
-      <GlassPanel className="flex min-h-[420px] items-center justify-center bg-[#0F172A] text-slate-200">
-        <Loader2 className="mr-2 h-5 w-5 animate-spin text-[#E0B100]" />
+      <GlassPanel className="flex min-h-[420px] items-center justify-center bg-card text-foreground">
+        <Loader2 className="mr-2 h-5 w-5 animate-spin text-primary" />
         Загрузка доступа...
       </GlassPanel>
     );
@@ -1092,24 +1092,24 @@ export default function KnowledgeIntakePage() {
 
   if (profile?.role !== "global_admin") {
     return (
-      <GlassPanel className="bg-[#0F172A] p-6 text-slate-100">
+      <GlassPanel className="bg-card p-6 text-foreground">
         <StatusPill tone="danger">Доступ закрыт</StatusPill>
         <h1 className="mt-4 text-2xl font-semibold">Проверка препарата</h1>
-        <p className="mt-2 text-sm text-slate-300">Раздел доступен только global admin.</p>
+        <p className="mt-2 text-sm text-foreground">Раздел доступен только global admin.</p>
       </GlassPanel>
     );
   }
 
   return (
-    <div className="space-y-3 [&_input]:!rounded-none [&_input]:!border-[#9aa8ba] [&_input]:!bg-white [&_input]:!text-[#111827] [&_select]:!rounded-none [&_select]:!border-[#9aa8ba] [&_select]:!bg-white [&_select]:!text-[#111827] [&_textarea]:!rounded-none [&_textarea]:!border-[#9aa8ba] [&_textarea]:!bg-white [&_textarea]:!text-[#111827]">
-      <GlassToolbar className="rounded-none border-[#6e7f95] bg-[#0f2946] px-4 py-3 text-[#F8FAFC] shadow-[1px_1px_0_rgba(255,255,255,0.12)_inset]">
+    <div className="space-y-3 [&_input]:!rounded-none [&_input]:!border-border [&_input]:!bg-white [&_input]:!text-foreground [&_select]:!rounded-none [&_select]:!border-border [&_select]:!bg-white [&_select]:!text-foreground [&_textarea]:!rounded-none [&_textarea]:!border-border [&_textarea]:!bg-white [&_textarea]:!text-foreground">
+      <GlassToolbar className="rounded-none border-border bg-muted px-4 py-3 text-foreground shadow-[1px_1px_0_rgba(255,255,255,0.12)_inset]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="font-mono text-xl font-semibold uppercase tracking-[0.12em]">Knowledge Intake Console</h1>
               <StatusPill tone="accent" className="rounded-none">V0 — без записи в каталог</StatusPill>
             </div>
-            <p className="max-w-3xl text-[12px] leading-5 text-slate-300">
+            <p className="max-w-3xl text-[12px] leading-5 text-foreground">
               Введите название препарата, ссылку или будущий источник. Сейчас V0 проверяет только название и ищет
               совпадения в глобальном каталоге.
             </p>
@@ -1122,17 +1122,17 @@ export default function KnowledgeIntakePage() {
       </GlassToolbar>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.4fr)]">
-        <GlassPanel className="rounded-none border-[#9aa8ba] bg-white p-3 text-[#111827] shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+        <GlassPanel className="rounded-none border-border bg-white p-3 text-foreground shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
-              <Label htmlFor="intake-input-type" className="font-mono text-[11px] uppercase tracking-[0.12em] text-[#42566f]">
+              <Label htmlFor="intake-input-type" className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
                 Тип входа
               </Label>
               <select
                 id="intake-input-type"
                 value={inputType}
                 onChange={(event) => setInputType(event.target.value as IntakeInputType)}
-                className="h-10 w-full rounded-lg border border-white/10 bg-[#020617] px-3 text-sm text-slate-100 outline-none transition focus:border-[#E0B100]"
+                className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-primary"
               >
                 <option value="text">Название</option>
                 <option value="url">Ссылка</option>
@@ -1140,7 +1140,7 @@ export default function KnowledgeIntakePage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="knowledge-intake-input" className="font-mono text-[11px] uppercase tracking-[0.12em] text-[#42566f]">
+              <Label htmlFor="knowledge-intake-input" className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
                 Название или источник
               </Label>
               <Input
@@ -1149,12 +1149,12 @@ export default function KnowledgeIntakePage() {
                 value={inputValue}
                 onChange={(event) => setInputValue(event.target.value)}
                 placeholder="Например: Селест Топ, Phomazin, Curamin Foliar, TechnoFit pH"
-                className="border-white/10 bg-[#020617] text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#E0B100]"
+                className="border-border bg-card text-foreground placeholder:text-muted-foreground focus-visible:ring-ring"
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="knowledge-intake-manufacturer" className="font-mono text-[11px] uppercase tracking-[0.12em] text-[#42566f]">
+              <Label htmlFor="knowledge-intake-manufacturer" className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
                 Производитель, если известен
               </Label>
               <Input
@@ -1162,7 +1162,7 @@ export default function KnowledgeIntakePage() {
                 value={manufacturer}
                 onChange={(event) => setManufacturer(event.target.value)}
                 placeholder="Например: Syngenta, SG, SwissGrow"
-                className="border-white/10 bg-[#020617] text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#E0B100]"
+                className="border-border bg-card text-foreground placeholder:text-muted-foreground focus-visible:ring-ring"
               />
             </div>
 
@@ -1176,14 +1176,14 @@ export default function KnowledgeIntakePage() {
               type="submit"
               data-testid="knowledge-intake-submit"
               disabled={!canSubmit}
-              className="h-8 w-full gap-2 rounded-none bg-[#15395f] text-[12px] text-white hover:bg-[#0f2946]"
+              className="h-8 w-full gap-2 rounded-none bg-primary text-[12px] text-primary-foreground hover:bg-muted"
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
               Проверить препарат
             </Button>
           </form>
 
-          <div className="mt-4 border border-[#9f8f55] bg-[#fff8d8] p-3 text-[12px] text-[#4f3d00]">
+          <div className="mt-4 border border-amber-300 bg-amber-50 p-3 text-[12px] text-amber-800">
             <div className="flex items-center gap-2 font-semibold">
               <AlertTriangle className="h-4 w-4" />
               Safety Notice
@@ -1195,12 +1195,12 @@ export default function KnowledgeIntakePage() {
           </div>
         </GlassPanel>
 
-        <GlassPanel className="rounded-none border-[#9aa8ba] bg-white p-3 text-[#111827] shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+        <GlassPanel className="rounded-none border-border bg-white p-3 text-foreground shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
           {!result ? (
             <EmptyState className="flex min-h-[360px] flex-col items-center justify-center text-center">
-              <Sparkles className="mb-3 h-8 w-8 text-[#E0B100]" />
-              <div className="text-base font-semibold text-[#111827]">Готов к проверке</div>
-              <p className="mt-2 max-w-lg text-sm leading-6 text-slate-400">
+              <Sparkles className="mb-3 h-8 w-8 text-primary" />
+              <div className="text-base font-semibold text-foreground">Готов к проверке</div>
+              <p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">
                 Введите препарат слева. V0 сверит название с глобальным каталогом и покажет безопасную рекомендацию.
               </p>
             </EmptyState>
@@ -1208,7 +1208,7 @@ export default function KnowledgeIntakePage() {
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Карточка проверки</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Карточка проверки</div>
                   <h2 className="mt-1 text-xl font-semibold">Проверка препарата</h2>
                 </div>
                 <StatusPill
@@ -1221,8 +1221,8 @@ export default function KnowledgeIntakePage() {
               </div>
 
               <div>
-                <div className="text-sm font-semibold text-[#111827]">Результат проверки</div>
-                <p className="mt-1 text-xs leading-5 text-slate-500">
+                <div className="text-sm font-semibold text-foreground">Результат проверки</div>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
                   Краткий итог intake run: статус, совпадения, источники и рекомендация.
                 </p>
               </div>
@@ -1247,12 +1247,12 @@ export default function KnowledgeIntakePage() {
               </div>
 
               {recommendationCopy ? (
-                <GlassCard className="rounded-none border-[#9f8f55] bg-[#fff8d8] p-4 text-[#4f3d00]">
+                <GlassCard className="rounded-none border-amber-300 bg-amber-50 p-4 text-amber-800">
                   <div className="flex gap-3">
-                    <CheckCircle2 className="mt-0.5 h-5 w-5 flex-none text-[#7a5c00]" />
+                    <CheckCircle2 className="mt-0.5 h-5 w-5 flex-none text-amber-800" />
                     <div>
-                      <div className="font-semibold text-[#4f3d00]">{recommendationCopy.label}</div>
-                      <p className="mt-1 text-sm leading-6 text-[#5c4a16]">{recommendationCopy.message}</p>
+                      <div className="font-semibold text-amber-800">{recommendationCopy.label}</div>
+                      <p className="mt-1 text-sm leading-6 text-amber-800">{recommendationCopy.message}</p>
                     </div>
                   </div>
                 </GlassCard>
@@ -1262,10 +1262,10 @@ export default function KnowledgeIntakePage() {
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <div className="flex items-center gap-2 text-lg font-semibold">
-                      <FileText className="h-5 w-5 text-[#E0B100]" />
+                      <FileText className="h-5 w-5 text-primary" />
                       Источники для анализа
                     </div>
-                    <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-400">
+                    <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
                       После проверки совпадений добавьте ссылку на препарат, PDF или ручной текст с этикетки. Сейчас источник только сохраняется
                       в Knowledge Engine и не меняет каталог.
                     </p>
@@ -1284,8 +1284,8 @@ export default function KnowledgeIntakePage() {
                         onClick={() => activateSourceMode(option.value)}
                         className={`border px-3 py-2 text-left transition ${
                           active
-                            ? "border-[#15395f] bg-[#eef5ff] text-[#10243d]"
-                            : "border-[#c3ccd8] bg-[#f8fafc] text-[#42566f] hover:bg-white"
+                            ? "border-border bg-card text-foreground"
+                            : "border-border bg-card text-muted-foreground hover:bg-white"
                         }`}
                       >
                         <div className="flex items-center gap-2 text-sm font-semibold">
@@ -1302,7 +1302,7 @@ export default function KnowledgeIntakePage() {
                   {isLinkSourceMode ? (
                     <div className="grid gap-3 lg:grid-cols-2">
                       <div className="space-y-2">
-                        <Label htmlFor="knowledge-source-url" className="text-slate-200">
+                        <Label htmlFor="knowledge-source-url" className="text-foreground">
                           URL источника
                         </Label>
                         <Input
@@ -1311,11 +1311,11 @@ export default function KnowledgeIntakePage() {
                           value={sourceUrl}
                           onChange={(event) => setSourceUrl(event.target.value)}
                           placeholder="https://..."
-                          className="border-white/10 bg-[#020617] text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#E0B100]"
+                          className="border-border bg-card text-foreground placeholder:text-muted-foreground focus-visible:ring-ring"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="knowledge-source-title" className="text-slate-200">
+                        <Label htmlFor="knowledge-source-title" className="text-foreground">
                           Название источника, необязательно
                         </Label>
                         <Input
@@ -1324,7 +1324,7 @@ export default function KnowledgeIntakePage() {
                           value={sourceTitle}
                           onChange={(event) => setSourceTitle(event.target.value)}
                           placeholder="Например: Tilt leaflet"
-                          className="border-white/10 bg-[#020617] text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#E0B100]"
+                          className="border-border bg-card text-foreground placeholder:text-muted-foreground focus-visible:ring-ring"
                         />
                       </div>
                     </div>
@@ -1333,7 +1333,7 @@ export default function KnowledgeIntakePage() {
                   {isDocumentSourceMode ? (
                     <div className="grid gap-3 lg:grid-cols-2">
                       <div className="space-y-2">
-                        <Label htmlFor="knowledge-source-file" className="text-slate-200">
+                        <Label htmlFor="knowledge-source-file" className="text-foreground">
                           Документ
                         </Label>
                         <Input
@@ -1342,14 +1342,14 @@ export default function KnowledgeIntakePage() {
                           type="file"
                           accept=".pdf,.txt,application/pdf,text/plain"
                           onChange={(event) => setDocumentFile(event.target.files?.[0] || null)}
-                          className="border-white/10 bg-[#020617] text-slate-100 file:mr-3 file:border-0 file:bg-[#E0B100] file:px-3 file:py-1.5 file:text-slate-950 focus-visible:ring-[#E0B100]"
+                          className="border-border bg-card text-foreground file:mr-3 file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-foreground focus-visible:ring-ring"
                         />
-                        <div className="text-xs leading-5 text-slate-500">
+                        <div className="text-xs leading-5 text-muted-foreground">
                           V0 поддерживает PDF/TXT до 10 MB. DOCX и OCR будут отдельным этапом.
                         </div>
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="knowledge-document-title" className="text-slate-200">
+                        <Label htmlFor="knowledge-document-title" className="text-foreground">
                           Название источника, необязательно
                         </Label>
                         <Input
@@ -1357,7 +1357,7 @@ export default function KnowledgeIntakePage() {
                           value={documentTitle}
                           onChange={(event) => setDocumentTitle(event.target.value)}
                           placeholder={documentFile?.name || "Например: Tilt PDF"}
-                          className="border-white/10 bg-[#020617] text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#E0B100]"
+                          className="border-border bg-card text-foreground placeholder:text-muted-foreground focus-visible:ring-ring"
                         />
                       </div>
                     </div>
@@ -1395,7 +1395,7 @@ export default function KnowledgeIntakePage() {
                         type="submit"
                         data-testid="knowledge-source-submit"
                         disabled={!canSubmitSource}
-                        className="gap-2 bg-[#E0B100] text-slate-950 hover:bg-[#F2C300]"
+                        className="gap-2 bg-primary text-primary-foreground hover:bg-primary"
                       >
                         {sourceSubmitting ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -1429,11 +1429,11 @@ export default function KnowledgeIntakePage() {
                                 {formatSourceConfidence(source.source_confidence)}
                               </StatusPill>
                             </div>
-                            <div className="mt-2 truncate text-sm font-semibold text-[#111827]">
+                            <div className="mt-2 truncate text-sm font-semibold text-foreground">
                               {source.source_title || source.source_url || "Ручной источник"}
                             </div>
                             {source.source_url ? (
-                              <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-slate-400">
+                              <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
                                 <Link2 className="h-3.5 w-3.5 flex-none" />
                                 <span className="truncate">{source.source_url}</span>
                               </div>
@@ -1457,7 +1457,7 @@ export default function KnowledgeIntakePage() {
                             ) : null}
                           </div>
                           <div className="flex flex-col items-start gap-2 lg:items-end">
-                            <div className="text-xs text-slate-500">{formatDateTime(source.created_at)}</div>
+                            <div className="text-xs text-muted-foreground">{formatDateTime(source.created_at)}</div>
                             {isUrlSource(source) ? (
                               <Button
                                 type="button"
@@ -1465,7 +1465,7 @@ export default function KnowledgeIntakePage() {
                                 size="sm"
                                 disabled={fetchingSourceId !== null}
                                 onClick={() => handleFetchSourceText(source)}
-                                className="gap-2 rounded-none border-[#9aa8ba] bg-[#eef1f5] text-[#10243d] hover:bg-white disabled:opacity-70"
+                                className="gap-2 rounded-none border-border bg-card text-foreground hover:bg-white disabled:opacity-70"
                               >
                                 {fetchingSourceId === source.id ? (
                                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -1500,7 +1500,7 @@ export default function KnowledgeIntakePage() {
                       data-testid="knowledge-extract-submit"
                       disabled={!canExtract}
                       onClick={handleExtractSubmit}
-                      className="w-fit gap-2 rounded-none bg-[#15395f] text-white hover:bg-[#0f2946] disabled:bg-[#d7dde6] disabled:text-[#42566f] disabled:opacity-100"
+                      className="w-fit gap-2 rounded-none bg-primary text-primary-foreground hover:bg-muted disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
                     >
                       {extracting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                       Извлечь данные
@@ -1536,10 +1536,10 @@ export default function KnowledgeIntakePage() {
                     <div className={consoleNotice.draftPanel} data-testid="knowledge-extraction-draft">
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div>
-                          <div className="text-base font-semibold text-[#111827]">
+                          <div className="text-base font-semibold text-foreground">
                             {editableDraft.editable_card_title || "Черновик карточки препарата"}
                           </div>
-                          <p className="mt-1 text-xs text-slate-400">
+                          <p className="mt-1 text-xs text-muted-foreground">
                             Паспортные поля сохранены как draft suggestions. Описание и правила сейчас редактируются только в этой карточке.
                           </p>
                         </div>
@@ -1563,7 +1563,7 @@ export default function KnowledgeIntakePage() {
 
                       <div className="mt-4 space-y-4">
                         <div className={consoleNotice.draftSubCard}>
-                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Паспортные поля</div>
+                          <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Паспортные поля</div>
                           <div className="mt-3 grid gap-3 md:grid-cols-2">
                             <div className="space-y-1.5">
                               <Label htmlFor="draft-trade-name">Название</Label>
@@ -1742,7 +1742,7 @@ export default function KnowledgeIntakePage() {
                         </div>
 
                         <div className={consoleNotice.draftSubCard}>
-                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Описание препарата</div>
+                          <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Описание препарата</div>
                           <Textarea
                             value={editableDraft.human_description || ""}
                             onChange={(event) => patchEditableDraft({ human_description: event.target.value || null })}
@@ -1752,20 +1752,20 @@ export default function KnowledgeIntakePage() {
                         </div>
 
                         <div className={consoleNotice.draftSubCard}>
-                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Основные правила применения</div>
+                          <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Основные правила применения</div>
                           <Textarea
                             value={listToText(editableDraft.application_rules)}
                             onChange={(event) => patchEditableDraft({ application_rules: textToList(event.target.value) })}
                             placeholder="Одно правило на строку"
                             className="mt-3 min-h-[120px]"
                           />
-                          <div className="mt-2 text-xs leading-5 text-slate-500">
+                          <div className="mt-2 text-xs leading-5 text-muted-foreground">
                             Это не официальная инструкция и не рекомендация TravkinFlow. Проверяйте по подтверждённому источнику.
                           </div>
                         </div>
 
                         <div className={consoleNotice.draftSubCard}>
-                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Что нужно проверить</div>
+                          <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Что нужно проверить</div>
                           <div className="mt-3 grid gap-3 md:grid-cols-2">
                             <div className="space-y-1.5">
                               <Label htmlFor="draft-admin-warnings">Предупреждения</Label>
@@ -1789,27 +1789,27 @@ export default function KnowledgeIntakePage() {
                             </div>
                           </div>
                           {editableDraft.notes.length ? (
-                            <div className="mt-3 text-sm leading-6 text-[#111827]">
+                            <div className="mt-3 text-sm leading-6 text-foreground">
                               <span className="font-semibold">Заметки extraction:</span> {formatDraftList(editableDraft.notes)}
                             </div>
                           ) : null}
                         </div>
 
                         <div className={consoleNotice.draftSubCard}>
-                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Источники</div>
+                          <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Источники</div>
                           <div className="mt-3 space-y-2">
                             {sources.length ? (
                               sources.map((source) => (
-                                <div key={`draft-source-${source.id}`} className="border border-[#d1d8e2] bg-[#f4f7fb] px-3 py-2 text-sm">
+                                <div key={`draft-source-${source.id}`} className="border border-border bg-card px-3 py-2 text-sm">
                                   <div className="font-semibold">{source.source_title || source.source_url || "Ручной источник"}</div>
-                                  <div className="mt-1 text-xs text-slate-500">
+                                  <div className="mt-1 text-xs text-muted-foreground">
                                     {formatSourceType(source.source_type)} · {formatSourceConfidence(source.source_confidence)}
                                   </div>
-                                  {source.source_url ? <div className="mt-1 truncate text-xs text-slate-500">{source.source_url}</div> : null}
+                                  {source.source_url ? <div className="mt-1 truncate text-xs text-muted-foreground">{source.source_url}</div> : null}
                                 </div>
                               ))
                             ) : (
-                              <div className="text-sm text-slate-500">Источники не добавлены.</div>
+                              <div className="text-sm text-muted-foreground">Источники не добавлены.</div>
                             )}
                           </div>
                         </div>
@@ -1828,8 +1828,8 @@ export default function KnowledgeIntakePage() {
               </GlassCard>
 
               <div className="order-2">
-                <div className="text-sm font-semibold text-[#111827]">Совпадения в базе</div>
-                <p className="mt-1 text-xs leading-5 text-slate-500">
+                <div className="text-sm font-semibold text-foreground">Совпадения в базе</div>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
                   Сначала проверьте, есть ли препарат или алиас в глобальном каталоге. После этого добавляйте источники для анализа.
                 </p>
               </div>
@@ -1846,8 +1846,8 @@ export default function KnowledgeIntakePage() {
                     <GlassCard key={`${match.product_id}-${match.match_type}`} className={`${consoleReadableCard} p-4`}>
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <div className="min-w-0">
-                          <div className="truncate text-base font-semibold text-[#111827]">{match.display_name}</div>
-                          <div className="mt-1 text-xs text-slate-400">
+                          <div className="truncate text-base font-semibold text-foreground">{match.display_name}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">
                             {match.trade_name || "—"} · {match.manufacturer || "производитель не указан"}
                           </div>
                         </div>
@@ -1891,7 +1891,7 @@ export default function KnowledgeIntakePage() {
                   ))
                 ) : (
                   <EmptyState>
-                    <div className="font-semibold text-[#111827]">Совпадений не найдено.</div>
+                    <div className="font-semibold text-foreground">Совпадений не найдено.</div>
                     <p className="mt-2 leading-6">
                       Это ещё не значит, что препарата нет. Следующий шаг — поиск источников и ручная проверка.
                     </p>

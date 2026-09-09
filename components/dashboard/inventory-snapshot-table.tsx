@@ -32,13 +32,13 @@ export function InventorySnapshotTable({ data }: InventorySnapshotTableProps) {
       </CardHeader>
       <CardContent>
         {data.length === 0 ? (
-          <p className="text-sm text-slate-500">{t("no_inventory_data")}</p>
+          <p className="text-sm text-muted-foreground">{t("no_inventory_data")}</p>
         ) : (
           <>
             <div className="space-y-2 md:hidden">
               {data.map((item, index) => (
-                <div key={index} className="rounded-lg border border-slate-200 p-3">
-                  <div className="text-sm font-semibold text-slate-900">{item.productName}</div>
+                <div key={index} className="rounded-lg border border-border p-3">
+                  <div className="text-sm font-semibold text-muted-foreground">{item.productName}</div>
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <Badge
                       variant="secondary"
@@ -46,9 +46,9 @@ export function InventorySnapshotTable({ data }: InventorySnapshotTableProps) {
                     >
                       {localizeMaterialType(item.productType, language)}
                     </Badge>
-                    <div className="text-sm font-medium text-slate-900">{item.quantity.toFixed(2)}</div>
+                    <div className="text-sm font-medium text-muted-foreground">{item.quantity.toFixed(2)}</div>
                   </div>
-                  <div className="mt-1 text-xs text-slate-500">{item.warehouseName}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{item.warehouseName}</div>
                 </div>
               ))}
             </div>

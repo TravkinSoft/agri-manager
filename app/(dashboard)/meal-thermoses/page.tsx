@@ -81,12 +81,12 @@ function formatDateTime(value: string | null | undefined) {
 }
 
 function statusBadge(orderStatus: MealOrderStatus) {
-  if (orderStatus === "new") return <Badge className="bg-slate-600 text-white">Новая</Badge>;
+  if (orderStatus === "new") return <Badge className="bg-muted text-foreground">Новая</Badge>;
   if (orderStatus === "accepted") return <Badge className="bg-blue-600 text-white">Принята</Badge>;
   if (orderStatus === "cooking") return <Badge className="bg-amber-600 text-black">Готовится</Badge>;
   if (orderStatus === "ready") return <Badge className="bg-emerald-600 text-white">Готово</Badge>;
-  if (orderStatus === "issued") return <Badge className="bg-cyan-600 text-white">Выдано</Badge>;
-  if (orderStatus === "partially_returned") return <Badge className="bg-orange-600 text-white">Частично возвращено</Badge>;
+  if (orderStatus === "issued") return <Badge className="bg-cyan-600 text-foreground">Выдано</Badge>;
+  if (orderStatus === "partially_returned") return <Badge className="bg-orange-600 text-foreground">Частично возвращено</Badge>;
   if (orderStatus === "returned") return <Badge className="bg-green-700 text-white">Закрыто</Badge>;
   return <Badge variant="destructive">Отменена</Badge>;
 }
@@ -203,9 +203,9 @@ export default function MealThermosesPage() {
   const awaitingReturns = bootstrap?.awaiting_returns || [];
   const summary = bootstrap?.summary;
   const dataLoading = authLoading || loading || (canRead && !bootstrap);
-  const summaryValue = (value: number | undefined, className = "text-slate-100") =>
+  const summaryValue = (value: number | undefined, className = "text-foreground") =>
     dataLoading ? (
-      <Skeleton className="mt-2 h-6 w-14 bg-slate-700" />
+      <Skeleton className="mt-2 h-6 w-14 bg-muted" />
     ) : (
       <div className={`text-xl font-semibold ${className}`}>{value ?? 0}</div>
     );
@@ -391,29 +391,29 @@ export default function MealThermosesPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
-            <div className="rounded-lg border border-[#2B3448] bg-[#151C28] p-3">
-              <div className="text-xs text-slate-400">Заявок сегодня</div>
+            <div className="rounded-lg border border-border bg-card p-3">
+              <div className="text-xs text-muted-foreground">Заявок сегодня</div>
               {summaryValue(summary?.orders_today)}
             </div>
-            <div className="rounded-lg border border-[#2B3448] bg-[#151C28] p-3">
-              <div className="text-xs text-slate-400">Обедов сегодня</div>
+            <div className="rounded-lg border border-border bg-card p-3">
+              <div className="text-xs text-muted-foreground">Обедов сегодня</div>
               {summaryValue(summary?.lunches_today)}
             </div>
-            <div className="rounded-lg border border-[#2B3448] bg-[#151C28] p-3">
-              <div className="text-xs text-slate-400">Выдано термосов</div>
+            <div className="rounded-lg border border-border bg-card p-3">
+              <div className="text-xs text-muted-foreground">Выдано термосов</div>
               {summaryValue(summary?.thermoses_issued)}
             </div>
-            <div className="rounded-lg border border-[#2B3448] bg-[#151C28] p-3">
-              <div className="text-xs text-slate-400">Ожидают возврата</div>
+            <div className="rounded-lg border border-border bg-card p-3">
+              <div className="text-xs text-muted-foreground">Ожидают возврата</div>
               {summaryValue(summary?.awaiting_return)}
             </div>
-            <div className="rounded-lg border border-[#2B3448] bg-[#151C28] p-3">
-              <div className="text-xs text-slate-400">Потеряно</div>
-              {summaryValue(summary?.thermoses_lost, "text-rose-300")}
+            <div className="rounded-lg border border-border bg-card p-3">
+              <div className="text-xs text-muted-foreground">Потеряно</div>
+              {summaryValue(summary?.thermoses_lost, "text-rose-800")}
             </div>
-            <div className="rounded-lg border border-[#2B3448] bg-[#151C28] p-3">
-              <div className="text-xs text-slate-400">Повреждено</div>
-              {summaryValue(summary?.thermoses_damaged, "text-amber-300")}
+            <div className="rounded-lg border border-border bg-card p-3">
+              <div className="text-xs text-muted-foreground">Повреждено</div>
+              {summaryValue(summary?.thermoses_damaged, "text-amber-800")}
             </div>
           </div>
         </CardContent>
@@ -555,9 +555,9 @@ export default function MealThermosesPage() {
             <CardTitle className="text-base">Очередь заявок</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {dataLoading ? <div className="text-sm text-slate-400">Загрузка...</div> : null}
+            {dataLoading ? <div className="text-sm text-muted-foreground">Загрузка...</div> : null}
             {!dataLoading && orders.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-[#2B3448] p-3 text-sm text-slate-400">
+              <div className="rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
                 Заявки не найдены.
               </div>
             ) : null}
@@ -568,13 +568,13 @@ export default function MealThermosesPage() {
               const isIssuedLike = order.status === "issued" || order.status === "partially_returned" || order.status === "returned";
 
               return (
-                <div key={order.id} className="rounded-xl border border-[#2B3448] bg-[#151C28] p-3">
+                <div key={order.id} className="rounded-xl border border-border bg-card p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <div className="text-sm font-semibold text-slate-100">
+                      <div className="text-sm font-semibold text-foreground">
                         {order.brigadier_name || "Бригадир"} · {order.meal_date}
                       </div>
-                      <div className="text-xs text-slate-400">
+                      <div className="text-xs text-muted-foreground">
                         {MEAL_TYPE_OPTIONS.find((item) => item.value === order.meal_type)?.label || order.meal_type}
                         {" · "}
                         Поле: {fieldName}
@@ -586,9 +586,9 @@ export default function MealThermosesPage() {
                   </div>
 
                   {order.delivery_location_text ? (
-                    <div className="mt-2 text-xs text-slate-400">Доставка: {order.delivery_location_text}</div>
+                    <div className="mt-2 text-xs text-muted-foreground">Доставка: {order.delivery_location_text}</div>
                   ) : null}
-                  {order.comment ? <div className="mt-1 text-xs text-slate-400">Комментарий: {order.comment}</div> : null}
+                  {order.comment ? <div className="mt-1 text-xs text-muted-foreground">Комментарий: {order.comment}</div> : null}
 
                   <div className="mt-3 flex flex-wrap gap-2">
                     {canKitchenManage && order.status === "new" ? (
@@ -642,11 +642,11 @@ export default function MealThermosesPage() {
                       return (
                         <div
                           key={person.id}
-                          className="grid grid-cols-1 gap-2 rounded-lg border border-[#2B3448] p-2 md:grid-cols-[1fr_220px]"
+                          className="grid grid-cols-1 gap-2 rounded-lg border border-border p-2 md:grid-cols-[1fr_220px]"
                         >
                           <div className="text-sm">
-                            <div className="font-medium text-slate-100">{person.person_name}</div>
-                            <div className="text-xs text-slate-400">
+                            <div className="font-medium text-foreground">{person.person_name}</div>
+                            <div className="text-xs text-muted-foreground">
                               Статус: {personStatusLabel(person.issue_status)}
                               {person.thermos_number ? ` · Термос: ${person.thermos_number}` : ""}
                             </div>
@@ -677,7 +677,7 @@ export default function MealThermosesPage() {
                               </SelectContent>
                             </Select>
                           ) : (
-                            <div className="text-xs text-slate-400">{person.thermos_number ? `Термос ${person.thermos_number}` : "—"}</div>
+                            <div className="text-xs text-muted-foreground">{person.thermos_number ? `Термос ${person.thermos_number}` : "—"}</div>
                           )}
                         </div>
                       );
@@ -705,19 +705,19 @@ export default function MealThermosesPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             {!dataLoading && awaitingReturns.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-[#2B3448] p-3 text-sm text-slate-400">
+              <div className="rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
                 Выданных термосов без возврата сейчас нет.
               </div>
             ) : null}
             {awaitingReturns.map((row) => (
-              <div key={row.meal_order_person_id} className="rounded-lg border border-[#2B3448] bg-[#151C28] p-3">
-                <div className="text-sm font-medium text-slate-100">
+              <div key={row.meal_order_person_id} className="rounded-lg border border-border bg-card p-3">
+                <div className="text-sm font-medium text-foreground">
                   Термос {row.thermos_number || "—"} · {row.person_name || "—"}
                 </div>
-                <div className="mt-1 text-xs text-slate-400">
+                <div className="mt-1 text-xs text-muted-foreground">
                   {row.brigadier_name || "—"} · {row.meal_date} · {row.field_name || row.delivery_location_text || "без поля"}
                 </div>
-                <div className="mt-1 text-xs text-slate-400">Выдан: {formatDateTime(row.issued_at)}</div>
+                <div className="mt-1 text-xs text-muted-foreground">Выдан: {formatDateTime(row.issued_at)}</div>
                 <div className="mt-2 space-y-2">
                   <Input
                     placeholder="Комментарий (опционально)"
@@ -769,8 +769,8 @@ export default function MealThermosesPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             {canKitchenManage ? (
-              <div className="rounded-xl border border-[#2B3448] bg-[#151C28] p-3">
-                <div className="mb-2 text-sm font-medium text-slate-100">Добавить термос</div>
+              <div className="rounded-xl border border-border bg-card p-3">
+                <div className="mb-2 text-sm font-medium text-foreground">Добавить термос</div>
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
                   <Input
                     placeholder="Номер"
@@ -795,37 +795,37 @@ export default function MealThermosesPage() {
             ) : null}
 
             {!dataLoading && thermoses.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-[#2B3448] p-3 text-sm text-slate-400">
+              <div className="rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
                 Термосы пока не добавлены.
               </div>
             ) : null}
 
             {thermoses.map((thermos) => (
-              <div key={thermos.id} className="rounded-lg border border-[#2B3448] bg-[#151C28] p-3">
+              <div key={thermos.id} className="rounded-lg border border-border bg-card p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-sm font-medium text-slate-100">
+                  <div className="text-sm font-medium text-foreground">
                     Термос {thermos.number}
                     {thermos.label ? ` · ${thermos.label}` : ""}
                   </div>
                   <Badge variant="outline">{thermos.status}</Badge>
                 </div>
-                <div className="mt-1 text-xs text-slate-400">
+                <div className="mt-1 text-xs text-muted-foreground">
                   Держатель: {thermos.current_holder_name || "—"} · Последняя выдача: {formatDateTime(thermos.last_issued_at)}
                 </div>
-                <div className="mt-1 text-xs text-slate-400">
+                <div className="mt-1 text-xs text-muted-foreground">
                   Возврат: {formatDateTime(thermos.last_returned_at)} · Объём: {thermos.volume_l ?? "—"} л
                 </div>
 
                 {thermos.recent_events?.length ? (
-                  <div className="mt-2 rounded-md border border-[#2B3448] bg-[#0C121D] p-2 text-xs text-slate-300">
-                    <div className="mb-1 font-medium text-slate-200">История</div>
+                  <div className="mt-2 rounded-md border border-border bg-card p-2 text-xs text-foreground">
+                    <div className="mb-1 font-medium text-foreground">История</div>
                     <div className="space-y-1">
                       {thermos.recent_events.map((event) => (
                         <div key={event.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <span className="font-medium">{thermosEventLabel(event.event_type)}</span>
-                          <span className="text-slate-500">{formatDateTime(event.created_at)}</span>
+                          <span className="text-muted-foreground">{formatDateTime(event.created_at)}</span>
                           {event.holder_name ? <span>· {event.holder_name}</span> : null}
-                          {event.comment ? <span className="text-slate-400">· {event.comment}</span> : null}
+                          {event.comment ? <span className="text-muted-foreground">· {event.comment}</span> : null}
                         </div>
                       ))}
                     </div>

@@ -61,20 +61,20 @@ function pluralVehicles(value: number) {
 
 function Metric({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
-    <div className="min-w-0 rounded-lg border border-slate-800 bg-slate-950/35 px-3 py-3">
-      <div className="text-xs leading-4 text-slate-400">{label}</div>
-      <div className="mt-1 break-words text-lg font-semibold leading-6 text-slate-100 [overflow-wrap:anywhere] sm:text-xl">{value}</div>
-      {note ? <div className="mt-1 text-[11px] leading-4 text-slate-500">{note}</div> : null}
+    <div className="min-w-0 rounded-lg border border-border bg-background px-3 py-3">
+      <div className="text-xs leading-4 text-muted-foreground">{label}</div>
+      <div className="mt-1 break-words text-lg font-semibold leading-6 text-foreground [overflow-wrap:anywhere] sm:text-xl">{value}</div>
+      {note ? <div className="mt-1 text-[11px] leading-4 text-muted-foreground">{note}</div> : null}
     </div>
   );
 }
 
 function TimingMetric({ label, value, sample }: { label: string; value: number | null; sample?: string }) {
   return (
-    <div className="min-w-0 rounded-lg border border-slate-800/80 bg-slate-950/20 px-3 py-2.5">
-      <div className="text-xs leading-4 text-slate-400">{label}</div>
-      <div className="mt-1 text-base font-semibold text-slate-100">{number(value, " мин")}</div>
-      {sample ? <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{sample}</div> : null}
+    <div className="min-w-0 rounded-lg border border-border bg-background px-3 py-2.5">
+      <div className="text-xs leading-4 text-muted-foreground">{label}</div>
+      <div className="mt-1 text-base font-semibold text-foreground">{number(value, " мин")}</div>
+      {sample ? <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">{sample}</div> : null}
     </div>
   );
 }
@@ -89,7 +89,7 @@ function SummaryShell({ children }: { children: React.ReactNode }) {
 
 function HistoryShiftDetails({ summary }: { summary: TrafficClosedShiftSummary }) {
   return (
-    <div className="space-y-3 rounded-b-lg border-x border-b border-slate-800 bg-slate-950/25 p-3" data-testid="ptc-shift-history-details">
+    <div className="space-y-3 rounded-b-lg border-x border-b border-border bg-background p-3" data-testid="ptc-shift-history-details">
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         <Metric label="Рейсов" value={String(summary.totalTrips)} />
         <Metric label="Машин" value={String(summary.participatingVehicles)} />
@@ -103,14 +103,14 @@ function HistoryShiftDetails({ summary }: { summary: TrafficClosedShiftSummary }
       </div>
       {summary.vehicles.length ? (
         <div>
-          <div className="mb-2 text-xs font-medium text-slate-400">Рейсы по машинам</div>
+          <div className="mb-2 text-xs font-medium text-muted-foreground">Рейсы по машинам</div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {summary.vehicles.map((vehicle) => (
-              <div key={vehicle.vehicleId} className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-slate-800 px-3 py-2">
-                <span className="truncate text-xs text-slate-300">
+              <div key={vehicle.vehicleId} className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+                <span className="truncate text-xs text-foreground">
                   {vehicle.brand}{vehicle.plate ? " · " + vehicle.plate : " · Без номера"}
                 </span>
-                <b className="shrink-0 text-xs text-[#E0B100]">{vehicle.trips}</b>
+                <b className="shrink-0 text-xs text-primary">{vehicle.trips}</b>
               </div>
             ))}
           </div>
@@ -124,10 +124,10 @@ function HistoryRowSummary({ item }: { item: TrafficClosedShiftHistoryItem }) {
   return (
     <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="font-medium text-slate-100">{item.operatorName}</span>
-        <span className="text-xs text-slate-500">{item.fieldName || "Поле не указано"}</span>
+        <span className="font-medium text-foreground">{item.operatorName}</span>
+        <span className="text-xs text-muted-foreground">{item.fieldName || "Поле не указано"}</span>
       </div>
-      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
+      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <span>{dateTime(item.openedAt)} — {dateTime(item.closedAt)}</span>
         <span>{duration(item.durationMinutes)}</span>
         <span>{number(item.hectaresShift, " га за смену")}</span>
@@ -247,7 +247,7 @@ function TrafficShiftHistory({
   }
 
   return (
-    <Card data-testid="ptc-closed-shift-history" className="rounded-xl border-slate-800 bg-slate-950/20">
+    <Card data-testid="ptc-closed-shift-history" className="rounded-xl border-border bg-background">
       <CardContent className="p-0">
         <Collapsible
           open={open}
@@ -258,15 +258,15 @@ function TrafficShiftHistory({
         >
           <div className="flex items-center justify-between gap-3 p-3 sm:p-4">
             <div className="min-w-0">
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-                <History className="h-4 w-4 text-[#E0B100]" /> История закрытых смен
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <History className="h-4 w-4 text-primary" /> История закрытых смен
               </h2>
-              <p className="mt-1 text-xs text-slate-500">Архив сохранённых смен, по {HISTORY_PAGE_SIZE} записей</p>
+              <p className="mt-1 text-xs text-muted-foreground">Архив сохранённых смен, по {HISTORY_PAGE_SIZE} записей</p>
             </div>
             <CollapsibleTrigger asChild>
               <button
                 type="button"
-                className="flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-slate-700 px-3 text-xs font-medium text-slate-200 hover:border-slate-600 hover:bg-slate-900"
+                className="flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-border px-3 text-xs font-medium text-foreground hover:border-border hover:bg-background"
                 aria-label={open ? "Скрыть историю закрытых смен" : "Показать историю закрытых смен"}
               >
                 {open ? "Скрыть" : "Показать"}
@@ -274,17 +274,17 @@ function TrafficShiftHistory({
               </button>
             </CollapsibleTrigger>
           </div>
-          <CollapsibleContent className="border-t border-slate-800 px-3 pb-3 sm:px-4 sm:pb-4">
+          <CollapsibleContent className="border-t border-border px-3 pb-3 sm:px-4 sm:pb-4">
             {!loaded && loading ? (
-              <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-slate-400" role="status">
+              <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-muted-foreground" role="status">
                 <Loader2 className="h-4 w-4 animate-spin" /> Загружается история смен
               </div>
             ) : null}
             {loaded && !items.length && !listError ? (
-              <p className="py-6 text-sm text-slate-400">Сохранённых закрытых смен пока нет.</p>
+              <p className="py-6 text-sm text-muted-foreground">Сохранённых закрытых смен пока нет.</p>
             ) : null}
             {items.length ? (
-              <ol className="divide-y divide-slate-800" data-testid="ptc-shift-history-list">
+              <ol className="divide-y divide-border" data-testid="ptc-shift-history-list">
                 {items.map((item) => {
                   const expanded = expandedShiftId === item.shiftId;
                   const hasDetails = Object.prototype.hasOwnProperty.call(details, item.shiftId);
@@ -297,27 +297,27 @@ function TrafficShiftHistory({
                           "flex min-h-16 w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors " +
                           (expanded
                             ? "border-amber-500/25 bg-amber-500/[0.045]"
-                            : "border-transparent hover:border-slate-800 hover:bg-slate-900/60")
+                            : "border-transparent hover:border-border hover:bg-background")
                         }
                         aria-expanded={expanded}
                         aria-controls={"ptc-shift-history-" + item.shiftId}
                         onClick={() => toggleDetails(item.shiftId)}
                       >
                         <HistoryRowSummary item={item} />
-                        <ChevronRight className={"h-4 w-4 shrink-0 text-slate-500 transition-transform " + (expanded ? "rotate-90" : "")} />
+                        <ChevronRight className={"h-4 w-4 shrink-0 text-muted-foreground transition-transform " + (expanded ? "rotate-90" : "")} />
                       </button>
                       {expanded ? (
                         <div id={"ptc-shift-history-" + item.shiftId}>
                           {detailLoadingId === item.shiftId ? (
-                            <div className="flex min-h-20 items-center justify-center gap-2 rounded-b-lg border-x border-b border-slate-800 text-xs text-slate-400" role="status">
+                            <div className="flex min-h-20 items-center justify-center gap-2 rounded-b-lg border-x border-b border-border text-xs text-muted-foreground" role="status">
                               <Loader2 className="h-4 w-4 animate-spin" /> Считаем рейсы и интервалы
                             </div>
                           ) : hasDetails && detail ? (
                             <HistoryShiftDetails summary={detail} />
                           ) : hasDetails ? (
-                            <div className="rounded-b-lg border-x border-b border-slate-800 p-3 text-xs text-slate-400">Смена больше недоступна.</div>
+                            <div className="rounded-b-lg border-x border-b border-border p-3 text-xs text-muted-foreground">Смена больше недоступна.</div>
                           ) : detailError?.shiftId === item.shiftId ? (
-                            <div className="flex flex-wrap items-center gap-2 rounded-b-lg border-x border-b border-amber-500/20 p-3 text-xs text-amber-200">
+                            <div className="flex flex-wrap items-center gap-2 rounded-b-lg border-x border-b border-amber-500/20 p-3 text-xs text-amber-800">
                               <span>{detailError.message}.</span>
                               <button type="button" onClick={() => void loadDetails(item.shiftId)} className="min-h-9 rounded-md border border-amber-500/25 px-2.5 font-medium">
                                 Повторить
@@ -332,7 +332,7 @@ function TrafficShiftHistory({
               </ol>
             ) : null}
             {listError ? (
-              <div className="flex flex-wrap items-center gap-2 py-3 text-xs text-amber-200">
+              <div className="flex flex-wrap items-center gap-2 py-3 text-xs text-amber-800">
                 <span>{listError}{items.length ? "; ранее загруженные смены сохранены." : "."}</span>
                 <button
                   type="button"
@@ -348,7 +348,7 @@ function TrafficShiftHistory({
                 type="button"
                 disabled={loading}
                 onClick={() => void loadPage(nextCursor, true)}
-                className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-700 text-sm font-medium text-slate-200 hover:bg-slate-900 disabled:cursor-wait disabled:opacity-60"
+                className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-border text-sm font-medium text-foreground hover:bg-background disabled:cursor-wait disabled:opacity-60"
               >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 {loading ? "Загружается" : "Показать ещё"}
@@ -446,10 +446,10 @@ export function TrafficShiftSummary({ companyId }: { companyId: string }) {
     return (
       <SummaryShell>
         <div aria-label="Загружается итог смены PTC" className="animate-pulse space-y-3">
-          <div className="h-5 w-56 rounded bg-slate-800" />
-          <div className="h-4 w-40 rounded bg-slate-800/70" />
+          <div className="h-5 w-56 rounded bg-muted" />
+          <div className="h-4 w-40 rounded bg-muted" />
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-            {[0, 1, 2, 3].map((item) => <div key={item} className="h-20 rounded-lg bg-slate-800/60" />)}
+            {[0, 1, 2, 3].map((item) => <div key={item} className="h-20 rounded-lg bg-muted" />)}
           </div>
         </div>
       </SummaryShell>
@@ -460,11 +460,11 @@ export function TrafficShiftSummary({ companyId }: { companyId: string }) {
     return (
       <SummaryShell>
         <div className="flex min-h-28 flex-col justify-center">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-slate-100">
-            <Tractor className="h-4 w-4 text-[#E0B100]" /> PTC · Итоги последней смены
+          <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+            <Tractor className="h-4 w-4 text-primary" /> PTC · Итоги последней смены
           </h2>
           {refreshError ? (
-            <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-amber-200">
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-amber-800">
               <span>{refreshError}.</span>
               <button type="button" onClick={() => retryRef.current()} className="min-h-10 rounded-lg border border-amber-500/30 px-3 font-medium hover:bg-amber-500/10">
                 Повторить
@@ -472,8 +472,8 @@ export function TrafficShiftSummary({ companyId }: { companyId: string }) {
             </div>
           ) : (
             <div className="mt-3">
-              <p className="text-sm font-medium text-slate-200">Закрытых смен пока нет</p>
-              <p className="mt-1 text-xs leading-5 text-slate-500">После закрытия смены комбайнёром гектары, рейсы и ритм работы появятся здесь автоматически.</p>
+              <p className="text-sm font-medium text-foreground">Закрытых смен пока нет</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">После закрытия смены комбайнёром гектары, рейсы и ритм работы появятся здесь автоматически.</p>
             </div>
           )}
         </div>
@@ -507,19 +507,19 @@ export function TrafficShiftSummary({ companyId }: { companyId: string }) {
       <div className="space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <h2 className="flex items-center gap-2 text-base font-semibold text-slate-100">
-              <Tractor className="h-4 w-4 text-[#E0B100]" /> PTC · Итоги последней смены
+            <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+              <Tractor className="h-4 w-4 text-primary" /> PTC · Итоги последней смены
             </h2>
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1 text-xs text-muted-foreground">
               {summary.operatorName} · {summary.fieldName || "Поле не указано"}
             </p>
           </div>
           <div className="flex flex-col items-start gap-1 sm:items-end">
-            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-300">
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-800">
               <CircleCheck className="h-3.5 w-3.5" /> Смена закрыта
             </span>
-            <div className="text-xs text-slate-500">{dateTime(summary.openedAt)} — {dateTime(summary.closedAt)}</div>
-            <div className="flex items-center gap-1 text-xs text-slate-300">
+            <div className="text-xs text-muted-foreground">{dateTime(summary.openedAt)} — {dateTime(summary.closedAt)}</div>
+            <div className="flex items-center gap-1 text-xs text-foreground">
               <Clock3 className="h-3.5 w-3.5" /> {duration(summary.durationMinutes)}
             </div>
           </div>
@@ -532,17 +532,17 @@ export function TrafficShiftSummary({ companyId }: { companyId: string }) {
           <Metric label="Работало в смене" value={`${summary.participatingVehicles} ${pluralVehicles(summary.participatingVehicles)}`} />
         </div>
 
-        <div className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs leading-5 ${downtimeStatus === "warning" ? "border-amber-500/25 bg-amber-500/[0.07] text-amber-100" : downtimeStatus === "clear" ? "border-emerald-500/20 bg-emerald-500/[0.05] text-emerald-200" : "border-slate-700 bg-slate-900/40 text-slate-300"}`}>
+        <div className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs leading-5 ${downtimeStatus === "warning" ? "border-amber-500/25 bg-amber-500/[0.07] text-amber-800" : downtimeStatus === "clear" ? "border-emerald-500/20 bg-emerald-500/[0.05] text-emerald-800" : "border-border bg-background text-foreground"}`}>
           {downtimeStatus === "warning" ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <Activity className="mt-0.5 h-4 w-4 shrink-0" />}
           <span><b>Возможные простои комбайна:</b> {downtime}.</span>
         </div>
 
         <div className="hidden md:block">
-          <h3 className="mb-2 text-xs font-medium text-slate-400">Время движения и разгрузки</h3>
+          <h3 className="mb-2 text-xs font-medium text-muted-foreground">Время движения и разгрузки</h3>
           {timingMetrics}
         </div>
         <Collapsible open={timingOpen} onOpenChange={setTimingOpen} className="md:hidden">
-          <CollapsibleTrigger className="flex min-h-11 w-full items-center justify-between rounded-lg border border-slate-800 px-3 text-left text-sm font-medium text-slate-200">
+          <CollapsibleTrigger className="flex min-h-11 w-full items-center justify-between rounded-lg border border-border px-3 text-left text-sm font-medium text-foreground">
             Время движения и разгрузки
             <ChevronDown className={`h-4 w-4 transition-transform ${timingOpen ? "rotate-180" : ""}`} />
           </CollapsibleTrigger>
@@ -551,31 +551,31 @@ export function TrafficShiftSummary({ companyId }: { companyId: string }) {
 
         {summary.vehicles.length ? (
           <div>
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-              <span className="flex items-center gap-1.5 font-medium text-slate-400"><Route className="h-3.5 w-3.5" /> Рейсы по машинам</span>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5 font-medium text-muted-foreground"><Route className="h-3.5 w-3.5" /> Рейсы по машинам</span>
               <span>Всего: {summary.totalTrips}</span>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {summary.vehicles.map((vehicle, index) => (
-                <div key={vehicle.vehicleId} className={`${!showAllVehicles && index >= 4 ? "hidden sm:flex" : "flex"} min-w-0 items-center justify-between gap-3 rounded-lg border border-slate-800 px-3 py-2.5`}>
-                  <span className="truncate text-sm text-slate-200">
+                <div key={vehicle.vehicleId} className={`${!showAllVehicles && index >= 4 ? "hidden sm:flex" : "flex"} min-w-0 items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5`}>
+                  <span className="truncate text-sm text-foreground">
                     {vehicle.brand}{vehicle.plate ? ` · ${vehicle.plate}` : " · Без номера"}
                   </span>
-                  <b className="shrink-0 text-sm text-[#E0B100]">
+                  <b className="shrink-0 text-sm text-primary">
                     {vehicle.trips} {pluralTrips(vehicle.trips)}
                   </b>
                 </div>
               ))}
             </div>
             {summary.vehicles.length > 4 ? (
-              <button type="button" onClick={() => setShowAllVehicles((value) => !value)} className="mt-2 min-h-11 w-full rounded-lg border border-slate-800 text-sm font-medium text-slate-300 sm:hidden">
+              <button type="button" onClick={() => setShowAllVehicles((value) => !value)} className="mt-2 min-h-11 w-full rounded-lg border border-border text-sm font-medium text-foreground sm:hidden">
                 {showAllVehicles ? "Скрыть часть машин" : `Показать все (${summary.vehicles.length})`}
               </button>
             ) : null}
           </div>
         ) : null}
         {refreshError ? (
-          <div className="flex flex-wrap items-center gap-2 text-xs text-amber-300">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-amber-800">
             <span>{refreshError}; показаны последние полученные данные.</span>
             <button type="button" onClick={() => retryRef.current()} className="min-h-9 rounded-md border border-amber-500/25 px-2.5 font-medium">Повторить</button>
           </div>

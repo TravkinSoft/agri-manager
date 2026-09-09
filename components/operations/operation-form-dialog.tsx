@@ -833,12 +833,12 @@ function SearchableSelect(props: {
           <CommandInput placeholder="Поиск по названию, alias, производителю или ДВ..." value={query} onValueChange={setQuery} />
           <CommandList className="max-h-72 overflow-y-auto overscroll-contain">
             {remoteLoading ? (
-              <div className="flex items-center gap-2 px-3 py-4 text-sm text-slate-400">
+              <div className="flex items-center gap-2 px-3 py-4 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" /> Загрузка каталога...
               </div>
             ) : null}
             {remoteError ? (
-              <div className="space-y-2 px-3 py-4 text-sm text-red-300">
+              <div className="space-y-2 px-3 py-4 text-sm text-red-800">
                 <div>Не удалось загрузить каталог материалов.</div>
                 <Button type="button" size="sm" variant="outline" onClick={() => setRetryKey((current) => current + 1)}>
                   Повторить
@@ -861,7 +861,7 @@ function SearchableSelect(props: {
                   <Check className={cn("mr-2 h-4 w-4", option.id === value ? "opacity-100" : "opacity-0")} />
                   <div className="min-w-0">
                     <div className="truncate">{option.label}</div>
-                    {option.hint ? <div className="truncate text-xs text-slate-500">{option.hint}</div> : null}
+                    {option.hint ? <div className="truncate text-xs text-muted-foreground">{option.hint}</div> : null}
                   </div>
                 </CommandItem>
               ))}
@@ -938,10 +938,10 @@ function OperationWorkSelector(props: {
   return (
     <section aria-labelledby={headingId}>
       <div>
-        <h2 id={headingId} className="text-base font-semibold leading-[22px] text-white">
+        <h2 id={headingId} className="text-base font-semibold leading-[22px] text-foreground">
           Работа *
         </h2>
-        <p id={helpId} className="mt-1 text-[13px] leading-[18px] text-slate-400">
+        <p id={helpId} className="mt-1 text-[13px] leading-[18px] text-muted-foreground">
           Выберите раздел. Для почвы, посева и уборки уточните конкретную работу.
         </p>
       </div>
@@ -967,10 +967,10 @@ function OperationWorkSelector(props: {
                 onKeyDownCapture={(event) => handleRadioOptionKeyDown(event, onCategoryChange)}
                 className={cn(
                   "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-semibold leading-5 transition-colors sm:min-h-[52px]",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1017]",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1017]",
                   checked
-                    ? "border-yellow-400 bg-yellow-400/10 text-yellow-100"
-                    : "border-slate-700 bg-slate-900/70 text-slate-100 hover:border-slate-500 hover:bg-slate-800/80",
+                    ? "border-yellow-400 bg-yellow-400/10 text-amber-800"
+                    : "border-border bg-background text-foreground hover:border-border hover:bg-muted",
                   disabled && "cursor-not-allowed opacity-55"
                 )}
               >
@@ -982,18 +982,18 @@ function OperationWorkSelector(props: {
       </div>
 
       {disabled ? (
-        <p className="mt-3 text-[13px] leading-[18px] text-slate-400">
+        <p className="mt-3 text-[13px] leading-[18px] text-muted-foreground">
           Сначала выберите участок структуры посевов.
         </p>
       ) : null}
 
       {categoryValue && showsConcreteWorks ? (
-        <div className="mt-5 border-t border-slate-800/90 pt-5">
-          <div id={workLabelId} className="mb-3 text-sm font-semibold leading-5 text-slate-200">
+        <div className="mt-5 border-t border-border pt-5">
+          <div id={workLabelId} className="mb-3 text-sm font-semibold leading-5 text-foreground">
             Конкретная работа
           </div>
           {!selectedGroup || selectedGroup.options.length === 0 ? (
-            <p className="text-[13px] leading-[18px] text-slate-400">
+            <p className="text-[13px] leading-[18px] text-muted-foreground">
               Для выбранного участка нет доступных работ этого раздела.
             </p>
           ) : (
@@ -1015,10 +1015,10 @@ function OperationWorkSelector(props: {
                     onKeyDownCapture={(event) => handleRadioOptionKeyDown(event, onWorkChange)}
                     className={cn(
                       "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-medium leading-5 transition-colors",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1017]",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1017]",
                       checked
-                        ? "border-transparent bg-yellow-400 font-semibold text-slate-950"
-                        : "border-slate-700 bg-slate-900/70 text-slate-100 hover:border-slate-500 hover:bg-slate-800/80",
+                        ? "border-transparent bg-primary font-semibold text-primary-foreground"
+                        : "border-border bg-background text-foreground hover:border-border hover:bg-muted",
                       disabled && "cursor-not-allowed opacity-55"
                     )}
                   >
@@ -2265,12 +2265,12 @@ export function OperationFormDialog({
     const hasInvalidPerWaterUnit = !unitAllowedForRateBasis(material.unit, rateBasis);
 
     return (
-    <div key={`material-${index}`} className="rounded-xl border border-slate-800 bg-slate-950/35 p-2">
+    <div key={`material-${index}`} className="rounded-xl border border-border bg-background p-2">
       <div className="grid grid-cols-1 gap-2 md:grid-cols-7">
         <div>
-          <div className="mb-1 text-xs text-slate-500">{unifiedPreparationRow ? "Категория" : "Тип"}</div>
+          <div className="mb-1 text-xs text-muted-foreground">{unifiedPreparationRow ? "Категория" : "Тип"}</div>
           {unifiedPreparationRow ? (
-            <div className="flex h-8 items-center rounded-md border border-slate-800 bg-slate-900/70 px-3 text-xs text-slate-200">
+            <div className="flex h-8 items-center rounded-md border border-border bg-background px-3 text-xs text-foreground">
               {preparationCategoryLabel(selectedProduct)}
             </div>
           ) : (
@@ -2300,7 +2300,7 @@ export function OperationFormDialog({
           )}
         </div>
         <div className="md:col-span-2">
-          <div className="mb-1 text-xs text-slate-500">{unifiedPreparationRow ? "Препарат" : "Продукт"}</div>
+          <div className="mb-1 text-xs text-muted-foreground">{unifiedPreparationRow ? "Препарат" : "Продукт"}</div>
           {getTankMixComponentDefinition(material.component_type || material.material_type).productRequired ? (
             <div className="flex items-center gap-1">
             <SearchableSelect
@@ -2345,7 +2345,7 @@ export function OperationFormDialog({
         </div>
         {usesChemistryMix ? (
           <div>
-            <div className="mb-1 text-xs text-slate-500">Тип расчёта</div>
+            <div className="mb-1 text-xs text-muted-foreground">Тип расчёта</div>
             <Select
               value={rateBasis}
               onValueChange={(value) => {
@@ -2368,12 +2368,12 @@ export function OperationFormDialog({
               </SelectContent>
             </Select>
             {hasInvalidPerWaterUnit ? (
-              <div className="mt-1 text-[11px] text-red-300">Для расчёта на литр воды выберите л, мл, кг или г.</div>
+              <div className="mt-1 text-[11px] text-red-800">Для расчёта на литр воды выберите л, мл, кг или г.</div>
             ) : null}
           </div>
         ) : null}
         <div>
-          <div className="mb-1 text-xs text-slate-500">Норма</div>
+          <div className="mb-1 text-xs text-muted-foreground">Норма</div>
           <MaterialRateInput
             value={material.planned_rate}
             onValueChange={(plannedRate) => updateMaterial(index, { planned_rate: plannedRate })}
@@ -2381,19 +2381,19 @@ export function OperationFormDialog({
             describedBy={material.product_id && material.planned_rate == null ? `material-rate-help-${index}` : undefined}
           />
           {material.product_id && material.planned_rate == null ? (
-            <div id={`material-rate-help-${index}`} className="mt-1 text-[11px] text-amber-300">
+            <div id={`material-rate-help-${index}`} className="mt-1 text-[11px] text-amber-800">
               Укажите норму для выбранного материала
             </div>
           ) : null}
         </div>
         <div>
-          <div className="mb-1 text-xs text-slate-500">Итого</div>
-          <div className="flex h-8 items-center rounded-md border border-slate-800 bg-slate-900/70 px-3 text-xs font-semibold text-slate-100">
+          <div className="mb-1 text-xs text-muted-foreground">Итого</div>
+          <div className="flex h-8 items-center rounded-md border border-border bg-background px-3 text-xs font-semibold text-foreground">
             {materialTotal != null ? `${formatOperationNumber(materialTotal)} ${formatStorageUnit(material.unit)}` : "—"}
           </div>
         </div>
         <div>
-          <div className="mb-1 text-xs text-slate-500">Ед.</div>
+          <div className="mb-1 text-xs text-muted-foreground">Ед.</div>
           <div className="flex items-center gap-1">
             <Select
               value={material.unit}
@@ -2840,8 +2840,8 @@ export function OperationFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="top-2 flex h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] translate-y-0 flex-col overflow-hidden border-slate-800 bg-[#0b1017] p-0 text-slate-100 shadow-2xl shadow-black/60 sm:top-4 sm:h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-2rem)] sm:max-w-[1120px]">
-        <DialogHeader className="border-b border-slate-800 px-5 py-4">
+      <DialogContent className="top-2 flex h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] translate-y-0 flex-col overflow-hidden border-border bg-card p-0 text-foreground shadow-2xl shadow-black/60 sm:top-4 sm:h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-2rem)] sm:max-w-[1120px]">
+        <DialogHeader className="border-b border-border px-5 py-4">
           <DialogTitle>{isEdit ? "Редактировать операцию" : "Создать план работы"}</DialogTitle>
           <DialogDescription>
             {sourceLabel || "Выберите поле, участок структуры и работу. Остальное заполняется только по необходимости."}
@@ -2851,7 +2851,7 @@ export function OperationFormDialog({
         <Form {...form}>
           <form onSubmit={form.handleSubmit(submit, handleInvalidSubmit)} className="flex min-h-0 flex-1 flex-col">
             <div className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[320px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
-              <aside className="min-h-0 max-h-[38vh] space-y-4 overflow-y-auto overscroll-contain border-b border-slate-800 bg-[#0f1724] p-4 [scrollbar-color:#334155_transparent] [scrollbar-width:thin] lg:max-h-none lg:border-b-0 lg:border-r [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
+              <aside className="min-h-0 max-h-[38vh] space-y-4 overflow-y-auto overscroll-contain border-b border-border bg-card p-4 [scrollbar-color:#334155_transparent] [scrollbar-width:thin] lg:max-h-none lg:border-b-0 lg:border-r [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
             {showField && !supportsMultiTarget ? (
               <div className="space-y-3">
                 <FormField
@@ -2908,8 +2908,8 @@ export function OperationFormDialog({
             ) : null}
 
             {cropIndependent && selectedField ? (
-              <div className="rounded-lg border border-slate-700 bg-[#111827] p-3">
-                <div className="text-xs font-medium text-slate-300">Область работы</div>
+              <div className="rounded-lg border border-border bg-card p-3">
+                <div className="text-xs font-medium text-foreground">Область работы</div>
                 <div className="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Область работы">
                   <Button
                     type="button"
@@ -2943,30 +2943,30 @@ export function OperationFormDialog({
             ) : null}
 
             {!supportsMultiTarget && selectedCropStructure ? (
-              <div className="rounded-lg border border-slate-700 bg-[#111827] p-3 text-sm text-slate-100">
+              <div className="rounded-lg border border-border bg-card p-3 text-sm text-foreground">
                 <div className="font-semibold">
                   {fields.find((field) => field.id === selectedCropStructure.field_id)
                     ? fieldLabelWithArea(fields.find((field) => field.id === selectedCropStructure.field_id) as Field)
                     : `Поле ${selectedCropStructure.field_name || "-"}`}
                 </div>
-                <div className="mt-2 text-slate-300">
-                  <span className="text-slate-500">Участок:</span>{" "}
-                  <span className="font-medium text-slate-100">
+                <div className="mt-2 text-foreground">
+                  <span className="text-muted-foreground">Участок:</span>{" "}
+                  <span className="font-medium text-foreground">
                     {Number(selectedCropStructure.area || 0).toFixed(2)} га
                   </span>
                 </div>
                 {hasExplicitIrrigationType ? (
-                  <div className="mt-1 text-slate-400">{getIrrigationTypeLabel(selectedIrrigationType)}</div>
+                  <div className="mt-1 text-muted-foreground">{getIrrigationTypeLabel(selectedIrrigationType)}</div>
                 ) : null}
               </div>
             ) : isWholeFieldScope && selectedField ? (
-              <div className="rounded-lg border border-slate-700 bg-[#111827] p-3 text-sm text-slate-100">
+              <div className="rounded-lg border border-border bg-card p-3 text-sm text-foreground">
                 <div className="font-semibold">{fieldLabelWithArea(selectedField)}</div>
-                <div className="mt-2 text-slate-300">
-                  <span className="text-slate-500">Объект:</span>{" "}
-                  <span className="font-medium text-slate-100">Всё поле — {Number(selectedField.area || 0).toFixed(2)} га</span>
+                <div className="mt-2 text-foreground">
+                  <span className="text-muted-foreground">Объект:</span>{" "}
+                  <span className="font-medium text-foreground">Всё поле — {Number(selectedField.area || 0).toFixed(2)} га</span>
                 </div>
-                <div className="mt-1 text-xs text-slate-400">
+                <div className="mt-1 text-xs text-muted-foreground">
                   Без культуры доступны вспашка и снегозадержание.
                 </div>
               </div>
@@ -2979,12 +2979,12 @@ export function OperationFormDialog({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="font-semibold text-emerald-100">Выбранные участки</div>
-                    <div className="mt-1 text-xs text-emerald-100/70">
+                    <div className="font-semibold text-emerald-800">Выбранные участки</div>
+                    <div className="mt-1 text-xs text-emerald-800/70">
                       Одна операция, один раствор, несколько полей или участков.
                     </div>
                   </div>
-                  <div className="shrink-0 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-right text-xs font-semibold text-emerald-100">
+                  <div className="shrink-0 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-right text-xs font-semibold text-emerald-800">
                     <div>Полей: {targetFieldCount}</div>
                     <div>Участков: {targetCount}</div>
                     <div>{formatOperationNumber(totalTargetArea)} га</div>
@@ -2992,7 +2992,7 @@ export function OperationFormDialog({
                 </div>
                 <div className="mt-3 space-y-2" data-testid="operation-target-rows">
                   {operationTargets.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-slate-700 px-3 py-4 text-center text-xs text-slate-400">
+                    <div className="rounded-xl border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
                       Добавьте поле или участок для этой операции.
                     </div>
                   ) : null}
@@ -3001,20 +3001,20 @@ export function OperationFormDialog({
                     const targetField = fields.find((field) => field.id === target.field_id);
                     const maxArea = Number(structure?.area || 0);
                     return (
-                      <div key={target.key} className="rounded-xl border border-slate-800 bg-slate-950/35 p-2.5">
+                      <div key={target.key} className="rounded-xl border border-border bg-background p-2.5">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="truncate text-xs font-semibold text-slate-100">
+                            <div className="truncate text-xs font-semibold text-foreground">
                               {targetField ? getFieldDisplayName(targetField) : structure?.field_name || `Участок ${index + 1}`}
                             </div>
-                            <div className="mt-0.5 truncate text-[11px] text-slate-400">
+                            <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
                               {structure ? cropStructureLabel(structure) : "Участок не выбран"}
                             </div>
                           </div>
                           {operationTargets.length > 1 ? (
                             <button
                               type="button"
-                              className="shrink-0 text-xs text-red-300 hover:text-red-200"
+                              className="shrink-0 text-xs text-red-800 hover:text-red-800"
                               onClick={() => removeOperationTarget(target.key)}
                             >
                               удалить
@@ -3023,7 +3023,7 @@ export function OperationFormDialog({
                         </div>
                         <div className="mt-2 grid grid-cols-[1fr_auto] items-end gap-2">
                           <div>
-                            <div className="mb-1 text-xs text-slate-500">Площадь, га</div>
+                            <div className="mb-1 text-xs text-muted-foreground">Площадь, га</div>
                             <Input
                               type="number"
                               step="0.01"
@@ -3036,7 +3036,7 @@ export function OperationFormDialog({
                               }
                             />
                           </div>
-                          <div className="pb-2 text-xs text-slate-500">
+                          <div className="pb-2 text-xs text-muted-foreground">
                             max {maxArea > 0 ? formatOperationNumber(maxArea) : "—"}
                           </div>
                         </div>
@@ -3045,7 +3045,7 @@ export function OperationFormDialog({
                   })}
                 </div>
                 {targetPickerOpen ? (
-                  <div className="mt-3 rounded-xl border border-emerald-400/30 bg-slate-950/55 p-2" data-testid="operation-target-picker">
+                  <div className="mt-3 rounded-xl border border-emerald-400/30 bg-background p-2" data-testid="operation-target-picker">
                     <SearchableSelect
                       value=""
                       onChange={appendOperationTarget}
@@ -3059,7 +3059,7 @@ export function OperationFormDialog({
                       type="button"
                       size="sm"
                       variant="ghost"
-                      className="mt-1 w-full text-slate-400"
+                      className="mt-1 w-full text-muted-foreground"
                       onClick={() => setTargetPickerOpen(false)}
                     >
                       Закрыть выбор
@@ -3070,7 +3070,7 @@ export function OperationFormDialog({
                   type="button"
                   size="sm"
                   variant="outline"
-                  className="mt-3 w-full border-emerald-400/30 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/15"
+                  className="mt-3 w-full border-emerald-400/30 bg-emerald-400/10 text-emerald-800 hover:bg-emerald-400/15"
                   onClick={addOperationTarget}
                 >
                   <Plus className="mr-1 h-4 w-4" />
@@ -3080,7 +3080,7 @@ export function OperationFormDialog({
             ) : null}
               </aside>
 
-              <main className="min-h-0 space-y-4 overflow-y-auto p-5 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
+              <main className="min-h-0 space-y-4 overflow-y-auto p-5 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
 
             <section className="py-2">
               <OperationWorkSelector
@@ -3092,14 +3092,14 @@ export function OperationFormDialog({
                 disabled={!selectedFieldId}
               />
               {form.formState.errors.operation_type?.message ? (
-                <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-800">
                   {form.formState.errors.operation_type.message}
                 </div>
               ) : null}
 
               {showPurposeEngine ? (
-                <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/35 p-3">
-                  <div className="mb-2 text-sm font-semibold text-slate-100">Цели обработки</div>
+                <div className="mt-4 rounded-xl border border-border bg-background p-3">
+                  <div className="mb-2 text-sm font-semibold text-foreground">Цели обработки</div>
                   <div className="flex flex-wrap gap-2">
                     {visiblePurposeOptions.map((purpose) => {
                       const active = purposes.includes(purpose.slug);
@@ -3110,8 +3110,8 @@ export function OperationFormDialog({
                           className={cn(
                             "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
                             active
-                              ? "border-emerald-400 bg-emerald-400/15 text-emerald-100"
-                              : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500"
+                              ? "border-emerald-400 bg-emerald-400/15 text-emerald-800"
+                              : "border-border bg-background text-foreground hover:border-border"
                           )}
                           onClick={() => togglePurpose(purpose.slug, !active)}
                         >
@@ -3127,17 +3127,17 @@ export function OperationFormDialog({
             {selectedCropStructure && categorySlug === "planting" && selectedIsCropMix ? (
               <section className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4">
                 <div className="mb-3">
-                  <div className="text-sm font-semibold text-white">Зерносмесь из структуры посевов</div>
-                  <div className="text-xs text-slate-400">Одна операция и одна заявка. Склад выдаёт каждый компонент отдельной строкой.</div>
+                  <div className="text-sm font-semibold text-foreground">Зерносмесь из структуры посевов</div>
+                  <div className="text-xs text-muted-foreground">Одна операция и одна заявка. Склад выдаёт каждый компонент отдельной строкой.</div>
                 </div>
                 <div className="space-y-2">
                   {(selectedCropStructure.mix_components || []).map((component, index) => (
-                    <div key={component.id || `${component.crop_id}-${index}`} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/45 px-3 py-2 text-sm">
-                      <div className="min-w-0 truncate font-medium text-slate-100">
+                    <div key={component.id || `${component.crop_id}-${index}`} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                      <div className="min-w-0 truncate font-medium text-foreground">
                         {[component.crop_name, component.variety_name, component.reproduction_name].filter(Boolean).join(", ")}
                       </div>
-                      <div className="whitespace-nowrap text-slate-300">{Number(component.seed_rate_kg_ha || 0)} кг/га</div>
-                      <div className="whitespace-nowrap font-semibold text-yellow-300">
+                      <div className="whitespace-nowrap text-foreground">{Number(component.seed_rate_kg_ha || 0)} кг/га</div>
+                      <div className="whitespace-nowrap font-semibold text-amber-800">
                         {(Number(selectedCropStructure.area || 0) * Number(component.seed_rate_kg_ha || 0)).toLocaleString("ru-RU")} кг
                       </div>
                     </div>
@@ -3145,23 +3145,23 @@ export function OperationFormDialog({
                 </div>
               </section>
             ) : selectedCropStructure && categorySlug === "planting" ? (
-              <section className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
+              <section className="rounded-2xl border border-border bg-card p-4">
                 <div className="mb-3">
-                  <div className="text-sm font-semibold text-white">Культура из структуры посевов</div>
-                  <div className="text-xs text-slate-500">Культура и сорт подставляются автоматически и не меняют план участка.</div>
+                  <div className="text-sm font-semibold text-foreground">Культура из структуры посевов</div>
+                  <div className="text-xs text-muted-foreground">Культура и сорт подставляются автоматически и не меняют план участка.</div>
                 </div>
                 <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
                   <div>
-                    <div className="text-xs text-slate-500">Культура</div>
-                    <div className="font-medium text-slate-100">{selectedCropIdentity?.cropName || "Не указана"}</div>
+                    <div className="text-xs text-muted-foreground">Культура</div>
+                    <div className="font-medium text-foreground">{selectedCropIdentity?.cropName || "Не указана"}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-slate-500">Сорт</div>
-                    <div className="font-medium text-slate-100">{selectedCropIdentity?.varietyName || "Не указан"}</div>
+                    <div className="text-xs text-muted-foreground">Сорт</div>
+                    <div className="font-medium text-foreground">{selectedCropIdentity?.varietyName || "Не указан"}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-slate-500">Репродукция</div>
-                    <div className="font-medium text-slate-100">{selectedCropIdentity?.reproductionName || "Не указана"}</div>
+                    <div className="text-xs text-muted-foreground">Репродукция</div>
+                    <div className="font-medium text-foreground">{selectedCropIdentity?.reproductionName || "Не указана"}</div>
                   </div>
                 </div>
               </section>
@@ -3170,34 +3170,34 @@ export function OperationFormDialog({
             {selectedCropStructure && isSeedWork && !selectedIsCropMix ? (
               <section className="rounded-2xl border border-emerald-500/35 bg-emerald-500/5 p-4">
                 <div className="mb-3">
-                  <div className="text-sm font-semibold text-emerald-100">
+                  <div className="text-sm font-semibold text-emerald-800">
                     {operationIsPotato ? "Посадочный материал" : "Семенной материал"}
                   </div>
-                  <div className="text-xs text-slate-400">
+                  <div className="text-xs text-muted-foreground">
                     Identity берётся из структуры посевов и не редактируется в операции.
                   </div>
                 </div>
-                <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-sm md:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3 rounded-xl border border-border bg-background p-3 text-sm md:grid-cols-4">
                   <div>
-                    <div className="text-xs text-slate-500">Культура</div>
-                    <div className="truncate font-medium text-slate-100">{selectedCropIdentity?.cropName || "Не указана"}</div>
+                    <div className="text-xs text-muted-foreground">Культура</div>
+                    <div className="truncate font-medium text-foreground">{selectedCropIdentity?.cropName || "Не указана"}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-slate-500">Сорт</div>
-                    <div className="truncate font-medium text-slate-100">{selectedCropIdentity?.varietyName || "Не указан"}</div>
+                    <div className="text-xs text-muted-foreground">Сорт</div>
+                    <div className="truncate font-medium text-foreground">{selectedCropIdentity?.varietyName || "Не указан"}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-slate-500">Репродукция</div>
-                    <div className="truncate font-medium text-slate-100">{selectedCropIdentity?.reproductionName || "Не указана"}</div>
+                    <div className="text-xs text-muted-foreground">Репродукция</div>
+                    <div className="truncate font-medium text-foreground">{selectedCropIdentity?.reproductionName || "Не указана"}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-slate-500">Площадь</div>
-                    <div className="font-medium text-slate-100">{formatOperationNumber(operationAreaForCalculation)} га</div>
+                    <div className="text-xs text-muted-foreground">Площадь</div>
+                    <div className="font-medium text-foreground">{formatOperationNumber(operationAreaForCalculation)} га</div>
                   </div>
                 </div>
                 <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_160px_minmax(0,1fr)_minmax(0,1fr)]">
                   <div>
-                    <div className="mb-1 text-xs text-slate-500">Норма *</div>
+                    <div className="mb-1 text-xs text-muted-foreground">Норма *</div>
                     <MaterialRateInput
                       value={seedRateDisplay}
                       onValueChange={(value) => seedMaterialIndex >= 0 && updateMaterial(seedMaterialIndex, { planned_rate: value })}
@@ -3205,7 +3205,7 @@ export function OperationFormDialog({
                     />
                   </div>
                   <div>
-                    <div className="mb-1 text-xs text-slate-500">Единица нормы</div>
+                    <div className="mb-1 text-xs text-muted-foreground">Единица нормы</div>
                     <Select
                       value={seedRateDisplayUnit}
                       onValueChange={(value) => {
@@ -3225,17 +3225,17 @@ export function OperationFormDialog({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
-                    <div className="text-xs text-slate-500">Потребность</div>
-                    <div className="mt-1 font-semibold text-slate-100">{formatSeedMassRu(totalSeedKg)}</div>
+                  <div className="rounded-xl border border-border bg-background px-3 py-2">
+                    <div className="text-xs text-muted-foreground">Потребность</div>
+                    <div className="mt-1 font-semibold text-foreground">{formatSeedMassRu(totalSeedKg)}</div>
                   </div>
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
-                    <div className="text-xs text-slate-500">На складах</div>
-                    <div className="mt-1 font-semibold text-slate-100">
+                  <div className="rounded-xl border border-border bg-background px-3 py-2">
+                    <div className="text-xs text-muted-foreground">На складах</div>
+                    <div className="mt-1 font-semibold text-foreground">
                       {seedStock.loading ? "Проверка..." : formatSeedMassRu(seedStock.availableKg)}
                     </div>
                     {!seedStock.loading && totalSeedKg != null ? (
-                      <div className={cn("mt-1 text-xs", seedStock.availableKg >= totalSeedKg ? "text-emerald-300" : "text-amber-300")}>
+                      <div className={cn("mt-1 text-xs", seedStock.availableKg >= totalSeedKg ? "text-emerald-800" : "text-amber-800")}>
                         {seedStock.availableKg >= totalSeedKg
                           ? `Достаточно · партий: ${seedStock.batchCount}`
                           : `Дефицит ${formatSeedMassRu(totalSeedKg - seedStock.availableKg)}`}
@@ -3263,7 +3263,7 @@ export function OperationFormDialog({
                         onChange={(event) =>
                           field.onChange(clampArea(normalizeNumber(event.target.value), maxOperationArea))
                         }
-                        className={cn(supportsMultiTarget ? "bg-slate-950/60 text-slate-300" : "")}
+                        className={cn(supportsMultiTarget ? "bg-background text-foreground" : "")}
                       />
                     </FormControl>
                     {supportsMultiTarget ? (
@@ -3297,8 +3297,8 @@ export function OperationFormDialog({
             </div>
 
             {isTopRemoval ? (
-              <div className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
-                <div className="mb-2 text-sm font-semibold text-white">Способ удаления ботвы</div>
+              <div className="rounded-2xl border border-border bg-card p-4">
+                <div className="mb-2 text-sm font-semibold text-foreground">Способ удаления ботвы</div>
                 <Select
                   value={String(operationParams.top_removal_method || "none")}
                   onValueChange={(value) => updateOperationParam("top_removal_method", value === "none" ? null : value)}
@@ -3317,10 +3317,10 @@ export function OperationFormDialog({
             ) : null}
 
             {isPotatoPlanting ? (
-              <div className="rounded-lg border border-emerald-800/60 bg-emerald-950/20 p-3">
+              <div className="rounded-lg border border-emerald-800/60 bg-emerald-50 p-3">
                 <div className="mb-3">
-                  <div className="text-sm font-semibold uppercase tracking-wide text-emerald-100">Схема посадки</div>
-                  <div className="text-xs text-emerald-200/75">
+                  <div className="text-sm font-semibold uppercase tracking-wide text-emerald-800">Схема посадки</div>
+                  <div className="text-xs text-emerald-800/75">
                     Геометрия посадки картофеля. Норма и потребность указаны в основном посадочном материале выше.
                   </div>
                 </div>
@@ -3362,7 +3362,7 @@ export function OperationFormDialog({
                     )}
                   />
                   <div>
-                    <div className="mb-1 text-xs text-slate-500">Глубина посадки, см</div>
+                    <div className="mb-1 text-xs text-muted-foreground">Глубина посадки, см</div>
                     <Input
                       type="number"
                       step="0.1"
@@ -3371,7 +3371,7 @@ export function OperationFormDialog({
                     />
                   </div>
                   <div>
-                    <div className="mb-1 text-xs text-slate-500">Фракция семян</div>
+                    <div className="mb-1 text-xs text-muted-foreground">Фракция семян</div>
                     <Input
                       value={getOperationParam("seed_fraction")}
                       onChange={(event) => updateOperationParam("seed_fraction", event.target.value)}
@@ -3393,7 +3393,7 @@ export function OperationFormDialog({
               <div className="rounded-lg border p-3">
                 <div className="mb-3">
                   <div className="text-sm font-semibold">Гребнеобразование + укладка ленты</div>
-                  <div className="text-xs text-slate-500">
+                  <div className="text-xs text-muted-foreground">
                     Один проход техники: гребни и лента создаются одной операцией.
                   </div>
                 </div>
@@ -3416,7 +3416,7 @@ export function OperationFormDialog({
                     )}
                   />
                   <div>
-                    <div className="mb-1 text-xs text-slate-500">Количество рядов</div>
+                    <div className="mb-1 text-xs text-muted-foreground">Количество рядов</div>
                     <Input
                       type="number"
                       step="1"
@@ -3425,7 +3425,7 @@ export function OperationFormDialog({
                     />
                   </div>
                   <div>
-                    <div className="mb-1 text-xs text-slate-500">Тип капельной ленты</div>
+                    <div className="mb-1 text-xs text-muted-foreground">Тип капельной ленты</div>
                     <Input
                       value={getOperationParam("drip_tape_type")}
                       onChange={(event) => updateOperationParam("drip_tape_type", event.target.value)}
@@ -3433,7 +3433,7 @@ export function OperationFormDialog({
                     />
                   </div>
                   <div>
-                    <div className="mb-1 text-xs text-slate-500">Длина бухты, м</div>
+                    <div className="mb-1 text-xs text-muted-foreground">Длина бухты, м</div>
                     <Input
                       type="number"
                       step="1"
@@ -3442,7 +3442,7 @@ export function OperationFormDialog({
                     />
                   </div>
                   <div>
-                    <div className="mb-1 text-xs text-slate-500">Количество бухт</div>
+                    <div className="mb-1 text-xs text-muted-foreground">Количество бухт</div>
                     <Input
                       type="number"
                       step="1"
@@ -3451,7 +3451,7 @@ export function OperationFormDialog({
                     />
                   </div>
                   <div>
-                    <div className="mb-1 text-xs text-slate-500">Шаг эмиттера, см</div>
+                    <div className="mb-1 text-xs text-muted-foreground">Шаг эмиттера, см</div>
                     <Input
                       type="number"
                       step="0.1"
@@ -3467,13 +3467,13 @@ export function OperationFormDialog({
               <div className="rounded-lg border p-3">
                 <div className="mb-3">
                   <div className="text-sm font-semibold">{isFertigation ? "Фертигация" : "Полив"}</div>
-                  <div className="text-xs text-slate-500">
+                  <div className="text-xs text-muted-foreground">
                     Операция фиксирует конкретный полив/внесение, а не сезонную программу.
                   </div>
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                   <div>
-                    <div className="mb-1 text-xs text-slate-500">Норма воды, мм</div>
+                    <div className="mb-1 text-xs text-muted-foreground">Норма воды, мм</div>
                     <Input
                       type="number"
                       step="0.1"
@@ -3482,7 +3482,7 @@ export function OperationFormDialog({
                     />
                   </div>
                   <div>
-                    <div className="mb-1 text-xs text-slate-500">Объём воды, м³</div>
+                    <div className="mb-1 text-xs text-muted-foreground">Объём воды, м³</div>
                     <Input
                       type="number"
                       step="0.1"
@@ -3491,14 +3491,14 @@ export function OperationFormDialog({
                     />
                   </div>
                   <div>
-                    <div className="mb-1 text-xs text-slate-500">Зона полива</div>
+                    <div className="mb-1 text-xs text-muted-foreground">Зона полива</div>
                     <Input
                       value={getOperationParam("irrigation_zone")}
                       onChange={(event) => updateOperationParam("irrigation_zone", event.target.value)}
                     />
                   </div>
                   <div>
-                    <div className="mb-1 text-xs text-slate-500">Длительность, ч</div>
+                    <div className="mb-1 text-xs text-muted-foreground">Длительность, ч</div>
                     <Input
                       type="number"
                       step="0.1"
@@ -3575,13 +3575,13 @@ export function OperationFormDialog({
             ) : null}
 
             {showMaterials ? (
-              <div className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
+              <div className="rounded-2xl border border-border bg-card p-4">
                 <div className="mb-3">
                   <div className="text-sm font-semibold">
                     {usesChemistryMix ? "Баковая смесь" : isSeedWork && !selectedIsCropMix ? "Дополнительные материалы" : "Основные материалы"}
                   </div>
                   {usesChemistryMix ? (
-                    <div className="mt-1 text-xs text-slate-500">
+                    <div className="mt-1 text-xs text-muted-foreground">
                       Один проход опрыскивателя. Нормы можно считать на гектар, раствор, 1000 л или литр воды.
                     </div>
                   ) : null}
@@ -3610,18 +3610,18 @@ export function OperationFormDialog({
                 ) : null}
 
                 {productsLoadError ? (
-                  <div className="flex items-center justify-between gap-3 rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200">
+                  <div className="flex items-center justify-between gap-3 rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-800">
                     <span>{productsLoadError}</span>
                     <Button type="button" size="sm" variant="outline" onClick={() => setCatalogReloadKey((current) => current + 1)}>
                       Повторить
                     </Button>
                   </div>
                 ) : usesUnifiedPreparationSelect && productOptions.length === 0 && unifiedPreparationRows.length === 0 ? (
-                  <div className="rounded border border-dashed p-3 text-xs text-slate-500">
+                  <div className="rounded border border-dashed p-3 text-xs text-muted-foreground">
                     Препараты ещё не добавлены. Поиск включает склад и глобальный каталог.
                   </div>
                 ) : usesUnifiedPreparationSelect && unifiedPreparationRows.length === 0 ? (
-                  <div className="rounded border border-dashed p-3 text-xs text-slate-500">
+                  <div className="rounded border border-dashed p-3 text-xs text-muted-foreground">
                     Препараты не добавлены.
                   </div>
                 ) : usesUnifiedPreparationSelect ? (
@@ -3643,7 +3643,7 @@ export function OperationFormDialog({
                 ) : (
                   <>
                     {!isSeedWork && mainMaterialRows.length === 0 ? (
-                      <div className="rounded border border-dashed p-3 text-xs text-slate-500">
+                      <div className="rounded border border-dashed p-3 text-xs text-muted-foreground">
                         Основные материалы не добавлены.
                       </div>
                     ) : !isSeedWork ? (
@@ -3662,7 +3662,7 @@ export function OperationFormDialog({
                         {!isSeedWork ? <div className="text-sm font-semibold">Дополнительные материалы</div> : null}
                       </div>
                       {additionalMaterialRows.length === 0 ? (
-                        <div className="rounded border border-dashed p-3 text-xs text-slate-500">
+                        <div className="rounded border border-dashed p-3 text-xs text-muted-foreground">
                           Дополнительные материалы не добавлены.
                         </div>
                       ) : (
@@ -3679,32 +3679,32 @@ export function OperationFormDialog({
                 )}
                 {showTankMix ? (
                   <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
-                    <div className="mb-2 text-sm font-semibold text-emerald-100">Расчёт раствора</div>
-                    <div className="grid grid-cols-1 gap-2 text-xs text-slate-300 md:grid-cols-4">
+                    <div className="mb-2 text-sm font-semibold text-emerald-800">Расчёт раствора</div>
+                    <div className="grid grid-cols-1 gap-2 text-xs text-foreground md:grid-cols-4">
                       <div>
-                        <div className="text-slate-500">Площадь</div>
-                        <div className="font-semibold text-slate-100">{formatOperationNumber(operationAreaForCalculation)} га</div>
+                        <div className="text-muted-foreground">Площадь</div>
+                        <div className="font-semibold text-foreground">{formatOperationNumber(operationAreaForCalculation)} га</div>
                       </div>
                       <div>
-                        <div className="text-slate-500">Норма рабочей жидкости</div>
-                        <div className="font-semibold text-slate-100">{solutionRateLHa ? `${formatOperationNumber(solutionRateLHa)} л/га` : "—"}</div>
+                        <div className="text-muted-foreground">Норма рабочей жидкости</div>
+                        <div className="font-semibold text-foreground">{solutionRateLHa ? `${formatOperationNumber(solutionRateLHa)} л/га` : "—"}</div>
                       </div>
                       <div>
-                        <div className="text-slate-500">Жидкие материалы</div>
-                        <div className="font-semibold text-slate-100">{formatOperationNumber(liquidProductsTotalL)} л</div>
+                        <div className="text-muted-foreground">Жидкие материалы</div>
+                        <div className="font-semibold text-foreground">{formatOperationNumber(liquidProductsTotalL)} л</div>
                       </div>
                       <div>
-                        <div className="text-slate-500">Концентрация</div>
-                        <div className="font-semibold text-slate-100">{solutionConcentration != null ? `${formatOperationNumber(solutionConcentration, 1)}%` : "—"}</div>
+                        <div className="text-muted-foreground">Концентрация</div>
+                        <div className="font-semibold text-foreground">{solutionConcentration != null ? `${formatOperationNumber(solutionConcentration, 1)}%` : "—"}</div>
                       </div>
                     </div>
                     {materialCalculationRows.length > 0 ? (
                       <div className="mt-3 space-y-1 text-xs">
-                        <div className="font-semibold text-slate-200">Препараты</div>
+                        <div className="font-semibold text-foreground">Препараты</div>
                         {materialCalculationRows.map((row) => (
-                          <div key={`material-total-${row.index}`} className="flex items-center justify-between gap-3 text-slate-300">
+                          <div key={`material-total-${row.index}`} className="flex items-center justify-between gap-3 text-foreground">
                             <span className="truncate">{row.name || "Материал"}</span>
-                            <span className="shrink-0 font-semibold text-slate-100">
+                            <span className="shrink-0 font-semibold text-foreground">
                               {formatOperationNumber(row.total)} {formatStorageUnit(row.unit)}
                             </span>
                           </div>
@@ -3712,14 +3712,14 @@ export function OperationFormDialog({
                       </div>
                     ) : null}
                     {totalSolutionL != null ? (
-                      <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs text-slate-300">
+                      <div className="mt-3 rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground">
                         Вода: {formatOperationNumber(totalSolutionL)} л − {formatOperationNumber(liquidProductsTotalL)} л препаратов ={" "}
-                        <span className="font-semibold text-slate-100">{formatOperationNumber(calculatedWaterTotalL)} л</span>
+                        <span className="font-semibold text-foreground">{formatOperationNumber(calculatedWaterTotalL)} л</span>
                       </div>
                     ) : null}
                     <div className="mt-3 flex items-center justify-between rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm">
-                      <span className="font-semibold text-emerald-100">Итого готового раствора</span>
-                      <span className="font-bold text-emerald-100">
+                      <span className="font-semibold text-emerald-800">Итого готового раствора</span>
+                      <span className="font-bold text-emerald-800">
                         {totalSolutionL != null ? `${formatOperationNumber(totalSolutionL)} л` : "—"}
                       </span>
                     </div>
@@ -3783,25 +3783,25 @@ export function OperationFormDialog({
               </main>
             </div>
 
-            <div className="flex shrink-0 flex-col gap-3 border-t border-slate-800 bg-[#0b1017]/95 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex shrink-0 flex-col gap-3 border-t border-border bg-card px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 {submitError ? (
-                  <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                  <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-800">
                     {submitError}
                   </div>
                 ) : actionIssues.length > 0 ? (
-                  <div className="text-sm text-slate-400">
-                    Не заполнено: <span className="font-semibold text-yellow-200">{actionIssues.join(", ")}</span>
+                  <div className="text-sm text-muted-foreground">
+                    Не заполнено: <span className="font-semibold text-amber-800">{actionIssues.join(", ")}</span>
                   </div>
                 ) : (
-                  <div className="text-sm text-emerald-200">План готов к созданию.</div>
+                  <div className="text-sm text-emerald-800">План готов к созданию.</div>
                 )}
               </div>
               <div className="flex shrink-0 gap-2">
-                <Button type="button" variant="outline" className="border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-900" onClick={() => onOpenChange(false)}>
+                <Button type="button" variant="outline" className="border-border bg-background text-foreground hover:bg-background" onClick={() => onOpenChange(false)}>
                   Отмена
                 </Button>
-                <Button type="submit" className="bg-yellow-400 font-semibold text-slate-950 hover:bg-yellow-300" disabled={submitting || form.formState.isSubmitting}>
+                <Button type="submit" className="bg-primary font-semibold text-primary-foreground hover:bg-primary" disabled={submitting || form.formState.isSubmitting}>
                   {submitting || form.formState.isSubmitting
                     ? isEdit
                       ? "Сохраняю..."

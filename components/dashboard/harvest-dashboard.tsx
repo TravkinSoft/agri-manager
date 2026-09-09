@@ -68,18 +68,18 @@ function isAbortError(reason: unknown): boolean {
 }
 
 function SectionLoading() {
-  return <div className="flex min-h-[20rem] items-center justify-center text-sm text-slate-400" role="status"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка сводки...</div>;
+  return <div className="flex min-h-[20rem] items-center justify-center text-sm text-muted-foreground" role="status"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка сводки...</div>;
 }
 
 function FilterSelect({ label, value, options, onChange }: { label: string; value?: string | null; options: Array<{ id: string; label: string }>; onChange: (value: string | null) => void }) {
-  return <div className="min-w-0"><label className="mb-1 block text-[11px] uppercase text-slate-500">{label}</label><Select value={value || "all"} onValueChange={(next) => onChange(next === "all" ? null : next)}><SelectTrigger className="h-9 min-w-0"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Все</SelectItem>{options.map((option) => <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>)}</SelectContent></Select></div>;
+  return <div className="min-w-0"><label className="mb-1 block text-[11px] uppercase text-muted-foreground">{label}</label><Select value={value || "all"} onValueChange={(next) => onChange(next === "all" ? null : next)}><SelectTrigger className="h-9 min-w-0"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Все</SelectItem>{options.map((option) => <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>)}</SelectContent></Select></div>;
 }
 
 function TicketRow({ ticket, kind, onOpen }: { ticket: HarvestPartyTicket; kind: "open" | "completed"; onOpen: (id: string) => void }) {
   return (
-    <button type="button" onClick={() => onOpen(ticket.ticketId)} className="grid w-full min-w-0 gap-1 rounded-md border border-slate-800 px-3 py-2 text-left hover:border-slate-700 sm:grid-cols-[1fr_auto] sm:gap-3">
-      <span className="min-w-0"><span className="block truncate text-sm font-medium text-slate-100">{time(ticket.occurredAt)} · {ticket.fieldName} · {ticket.vehicleLabel}</span><span className="block truncate text-xs text-slate-500">{ticket.driverName} · {ticket.destinationName}</span></span>
-      <span className="flex flex-wrap items-center gap-x-3 text-xs sm:justify-end"><b className="text-sm text-slate-100">{kind === "open" ? `Брутто ${kg(ticket.grossWeightKg)}` : `Нетто ${kg(ticket.netWeightKg)}`}</b>{kind === "open" ? <span className="text-amber-300">Ждёт тару {ticket.waitingTareMinutes} мин.</span> : <span className="text-emerald-300">{ticket.statusLabel}</span>}{ticket.moisturePercent != null ? <span className="text-slate-400">Влажность {percent(ticket.moisturePercent)}</span> : null}</span>
+    <button type="button" onClick={() => onOpen(ticket.ticketId)} className="grid w-full min-w-0 gap-1 rounded-md border border-border px-3 py-2 text-left hover:border-border sm:grid-cols-[1fr_auto] sm:gap-3">
+      <span className="min-w-0"><span className="block truncate text-sm font-medium text-foreground">{time(ticket.occurredAt)} · {ticket.fieldName} · {ticket.vehicleLabel}</span><span className="block truncate text-xs text-muted-foreground">{ticket.driverName} · {ticket.destinationName}</span></span>
+      <span className="flex flex-wrap items-center gap-x-3 text-xs sm:justify-end"><b className="text-sm text-foreground">{kind === "open" ? `Брутто ${kg(ticket.grossWeightKg)}` : `Нетто ${kg(ticket.netWeightKg)}`}</b>{kind === "open" ? <span className="text-amber-800">Ждёт тару {ticket.waitingTareMinutes} мин.</span> : <span className="text-emerald-800">{ticket.statusLabel}</span>}{ticket.moisturePercent != null ? <span className="text-muted-foreground">Влажность {percent(ticket.moisturePercent)}</span> : null}</span>
     </button>
   );
 }
@@ -87,27 +87,27 @@ function TicketRow({ ticket, kind, onOpen }: { ticket: HarvestPartyTicket; kind:
 function PartyCard({ party, open, onOpenChange, onTicket }: { party: HarvestParty; open: boolean; onOpenChange: (open: boolean) => void; onTicket: (id: string) => void }) {
   return (
     <Collapsible open={open} onOpenChange={onOpenChange}>
-      <Card className="overflow-hidden rounded-none border-0 border-b border-slate-800 bg-transparent shadow-none">
+      <Card className="overflow-hidden rounded-none border-0 border-b border-border bg-transparent shadow-none">
         <CollapsibleTrigger asChild>
-          <button type="button" className="grid w-full min-w-0 grid-cols-2 gap-3 p-4 text-left hover:bg-slate-900/40 lg:grid-cols-[minmax(210px,1.15fr)_repeat(4,minmax(110px,0.65fr))_auto] lg:items-center">
-            <span className="col-span-2 min-w-0 lg:col-span-1"><span className="block truncate text-base font-semibold text-slate-100">{party.cropName}</span><span className="block truncate text-sm text-slate-400">{party.complete ? [party.varietyName, party.reproductionName].filter(Boolean).join(" · ") : "Требуется уточнение"}</span></span>
-            <span><span className="block text-[11px] uppercase text-slate-500">На складах сейчас</span><b className="text-base text-slate-100">{kg(party.currentStockKg)}</b></span>
-            <span><span className="block text-[11px] uppercase text-slate-500">Принято за период</span><b className="text-base text-[#E0B100]">{kg(party.receivedKg)}</b></span>
-            <span><span className="block text-[11px] uppercase text-slate-500">Открыто машин</span><b className="text-base text-slate-100">{party.openTicketCount}</b></span>
-            <span><span className="block text-[11px] uppercase text-slate-500">Завершено рейсов</span><b className="text-base text-slate-100">{party.completedTicketCount}</b></span>
-            <span className="col-span-2 flex items-center justify-between gap-2 text-xs text-slate-500 lg:col-span-1 lg:justify-end">{party.lastTrip ? `Последний ${time(party.lastTrip.occurredAt)}` : "Рейсов нет"}<ChevronDown className={`h-5 w-5 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} /></span>
+          <button type="button" className="grid w-full min-w-0 grid-cols-2 gap-3 p-4 text-left hover:bg-background lg:grid-cols-[minmax(210px,1.15fr)_repeat(4,minmax(110px,0.65fr))_auto] lg:items-center">
+            <span className="col-span-2 min-w-0 lg:col-span-1"><span className="block truncate text-base font-semibold text-foreground">{party.cropName}</span><span className="block truncate text-sm text-muted-foreground">{party.complete ? [party.varietyName, party.reproductionName].filter(Boolean).join(" · ") : "Требуется уточнение"}</span></span>
+            <span><span className="block text-[11px] uppercase text-muted-foreground">На складах сейчас</span><b className="text-base text-foreground">{kg(party.currentStockKg)}</b></span>
+            <span><span className="block text-[11px] uppercase text-muted-foreground">Принято за период</span><b className="text-base text-primary">{kg(party.receivedKg)}</b></span>
+            <span><span className="block text-[11px] uppercase text-muted-foreground">Открыто машин</span><b className="text-base text-foreground">{party.openTicketCount}</b></span>
+            <span><span className="block text-[11px] uppercase text-muted-foreground">Завершено рейсов</span><b className="text-base text-foreground">{party.completedTicketCount}</b></span>
+            <span className="col-span-2 flex items-center justify-between gap-2 text-xs text-muted-foreground lg:col-span-1 lg:justify-end">{party.lastTrip ? `Последний ${time(party.lastTrip.occurredAt)}` : "Рейсов нет"}<ChevronDown className={`h-5 w-5 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} /></span>
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <CardContent className="space-y-5 border-t border-slate-800 p-4">
-            {party.openTickets.length ? <section><h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-100"><Clock3 className="h-4 w-4 text-amber-400" />Открытые талоны</h3><div className="space-y-2">{party.openTickets.map((ticket) => <TicketRow key={ticket.ticketId} ticket={ticket} kind="open" onOpen={onTicket} />)}</div></section> : null}
-            <section><h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-100"><Scale className="h-4 w-4 text-[#E0B100]" />Завершённые талоны за период</h3>{party.completedTickets.length ? <div className="space-y-2">{party.completedTickets.map((ticket) => <TicketRow key={ticket.ticketId} ticket={ticket} kind="completed" onOpen={onTicket} />)}</div> : <p className="text-sm text-slate-500">За выбранный период завершённых рейсов нет.</p>}</section>
+          <CardContent className="space-y-5 border-t border-border p-4">
+            {party.openTickets.length ? <section><h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground"><Clock3 className="h-4 w-4 text-amber-800" />Открытые талоны</h3><div className="space-y-2">{party.openTickets.map((ticket) => <TicketRow key={ticket.ticketId} ticket={ticket} kind="open" onOpen={onTicket} />)}</div></section> : null}
+            <section><h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground"><Scale className="h-4 w-4 text-primary" />Завершённые талоны за период</h3>{party.completedTickets.length ? <div className="space-y-2">{party.completedTickets.map((ticket) => <TicketRow key={ticket.ticketId} ticket={ticket} kind="completed" onOpen={onTicket} />)}</div> : <p className="text-sm text-muted-foreground">За выбранный период завершённых рейсов нет.</p>}</section>
             <div className="grid gap-4 lg:grid-cols-2">
-              <section><h3 className="mb-2 text-sm font-semibold text-slate-100">Поступление с полей за период</h3>{party.fields.length ? <div className="space-y-2">{party.fields.map((field) => <div key={field.key} className="grid grid-cols-[1fr_auto] gap-3 rounded-md border border-slate-800 p-3"><span className="min-w-0"><b className="block truncate text-sm text-slate-100">{field.fieldName}</b><span className="block text-xs text-slate-500">{field.trips} {pluralRu(field.trips, "завершённый рейс", "завершённых рейса", "завершённых рейсов")}</span><span className="block text-xs text-slate-500">Последний: {kg(field.lastTripKg)} · {time(field.lastTripAt)}</span></span><b className="whitespace-nowrap text-sm text-[#E0B100]">{kg(field.receivedKg)}</b></div>)}</div> : <p className="text-sm text-slate-500">Поступления с полей за период нет.</p>}</section>
-              <section><h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-100"><Warehouse className="h-4 w-4 text-[#E0B100]" />Размещение на складах сейчас</h3>{party.warehouses.length ? <div className="space-y-2">{party.warehouses.map((warehouse) => <div key={`${warehouse.warehouseId}:${warehouse.warehouseName}`} className="grid grid-cols-[1fr_auto] gap-3 rounded-md border border-slate-800 p-3"><span className="truncate text-sm text-slate-200">{warehouse.warehouseName}</span><b className="whitespace-nowrap text-sm text-slate-100">{kg(warehouse.currentKg)}</b></div>)}</div> : <p className="text-sm text-slate-500">Фактического остатка на складах нет.</p>}</section>
+              <section><h3 className="mb-2 text-sm font-semibold text-foreground">Поступление с полей за период</h3>{party.fields.length ? <div className="space-y-2">{party.fields.map((field) => <div key={field.key} className="grid grid-cols-[1fr_auto] gap-3 rounded-md border border-border p-3"><span className="min-w-0"><b className="block truncate text-sm text-foreground">{field.fieldName}</b><span className="block text-xs text-muted-foreground">{field.trips} {pluralRu(field.trips, "завершённый рейс", "завершённых рейса", "завершённых рейсов")}</span><span className="block text-xs text-muted-foreground">Последний: {kg(field.lastTripKg)} · {time(field.lastTripAt)}</span></span><b className="whitespace-nowrap text-sm text-primary">{kg(field.receivedKg)}</b></div>)}</div> : <p className="text-sm text-muted-foreground">Поступления с полей за период нет.</p>}</section>
+              <section><h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground"><Warehouse className="h-4 w-4 text-primary" />Размещение на складах сейчас</h3>{party.warehouses.length ? <div className="space-y-2">{party.warehouses.map((warehouse) => <div key={`${warehouse.warehouseId}:${warehouse.warehouseName}`} className="grid grid-cols-[1fr_auto] gap-3 rounded-md border border-border p-3"><span className="truncate text-sm text-foreground">{warehouse.warehouseName}</span><b className="whitespace-nowrap text-sm text-foreground">{kg(warehouse.currentKg)}</b></div>)}</div> : <p className="text-sm text-muted-foreground">Фактического остатка на складах нет.</p>}</section>
             </div>
-            {party.moisture ? <section><h3 className="mb-2 text-sm font-semibold text-slate-100">Влажность</h3><div className="grid grid-cols-2 gap-2 rounded-md border border-slate-800 p-3 text-xs text-slate-500 sm:grid-cols-4"><span>Последний рейс<br /><b className="text-sm text-slate-200">{percent(party.moisture.latestPercent)}</b></span><span>Средняя за период<br /><b className="text-sm text-slate-200">{percent(party.moisture.averagePercent)}</b></span><span>Диапазон<br /><b className="text-sm text-slate-200">{percent(party.moisture.minimumPercent)}–{percent(party.moisture.maximumPercent)}</b></span><span>Измерено<br /><b className="text-sm text-slate-200">{party.moisture.measuredTrips} из {party.moisture.totalTrips}</b></span></div></section> : null}
-            {party.issues.length ? <section><h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-200"><AlertTriangle className="h-4 w-4" />Требует внимания</h3><div className="space-y-2">{party.issues.map((issue) => <button key={issue.key} type="button" disabled={!issue.ticketId} onClick={() => issue.ticketId && onTicket(issue.ticketId)} className="block w-full rounded-md border border-amber-800/40 bg-amber-950/15 px-3 py-2 text-left disabled:cursor-default"><span className="block text-sm text-slate-200">{issue.title}</span><span className="block text-xs text-slate-500">{issue.detail}</span></button>)}</div></section> : null}
+            {party.moisture ? <section><h3 className="mb-2 text-sm font-semibold text-foreground">Влажность</h3><div className="grid grid-cols-2 gap-2 rounded-md border border-border p-3 text-xs text-muted-foreground sm:grid-cols-4"><span>Последний рейс<br /><b className="text-sm text-foreground">{percent(party.moisture.latestPercent)}</b></span><span>Средняя за период<br /><b className="text-sm text-foreground">{percent(party.moisture.averagePercent)}</b></span><span>Диапазон<br /><b className="text-sm text-foreground">{percent(party.moisture.minimumPercent)}–{percent(party.moisture.maximumPercent)}</b></span><span>Измерено<br /><b className="text-sm text-foreground">{party.moisture.measuredTrips} из {party.moisture.totalTrips}</b></span></div></section> : null}
+            {party.issues.length ? <section><h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-800"><AlertTriangle className="h-4 w-4" />Требует внимания</h3><div className="space-y-2">{party.issues.map((issue) => <button key={issue.key} type="button" disabled={!issue.ticketId} onClick={() => issue.ticketId && onTicket(issue.ticketId)} className="block w-full rounded-md border border-amber-800/40 bg-amber-50 px-3 py-2 text-left disabled:cursor-default"><span className="block text-sm text-foreground">{issue.title}</span><span className="block text-xs text-muted-foreground">{issue.detail}</span></button>)}</div></section> : null}
           </CardContent>
         </CollapsibleContent>
       </Card>
@@ -221,10 +221,10 @@ export function HarvestDashboard() {
     <div className="mx-auto w-full max-w-[1500px] space-y-6 overflow-x-hidden">
       <div className="flex min-w-0 items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="truncate text-2xl font-semibold text-slate-100 sm:text-3xl">Сводка</h1>
-          <p className="mt-1 text-sm text-slate-400">Смены, партии урожая, фактические остатки и рейсы</p>
+          <h1 className="truncate text-2xl font-semibold text-foreground sm:text-3xl">Сводка</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Смены, партии урожая, фактические остатки и рейсы</p>
         </div>
-        <div className="hidden rounded-md border border-emerald-700/40 bg-emerald-950/30 px-2.5 py-1 text-xs text-emerald-300 sm:block">Live</div>
+        <div className="hidden rounded-md border border-emerald-700/40 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-800 sm:block">Live</div>
       </div>
 
       {profile?.role === "agronomist" && profile.company_id ? <TrafficShiftSummary key={profile.company_id} companyId={profile.company_id} /> : null}
@@ -233,7 +233,7 @@ export function HarvestDashboard() {
         <CardContent className="space-y-3 p-0">
           <div className="grid gap-2 lg:grid-cols-[minmax(240px,1fr)_auto] lg:items-end">
             <div>
-              <label className="mb-1 block text-[11px] uppercase text-slate-500">Период</label>
+              <label className="mb-1 block text-[11px] uppercase text-muted-foreground">Период</label>
               <Select value={period} onValueChange={(value) => setPeriod(value as HarvestPeriodPreset)}>
                 <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                 <SelectContent>{PERIODS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
@@ -250,12 +250,12 @@ export function HarvestDashboard() {
               <Input type="datetime-local" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} />
             </div>
           ) : null}
-          <div className="flex min-h-5 items-center gap-2 text-sm text-slate-300" aria-live="polite">
-            {summary ? <><CalendarClock className="h-4 w-4 shrink-0 text-[#E0B100]" /><span>{summary.period.label}</span></> : null}
-            {refreshing ? <span className="ml-auto flex items-center text-xs text-slate-500"><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />Обновление...</span> : null}
+          <div className="flex min-h-5 items-center gap-2 text-sm text-foreground" aria-live="polite">
+            {summary ? <><CalendarClock className="h-4 w-4 shrink-0 text-primary" /><span>{summary.period.label}</span></> : null}
+            {refreshing ? <span className="ml-auto flex items-center text-xs text-muted-foreground"><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />Обновление...</span> : null}
           </div>
           {filtersOpen ? (
-            <div className="grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-2 border-t border-border pt-3 sm:grid-cols-2 xl:grid-cols-5">
               <FilterSelect label="Культура" value={filters.cropId} options={options.crops} onChange={(value) => setFilter("cropId", value)} />
               <FilterSelect label="Сорт" value={filters.varietyId} options={options.varieties} onChange={(value) => setFilter("varietyId", value)} />
               <FilterSelect label="Репродукция" value={filters.reproductionId} options={options.reproductions} onChange={(value) => setFilter("reproductionId", value)} />
@@ -268,22 +268,22 @@ export function HarvestDashboard() {
       </Card>
 
       <div className="min-h-0 space-y-2" aria-live="polite">
-        {error ? <div className="border-l-2 border-rose-500 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</div> : null}
-        {!customReady ? <div className="border-l-2 border-amber-500 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">Укажите начало и конец периода.</div> : null}
+        {error ? <div className="border-l-2 border-rose-500 bg-rose-500/10 px-3 py-2 text-sm text-rose-800">{error}</div> : null}
+        {!customReady ? <div className="border-l-2 border-amber-500 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">Укажите начало и конец периода.</div> : null}
       </div>
 
-      <section className="min-h-[24rem] border-t border-slate-800 pt-5" aria-busy={initialLoading || refreshing}>
+      <section className="min-h-[24rem] border-t border-border pt-5" aria-busy={initialLoading || refreshing}>
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <div>
-            <h2 className="text-lg font-semibold text-slate-100">Партии в уборке</h2>
-            <p className="text-xs text-slate-500">Одна партия: сезон, культура, сорт и репродукция</p>
+            <h2 className="text-lg font-semibold text-foreground">Партии в уборке</h2>
+            <p className="text-xs text-muted-foreground">Одна партия: сезон, культура, сорт и репродукция</p>
           </div>
-          {summary ? <div className="flex gap-3 text-xs text-slate-400"><span>В работе: <b className="text-slate-100">{summary.parties.length}</b></span><span>Открыто машин: <b className="text-slate-100">{summary.openTicketCount}</b></span></div> : null}
+          {summary ? <div className="flex gap-3 text-xs text-muted-foreground"><span>В работе: <b className="text-foreground">{summary.parties.length}</b></span><span>Открыто машин: <b className="text-foreground">{summary.openTicketCount}</b></span></div> : null}
         </div>
         {!summary && initialLoading ? <SectionLoading /> : null}
-        {!summary && !initialLoading ? <div className="flex min-h-[20rem] items-center justify-center text-sm text-slate-500">Сводка пока недоступна.</div> : null}
+        {!summary && !initialLoading ? <div className="flex min-h-[20rem] items-center justify-center text-sm text-muted-foreground">Сводка пока недоступна.</div> : null}
         {summary?.parties.length ? summary.parties.map((party) => <PartyCard key={party.key} party={party} open={Boolean(expandedParties[party.key])} onOpenChange={(open) => setExpandedParties((current) => ({ ...current, [party.key]: open }))} onTicket={setTicketId} />) : null}
-        {summary && !summary.parties.length ? <div className="flex min-h-[20rem] items-center justify-center text-sm text-slate-500">По выбранным условиям партий нет.</div> : null}
+        {summary && !summary.parties.length ? <div className="flex min-h-[20rem] items-center justify-center text-sm text-muted-foreground">По выбранным условиям партий нет.</div> : null}
       </section>
       <TicketPreviewDialog ticketId={ticketId} open={Boolean(ticketId)} onOpenChange={(open) => !open && setTicketId(null)} />
     </div>

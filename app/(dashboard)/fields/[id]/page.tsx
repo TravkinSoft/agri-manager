@@ -412,7 +412,7 @@ export default function FieldDetailsPage() {
   }, [events, cropRows]);
 
   if (loading) {
-    return <div className="p-4 text-sm text-slate-500">Загрузка карточки поля...</div>;
+    return <div className="p-4 text-sm text-muted-foreground">Загрузка карточки поля...</div>;
   }
 
   if (error || !field) {
@@ -431,7 +431,7 @@ export default function FieldDetailsPage() {
       <div className="flex items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-semibold">{getFieldDisplayName(field)}</h1>
-          <p className="text-sm text-slate-500">Фактическая история поля</p>
+          <p className="text-sm text-muted-foreground">Фактическая история поля</p>
         </div>
         <Button asChild variant="outline">
           <Link href="/fields">К списку полей</Link>
@@ -441,25 +441,25 @@ export default function FieldDetailsPage() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Card>
           <CardContent className="p-4">
-            <div className="text-xs text-slate-500">Площадь поля</div>
+            <div className="text-xs text-muted-foreground">Площадь поля</div>
             <div className="text-lg font-semibold">{formatQuantity(Number(field.area || 0), "га")}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="text-xs text-slate-500">Структура посевов</div>
+            <div className="text-xs text-muted-foreground">Структура посевов</div>
             <div className="text-lg font-semibold">{formatQuantity(kpi.plannedArea, "га")}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="text-xs text-slate-500">Завершено операций</div>
+            <div className="text-xs text-muted-foreground">Завершено операций</div>
             <div className="text-lg font-semibold">{kpi.operationDone}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="text-xs text-slate-500">Израсходовано материалов</div>
+            <div className="text-xs text-muted-foreground">Израсходовано материалов</div>
             <div className="mt-1 space-y-1 text-sm font-semibold">
               {kpi.materialByUnit.length > 0
                 ? kpi.materialByUnit.map(([unit, value]) => <div key={unit}>{formatQuantity(value, unit)}</div>)
@@ -469,7 +469,7 @@ export default function FieldDetailsPage() {
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="text-xs text-slate-500">Принято урожая</div>
+            <div className="text-xs text-muted-foreground">Принято урожая</div>
             <div className="text-lg font-semibold">{formatQuantity(kpi.harvestKg, "кг")}</div>
           </CardContent>
         </Card>
@@ -481,7 +481,7 @@ export default function FieldDetailsPage() {
         </CardHeader>
         <CardContent className="space-y-2">
           {cropRows.length === 0 ? (
-            <div className="rounded border border-dashed p-3 text-sm text-slate-500">
+            <div className="rounded border border-dashed p-3 text-sm text-muted-foreground">
               Структура посевов ещё не заполнена.
             </div>
           ) : (
@@ -495,7 +495,7 @@ export default function FieldDetailsPage() {
                     {row.seasonYear || "Без сезона"} • {cropStatusLabels[row.status || ""] || "Статус не указан"}
                   </Badge>
                 </div>
-                <div className="mt-1 text-xs text-slate-600">Площадь: {formatQuantity(row.area, "га")}</div>
+                <div className="mt-1 text-xs text-muted-foreground">Площадь: {formatQuantity(row.area, "га")}</div>
               </div>
             ))
           )}
@@ -508,7 +508,7 @@ export default function FieldDetailsPage() {
         </CardHeader>
         <CardContent className="space-y-2">
           {events.length === 0 ? (
-            <div className="rounded border border-dashed p-3 text-sm text-slate-500">
+            <div className="rounded border border-dashed p-3 text-sm text-muted-foreground">
               Подтверждённых событий пока нет.
             </div>
           ) : (
@@ -518,9 +518,9 @@ export default function FieldDetailsPage() {
                   <div className="font-medium">{event.title}</div>
                   <Badge variant="outline">{formatTimelineDate(event.happenedAt, event.dateOnly)}</Badge>
                 </div>
-                {event.details ? <div className="text-xs text-slate-600">{event.details}</div> : null}
+                {event.details ? <div className="text-xs text-muted-foreground">{event.details}</div> : null}
                 {event.quantity != null ? (
-                  <div className="mt-1 text-xs font-medium text-slate-800">
+                  <div className="mt-1 text-xs font-medium text-muted-foreground">
                     Количество: {formatQuantity(Number(event.quantity), event.unit || "")}
                   </div>
                 ) : null}

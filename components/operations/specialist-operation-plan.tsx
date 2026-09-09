@@ -35,12 +35,12 @@ function DetailValue({
 }) {
   return (
     <div>
-      <div className="text-[13px] text-slate-500">{label}</div>
+      <div className="text-[13px] text-muted-foreground">{label}</div>
       <div
         className={
           emphasis
-            ? "mt-1 text-lg font-bold text-yellow-300"
-            : "mt-1 text-sm font-semibold text-slate-100"
+            ? "mt-1 text-lg font-bold text-amber-800"
+            : "mt-1 text-sm font-semibold text-foreground"
         }
       >
         {value}
@@ -110,7 +110,7 @@ export function SpecialistOperationPlan({
 
       {presentation.planLines.length > 1 ? (
         <section className="space-y-3">
-          <h3 className="text-base font-semibold text-slate-100">
+          <h3 className="text-base font-semibold text-foreground">
             Участки обработки
           </h3>
           <div className="space-y-3">
@@ -119,11 +119,11 @@ export function SpecialistOperationPlan({
                 key={line.id}
                 className="grid gap-1 text-sm sm:grid-cols-[32px_minmax(0,1fr)_auto] sm:items-center sm:gap-3"
               >
-                <span className="hidden text-slate-500 sm:block">
+                <span className="hidden text-muted-foreground sm:block">
                   {index + 1}
                 </span>
                 <div className="min-w-0">
-                  <div className="font-medium text-slate-100">
+                  <div className="font-medium text-foreground">
                     {line.fieldName || presentation.fieldName}
                   </div>
                   {identityText([
@@ -131,7 +131,7 @@ export function SpecialistOperationPlan({
                     line.varietyName,
                     line.reproductionName,
                   ]) ? (
-                    <div className="mt-0.5 text-[13px] text-slate-400">
+                    <div className="mt-0.5 text-[13px] text-muted-foreground">
                       {identityText([
                         line.cropName,
                         line.varietyName,
@@ -140,12 +140,12 @@ export function SpecialistOperationPlan({
                     </div>
                   ) : null}
                 </div>
-                <div className="font-semibold text-slate-100">
+                <div className="font-semibold text-foreground">
                   {numberText(line.plannedAreaHa)} га
                 </div>
               </div>
             ))}
-            <div className="flex items-center justify-between gap-3 pt-1 text-sm font-semibold text-slate-100">
+            <div className="flex items-center justify-between gap-3 pt-1 text-sm font-semibold text-foreground">
               <span>Итого</span>
               <span>{numberText(presentation.plannedAreaHa)} га</span>
             </div>
@@ -164,7 +164,7 @@ export function SpecialistOperationPlan({
       {hasMixture ? (
         <section className="space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
-            <h3 className="text-base font-semibold text-slate-100">
+            <h3 className="text-base font-semibold text-foreground">
               Баковая смесь (расчёт)
             </h3>
             {detailByKey.get("solution_rate") ? (
@@ -190,11 +190,11 @@ export function SpecialistOperationPlan({
                     className="grid gap-2 text-sm sm:grid-cols-[minmax(0,1fr)_minmax(180px,0.8fr)_auto] sm:items-center sm:gap-4"
                   >
                     <div>
-                      <div className="font-medium text-slate-100">
+                      <div className="font-medium text-foreground">
                         {material.name}
                       </div>
                       {warehouse ? (
-                        <div className="mt-1 text-[13px] text-slate-400">
+                        <div className="mt-1 text-[13px] text-muted-foreground">
                           {warehouse.statusLabel}
                           {` · ожидаемый возврат ${numberText(
                             warehouse.expectedReturnQuantity
@@ -202,10 +202,10 @@ export function SpecialistOperationPlan({
                         </div>
                       ) : null}
                     </div>
-                    <div className="text-slate-300">
+                    <div className="text-foreground">
                       {material.formula || material.rateLabel || null}
                     </div>
-                    <div className="font-semibold text-slate-100">
+                    <div className="font-semibold text-foreground">
                       {numberText(material.plannedQuantity)} {material.unit}
                     </div>
                   </div>
@@ -238,7 +238,7 @@ export function SpecialistOperationPlan({
         </section>
       ) : presentation.materialRows.length > 0 ? (
         <section className="space-y-3">
-          <h3 className="text-base font-semibold text-slate-100">Материалы</h3>
+          <h3 className="text-base font-semibold text-foreground">Материалы</h3>
           <div className="space-y-4">
             {presentation.materialRows.map((material) => {
               const rawMaterial = presentation.materials.find(
@@ -251,30 +251,30 @@ export function SpecialistOperationPlan({
                 <div key={material.id}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <div className="font-medium text-slate-100">
+                      <div className="font-medium text-foreground">
                         {material.name}
                       </div>
                       {material.rateLabel ? (
-                        <div className="mt-1 text-[13px] text-slate-400">
+                        <div className="mt-1 text-[13px] text-muted-foreground">
                           Норма: {material.rateLabel}
                         </div>
                       ) : null}
                       {material.formula ? (
-                        <div className="mt-1 text-sm text-slate-300">
+                        <div className="mt-1 text-sm text-foreground">
                           {material.formula}
                         </div>
                       ) : null}
                     </div>
-                    <div className="font-semibold text-slate-100">
+                    <div className="font-semibold text-foreground">
                       {numberText(material.plannedQuantity)} {material.unit}
                     </div>
                   </div>
                   {material.isSeed ? (
-                    <div className="mt-2 text-[13px] text-slate-500">
+                    <div className="mt-2 text-[13px] text-muted-foreground">
                       Фактическая выдача семян поступает из весовой.
                     </div>
                   ) : warehouse ? (
-                    <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[13px] text-slate-400">
+                    <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[13px] text-muted-foreground">
                       <span>
                         Подготовлено: {numberText(warehouse.preparedQuantity)}{" "}
                         {material.unit}
@@ -300,13 +300,13 @@ export function SpecialistOperationPlan({
 
       {hasAssets ? (
         <section className="space-y-3">
-          <h3 className="text-base font-semibold text-slate-100">
+          <h3 className="text-base font-semibold text-foreground">
             Техника и оборудование
           </h3>
           <div className="grid gap-4 sm:grid-cols-2">
             {presentation.machineName ? (
               <div className="flex items-center gap-3">
-                <Tractor className="h-7 w-7 shrink-0 text-slate-500" />
+                <Tractor className="h-7 w-7 shrink-0 text-muted-foreground" />
                 <DetailValue label="Машина" value={presentation.machineName} />
               </div>
             ) : null}
@@ -325,12 +325,12 @@ export function SpecialistOperationPlan({
 
       {presentation.agronomistComment ? (
         <section className="flex gap-3">
-          <MessageSquareText className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" />
+          <MessageSquareText className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
           <div>
-            <h3 className="text-base font-semibold text-slate-100">
+            <h3 className="text-base font-semibold text-foreground">
               Комментарий агронома
             </h3>
-            <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-300">
+            <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">
               {presentation.agronomistComment}
             </div>
           </div>

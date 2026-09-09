@@ -19,7 +19,7 @@ export default function SpecialistSettingsLegacyPage() {
 
   if (loading || profile?.role === "global_admin") {
     return (
-      <div className="flex h-48 items-center justify-center text-slate-500">
+      <div className="flex h-48 items-center justify-center text-muted-foreground">
         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
         Перенаправление в настройки ассистента...
       </div>

@@ -145,18 +145,18 @@ export default function ContainersPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="text-sm text-slate-500">Загрузка...</div>
+            <div className="text-sm text-muted-foreground">Загрузка...</div>
           ) : rows.length === 0 ? (
-            <div className="text-sm text-slate-500">Записей пока нет.</div>
+            <div className="text-sm text-muted-foreground">Записей пока нет.</div>
           ) : (
             <div className="space-y-2">
               {rows.map((row) => (
                 <div key={row.id} className="rounded-lg border p-3 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-medium">{row.container_type}</div>
-                    <div className="text-xs rounded-full px-2 py-1 bg-slate-100">{row.container_status}</div>
+                    <div className="text-xs rounded-full px-2 py-1 bg-muted">{row.container_status}</div>
                   </div>
-                  <div className="text-sm text-slate-600">{row.product_name || "Без привязки к продукту"} · {row.quantity}</div>
+                  <div className="text-sm text-muted-foreground">{row.product_name || "Без привязки к продукту"} · {row.quantity}</div>
                   <div className="flex flex-wrap gap-2">
                     {STATUSES.map((item) => (
                       <Button key={item} variant="outline" size="sm" onClick={() => handleStatus(row.id, item)} disabled={row.container_status === item}>

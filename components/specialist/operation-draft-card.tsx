@@ -62,17 +62,17 @@ export function OperationDraftCard({
       <CardContent className="space-y-3">
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div className="flex items-start gap-2">
-            <FileText className="h-4 w-4 text-slate-500 mt-0.5" />
+            <FileText className="h-4 w-4 text-muted-foreground mt-0.5" />
             <div>
-              <div className="text-xs text-slate-500">{t('operation_type')}</div>
+              <div className="text-xs text-muted-foreground">{t('operation_type')}</div>
               <div className="font-medium">{getOperationTypeLabel(draft.operation_type)}</div>
             </div>
           </div>
 
           <div className="flex items-start gap-2">
-            <Calendar className="h-4 w-4 text-slate-500 mt-0.5" />
+            <Calendar className="h-4 w-4 text-muted-foreground mt-0.5" />
             <div>
-              <div className="text-xs text-slate-500">{t('operation_date')}</div>
+              <div className="text-xs text-muted-foreground">{t('operation_date')}</div>
               <div className="font-medium">
                 {draft.date ? format(new Date(draft.date), 'dd.MM.yyyy') : '-'}
               </div>
@@ -80,9 +80,9 @@ export function OperationDraftCard({
           </div>
 
           <div className="flex items-start gap-2 col-span-2">
-            <MapPin className="h-4 w-4 text-slate-500 mt-0.5" />
+            <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
             <div>
-              <div className="text-xs text-slate-500">{t('field')}</div>
+              <div className="text-xs text-muted-foreground">{t('field')}</div>
               <div className="font-medium">{draft.field_name || draft.field_id || '-'}</div>
             </div>
           </div>
@@ -90,8 +90,8 @@ export function OperationDraftCard({
 
         {draft.notes && (
           <div className="pt-2 border-t">
-            <div className="text-xs text-slate-500 mb-1">{t('notes')}</div>
-            <p className="text-sm text-slate-700 whitespace-pre-wrap">{draft.notes}</p>
+            <div className="text-xs text-muted-foreground mb-1">{t('notes')}</div>
+            <p className="text-sm text-muted-foreground whitespace-pre-wrap">{draft.notes}</p>
           </div>
         )}
       </CardContent>

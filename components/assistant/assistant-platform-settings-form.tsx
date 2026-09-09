@@ -669,60 +669,60 @@ export function AssistantPlatformSettingsForm() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-slate-900">Настройки ассистента</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="text-3xl font-bold text-muted-foreground">Настройки ассистента</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           Пульт управления Travkin Copilot: мозг, источники знаний, память, действия и быстрый тест.
         </p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Card className="border-slate-200">
+        <Card className="border-border">
           <CardContent className="flex items-start gap-3 p-4">
             <div className="rounded-lg bg-emerald-50 p-2 text-emerald-700">
               <Brain className="h-5 w-5" />
             </div>
             <div>
-              <div className="text-sm font-semibold text-slate-900">GPT — первый мозг</div>
-              <p className="mt-1 text-xs leading-relaxed text-slate-500">
+              <div className="text-sm font-semibold text-muted-foreground">GPT — первый мозг</div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                 Сначала понимает запрос, потом выбирает tool или отвечает сам.
               </p>
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200">
+        <Card className="border-border">
           <CardContent className="flex items-start gap-3 p-4">
             <div className="rounded-lg bg-sky-50 p-2 text-sky-700">
               <Database className="h-5 w-5" />
             </div>
             <div>
-              <div className="text-sm font-semibold text-slate-900">ERP = факты</div>
-              <p className="mt-1 text-xs leading-relaxed text-slate-500">
+              <div className="text-sm font-semibold text-muted-foreground">ERP = факты</div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                 Остатки, площади, операции, талоны и статусы берутся только из данных системы.
               </p>
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200">
+        <Card className="border-border">
           <CardContent className="flex items-start gap-3 p-4">
             <div className="rounded-lg bg-amber-50 p-2 text-amber-700">
               <BookOpen className="h-5 w-5" />
             </div>
             <div>
-              <div className="text-sm font-semibold text-slate-900">Библиотека первая</div>
-              <p className="mt-1 text-xs leading-relaxed text-slate-500">
+              <div className="text-sm font-semibold text-muted-foreground">Библиотека первая</div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                 Книги, инструкции Grimme и агрономические материалы важнее общих знаний модели.
               </p>
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200">
+        <Card className="border-border">
           <CardContent className="flex items-start gap-3 p-4">
             <div className="rounded-lg bg-violet-50 p-2 text-violet-700">
               <UserRound className="h-5 w-5" />
             </div>
             <div>
-              <div className="text-sm font-semibold text-slate-900">Память по пользователю</div>
-              <p className="mt-1 text-xs leading-relaxed text-slate-500">
+              <div className="text-sm font-semibold text-muted-foreground">Память по пользователю</div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                 Личные привычки агронома не применяются к специалисту или складовщику.
               </p>
             </div>
@@ -730,7 +730,7 @@ export function AssistantPlatformSettingsForm() {
         </Card>
       </div>
 
-      <Card className="border-slate-200">
+      <Card className="border-border">
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -746,8 +746,8 @@ export function AssistantPlatformSettingsForm() {
         <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
             <span>
-              <span className="block text-sm font-medium text-slate-900">Ассистент включён</span>
-              <span className="block text-xs text-slate-500">Показывать Copilot пользователям разрешённых ролей.</span>
+              <span className="block text-sm font-medium text-muted-foreground">Ассистент включён</span>
+              <span className="block text-xs text-muted-foreground">Показывать Copilot пользователям разрешённых ролей.</span>
             </span>
             <Switch
               checked={settings.enabled}
@@ -757,8 +757,8 @@ export function AssistantPlatformSettingsForm() {
           </label>
           <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
             <span>
-              <span className="block text-sm font-medium text-slate-900">Черновик перед действием</span>
-              <span className="block text-xs text-slate-500">Операции, талоны и движения только после подтверждения.</span>
+              <span className="block text-sm font-medium text-muted-foreground">Черновик перед действием</span>
+              <span className="block text-xs text-muted-foreground">Операции, талоны и движения только после подтверждения.</span>
             </span>
             <Switch
               checked={settings.actionConfirmation.alwaysRequireHumanConfirmation}
@@ -773,8 +773,8 @@ export function AssistantPlatformSettingsForm() {
           </label>
           <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
             <span>
-              <span className="block text-sm font-medium text-slate-900">Память пользователя</span>
-              <span className="block text-xs text-slate-500">Запоминать явные предпочтения внутри текущего пользователя.</span>
+              <span className="block text-sm font-medium text-muted-foreground">Память пользователя</span>
+              <span className="block text-xs text-muted-foreground">Запоминать явные предпочтения внутри текущего пользователя.</span>
             </span>
             <Switch
               checked={settings.memoryPolicy.userMemoryEnabled}
@@ -786,8 +786,8 @@ export function AssistantPlatformSettingsForm() {
           </label>
           <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
             <span>
-              <span className="block text-sm font-medium text-slate-900">Библиотека компании первая</span>
-              <span className="block text-xs text-slate-500">Для знаний и инструкций сначала читать внутренние документы.</span>
+              <span className="block text-sm font-medium text-muted-foreground">Библиотека компании первая</span>
+              <span className="block text-xs text-muted-foreground">Для знаний и инструкций сначала читать внутренние документы.</span>
             </span>
             <Switch
               checked={settings.knowledgePolicy.internalLibraryFirst}
@@ -799,8 +799,8 @@ export function AssistantPlatformSettingsForm() {
           </label>
           <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
             <span>
-              <span className="block text-sm font-medium text-slate-900">Навигация по сайту</span>
-              <span className="block text-xs text-slate-500">Ассист может готовить переходы и открывать модули.</span>
+              <span className="block text-sm font-medium text-muted-foreground">Навигация по сайту</span>
+              <span className="block text-xs text-muted-foreground">Ассист может готовить переходы и открывать модули.</span>
             </span>
             <Switch
               checked={settings.features.navigationEnabled}
@@ -812,8 +812,8 @@ export function AssistantPlatformSettingsForm() {
           </label>
           <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
             <span>
-              <span className="block text-sm font-medium text-slate-900">Публичный интернет</span>
-              <span className="block text-xs text-slate-500">По умолчанию выключен: источником служит ERP и библиотека.</span>
+              <span className="block text-sm font-medium text-muted-foreground">Публичный интернет</span>
+              <span className="block text-xs text-muted-foreground">По умолчанию выключен: источником служит ERP и библиотека.</span>
             </span>
             <Switch
               checked={settings.knowledgePolicy.allowPublicInternetLookup}
@@ -826,18 +826,18 @@ export function AssistantPlatformSettingsForm() {
         </CardContent>
       </Card>
 
-      <Card className="border-slate-200">
+      <Card className="border-border">
         <CardHeader>
           <CardTitle>Память, компания и база знаний</CardTitle>
           <CardDescription>Как ассист учится и где ищет знания.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 lg:grid-cols-3">
-          <div className="rounded-lg border bg-slate-50 p-4">
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900">
-              <LockKeyhole className="h-4 w-4 text-slate-600" />
+          <div className="rounded-lg border bg-muted p-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+              <LockKeyhole className="h-4 w-4 text-muted-foreground" />
               Личная память
             </div>
-            <p className="text-sm leading-relaxed text-slate-600">
+            <p className="text-sm leading-relaxed text-muted-foreground">
               Хранится по company + user. Команда “пиши коротко” применяется только к этому пользователю.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -848,12 +848,12 @@ export function AssistantPlatformSettingsForm() {
               <Badge variant="secondary">не источник ERP</Badge>
             </div>
           </div>
-          <div className="rounded-lg border bg-slate-50 p-4">
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900">
-              <Building2 className="h-4 w-4 text-slate-600" />
+          <div className="rounded-lg border bg-muted p-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+              <Building2 className="h-4 w-4 text-muted-foreground" />
               Правила компании
             </div>
-            <p className="text-sm leading-relaxed text-slate-600">
+            <p className="text-sm leading-relaxed text-muted-foreground">
               Локальные привычки компании могут дополнять ядро, но не заменяют безопасность и Source of Truth.
             </p>
             <label className="mt-3 flex items-center gap-3 text-sm">
@@ -870,12 +870,12 @@ export function AssistantPlatformSettingsForm() {
               Разрешить company-инструкции
             </label>
           </div>
-          <div className="rounded-lg border bg-slate-50 p-4">
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900">
-              <Route className="h-4 w-4 text-slate-600" />
+          <div className="rounded-lg border bg-muted p-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+              <Route className="h-4 w-4 text-muted-foreground" />
               Приоритет ответа
             </div>
-            <ol className="space-y-1 text-sm text-slate-600">
+            <ol className="space-y-1 text-sm text-muted-foreground">
               <li>1. ERP tools для фактов.</li>
               <li>2. Внутренняя библиотека для знаний.</li>
               <li>3. Общие знания модели как fallback.</li>
@@ -896,14 +896,14 @@ export function AssistantPlatformSettingsForm() {
               }
               disabled={loading || saving}
             />
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-muted-foreground">
               Это не главный prompt. Ядро TravkinFlow остаётся в коде, а здесь только дополнительные правила поведения.
             </p>
           </div>
         </CardContent>
       </Card>
 
-      <Card className="border-slate-200">
+      <Card className="border-border">
         <CardHeader>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -917,7 +917,7 @@ export function AssistantPlatformSettingsForm() {
                 {knowledgeLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 Обновить
               </Button>
-              <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition hover:bg-slate-50">
+              <label className="inline-flex cursor-pointer items-center rounded-md border border-border bg-white px-3 py-2 text-sm font-medium text-muted-foreground shadow-sm transition hover:bg-muted">
                 {knowledgeUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
                 Загрузить
                 <input
@@ -933,9 +933,9 @@ export function AssistantPlatformSettingsForm() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 md:grid-cols-4">
-            <div className="rounded-lg border bg-slate-50 p-3">
-              <div className="text-xs text-slate-500">Всего документов</div>
-              <div className="mt-1 text-2xl font-semibold text-slate-900">{knowledgeStats.total}</div>
+            <div className="rounded-lg border bg-muted p-3">
+              <div className="text-xs text-muted-foreground">Всего документов</div>
+              <div className="mt-1 text-2xl font-semibold text-muted-foreground">{knowledgeStats.total}</div>
             </div>
             <div className="rounded-lg border bg-emerald-50 p-3">
               <div className="text-xs text-emerald-700">Готовы к ответам</div>
@@ -953,11 +953,11 @@ export function AssistantPlatformSettingsForm() {
 
           <div className="grid gap-3 lg:grid-cols-3">
             <div className="rounded-lg border bg-white p-4">
-              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
                 <BookOpen className="h-4 w-4 text-amber-700" />
                 Порядок источников
               </div>
-              <ol className="space-y-1 text-sm text-slate-600">
+              <ol className="space-y-1 text-sm text-muted-foreground">
                 <li>1. ERP — живые факты: поля, склады, операции, талоны.</li>
                 <li>2. Библиотека — инструкции, книги, техника, агрономия.</li>
                 <li>3. Общие знания модели — только когда библиотека не покрывает вопрос.</li>
@@ -968,8 +968,8 @@ export function AssistantPlatformSettingsForm() {
             <div className="space-y-3 rounded-lg border bg-white p-4 lg:col-span-2">
               <label className="flex items-center justify-between gap-3">
                 <span>
-                  <span className="block text-sm font-medium text-slate-900">Сначала внутренняя библиотека</span>
-                  <span className="block text-xs text-slate-500">Книги и инструкции компании важнее общих знаний модели.</span>
+                  <span className="block text-sm font-medium text-muted-foreground">Сначала внутренняя библиотека</span>
+                  <span className="block text-xs text-muted-foreground">Книги и инструкции компании важнее общих знаний модели.</span>
                 </span>
                 <Switch
                   checked={settings.knowledgePolicy.internalLibraryFirst}
@@ -981,8 +981,8 @@ export function AssistantPlatformSettingsForm() {
               </label>
               <label className="flex items-center justify-between gap-3">
                 <span>
-                  <span className="block text-sm font-medium text-slate-900">Показывать источник знания</span>
-                  <span className="block text-xs text-slate-500">Ассист будет помечать, что опирался на библиотеку, когда она использована.</span>
+                  <span className="block text-sm font-medium text-muted-foreground">Показывать источник знания</span>
+                  <span className="block text-xs text-muted-foreground">Ассист будет помечать, что опирался на библиотеку, когда она использована.</span>
                 </span>
                 <Switch
                   checked={settings.knowledgePolicy.requireLibrarySourceHints}
@@ -994,8 +994,8 @@ export function AssistantPlatformSettingsForm() {
               </label>
               <label className="flex items-center justify-between gap-3">
                 <span>
-                  <span className="block text-sm font-medium text-slate-900">Разрешить общие знания как fallback</span>
-                  <span className="block text-xs text-slate-500">Если документа нет, ассист может объяснить процесс общими знаниями, но не выдумывать ERP-факты.</span>
+                  <span className="block text-sm font-medium text-muted-foreground">Разрешить общие знания как fallback</span>
+                  <span className="block text-xs text-muted-foreground">Если документа нет, ассист может объяснить процесс общими знаниями, но не выдумывать ERP-факты.</span>
                 </span>
                 <Switch
                   checked={settings.knowledgePolicy.fallbackToModelKnowledge}
@@ -1017,7 +1017,7 @@ export function AssistantPlatformSettingsForm() {
           ) : null}
 
           <div className="rounded-lg border">
-            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 border-b bg-slate-50 px-3 py-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 border-b bg-muted px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               <span>Документ</span>
               <span>Статус</span>
               <span>Размер</span>
@@ -1025,12 +1025,12 @@ export function AssistantPlatformSettingsForm() {
             </div>
             <div className="divide-y">
               {knowledgeLoading ? (
-                <div className="flex items-center gap-2 px-3 py-4 text-sm text-slate-500">
+                <div className="flex items-center gap-2 px-3 py-4 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Загружаю базу знаний…
                 </div>
               ) : knowledgeDocuments.length === 0 ? (
-                <div className="px-3 py-4 text-sm text-slate-500">
+                <div className="px-3 py-4 text-sm text-muted-foreground">
                   Документов пока нет. Загрузите PDF, DOCX, TXT или XLSX, чтобы ассист начал использовать внутреннюю библиотеку.
                 </div>
               ) : (
@@ -1038,15 +1038,15 @@ export function AssistantPlatformSettingsForm() {
                   <div key={doc.id} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-3 py-2 text-sm">
                     <div className="min-w-0">
                       <div className="flex min-w-0 items-center gap-2">
-                        <FileText className="h-4 w-4 shrink-0 text-slate-500" />
-                        <span className="truncate font-medium text-slate-900">{doc.filename}</span>
+                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate font-medium text-muted-foreground">{doc.filename}</span>
                       </div>
-                      <div className="mt-1 text-xs text-slate-500">Добавлен: {formatShortDate(doc.created_at)}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">Добавлен: {formatShortDate(doc.created_at)}</div>
                     </div>
                     <Badge variant={doc.status === "ready" ? "default" : doc.status === "failed" ? "destructive" : "secondary"}>
                       {knowledgeStatusLabel(doc.status)}
                     </Badge>
-                    <span className="whitespace-nowrap text-slate-600">{formatFileSize(doc.file_size)}</span>
+                    <span className="whitespace-nowrap text-muted-foreground">{formatFileSize(doc.file_size)}</span>
                     <Button type="button" variant="ghost" size="sm" onClick={() => void archiveKnowledge(doc.id)} disabled={knowledgeUploading}>
                       Убрать
                     </Button>
@@ -1130,7 +1130,7 @@ export function AssistantPlatformSettingsForm() {
           </div>
 
           <div className="col-span-full flex flex-wrap items-center gap-6">
-            <div className="flex items-center gap-2 text-sm text-slate-600">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Gauge className="h-4 w-4" />
               <span>
                 Активно: {settings.enabled ? "да" : "нет"} · ролей {allowedRolesCount} · tools {enabledToolsCount}
@@ -1161,7 +1161,7 @@ export function AssistantPlatformSettingsForm() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="space-y-2 rounded border bg-slate-50 p-3 text-sm">
+          <div className="space-y-2 rounded border bg-muted p-3 text-sm">
             <div className="font-medium">Active core prompt</div>
             <div className="grid gap-2 md:grid-cols-3">
               <div>
@@ -1175,7 +1175,7 @@ export function AssistantPlatformSettingsForm() {
               </div>
             </div>
             <details>
-              <summary className="cursor-pointer text-xs font-medium uppercase text-slate-600">
+              <summary className="cursor-pointer text-xs font-medium uppercase text-muted-foreground">
                 Preview active prompt
               </summary>
               <Textarea
@@ -1197,7 +1197,7 @@ export function AssistantPlatformSettingsForm() {
               disabled={loading || saving}
               placeholder="Например: отвечать коротко, сначала вывод, потом 2-5 фактов и следующий шаг. Не заменяет ядро ассиста."
             />
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-muted-foreground">
               Главный prompt нужен, но он должен жить в коде как стабильное ядро. Это поле только добавляет правила поверх ядра.
             </p>
           </div>
@@ -1214,14 +1214,14 @@ export function AssistantPlatformSettingsForm() {
                 );
               })}
             </div>
-            <p className="text-xs text-slate-500">Политика владельца: Travkin Copilot доступен только global_admin.</p>
+            <p className="text-xs text-muted-foreground">Политика владельца: Travkin Copilot доступен только global_admin.</p>
           </div>
 
-          <details className="rounded-lg border bg-slate-50 p-3">
-            <summary className="cursor-pointer text-sm font-medium text-slate-800">
+          <details className="rounded-lg border bg-muted p-3">
+            <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
               Расширенный список tools ({enabledToolsCount})
             </summary>
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-muted-foreground">
               Это технический слой. В обычной работе лучше держать рекомендованный набор, чтобы GPT сам выбирал нужный tool.
             </p>
             <div className="mt-3 grid gap-2 md:grid-cols-2">
@@ -1237,8 +1237,8 @@ export function AssistantPlatformSettingsForm() {
             </div>
           </details>
 
-          <details className="rounded-lg border bg-slate-50 p-3">
-            <summary className="cursor-pointer text-sm font-medium text-slate-800">
+          <details className="rounded-lg border bg-muted p-3">
+            <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
               Безопасность и Source of Truth
             </summary>
             <div className="mt-3 grid gap-4 md:grid-cols-2">
@@ -1419,7 +1419,7 @@ export function AssistantPlatformSettingsForm() {
           </Button>
 
           {validateResult ? (
-            <div className="space-y-4 rounded border bg-slate-50 p-3 text-sm">
+            <div className="space-y-4 rounded border bg-muted p-3 text-sm">
               <div className="flex items-center gap-2 text-emerald-700">
                 <CheckCircle2 className="h-4 w-4" />
                 <span>Runtime-конфигурация получена</span>
@@ -1471,7 +1471,7 @@ export function AssistantPlatformSettingsForm() {
               ) : null}
 
               {Array.isArray(validateResult.notes) && validateResult.notes.length > 0 ? (
-                <div className="space-y-1 text-slate-700">
+                <div className="space-y-1 text-muted-foreground">
                   {validateResult.notes.map((note) => (
                     <div key={note}>• {note}</div>
                   ))}
@@ -1542,22 +1542,22 @@ export function AssistantPlatformSettingsForm() {
             </Button>
           </div>
 
-          <div className="rounded border bg-slate-50 p-3">
-            <div className="mb-2 text-xs text-slate-600">
+          <div className="rounded border bg-muted p-3">
+            <div className="mb-2 text-xs text-muted-foreground">
               Thread: <b>{testThreadId}</b>
             </div>
             <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
               {testMessages.length === 0 ? (
-                <div className="text-sm text-slate-500">Здесь появится история тестового чата.</div>
+                <div className="text-sm text-muted-foreground">Здесь появится история тестового чата.</div>
               ) : (
                 testMessages.map((item) => (
                   <div
                     key={item.id}
                     className={`rounded p-2 text-sm ${
-                      item.role === "user" ? "bg-amber-100 text-amber-950" : "bg-white text-slate-900"
+                      item.role === "user" ? "bg-amber-100 text-amber-950" : "bg-white text-muted-foreground"
                     }`}
                   >
-                    <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-500">
+                    <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">
                       {item.role === "user" ? "user" : "assistant"}
                     </div>
                     <div className="whitespace-pre-wrap">{item.content}</div>
@@ -1589,8 +1589,8 @@ export function AssistantPlatformSettingsForm() {
               </div>
 
               {testToolActivity.length > 0 ? (
-                <details className="rounded border bg-slate-50 p-2">
-                  <summary className="cursor-pointer text-xs font-medium uppercase text-slate-600">Tool activity</summary>
+                <details className="rounded border bg-muted p-2">
+                  <summary className="cursor-pointer text-xs font-medium uppercase text-muted-foreground">Tool activity</summary>
                   <div className="mt-2 space-y-1 text-xs">
                     {testToolActivity.map((entry) => (
                       <div key={entry}>{entry}</div>

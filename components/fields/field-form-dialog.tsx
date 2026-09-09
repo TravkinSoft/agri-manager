@@ -177,7 +177,7 @@ export function FieldFormDialog({
               )}
             />
             {duplicateField ? (
-              <div className="rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+              <div className="rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-800">
                 В компании уже есть активное поле с таким названием
                 {closeAreaMatch
                   ? ` и близкой площадью (${duplicateField.area.toFixed(2)} га)`

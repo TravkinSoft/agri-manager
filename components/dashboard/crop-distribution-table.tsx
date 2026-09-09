@@ -24,20 +24,20 @@ export function CropDistributionTable({ data }: CropDistributionTableProps) {
       </CardHeader>
       <CardContent>
         {data.length === 0 ? (
-          <p className="text-sm text-slate-500">{t("no_crop_data")}</p>
+          <p className="text-sm text-muted-foreground">{t("no_crop_data")}</p>
         ) : (
           <>
             <div className="space-y-2 md:hidden">
               {data.map((item) => (
-                <div key={item.crop} className="rounded-lg border border-slate-200 p-3">
-                  <div className="text-sm font-semibold text-slate-900">{item.crop}</div>
-                  <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                <div key={item.crop} className="rounded-lg border border-border p-3">
+                  <div className="text-sm font-semibold text-muted-foreground">{item.crop}</div>
+                  <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
                     <span>{t("total_area_metric")}</span>
-                    <span className="text-sm font-medium text-slate-900">{item.totalArea}</span>
+                    <span className="text-sm font-medium text-muted-foreground">{item.totalArea}</span>
                   </div>
-                  <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
+                  <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
                     <span>{t("crop_count")}</span>
-                    <span className="text-sm font-medium text-slate-900">{item.fieldsCount}</span>
+                    <span className="text-sm font-medium text-muted-foreground">{item.fieldsCount}</span>
                   </div>
                 </div>
               ))}

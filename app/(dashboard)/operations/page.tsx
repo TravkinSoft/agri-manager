@@ -118,7 +118,7 @@ function statusBadge(status: string | null | undefined) {
   if (normalized === "completed") return <Badge className="bg-emerald-100 text-emerald-800">completed</Badge>;
   if (normalized === "in_progress") return <Badge className="bg-blue-100 text-blue-800">in progress</Badge>;
   if (normalized === "ready_to_start") return <Badge className="bg-amber-100 text-amber-800">ready</Badge>;
-  return <Badge className="bg-slate-100 text-slate-800">{normalized}</Badge>;
+  return <Badge className="bg-muted text-muted-foreground">{normalized}</Badge>;
 }
 
 function displayStatusBadge(status: OperationDisplayStatus, label: string) {
@@ -135,7 +135,7 @@ function displayStatusBadge(status: OperationDisplayStatus, label: string) {
             ? "bg-violet-100 text-violet-800"
             : status === "cancelled"
               ? "bg-red-100 text-red-800"
-              : "bg-slate-100 text-slate-800";
+              : "bg-muted text-muted-foreground";
   return <Badge className={className}>{label}</Badge>;
 }
 
@@ -659,8 +659,8 @@ export default function OperationsPage() {
       : "—";
 
   const renderOperationCards = (ops: OperationWithDetails[], emptyLabel: string) => {
-    if (loading) return <div className="p-6 text-center text-slate-500">Загрузка...</div>;
-    if (ops.length === 0) return <div className="p-6 text-center text-slate-500">{emptyLabel}</div>;
+    if (loading) return <div className="p-6 text-center text-muted-foreground">Загрузка...</div>;
+    if (ops.length === 0) return <div className="p-6 text-center text-muted-foreground">{emptyLabel}</div>;
 
     return (
       <div className="space-y-3 p-4">
@@ -684,7 +684,7 @@ export default function OperationsPage() {
                     <CardTitle className="text-base">
                       {operation.operation_engine_label || engine?.label || operation.operation_type} • {operation.field_name}
                     </CardTitle>
-                    <div className="text-sm text-slate-500">
+                    <div className="text-sm text-muted-foreground">
                       {formatDate(operation.date)} • {operation.crop_name || "без культуры"} • {operation.planned_area_ha || 0} га
                     </div>
                   </div>
@@ -714,27 +714,27 @@ export default function OperationsPage() {
               {isExpanded ? (
                 <CardContent className="pt-0 space-y-3">
                   <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
-                    <div><span className="text-slate-500">Тип работ:</span> {operation.operation_engine_label || engine?.label || operation.operation_type || "-"}</div>
-                    <div><span className="text-slate-500">Цели:</span> {purposeLabels.length > 0 ? purposeLabels.join(", ") : "-"}</div>
+                    <div><span className="text-muted-foreground">Тип работ:</span> {operation.operation_engine_label || engine?.label || operation.operation_type || "-"}</div>
+                    <div><span className="text-muted-foreground">Цели:</span> {purposeLabels.length > 0 ? purposeLabels.join(", ") : "-"}</div>
                     <div>
-                      <span className="text-slate-500">Ответственный:</span>{" "}
+                      <span className="text-muted-foreground">Ответственный:</span>{" "}
                       {operation.responsible_user_id
                         ? specialistLabelById[operation.responsible_user_id] || operation.responsible_user_id
                         : "-"}
                     </div>
-                    <div><span className="text-slate-500">Статус заявки:</span> {requestStatusByOperationId[operation.id] || "-"}</div>
-                    <div><span className="text-slate-500">Способ/назначение:</span> {operation.operation_target || "-"}</div>
+                    <div><span className="text-muted-foreground">Статус заявки:</span> {requestStatusByOperationId[operation.id] || "-"}</div>
+                    <div><span className="text-muted-foreground">Способ/назначение:</span> {operation.operation_target || "-"}</div>
                     <div>
-                      <span className="text-slate-500">Нормы:</span>{" "}
+                      <span className="text-muted-foreground">Нормы:</span>{" "}
                       {operation.rate_per_ha != null ? `${operation.rate_per_ha}/га` : "-"}{" "}
                       {operation.spray_volume_per_ha != null ? `• ${operation.spray_volume_per_ha} л/га` : ""}
                     </div>
                     <div className="md:col-span-2">
-                      <span className="text-slate-500">Материалы:</span>{" "}
+                      <span className="text-muted-foreground">Материалы:</span>{" "}
                       {materialsText || "не указаны"}
                     </div>
                     <div className="md:col-span-2">
-                      <span className="text-slate-500">Комментарий:</span> {operation.notes || "-"}
+                      <span className="text-muted-foreground">Комментарий:</span> {operation.notes || "-"}
                     </div>
                   </div>
 
@@ -754,10 +754,10 @@ export default function OperationsPage() {
                       </div>
 
                       {linesLoadingByOperationId[operation.id] ? (
-                        <div className="text-xs text-slate-500">Загрузка строк...</div>
+                        <div className="text-xs text-muted-foreground">Загрузка строк...</div>
                       ) : null}
                       {!linesLoadingByOperationId[operation.id] && lines.length === 0 ? (
-                        <div className="text-xs text-slate-500">Строк пока нет.</div>
+                        <div className="text-xs text-muted-foreground">Строк пока нет.</div>
                       ) : null}
 
                       <div className="space-y-2">
@@ -766,26 +766,26 @@ export default function OperationsPage() {
                           const plantsPerHa = Number(line.calculated_plants_per_ha || 0);
                           const totalPlants = Number(line.calculated_total_plants || 0);
                           return (
-                            <div key={line.id} className="rounded-md border bg-slate-50 p-2 text-xs">
+                            <div key={line.id} className="rounded-md border bg-muted p-2 text-xs">
                               <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
                                 <div>
-                                  <div className="text-slate-500">Культура</div>
+                                  <div className="text-muted-foreground">Культура</div>
                                   <div className="font-medium">{line.crop_name || operation.crop_name || "—"}</div>
                                 </div>
                                 <div>
-                                  <div className="text-slate-500">Сорт</div>
+                                  <div className="text-muted-foreground">Сорт</div>
                                   <div className="font-medium">{line.variety_name || "—"}</div>
                                 </div>
                                 <div>
-                                  <div className="text-slate-500">Репр.</div>
+                                  <div className="text-muted-foreground">Репр.</div>
                                   <div className="font-medium">{line.reproduction_name || "—"}</div>
                                 </div>
                                 <div>
-                                  <div className="text-slate-500">План, га</div>
+                                  <div className="text-muted-foreground">План, га</div>
                                   <div className="font-medium">{Number(line.planned_area_ha || 0).toFixed(2)}</div>
                                 </div>
                                 <div>
-                                  <div className="text-slate-500">Факт, га</div>
+                                  <div className="text-muted-foreground">Факт, га</div>
                                   <Input
                                     className="h-7 text-xs"
                                     defaultValue={line.actual_area_ha == null ? "" : String(line.actual_area_ha)}
@@ -825,7 +825,7 @@ export default function OperationsPage() {
                               {rowCrop ? (
                                 <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-5">
                                   <div>
-                                    <div className="text-slate-500">Рядки, шт</div>
+                                    <div className="text-muted-foreground">Рядки, шт</div>
                                     <Input
                                       className="h-7 text-xs"
                                       defaultValue={line.row_count == null ? "" : String(line.row_count)}
@@ -838,7 +838,7 @@ export default function OperationsPage() {
                                     />
                                   </div>
                                   <div>
-                                    <div className="text-slate-500">Междурядье, м</div>
+                                    <div className="text-muted-foreground">Междурядье, м</div>
                                     <Input
                                       className="h-7 text-xs"
                                       defaultValue={line.row_spacing_m == null ? "" : String(line.row_spacing_m)}
@@ -851,7 +851,7 @@ export default function OperationsPage() {
                                     />
                                   </div>
                                   <div>
-                                    <div className="text-slate-500">Межсеменное, см</div>
+                                    <div className="text-muted-foreground">Межсеменное, см</div>
                                     <Input
                                       className="h-7 text-xs"
                                       defaultValue={line.seed_spacing_cm == null ? "" : String(line.seed_spacing_cm)}
@@ -864,13 +864,13 @@ export default function OperationsPage() {
                                     />
                                   </div>
                                   <div>
-                                    <div className="text-slate-500">Растений / га</div>
+                                    <div className="text-muted-foreground">Растений / га</div>
                                     <div className="h-7 rounded border bg-white px-2 py-1 text-xs font-medium">
                                       {plantsPerHa > 0 ? plantsPerHa.toFixed(0) : "—"}
                                     </div>
                                   </div>
                                   <div>
-                                    <div className="text-slate-500">Растений всего</div>
+                                    <div className="text-muted-foreground">Растений всего</div>
                                     <div className="h-7 rounded border bg-white px-2 py-1 text-xs font-medium">
                                       {totalPlants > 0 ? totalPlants.toFixed(0) : "—"}
                                     </div>
@@ -884,10 +884,10 @@ export default function OperationsPage() {
 
                       {canManageOperationLines ? (
                         <div className="mt-3 rounded-md border border-dashed p-2">
-                          <div className="mb-2 text-xs font-medium text-slate-700">Добавить строку факта</div>
+                          <div className="mb-2 text-xs font-medium text-muted-foreground">Добавить строку факта</div>
                           <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
                             <div>
-                              <div className="mb-1 text-[11px] text-slate-500">Сорт</div>
+                              <div className="mb-1 text-[11px] text-muted-foreground">Сорт</div>
                               <Select
                                 value={lineDraftByOperationId[operation.id]?.variety_id || "__none__"}
                                 onValueChange={(value) => {
@@ -916,7 +916,7 @@ export default function OperationsPage() {
                               </Select>
                             </div>
                             <div>
-                              <div className="mb-1 text-[11px] text-slate-500">Репр.</div>
+                              <div className="mb-1 text-[11px] text-muted-foreground">Репр.</div>
                               <Select
                                 value={lineDraftByOperationId[operation.id]?.reproduction_id || "__none__"}
                                 onValueChange={(value) =>
@@ -947,7 +947,7 @@ export default function OperationsPage() {
                               </Select>
                             </div>
                             <div>
-                              <div className="mb-1 text-[11px] text-slate-500">План, га</div>
+                              <div className="mb-1 text-[11px] text-muted-foreground">План, га</div>
                               <Input
                                 className="h-8 text-xs"
                                 value={String(lineDraftByOperationId[operation.id]?.planned_area_ha ?? "")}
@@ -957,7 +957,7 @@ export default function OperationsPage() {
                               />
                             </div>
                             <div>
-                              <div className="mb-1 text-[11px] text-slate-500">Факт, га</div>
+                              <div className="mb-1 text-[11px] text-muted-foreground">Факт, га</div>
                               <Input
                                 className="h-8 text-xs"
                                 value={
@@ -973,7 +973,7 @@ export default function OperationsPage() {
                               />
                             </div>
                             <div>
-                              <div className="mb-1 text-[11px] text-slate-500">Междурядье, м</div>
+                              <div className="mb-1 text-[11px] text-muted-foreground">Междурядье, м</div>
                               <Input
                                 className="h-8 text-xs"
                                 value={
@@ -989,7 +989,7 @@ export default function OperationsPage() {
                               />
                             </div>
                             <div>
-                              <div className="mb-1 text-[11px] text-slate-500">Межсеменное, см</div>
+                              <div className="mb-1 text-[11px] text-muted-foreground">Межсеменное, см</div>
                               <Input
                                 className="h-8 text-xs"
                                 value={
@@ -1019,7 +1019,7 @@ export default function OperationsPage() {
                       ) : null}
                     </div>
                   ) : (
-                    <div className="rounded-md border border-dashed bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    <div className="rounded-md border border-dashed bg-muted px-3 py-2 text-xs text-muted-foreground">
                       Для этого типа операции строки не используются. Работайте через материалы и факт операции.
                     </div>
                   )}
@@ -1429,7 +1429,7 @@ export default function OperationsPage() {
                 </TabsContent>
                 <TabsContent value="materials">
                   {selectedOperation.tank_mix?.enabled || selectedTankMixComponents.length > 0 ? (
-                    <div className="mb-3 rounded-md border bg-slate-50 p-3 text-sm">
+                    <div className="mb-3 rounded-md border bg-muted p-3 text-sm">
                       <div className="font-semibold">Баковая смесь</div>
                       <div className="mt-1 text-muted-foreground">
                         Вода: {selectedOperation.tank_mix?.water_rate_l_ha ?? "—"} л/га • Рабочий раствор: {selectedOperation.tank_mix?.total_solution_l_ha ?? "—"} л/га • Компонентов: {selectedTankMixComponents.length}
@@ -1671,18 +1671,18 @@ export default function OperationsPage() {
           <CardTitle className="text-base">Быстрый обзор по полям</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
-          <div className="rounded-lg border border-slate-200 p-3">
-            <div className="text-slate-500">Найдено операций по фильтру</div>
+          <div className="rounded-lg border border-border p-3">
+            <div className="text-muted-foreground">Найдено операций по фильтру</div>
             <div className="mt-1 text-xl font-semibold">{countLabel(explorerRows.length)}</div>
           </div>
           <div className="space-y-2">
             {explorerRows.slice(0, 3).map((row) => (
-              <div key={`mobile-explorer-${row.id}`} className="rounded-lg border border-slate-200 p-3">
+              <div key={`mobile-explorer-${row.id}`} className="rounded-lg border border-border p-3">
                 <div className="text-sm font-semibold">{row.operation_type}</div>
-                <div className="text-xs text-slate-500">
+                <div className="text-xs text-muted-foreground">
                   {row.field_name} • {formatDate(row.date)}
                 </div>
-                <div className="mt-1 text-xs text-slate-600">{row.crop_name || "Без культуры"}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{row.crop_name || "Без культуры"}</div>
               </div>
             ))}
           </div>
@@ -1718,12 +1718,12 @@ export default function OperationsPage() {
               value={explorerMaterialSearch}
               onChange={(event) => setExplorerMaterialSearch(event.target.value)}
             />
-            <div className="rounded border px-3 py-2 text-sm text-slate-600">Найдено: {countLabel(explorerRows.length)}</div>
+            <div className="rounded border px-3 py-2 text-sm text-muted-foreground">Найдено: {countLabel(explorerRows.length)}</div>
           </div>
 
           <div className="max-h-[320px] overflow-auto rounded border">
             <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-slate-100 text-slate-600">
+              <thead className="sticky top-0 bg-muted text-muted-foreground">
                 <tr>
                   <th className="px-2 py-2 text-left">Дата</th>
                   <th className="px-2 py-2 text-left">Поле</th>

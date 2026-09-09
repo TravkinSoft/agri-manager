@@ -99,30 +99,30 @@ export default function GlobalCounterpartiesPage() {
 
   return (
     <div className="space-y-3">
-      <div className="border border-[#9aa8ba] bg-white">
-        <div className="border-b border-[#9aa8ba] bg-[#d7dde6] px-3 py-2">
-          <h1 className="font-mono text-sm font-semibold uppercase text-[#18324f]">Контрагенты</h1>
-          <p className="mt-1 text-xs text-[#52657b]">Глобальные юридические идентичности поставщиков</p>
+      <div className="border border-border bg-white">
+        <div className="border-b border-border bg-muted px-3 py-2">
+          <h1 className="font-mono text-sm font-semibold uppercase text-foreground">Контрагенты</h1>
+          <p className="mt-1 text-xs text-muted-foreground">Глобальные юридические идентичности поставщиков</p>
         </div>
         <div className="flex flex-col gap-2 p-3 lg:flex-row">
           <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[#69788d]" />
-            <Input className="rounded-none border-[#9aa8ba] bg-white pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Название или БИН/ИНН" />
+            <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input className="rounded-none border-border bg-white pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Название или БИН/ИНН" />
           </div>
           <Select value={country} onValueChange={(value) => setCountry(value as typeof country)}>
-            <SelectTrigger className="w-full rounded-none border-[#9aa8ba] bg-white lg:w-44"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-full rounded-none border-border bg-white lg:w-44"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="all">Все страны</SelectItem><SelectItem value="KZ">Казахстан</SelectItem><SelectItem value="RU">Россия</SelectItem></SelectContent>
           </Select>
           <Select value={status} onValueChange={(value) => setStatus(value as typeof status)}>
-            <SelectTrigger className="w-full rounded-none border-[#9aa8ba] bg-white lg:w-44"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-full rounded-none border-border bg-white lg:w-44"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="active">Активные</SelectItem><SelectItem value="archived">Архивные</SelectItem><SelectItem value="all">Все статусы</SelectItem></SelectContent>
           </Select>
         </div>
       </div>
 
-      <div className="overflow-hidden border border-[#9aa8ba] bg-white">
+      <div className="overflow-hidden border border-border bg-white">
         <Table>
-          <TableHeader><TableRow className="bg-[#eef1f5]"><TableHead>Юридическое название</TableHead><TableHead>БИН/ИНН</TableHead><TableHead>Страна</TableHead><TableHead>Статус</TableHead><TableHead className="w-12" /></TableRow></TableHeader>
+          <TableHeader><TableRow className="bg-card"><TableHead>Юридическое название</TableHead><TableHead>БИН/ИНН</TableHead><TableHead>Страна</TableHead><TableHead>Статус</TableHead><TableHead className="w-12" /></TableRow></TableHeader>
           <TableBody>
             {rows.map((row) => (
               <TableRow key={row.id}>
@@ -144,7 +144,7 @@ export default function GlobalCounterpartiesPage() {
                 </TableCell>
               </TableRow>
             ))}
-            {rows.length === 0 ? <TableRow><TableCell colSpan={5} className="h-28 text-center text-[#69788d]">{loading ? "Загрузка..." : "Записи не найдены"}</TableCell></TableRow> : null}
+            {rows.length === 0 ? <TableRow><TableCell colSpan={5} className="h-28 text-center text-muted-foreground">{loading ? "Загрузка..." : "Записи не найдены"}</TableCell></TableRow> : null}
           </TableBody>
         </Table>
       </div>

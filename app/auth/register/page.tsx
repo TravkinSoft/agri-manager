@@ -245,7 +245,7 @@ export default function RegisterPage() {
                 {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 Создать компанию
               </Button>
-              <div className="text-center text-sm text-slate-600">
+              <div className="text-center text-sm text-muted-foreground">
                 Уже есть аккаунт?{" "}
                 <Link href="/auth/login" className="font-medium text-blue-600 hover:underline">
                   Войти

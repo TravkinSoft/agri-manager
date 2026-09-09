@@ -166,14 +166,14 @@ export default function CounterpartiesPage() {
     <div className="space-y-5">
       <PageHeader title="Контрагенты" description="Одна организация может быть поставщиком и покупателем без дублирования БИН" />
 
-      <div className="flex border-b border-slate-800">
+      <div className="flex border-b border-border">
         <Button variant={role === "supplier" ? "default" : "ghost"} className="rounded-none" onClick={() => setRole("supplier")}>Поставщики</Button>
         <Button variant={role === "buyer" ? "default" : "ghost"} className="rounded-none" onClick={() => setRole("buyer")}>Покупатели</Button>
       </div>
 
-      <div className="flex flex-col gap-3 border-y border-slate-800 py-3 lg:flex-row lg:items-center">
+      <div className="flex flex-col gap-3 border-y border-border py-3 lg:flex-row lg:items-center">
         <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             className="pl-9"
             value={search}
@@ -204,7 +204,7 @@ export default function CounterpartiesPage() {
         ) : null}
       </div>
 
-      <div className="overflow-hidden border border-slate-800">
+      <div className="overflow-hidden border border-border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -221,7 +221,7 @@ export default function CounterpartiesPage() {
               <TableRow key={row.id}>
                 <TableCell>
                   <div className="font-medium">{row.legal_name}</div>
-                  <div className="text-xs text-slate-500">{row.short_name || row.aliases[0] || (row.source === "global" ? "ГЛБД" : "Локальная запись")}</div>
+                  <div className="text-xs text-muted-foreground">{row.short_name || row.aliases[0] || (row.source === "global" ? "ГЛБД" : "Локальная запись")}</div>
                 </TableCell>
                 <TableCell className="font-mono">{row.tax_id || "—"}</TableCell>
                 <TableCell>{row.country_name || "—"}</TableCell>
@@ -249,7 +249,7 @@ export default function CounterpartiesPage() {
               </TableRow>
             ))}
             {rows.length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="h-28 text-center text-slate-500">{emptyText}</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="h-28 text-center text-muted-foreground">{emptyText}</TableCell></TableRow>
             ) : null}
           </TableBody>
         </Table>
@@ -258,7 +258,7 @@ export default function CounterpartiesPage() {
       <Dialog open={dialogOpen} onOpenChange={(next) => { setDialogOpen(next); if (!next) resetDialog(); }}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader><DialogTitle>Добавить {role === "buyer" ? "покупателя" : "поставщика"}</DialogTitle></DialogHeader>
-          <div className="flex border-b border-slate-800">
+          <div className="flex border-b border-border">
             <Button type="button" variant={addMode === "global" ? "default" : "ghost"} className="rounded-none" onClick={() => setAddMode("global")}>Из ГЛБД</Button>
             <Button type="button" variant={addMode === "local" ? "default" : "ghost"} className="rounded-none" onClick={() => setAddMode("local")}>Локальная запись</Button>
           </div>
@@ -269,27 +269,27 @@ export default function CounterpartiesPage() {
                 <Label>Поиск в ГЛБД</Label>
                 <Input value={globalSearch} onChange={(event) => setGlobalSearch(event.target.value)} placeholder="Название или БИН/ИНН" />
               </div>
-              <div className="max-h-72 overflow-y-auto border border-slate-800">
+              <div className="max-h-72 overflow-y-auto border border-border">
                 {globalResults.map((row) => (
                   <button
                     type="button"
                     key={row.key}
                     onClick={() => setSelectedGlobal(row)}
-                    className={`flex w-full items-start gap-2 border-b border-slate-800 px-3 py-2 text-left last:border-b-0 ${selectedGlobal?.key === row.key ? "bg-slate-800" : "hover:bg-slate-900"}`}
+                    className={`flex w-full items-start gap-2 border-b border-border px-3 py-2 text-left last:border-b-0 ${selectedGlobal?.key === row.key ? "bg-muted" : "hover:bg-background"}`}
                   >
                     <Building2 className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>
                       <span className="block font-medium">{row.legal_name}</span>
-                      <span className="block text-xs text-slate-400">{row.tax_id} — {row.country_name}</span>
+                      <span className="block text-xs text-muted-foreground">{row.tax_id} — {row.country_name}</span>
                     </span>
                   </button>
                 ))}
-                {globalResults.length === 0 ? <div className="px-3 py-8 text-center text-sm text-slate-500">Контрагент не найден</div> : null}
+                {globalResults.length === 0 ? <div className="px-3 py-8 text-center text-sm text-muted-foreground">Контрагент не найден</div> : null}
               </div>
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-sm text-slate-400">Создавайте локальную запись только если контрагента действительно нет в ГЛБД.</p>
+              <p className="text-sm text-muted-foreground">Создавайте локальную запись только если контрагента действительно нет в ГЛБД.</p>
               <div className="space-y-2"><Label>Юридическое название</Label><Input value={localName} onChange={(event) => setLocalName(event.target.value)} /></div>
               <div className="space-y-2"><Label>БИН/ИНН</Label><Input inputMode="numeric" value={localTaxId} onChange={(event) => setLocalTaxId(event.target.value.replace(/\D/g, ""))} /></div>
               <div className="space-y-2">

@@ -231,13 +231,13 @@ export function NotificationCenter({ userId, companyId, role }: NotificationCent
         <Button
           variant="ghost"
           size="icon"
-          className="relative h-9 w-9 text-[#F3F4F6] hover:bg-[#202738] hover:text-[#F3F4F6]"
+          className="relative h-9 w-9 text-foreground hover:bg-muted hover:text-foreground"
           aria-label="Уведомления"
           title="Уведомления"
         >
           <Bell className="h-5 w-5" />
           {unreadCount > 0 ? (
-            <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#FACC15] px-1 text-[10px] font-bold text-[#111827]">
+            <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
               {unreadCount > 99 ? "99+" : unreadCount}
             </span>
           ) : null}
@@ -245,15 +245,15 @@ export function NotificationCenter({ userId, companyId, role }: NotificationCent
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        className="w-[min(390px,calc(100vw-24px))] border-[#2C3446] bg-[#111722] p-0 text-[#F3F4F6]"
+        className="w-[min(390px,calc(100vw-24px))] border-border bg-card p-0 text-foreground"
       >
-        <div className="flex h-12 items-center justify-between border-b border-[#2C3446] px-4">
+        <div className="flex h-12 items-center justify-between border-b border-border px-4">
           <div className="text-sm font-semibold">Уведомления</div>
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-8 gap-1.5 px-2 text-xs text-[#AAB3C2] hover:bg-[#202738] hover:text-white"
+            className="h-8 gap-1.5 px-2 text-xs text-foreground hover:bg-muted hover:text-foreground"
             disabled={unreadCount === 0 || markingAll}
             onClick={() => void markAllRead()}
           >
@@ -264,9 +264,9 @@ export function NotificationCenter({ userId, companyId, role }: NotificationCent
 
         <div className="max-h-[420px] overflow-y-auto travkin-scrollbar">
           {loading ? (
-            <div className="px-4 py-8 text-center text-sm text-[#8B96A8]">Загрузка...</div>
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">Загрузка...</div>
           ) : notifications.length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-[#8B96A8]">Новых событий пока нет</div>
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">Новых событий пока нет</div>
           ) : (
             notifications.map((notification) => {
               const Icon = categoryIcon(notification.category);
@@ -276,22 +276,22 @@ export function NotificationCenter({ userId, companyId, role }: NotificationCent
                   type="button"
                   onClick={() => void openNotification(notification)}
                   className={cn(
-                    "flex w-full items-start gap-3 border-b border-[#252D3C] px-4 py-3 text-left transition-colors hover:bg-[#1A2230]",
-                    !notification.read_at && "bg-[#172033]"
+                    "flex w-full items-start gap-3 border-b border-border px-4 py-3 text-left transition-colors hover:bg-card",
+                    !notification.read_at && "bg-card"
                   )}
                 >
-                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#364157] bg-[#20293A] text-[#FACC15]">
+                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-primary">
                     <Icon className="h-4 w-4" />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-start gap-2">
                       <span className="min-w-0 flex-1 text-sm font-medium leading-5">{notification.title}</span>
-                      {!notification.read_at ? <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#FACC15]" /> : null}
+                      {!notification.read_at ? <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" /> : null}
                     </span>
                     {notification.body ? (
-                      <span className="mt-0.5 block line-clamp-2 text-xs leading-4 text-[#AAB3C2]">{notification.body}</span>
+                      <span className="mt-0.5 block line-clamp-2 text-xs leading-4 text-foreground">{notification.body}</span>
                     ) : null}
-                    <span className="mt-1 block text-[11px] text-[#778196]">{relativeTime(notification.created_at)}</span>
+                    <span className="mt-1 block text-[11px] text-muted-foreground">{relativeTime(notification.created_at)}</span>
                   </span>
                 </button>
               );
@@ -307,7 +307,7 @@ export function NotificationCenter({ userId, companyId, role }: NotificationCent
             setOpen(false);
             router.push("/notifications");
           }}
-          className="h-11 w-full border-t border-[#2C3446] text-sm font-medium text-[#D7DCE5] hover:bg-[#1A2230]"
+          className="h-11 w-full border-t border-border text-sm font-medium text-foreground hover:bg-card"
         >
           Все уведомления
         </button>

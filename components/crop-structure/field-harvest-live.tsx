@@ -53,34 +53,34 @@ function reconciliationCopy(status: FieldHarvestReconciliationStatus): {
   if (status === "reconciled") {
     return {
       label: "Ledger сверено",
-      className: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
+      className: "border-emerald-400/30 bg-emerald-400/10 text-emerald-800",
       detail: "Принятая масса совпадает с входящими проводками.",
     };
   }
   if (status === "mismatch") {
     return {
       label: "Нужна сверка",
-      className: "border-amber-400/40 bg-amber-400/10 text-amber-200",
+      className: "border-amber-400/40 bg-amber-400/10 text-amber-800",
       detail: "Факт показан по талонам; сумма проводок отличается.",
     };
   }
   if (status === "ticket_only") {
     return {
       label: "Только талоны",
-      className: "border-amber-400/40 bg-amber-400/10 text-amber-200",
+      className: "border-amber-400/40 bg-amber-400/10 text-amber-800",
       detail: "Завершённые талоны есть, входящая проводка не найдена.",
     };
   }
   if (status === "unavailable") {
     return {
       label: "Ledger недоступен",
-      className: "border-slate-600 bg-slate-800/70 text-slate-300",
+      className: "border-border bg-muted text-foreground",
       detail: "Факт показан по талонам; проверка проводок временно недоступна.",
     };
   }
   return {
     label: "Рейсов пока нет",
-    className: "border-slate-700 bg-slate-900 text-slate-400",
+    className: "border-border bg-background text-muted-foreground",
     detail: "В этом сезоне нет завершённых неаннулированных талонов.",
   };
 }
@@ -202,14 +202,14 @@ export function FieldHarvestLive({
   if (!data && (state.phase === "loading" || state.data !== null)) {
     return (
       <section
-        className="min-h-[132px] rounded-xl border border-slate-800 bg-slate-950/45 p-3"
+        className="min-h-[132px] rounded-xl border border-border bg-background p-3"
         aria-busy="true"
         aria-label="Загрузка факта уборки"
       >
-        <div className="h-4 w-40 animate-pulse rounded bg-slate-800" />
+        <div className="h-4 w-40 animate-pulse rounded bg-muted" />
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="h-16 animate-pulse rounded-lg bg-slate-900" />
-          <div className="h-16 animate-pulse rounded-lg bg-slate-900" />
+          <div className="h-16 animate-pulse rounded-lg bg-background" />
+          <div className="h-16 animate-pulse rounded-lg bg-background" />
         </div>
       </section>
     );
@@ -222,10 +222,10 @@ export function FieldHarvestLive({
         role="status"
       >
         <div className="flex min-w-0 items-start gap-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-300" aria-hidden="true" />
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-800" aria-hidden="true" />
           <div>
-            <div className="text-sm font-semibold text-slate-100">Факт уборки пока недоступен</div>
-            <div className="mt-1 text-xs text-slate-400">{state.error}</div>
+            <div className="text-sm font-semibold text-foreground">Факт уборки пока недоступен</div>
+            <div className="mt-1 text-xs text-muted-foreground">{state.error}</div>
           </div>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={() => setRevision((value) => value + 1)}>
@@ -253,8 +253,8 @@ export function FieldHarvestLive({
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <div className="text-sm font-semibold text-slate-100">Live-факт уборки</div>
-          <div className="mt-0.5 text-[11px] text-slate-500">Финализированный талон → входящая проводка</div>
+          <div className="text-sm font-semibold text-foreground">Live-факт уборки</div>
+          <div className="mt-0.5 text-[11px] text-muted-foreground">Финализированный талон → входящая проводка</div>
         </div>
         <div className="flex items-center gap-2">
           <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${reconciliation.className}`}>
@@ -262,7 +262,7 @@ export function FieldHarvestLive({
           </span>
           <button
             type="button"
-            className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+            className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => setRevision((value) => value + 1)}
             aria-label="Обновить факт уборки"
             disabled={refreshing}
@@ -273,31 +273,31 @@ export function FieldHarvestLive({
       </div>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <div className="flex items-center gap-3 rounded-lg bg-slate-950/55 px-3 py-2.5">
-          <Scale className="h-4 w-4 shrink-0 text-emerald-300" aria-hidden="true" />
+        <div className="flex items-center gap-3 rounded-lg bg-background px-3 py-2.5">
+          <Scale className="h-4 w-4 shrink-0 text-emerald-800" aria-hidden="true" />
           <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-wide text-slate-500">Принято по полю</div>
-            <div className="mt-0.5 text-lg font-semibold tabular-nums text-white">{formatMass(data.acceptedMassKg)}</div>
-            <div className="text-[11px] text-slate-500">{data.finalizedTicketCount} завершённых рейсов</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Принято по полю</div>
+            <div className="mt-0.5 text-lg font-semibold tabular-nums text-foreground">{formatMass(data.acceptedMassKg)}</div>
+            <div className="text-[11px] text-muted-foreground">{data.finalizedTicketCount} завершённых рейсов</div>
           </div>
         </div>
-        <div className="flex items-center gap-3 rounded-lg bg-slate-950/55 px-3 py-2.5">
-          <Sprout className="h-4 w-4 shrink-0 text-yellow-300" aria-hidden="true" />
+        <div className="flex items-center gap-3 rounded-lg bg-background px-3 py-2.5">
+          <Sprout className="h-4 w-4 shrink-0 text-amber-800" aria-hidden="true" />
           <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-wide text-slate-500">Урожайность</div>
-            <div className="mt-0.5 text-lg font-semibold tabular-nums text-white">{formatYield(data.yieldTPerHa)}</div>
-            <div className="text-[11px] text-slate-500">{areaBasis} · {data.yieldAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Урожайность</div>
+            <div className="mt-0.5 text-lg font-semibold tabular-nums text-foreground">{formatYield(data.yieldTPerHa)}</div>
+            <div className="text-[11px] text-muted-foreground">{areaBasis} · {data.yieldAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га</div>
           </div>
         </div>
       </div>
 
       {allocation ? (
-        <div className="mt-2 text-xs text-slate-400">
-          <span className="font-medium text-slate-300">{allocationLabel || "Выбранный участок"}:</span>{" "}
+        <div className="mt-2 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{allocationLabel || "Выбранный участок"}:</span>{" "}
           {formatMass(allocation.acceptedMassKg)} · {formatYield(allocation.yieldTPerHa)} · {allocation.finalizedTicketCount} рейсов
         </div>
       ) : null}
-      <div className={`mt-2 text-[11px] ${stale ? "text-amber-300" : "text-slate-500"}`}>
+      <div className={`mt-2 text-[11px] ${stale ? "text-amber-800" : "text-muted-foreground"}`}>
         {stale ? `${state.error}. Показаны последние подтверждённые данные.` : reconciliation.detail}
         {data.unassignedAcceptedMassKg > 0
           ? ` ${formatMass(data.unassignedAcceptedMassKg)} не привязано к участку структуры.`

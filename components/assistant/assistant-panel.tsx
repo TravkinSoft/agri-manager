@@ -109,10 +109,10 @@ export function AssistantPanel() {
       aria-hidden={!isOpen}
       className={
         isMobileView
-          ? `fixed inset-x-0 bottom-0 z-50 h-[82vh] rounded-t-2xl border border-[#262D3D] bg-[#10151F] shadow-2xl transition-transform duration-200 ease-out ${
+          ? `fixed inset-x-0 bottom-0 z-50 h-[82vh] rounded-t-2xl border border-border bg-card shadow-2xl transition-transform duration-200 ease-out ${
               isOpen ? "translate-y-0" : "translate-y-[calc(100%+24px)]"
             }`
-          : `fixed inset-y-0 right-0 z-50 border-l border-[#262D3D] bg-[#10151F] shadow-[0_20px_70px_rgba(0,0,0,0.45)] transition-transform duration-200 ease-out ${
+          : `fixed inset-y-0 right-0 z-50 border-l border-border bg-card shadow-[0_20px_70px_rgba(0,0,0,0.45)] transition-transform duration-200 ease-out ${
               isOpen ? "translate-x-0" : "translate-x-[calc(100%+24px)]"
             }`
       }
@@ -136,30 +136,30 @@ export function AssistantPanel() {
           onDoubleClick={() => setPanelWidth(clampPanelWidth(Math.floor((getViewportWidth() || 1280) * 0.5)))}
           className="group absolute -left-6 inset-y-0 z-10 w-12 cursor-col-resize touch-none"
         >
-          <div className="mx-auto h-full w-px bg-[#263247] transition group-hover:w-1 group-hover:bg-[#E0B100]" />
-          <div className="absolute left-1/2 top-1/2 hidden h-16 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#E0B100]/70 shadow-[0_0_18px_rgba(224,177,0,0.45)] group-hover:block" />
+          <div className="mx-auto h-full w-px bg-muted transition group-hover:w-1 group-hover:bg-primary" />
+          <div className="absolute left-1/2 top-1/2 hidden h-16 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/70 shadow-[0_0_18px_rgba(224,177,0,0.45)] group-hover:block" />
         </div>
       ) : null}
 
       <div className="flex h-full min-h-0 flex-col">
-        <header className="border-b border-[#222C3E] bg-[#0F141E] px-4 py-3">
+        <header className="border-b border-border bg-card px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="flex min-w-0 flex-1 items-center gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#2A3448] bg-[#141B29] text-[#E0B100]">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card text-primary">
                 <Bot className="h-4 w-4" />
               </div>
               <div className="min-w-0">
-                <h2 className="truncate text-base font-semibold text-[#F3F4F6]">Travkin Copilot</h2>
+                <h2 className="truncate text-base font-semibold text-foreground">Travkin Copilot</h2>
                 <p className="sr-only">
                   Панель ассистента TravkinFlow для вопросов, проверки данных ERP и подготовки действий с подтверждением.
                 </p>
-                <div className="mt-0.5 truncate text-xs text-[#94A3B8]">{contextLabel || "Контекст загружается"}</div>
+                <div className="mt-0.5 truncate text-xs text-muted-foreground">{contextLabel || "Контекст загружается"}</div>
               </div>
             </div>
           </div>
         </header>
 
-        <div className="assistant-surface min-h-0 flex-1 overflow-hidden bg-[#0D121B] px-3 py-3">
+        <div className="assistant-surface min-h-0 flex-1 overflow-hidden bg-card px-3 py-3">
           <AssistantConversationHost engine={engine} />
         </div>
       </div>

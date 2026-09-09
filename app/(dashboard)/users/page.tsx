@@ -156,7 +156,7 @@ export default function UsersPage() {
       return {
         label: t("Приглашение отозвано", "Шақыру қайтарылды", "Revoked"),
         description: t("Старые ссылки больше не должны активировать доступ", "Ескі сілтемелер қолжетімділік бермеуі керек", "Invite revoked"),
-        className: "border-slate-300 bg-slate-200 text-slate-700",
+        className: "border-border bg-muted text-muted-foreground",
         icon: Ban,
       };
     }
@@ -171,7 +171,7 @@ export default function UsersPage() {
     return {
       label: status || t("Неизвестно", "Белгісіз", "Unknown"),
       description: t("Нестандартный статус", "Стандартты емес күй", "Custom status"),
-      className: "border-slate-200 bg-slate-100 text-slate-800",
+      className: "border-border bg-muted text-muted-foreground",
       icon: Shield,
     };
   };
@@ -562,25 +562,25 @@ export default function UsersPage() {
       <div className="grid gap-3 md:grid-cols-4">
         <Card>
           <CardContent className="p-4">
-            <div className="text-xs font-medium uppercase text-slate-500">{t("Активные", "Белсенді", "Active")}</div>
+            <div className="text-xs font-medium uppercase text-muted-foreground">{t("Активные", "Белсенді", "Active")}</div>
             <div className="mt-1 text-2xl font-semibold">{summary.active}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="text-xs font-medium uppercase text-slate-500">{t("Ожидают", "Күтуде", "Pending")}</div>
+            <div className="text-xs font-medium uppercase text-muted-foreground">{t("Ожидают", "Күтуде", "Pending")}</div>
             <div className="mt-1 text-2xl font-semibold">{summary.pending}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="text-xs font-medium uppercase text-slate-500">{t("Отключены", "Өшірілген", "Disabled")}</div>
+            <div className="text-xs font-medium uppercase text-muted-foreground">{t("Отключены", "Өшірілген", "Disabled")}</div>
             <div className="mt-1 text-2xl font-semibold">{summary.inactive}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="text-xs font-medium uppercase text-slate-500">{t("Отозваны", "Қайтарылған", "Revoked")}</div>
+            <div className="text-xs font-medium uppercase text-muted-foreground">{t("Отозваны", "Қайтарылған", "Revoked")}</div>
             <div className="mt-1 text-2xl font-semibold">{summary.revoked}</div>
           </CardContent>
         </Card>
@@ -614,13 +614,13 @@ export default function UsersPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-slate-500">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground">
                     {t("Загрузка...", "Жүктелуде...", "Loading...")}
                   </TableCell>
                 </TableRow>
               ) : profiles.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-slate-500">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground">
                     {t("Пользователи не найдены.", "Пайдаланушылар табылмады.", "No users found.")}
                   </TableCell>
                 </TableRow>
@@ -633,7 +633,7 @@ export default function UsersPage() {
                       <TableCell className="font-medium">{row.full_name || row.email}</TableCell>
                       <TableCell>{row.email}</TableCell>
                       <TableCell>
-                        <Badge className={ROLE_BADGE_CLASS[row.role] || "bg-slate-100 text-slate-800"}>
+                        <Badge className={ROLE_BADGE_CLASS[row.role] || "bg-muted text-muted-foreground"}>
                           <Shield className="mr-1 h-3 w-3" />
                           {roleLabel(row.role)}
                         </Badge>
@@ -644,7 +644,7 @@ export default function UsersPage() {
                             <StatusIcon className="mr-1 h-3 w-3" />
                             {meta.label}
                           </Badge>
-                          <div className="text-xs text-slate-500">{meta.description}</div>
+                          <div className="text-xs text-muted-foreground">{meta.description}</div>
                         </div>
                       </TableCell>
                       <TableCell>{formatDate(row.created_at)}</TableCell>

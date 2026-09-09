@@ -224,15 +224,15 @@ export default function SettingsPage() {
                 fullName={profile?.full_name}
                 email={profile?.email}
                 version={profile?.avatar_updated_at}
-                className="h-20 w-20 border-slate-700"
+                className="h-20 w-20 border-border"
               />
               <div className="min-w-0 flex-1 space-y-3">
                 <div>
-                  <div className="truncate font-medium text-slate-100">{profile?.full_name || profile?.email || "—"}</div>
-                  <div className="text-sm text-slate-400">JPEG, PNG или WebP · до 5 МБ · итог до 512×512</div>
+                  <div className="truncate font-medium text-foreground">{profile?.full_name || profile?.email || "—"}</div>
+                  <div className="text-sm text-muted-foreground">JPEG, PNG или WebP · до 5 МБ · итог до 512×512</div>
                 </div>
                 {!PROFILE_AVATAR_UI_ENABLED ? (
-                  <p className="text-sm text-slate-400" role="status">
+                  <p className="text-sm text-muted-foreground" role="status">
                     {t(
                       "Фото профиля ещё не включено для этой волны.",
                       "Профиль фотосы бұл кезең үшін әлі қосылмаған.",
@@ -240,7 +240,7 @@ export default function SettingsPage() {
                     )}
                   </p>
                 ) : profile?.is_impersonating ? (
-                  <p className="text-sm text-amber-200" role="status">
+                  <p className="text-sm text-amber-800" role="status">
                     {t(
                       "Вернитесь в Global Admin, чтобы менять собственное фото.",
                       "Өз фотоңызды өзгерту үшін Global Admin режиміне оралыңыз.",
@@ -321,7 +321,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label htmlFor="notification-email">{t("Email уведомления", "Email хабарламалар", "Email notifications")}</Label>
-                  <p className="text-sm text-slate-500">{t("Письма о важных событиях", "Маңызды оқиғалар туралы хаттар", "Emails for important events")}</p>
+                  <p className="text-sm text-muted-foreground">{t("Письма о важных событиях", "Маңызды оқиғалар туралы хаттар", "Emails for important events")}</p>
                 </div>
                 <Switch
                   id="notification-email"
@@ -334,7 +334,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label htmlFor="notification-operations">{t("Операции", "Операциялар", "Operations")}</Label>
-                  <p className="text-sm text-slate-500">{t("Статусы и напоминания по операциям", "Операциялар бойынша статустар мен еске салулар", "Operation status and reminders")}</p>
+                  <p className="text-sm text-muted-foreground">{t("Статусы и напоминания по операциям", "Операциялар бойынша статустар мен еске салулар", "Operation status and reminders")}</p>
                 </div>
                 <Switch
                   id="notification-operations"
@@ -349,7 +349,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label htmlFor="notification-warehouse">{t("Склад", "Қойма", "Warehouse")}</Label>
-                  <p className="text-sm text-slate-500">{t("Выдача и подтверждение материалов", "Материалдарды беру және растау", "Issue and receipt confirmations")}</p>
+                  <p className="text-sm text-muted-foreground">{t("Выдача и подтверждение материалов", "Материалдарды беру және растау", "Issue and receipt confirmations")}</p>
                 </div>
                 <Switch
                   id="notification-warehouse"
@@ -364,7 +364,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between gap-4">
                 <div className="space-y-0.5">
                   <Label htmlFor="notification-traffic">{t("Оборот машин", "Көлік айналымы", "Vehicle turnover")}</Label>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-muted-foreground">
                     {t("Линия, ремонт и предупреждения о простое", "Желі, жөндеу және тоқтап қалу ескертулері", "Line, repair, and idle alerts")}
                   </p>
                 </div>
@@ -381,7 +381,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between gap-4">
                 <div className="space-y-0.5">
                   <Label htmlFor="notification-weighbridge">{t("Весовая", "Таразы", "Weighbridge")}</Label>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-muted-foreground">
                     {t("Новые рейсы, закрытие, исправления и аннулирование талонов", "Жаңа рейстер мен талон мәртебелері", "New trips and ticket status changes")}
                   </p>
                 </div>
@@ -398,7 +398,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between gap-4">
                 <div className="space-y-0.5">
                   <Label htmlFor="notification-assist">{t("Проактивный Assist", "Проактивті Assist", "Proactive Assist")}</Label>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-muted-foreground">
                     {t("Сообщать только о важных изменениях уборки и талонов", "Егін жинау мен талондардың маңызды өзгерістері", "Important harvest and ticket changes only")}
                   </p>
                 </div>
@@ -414,7 +414,7 @@ export default function SettingsPage() {
               <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center">
                 <div>
                   <Label htmlFor="notification-assist-cadence">{t("Режим сводок", "Жиынтық режимі", "Summary cadence")}</Label>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-muted-foreground">
                     {t("События приходят сразу; плановая сводка — по выбранному интервалу", "Оқиғалар бірден, жиынтық таңдалған аралықта", "Events are instant; summaries follow this cadence")}
                   </p>
                 </div>

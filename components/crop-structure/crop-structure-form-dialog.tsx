@@ -323,7 +323,7 @@ export function CropStructureFormDialog({
                     />
                   </FormControl>
                   {selectedField && (
-                    <p className="text-sm text-slate-500">
+                    <p className="text-sm text-muted-foreground">
                       Max area for {selectedField.name}: {selectedField.area.toFixed(2)} ha
                     </p>
                   )}
