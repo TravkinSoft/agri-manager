@@ -265,7 +265,10 @@ function readFilters(request: NextRequest): HarvestDashboardFilters {
 
 export async function GET(request: NextRequest) {
   try {
-    const { companyId, supabase } = await resolveWeighbridgeSession(request, { allowedRoles: DASHBOARD_ROLES });
+    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: DASHBOARD_ROLES,
+      serverProfileRead: true,
+    });
     const section = String(request.nextUrl.searchParams.get("section") || "summary");
     const filters = readFilters(request);
     if (section === "warehouses") {
