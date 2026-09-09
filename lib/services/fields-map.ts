@@ -65,12 +65,19 @@ export async function previewFieldMapImport(payload: {
   kmlText: string;
   seasonId?: string | null;
   polygons: ParsedKmlPolygonInput[];
-}) {
+}, options: { signal?: AbortSignal } = {}) {
   const headers = await buildAuthHeaders("json");
   const response = await fetch("/api/fields-map/import/preview", {
     method: "POST",
     headers,
-    body: JSON.stringify(payload),
+    signal: options.signal,
+    // Client polygons are display-only. The mutation route reparses the raw
+    // KML so browser-supplied geometry can never become authoritative.
+    body: JSON.stringify({
+      fileName: payload.fileName,
+      kmlText: payload.kmlText,
+      seasonId: payload.seasonId,
+    }),
   });
   return parseJsonOrThrow(response) as Promise<{
     import_id: string;
@@ -89,7 +96,7 @@ export async function previewFieldMapImport(payload: {
 
 export async function confirmFieldMapImport(payload: {
   import_id: string;
-  overrides: Array<{ polygon_id: string; field_id: string }>;
+  overrides: Array<{ polygon_id: string; field_id: string | null }>;
 }) {
   const headers = await buildAuthHeaders("json");
   const response = await fetch("/api/fields-map/import/confirm", {
@@ -106,6 +113,42 @@ export async function confirmFieldMapImport(payload: {
   }>;
 }
 
+export type FieldBoundaryMutationPayload =
+  | {
+      action: "replace";
+      field_id: string;
+      expected_geometry_id: string | null;
+      geometry: GeoJsonGeometry;
+    }
+  | {
+      action: "relink" | "restore";
+      field_id: string;
+      expected_geometry_id: string;
+      target_field_id: string;
+    }
+  | {
+      action: "unlink";
+      field_id: string;
+      expected_geometry_id: string;
+    };
+
+export async function mutateFieldBoundary(payload: FieldBoundaryMutationPayload) {
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch("/api/fields-map/boundaries/mutate", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  return parseJsonOrThrow(response) as Promise<{
+    boundary: {
+      action: string;
+      geometry_id: string | null;
+      previous_geometry_id: string | null;
+      field_id: string | null;
+    };
+  }>;
+}
+
 export async function listFieldMapImports() {
   const headers = await buildAuthHeaders();
   const response = await fetch("/api/fields-map/imports", {
@@ -113,25 +156,30 @@ export async function listFieldMapImports() {
     headers,
     cache: "no-store",
   });
-  const payload = (await parseJsonOrThrow(response)) as { imports: FieldMapImportSummary[] };
-  return payload.imports || [];
+  const payload = (await parseJsonOrThrow(response)) as {
+    imports: FieldMapImportSummary[];
+    map_revision?: Record<string, unknown> | null;
+  };
+  return {
+    imports: payload.imports || [],
+    mapRevision: payload.map_revision || null,
+  };
 }
 
-export async function updateFieldMapImportAction(importId: string, action: "activate" | "deactivate" | "delete") {
+export async function updateFieldMapImportAction(
+  importId: string,
+  action: "activate" | "deactivate" | "delete",
+  expectation: { mapRevision: Record<string, unknown>; targetUpdatedAt: string }
+) {
   const headers = await buildAuthHeaders("json");
   const response = await fetch(`/api/fields-map/imports/${encodeURIComponent(importId)}`, {
     method: "PATCH",
     headers,
-    body: JSON.stringify({ action }),
-  });
-  return parseJsonOrThrow(response);
-}
-
-export async function deleteFieldMapImport(importId: string) {
-  const headers = await buildAuthHeaders();
-  const response = await fetch(`/api/fields-map/imports/${encodeURIComponent(importId)}`, {
-    method: "DELETE",
-    headers,
+    body: JSON.stringify({
+      action,
+      expected_map_revision: expectation.mapRevision,
+      expected_target_updated_at: expectation.targetUpdatedAt,
+    }),
   });
   return parseJsonOrThrow(response);
 }

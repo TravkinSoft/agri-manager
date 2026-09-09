@@ -1,69 +1,36 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
+import {
+  FIELD_MAP_MAX_CONFLICT_CANDIDATE_PAIRS,
+  FIELD_MAP_MAX_CONFLICT_SEGMENT_COMPLEXITY,
+  estimateAreaGeometryConflictComplexity,
+  findAreaGeometryConflicts,
+} from "@/lib/fields-map/geometry-validation";
+import { validateParsedPolygonsForImport } from "@/lib/fields-map/import-validation";
+import { parseKmlToGeoJson } from "@/lib/fields-map/kml-server";
 import { buildFieldAliasIndex, resolveFieldByPolygonName } from "@/lib/fields-map/matching";
 import { fieldsMapErrorResponse, resolveFieldsMapContext } from "@/lib/fields-map/server";
-import type {
-  FieldMapPreviewDiagnostics,
-  GeoJsonAreaGeometry,
-  ParsedKmlPolygonInput,
-} from "@/lib/types/fields-map";
+import type { FieldMapPreviewDiagnostics } from "@/lib/types/fields-map";
 import { getServiceClient } from "@/lib/supabase/service";
 
-const MAX_KML_BYTES = Number(process.env.FIELD_MAP_PREVIEW_MAX_KML_BYTES || 5 * 1024 * 1024);
+const DEFAULT_MAX_KML_BYTES = 5 * 1024 * 1024;
+const configuredMaxBytes = Number(process.env.FIELD_MAP_PREVIEW_MAX_KML_BYTES);
+const MAX_KML_BYTES =
+  Number.isFinite(configuredMaxBytes) && configuredMaxBytes > 0
+    ? Math.min(configuredMaxBytes, 20 * 1024 * 1024)
+    : DEFAULT_MAX_KML_BYTES;
 
 function normalizeText(value: unknown): string {
   return String(value || "").trim();
 }
 
+function normalizeFileName(value: unknown): string {
+  const basename = normalizeText(value).split(/[\\/]/u).pop() || "fields-map-import.kml";
+  return basename.replace(/[\u0000-\u001f\u007f]/gu, "").slice(0, 255);
+}
+
 function isUuidLike(value: string | null | undefined): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(String(value || "").trim());
-}
-
-function parseNumber(value: unknown): number | null {
-  const numberValue = Number(value);
-  return Number.isFinite(numberValue) ? numberValue : null;
-}
-
-function isValidRing(ring: unknown): boolean {
-  if (!Array.isArray(ring) || ring.length < 4) return false;
-  return ring.every((point) => Array.isArray(point) && point.length >= 2 && Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1])));
-}
-
-function isValidGeometry(geometry: unknown): geometry is GeoJsonAreaGeometry {
-  if (!geometry || typeof geometry !== "object") return false;
-  const type = (geometry as any).type;
-  const coordinates = (geometry as any).coordinates;
-  if (type === "Polygon") {
-    return Array.isArray(coordinates) && coordinates.length > 0 && coordinates.every((ring) => isValidRing(ring));
-  }
-  if (type === "MultiPolygon") {
-    return (
-      Array.isArray(coordinates) &&
-      coordinates.length > 0 &&
-      coordinates.every((polygon) => Array.isArray(polygon) && polygon.length > 0 && polygon.every((ring: unknown) => isValidRing(ring)))
-    );
-  }
-  return false;
-}
-
-function normalizePolygons(raw: unknown): ParsedKmlPolygonInput[] {
-  if (!Array.isArray(raw)) return [];
-  const result: ParsedKmlPolygonInput[] = [];
-  raw.forEach((item, index) => {
-    const row = item as Record<string, unknown>;
-    const id = normalizeText(row.id) || `poly-${index + 1}`;
-    const name = normalizeText(row.name) || `Полигон ${index + 1}`;
-    const geometry = row.geometry;
-    if (!isValidGeometry(geometry)) return;
-    const area = parseNumber(row.area_ha);
-    result.push({
-      id,
-      name,
-      geometry,
-      area_ha: area == null ? null : Number(area.toFixed(4)),
-    });
-  });
-  return result;
 }
 
 async function resolveSeasonIdForPreview(params: {
@@ -119,10 +86,11 @@ export async function POST(request: NextRequest) {
     error_message: null,
   };
 
-  const previewError = (status: number, message: string) =>
+  const previewError = (status: number, message: string, details?: string[]) =>
     NextResponse.json(
       {
         error: message,
+        details: details?.slice(0, 20),
         request_id: requestId,
         debug: {
           ...diagnostics,
@@ -134,21 +102,22 @@ export async function POST(request: NextRequest) {
     );
 
   try {
-    const context = await resolveFieldsMapContext(request, { write: true });
+    const context = await resolveFieldsMapContext(request, { mutation: true });
     const { companyId, supabase, actor } = context;
     diagnostics.company_id = companyId;
     diagnostics.error_stage = "payload_parse";
 
     const body = await request.json();
-    const fileName = normalizeText(body.fileName) || "fields-map-import.kml";
-    const kmlText = normalizeText(body.kmlText);
-    const polygons = normalizePolygons(body.polygons);
+    const fileName = normalizeFileName(body?.fileName);
+    const kmlText = typeof body?.kmlText === "string" ? body.kmlText.trim() : "";
 
     diagnostics.file_name = fileName;
     diagnostics.file_size_bytes = Buffer.byteLength(kmlText, "utf8");
-    diagnostics.polygons_received = Array.isArray(body.polygons) ? body.polygons.length : 0;
-    diagnostics.polygons_valid = polygons.length;
 
+    if (!fileName || !/\.kml$/iu.test(fileName)) {
+      diagnostics.error_stage = "payload_validation";
+      return previewError(400, "Разрешены только файлы KML.");
+    }
     if (!kmlText) {
       diagnostics.error_stage = "payload_validation";
       return previewError(400, "KML content is required");
@@ -157,10 +126,20 @@ export async function POST(request: NextRequest) {
       diagnostics.error_stage = "payload_limit";
       return previewError(413, `KML file is too large. Limit: ${MAX_KML_BYTES} bytes.`);
     }
-    if (!polygons.length) {
-      diagnostics.error_stage = "payload_validation";
-      return previewError(400, "Не найдено валидных полигонов для импорта");
+    diagnostics.error_stage = "server_kml_parse";
+    const parsedKml = parseKmlToGeoJson(kmlText);
+    if (parsedKml.errors.length > 0) {
+      return previewError(400, "KML не прошёл серверную проверку.", parsedKml.errors);
     }
+
+    const validation = validateParsedPolygonsForImport(parsedKml.features);
+    if (!validation.ok) {
+      diagnostics.error_stage = validation.tooLarge ? "payload_limit" : "geometry_validation";
+      return previewError(validation.tooLarge ? 413 : 400, validation.error);
+    }
+    const polygons = validation.polygons;
+    diagnostics.polygons_received = parsedKml.features.length;
+    diagnostics.polygons_valid = polygons.length;
 
     diagnostics.error_stage = "season_resolution";
     const seasonId = await resolveSeasonIdForPreview({
@@ -171,20 +150,49 @@ export async function POST(request: NextRequest) {
     diagnostics.season_id = seasonId;
 
     diagnostics.error_stage = "fields_lookup";
-    const fieldsRes = await supabase
-      .from("fields")
-      .select("id,name,notes")
-      .eq("company_id", companyId)
-      .eq("archived", false);
-
-    if (fieldsRes.error) {
-      return previewError(400, fieldsRes.error.message);
+    const snapshotRes = await supabase.rpc("get_field_map_snapshot_v1", {
+      p_company_id: companyId,
+    });
+    if (snapshotRes.error) {
+      return previewError(400, snapshotRes.error.message);
+    }
+    const snapshotPayload = (snapshotRes.data || {}) as {
+      fields?: Array<{ id: string; name: string; area: number | null; notes: string | null }>;
+      revision?: Record<string, unknown>;
+    };
+    const snapshotFields = Array.isArray(snapshotPayload.fields) ? snapshotPayload.fields : [];
+    if (!snapshotPayload.revision || typeof snapshotPayload.revision !== "object") {
+      return previewError(409, "Не удалось зафиксировать ревизию карты для безопасного preview.");
     }
 
     diagnostics.error_stage = "matching";
-    const aliasIndex = buildFieldAliasIndex((fieldsRes.data || []) as any[]);
+    const aliasIndex = buildFieldAliasIndex(snapshotFields as any[]);
+    const conflictComplexity = estimateAreaGeometryConflictComplexity(polygons);
+    if (
+      conflictComplexity.candidatePairs > FIELD_MAP_MAX_CONFLICT_CANDIDATE_PAIRS ||
+      conflictComplexity.segmentComplexity > FIELD_MAP_MAX_CONFLICT_SEGMENT_COMPLEXITY
+    ) {
+      diagnostics.error_stage = "geometry_complexity";
+      return previewError(413, "KML содержит слишком много потенциально пересекающихся контуров для одного запроса.");
+    }
+    const conflicts = findAreaGeometryConflicts(polygons);
+    const conflictsByPolygonId = new Map<string, Set<string>>();
+    conflicts.forEach((conflict) => {
+      if (!conflictsByPolygonId.has(conflict.firstId)) {
+        conflictsByPolygonId.set(conflict.firstId, new Set<string>());
+      }
+      if (!conflictsByPolygonId.has(conflict.secondId)) {
+        conflictsByPolygonId.set(conflict.secondId, new Set<string>());
+      }
+      conflictsByPolygonId.get(conflict.firstId)?.add(conflict.secondId);
+      conflictsByPolygonId.get(conflict.secondId)?.add(conflict.firstId);
+    });
     const matches = polygons.map((polygon) => {
-      const resolved = resolveFieldByPolygonName(polygon.name, aliasIndex);
+      const conflictPolygonIds = Array.from(conflictsByPolygonId.get(polygon.id) || []).sort();
+      const resolved = resolveFieldByPolygonName(polygon.name, aliasIndex, {
+        area_ha: polygon.area_ha,
+        conflict_polygon_ids: conflictPolygonIds,
+      });
       return {
         polygon_id: polygon.id,
         polygon_name: polygon.name,
@@ -196,6 +204,9 @@ export async function POST(request: NextRequest) {
         matched_by: resolved.matched_by,
         field_id: resolved.field_id,
         field_display_name: resolved.field_display_name,
+        suggested_field_id: resolved.suggested_field_id,
+        reason_codes: resolved.reason_codes,
+        conflict_polygon_ids: conflictPolygonIds,
         candidates: resolved.candidates,
       };
     });
@@ -219,6 +230,7 @@ export async function POST(request: NextRequest) {
     const previewPayload = {
       season_id: seasonId,
       polygons: matches,
+      map_revision: snapshotPayload.revision,
       generated_at: new Date().toISOString(),
       debug: successDebug,
     };

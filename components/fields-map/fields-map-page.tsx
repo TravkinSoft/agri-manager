@@ -24,9 +24,11 @@ import {
   RotateCcw,
   Save,
   Trash2,
+  Undo2,
   Wrench,
   X,
 } from "lucide-react";
+import { FieldMapImportReview } from "@/components/fields-map/field-map-import-review";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +36,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/contexts/auth-context";
 import {
   CROP_COLOR_LEGEND,
   WORK_STATUS_COLOR_LEGEND,
@@ -42,14 +45,19 @@ import {
 } from "@/lib/fields-map/colors";
 import { parseKmlToGeoJson } from "@/lib/fields-map/kml";
 import {
+  buildFieldMapConfirmOverrides,
+  resolveFieldMapDecision,
+  summarizeFieldMapReview,
+} from "@/lib/fields-map/import-review";
+import {
   FieldsMapApiError,
   confirmFieldMapImport,
   createFieldEngineeringObject,
-  deleteFieldMapImport,
   deleteFieldEngineeringObject,
   downloadFieldMapImportKml,
   getFieldsMapBootstrap,
   listFieldMapImports,
+  mutateFieldBoundary,
   previewFieldMapImport,
   updateFieldEngineeringObject,
   updateFieldMapImportAction,
@@ -62,6 +70,7 @@ import type {
   FieldMapImportSummary,
   FieldMapPreviewMatch,
   FieldsMapBootstrapPayload,
+  GeoJsonAreaGeometry,
   GeoJsonGeometry,
   ParsedKmlPolygonInput,
 } from "@/lib/types/fields-map";
@@ -87,6 +96,18 @@ type UploadState = {
   errors: string[];
 };
 
+type BoundaryEditState = {
+  fieldId: string;
+  expectedGeometryId: string | null;
+  originalGeometry: GeoJsonGeometry | null;
+};
+
+type BoundaryUndoState = {
+  geometryId: string;
+  fieldId: string;
+  fieldLabel: string;
+};
+
 type PreviewMapFeature = {
   geometry: GeoJsonGeometry;
   fieldId: string | null;
@@ -94,6 +115,20 @@ type PreviewMapFeature = {
   areaHa: number | null;
   matchStatus: "matched" | "ambiguous" | "not_found";
 };
+
+function mapMotionDuration(durationMs: number): number {
+  if (typeof window === "undefined") return durationMs;
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? 0 : durationMs;
+}
+
+function boundaryRequiresKmlReplacement(geometry: GeoJsonGeometry | null): boolean {
+  return Boolean(
+    geometry && (
+      geometry.type !== "Polygon" ||
+      geometry.coordinates.length !== 1
+    )
+  );
+}
 
 type OverlayFeatureProperties = {
   overlay_mode: "field" | "preview";
@@ -248,6 +283,7 @@ const MAP_DEFAULT_MAX_ZOOM = Math.max(...Object.values(BASE_LAYER_MAX_ZOOM));
 const EMPTY_FIELDS: FieldMapFieldCard[] = [];
 const EMPTY_PREVIEW_ROWS: FieldMapPreviewMatch[] = [];
 const EMPTY_ENGINEERING_OBJECTS: FieldEngineeringObject[] = [];
+const FIELD_BOUNDARY_UI_ENABLED = process.env.NEXT_PUBLIC_FIELD_BOUNDARY_WRITE_V1 === "1";
 
 const ENGINEERING_OBJECT_DEFINITIONS: EngineeringObjectDefinition[] = [
   { type: "pond", label: "Котлован / водоём", geometry: "Polygon", group: "ponds", color: "#38bdf8" },
@@ -899,7 +935,9 @@ function buildMeasurementFeatureCollection(mode: MeasurementMode, points: Measur
 
 export function FieldsMapPage() {
   const { toast } = useToast();
+  const { profile } = useAuth();
   const router = useRouter();
+  const canMutateBoundaries = FIELD_BOUNDARY_UI_ENABLED && profile?.role === "global_admin";
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -919,7 +957,17 @@ export function FieldsMapPage() {
   const measurementModeRef = useRef<MeasurementMode>("none");
   const mapWorkModeRef = useRef<MapWorkMode>("agro");
   const engineeringDrawModeRef = useRef<EngineeringDrawMode>("none");
+  const boundaryEditModeRef = useRef(false);
+  const boundaryBusyRef = useRef(false);
   const measurementDraggingIndexRef = useRef<number | null>(null);
+  const previewGenerationRef = useRef(0);
+  const previewAbortControllerRef = useRef<AbortController | null>(null);
+  const previewSeasonRef = useRef("");
+  const invalidatePreviewRequest = useCallback(() => {
+    previewGenerationRef.current += 1;
+    previewAbortControllerRef.current?.abort();
+    previewAbortControllerRef.current = null;
+  }, []);
   const bindMapContainerRef = useCallback((node: HTMLDivElement | null) => {
     mapContainerRef.current = node;
     setMapContainerNode(node);
@@ -928,6 +976,7 @@ export function FieldsMapPage() {
   const [loading, setLoading] = useState(true);
   const [bootstrap, setBootstrap] = useState<FieldsMapBootstrapPayload | null>(null);
   const [imports, setImports] = useState<FieldMapImportSummary[]>([]);
+  const [mapRevision, setMapRevision] = useState<Record<string, unknown> | null>(null);
   const [selectedSeasonId, setSelectedSeasonId] = useState<string>("");
   const [selectedCrop, setSelectedCrop] = useState<string>("all");
   const [mapWorkMode, setMapWorkMode] = useState<MapWorkMode>("agro");
@@ -947,10 +996,18 @@ export function FieldsMapPage() {
   const [uploadState, setUploadState] = useState<UploadState | null>(null);
   const [previewState, setPreviewState] = useState<PreviewState | null>(null);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
+  const [importReviewOpen, setImportReviewOpen] = useState(false);
+  const [boundaryEdit, setBoundaryEdit] = useState<BoundaryEditState | null>(null);
+  const [boundaryEditPoints, setBoundaryEditPoints] = useState<MeasurementPoint[]>([]);
+  const [boundaryCoordinateInput, setBoundaryCoordinateInput] = useState({ lng: "", lat: "" });
+  const [boundaryBusy, setBoundaryBusy] = useState(false);
+  const [boundaryTargetFieldId, setBoundaryTargetFieldId] = useState<string>("none");
+  const [boundaryUndo, setBoundaryUndo] = useState<BoundaryUndoState | null>(null);
 
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmingImport, setConfirmingImport] = useState(false);
   const [historyBusyId, setHistoryBusyId] = useState<string | null>(null);
   const [selectedBaseLayer, setSelectedBaseLayer] = useState<BaseLayerMode>("satellite");
   const [colorMode, setColorMode] = useState<ColorMode>("crop");
@@ -1024,6 +1081,10 @@ export function FieldsMapPage() {
 
   const previewRows = previewState?.matches || EMPTY_PREVIEW_ROWS;
   const unresolvedRows = useMemo(() => previewRows.filter((row) => row.match_status !== "matched"), [previewRows]);
+  const importReviewSummary = useMemo(
+    () => summarizeFieldMapReview(previewRows, overrides),
+    [overrides, previewRows]
+  );
 
   const searchResults = useMemo(() => {
     const query = compactToken(fieldSearch);
@@ -1050,13 +1111,16 @@ export function FieldsMapPage() {
 
   const previewMapFeatures = useMemo<PreviewMapFeature[]>(() => {
     if (previewState) {
-      return previewState.matches.map((row) => ({
-        geometry: row.geometry,
-        fieldId: row.field_id || null,
-        label: row.polygon_name,
-        areaHa: row.area_ha,
-        matchStatus: row.match_status,
-      }));
+      return previewState.matches.map((row) => {
+        const decision = resolveFieldMapDecision(row, overrides);
+        return {
+          geometry: row.geometry,
+          fieldId: decision.fieldId,
+          label: row.polygon_name,
+          areaHa: row.area_ha,
+          matchStatus: decision.fieldId ? "matched" : row.match_status,
+        };
+      });
     }
 
     if (uploadState) {
@@ -1070,7 +1134,7 @@ export function FieldsMapPage() {
     }
 
     return [];
-  }, [previewState, uploadState]);
+  }, [overrides, previewState, uploadState]);
 
   const mapCollection = useMemo<OverlayFeatureCollection>(() => {
     if (previewMapFeatures.length > 0) {
@@ -1165,6 +1229,16 @@ export function FieldsMapPage() {
     [engineeringDrawMode, engineeringDraftPoints]
   );
 
+  const boundaryDraftGeometry = useMemo<GeoJsonAreaGeometry | null>(() => {
+    const geometry = buildGeometryFromDraft("polygon", boundaryEditPoints);
+    return geometry?.type === "Polygon" ? geometry : null;
+  }, [boundaryEditPoints]);
+
+  const availableBoundaryTargets = useMemo(
+    () => fields.filter((field) => field.field_id !== selectedField?.field_id && !field.geometry_id),
+    [fields, selectedField?.field_id]
+  );
+
   const engineeringDraftDistanceMeters = useMemo(
     () => geometryLengthMeters(engineeringDraftGeometry),
     [engineeringDraftGeometry]
@@ -1221,7 +1295,7 @@ export function FieldsMapPage() {
       const featureList = selectedGeometryFeatures || [];
 
       if (!featureList.length) {
-        map.easeTo({ center: DEFAULT_MAP_CENTER, zoom: DEFAULT_MAP_ZOOM, duration: 500 });
+        map.easeTo({ center: DEFAULT_MAP_CENTER, zoom: DEFAULT_MAP_ZOOM, duration: mapMotionDuration(500) });
         updateMapDebug((prev) => ({ ...prev, fitBoundsReason: reason }));
         updateViewportDebug(map);
         return;
@@ -1238,9 +1312,9 @@ export function FieldsMapPage() {
       });
 
       if (hasCoordinates) {
-        map.fitBounds(bounds, { padding: 44, duration: 650, maxZoom: 15 });
+        map.fitBounds(bounds, { padding: 44, duration: mapMotionDuration(650), maxZoom: 15 });
       } else {
-        map.easeTo({ center: DEFAULT_MAP_CENTER, zoom: DEFAULT_MAP_ZOOM, duration: 500 });
+        map.easeTo({ center: DEFAULT_MAP_CENTER, zoom: DEFAULT_MAP_ZOOM, duration: mapMotionDuration(500) });
       }
       updateMapDebug((prev) => ({ ...prev, fitBoundsReason: reason }));
       updateViewportDebug(map);
@@ -1248,31 +1322,46 @@ export function FieldsMapPage() {
     [mapCollection.features, selectedField, updateMapDebug, updateViewportDebug]
   );
 
-  const loadBootstrap = async (seasonId?: string) => {
+  const loadBootstrap = useCallback(async (seasonId?: string) => {
     const payload = await getFieldsMapBootstrap(seasonId);
     setBootstrap(payload);
     if (payload.selected_season_id) {
       setSelectedSeasonId(payload.selected_season_id);
     }
-  };
+  }, []);
 
-  const loadImports = async () => {
-    const rows = await listFieldMapImports();
-    setImports(rows);
-  };
+  const loadImports = useCallback(async () => {
+    const payload = await listFieldMapImports();
+    setImports(payload.imports);
+    setMapRevision(payload.mapRevision);
+  }, []);
 
-  const refreshAll = async (seasonId?: string) => {
+  const refreshAll = useCallback(async (seasonId?: string) => {
     setLoading(true);
     try {
       await Promise.all([loadBootstrap(seasonId), loadImports()]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [loadBootstrap, loadImports]);
 
   useEffect(() => {
     void refreshAll();
-  }, []);
+  }, [refreshAll]);
+
+  useEffect(() => () => {
+    invalidatePreviewRequest();
+  }, [invalidatePreviewRequest]);
+
+  useEffect(() => {
+    if (previewSeasonRef.current === selectedSeasonId) return;
+    previewSeasonRef.current = selectedSeasonId;
+    invalidatePreviewRequest();
+    setPreviewState(null);
+    setPreviewApiStatus("idle");
+    setPreviewDiagnostics(null);
+    setOverrides({});
+  }, [invalidatePreviewRequest, selectedSeasonId]);
 
   useEffect(() => {
     try {
@@ -1385,19 +1474,19 @@ export function FieldsMapPage() {
                 id: MAP_RASTER_LAYER_ID,
                 type: "raster",
                 source: MAP_RASTER_SOURCE_ID,
-                layout: { visibility: selectedBaseLayer === "map" ? "visible" : "none" },
+                layout: { visibility: selectedBaseLayerRef.current === "map" ? "visible" : "none" },
               },
               {
                 id: MAP_SATELLITE_LAYER_ID,
                 type: "raster",
                 source: MAP_SATELLITE_SOURCE_ID,
-                layout: { visibility: selectedBaseLayer === "map" ? "none" : "visible" },
+                layout: { visibility: selectedBaseLayerRef.current === "map" ? "none" : "visible" },
               },
               {
                 id: MAP_HYBRID_LABELS_LAYER_ID,
                 type: "raster",
                 source: MAP_HYBRID_LABELS_SOURCE_ID,
-                layout: { visibility: selectedBaseLayer === "hybrid" ? "visible" : "none" },
+                layout: { visibility: selectedBaseLayerRef.current === "hybrid" ? "visible" : "none" },
               },
             ],
           },
@@ -1423,7 +1512,7 @@ export function FieldsMapPage() {
 
         map.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-right");
         map.addControl(new maplibre.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-right");
-        applyBaseLayerVisibility(map, selectedBaseLayer);
+        applyBaseLayerVisibility(map, selectedBaseLayerRef.current);
 
         const setRuntimeError = (message: string) => {
           setMapReady(false);
@@ -1549,6 +1638,11 @@ export function FieldsMapPage() {
         });
 
         map.on("mousemove", (event: any) => {
+          if (boundaryEditModeRef.current) {
+            map.getCanvas().style.cursor = "crosshair";
+            popupRef.current?.remove();
+            return;
+          }
           if (measurementDraggingIndexRef.current != null) {
             return;
           }
@@ -1608,6 +1702,25 @@ export function FieldsMapPage() {
         });
 
         map.on("click", (event: any) => {
+          if (boundaryEditModeRef.current) {
+            const lng = Number(event?.lngLat?.lng);
+            const lat = Number(event?.lngLat?.lat);
+            if (Number.isFinite(lng) && Number.isFinite(lat)) {
+              setBoundaryEditPoints((prev) => {
+                if (prev.length >= 999) return prev;
+                return [
+                  ...prev,
+                  {
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    lng,
+                    lat,
+                    source: "manual",
+                  },
+                ];
+              });
+            }
+            return;
+          }
           const activeMeasureMode = measurementModeRef.current;
           if (activeMeasureMode !== "none") {
             const lng = Number(event?.lngLat?.lng);
@@ -1670,7 +1783,10 @@ export function FieldsMapPage() {
           });
           const fieldId = toNullableString(features[0]?.properties?.field_id);
           if (fieldId) {
-            handleSelectField(fieldId);
+            setSelectedFieldId(fieldId);
+            fitRequestReasonRef.current = "field_selected";
+            updateMapDebug((prev) => ({ ...prev, fitBoundsReason: "field_selected" }));
+            setFitRequestNonce((prev) => prev + 1);
           }
         });
 
@@ -1738,7 +1854,7 @@ export function FieldsMapPage() {
       setMapReady(false);
       updateMapDebug((prev) => ({ ...prev, mapReady: false, tilesLoading: false }));
     };
-  }, [loading, mapContainerNode, updateMapDebug]);
+  }, [loading, mapContainerNode, updateMapDebug, updateViewportDebug]);
 
   useEffect(() => {
     updateMapDebug((prev) => ({
@@ -1795,13 +1911,52 @@ export function FieldsMapPage() {
   }, [engineeringDrawMode]);
 
   useEffect(() => {
+    boundaryEditModeRef.current = Boolean(boundaryEdit);
+  }, [boundaryEdit]);
+
+  useEffect(() => {
+    if (!boundaryEdit) return;
+    const handleBoundaryEditorKeyDown = (event: KeyboardEvent) => {
+      if (boundaryBusyRef.current) return;
+      if (event.key === "Escape") {
+        boundaryEditModeRef.current = false;
+        setBoundaryEdit(null);
+        setBoundaryEditPoints([]);
+        setBoundaryCoordinateInput({ lng: "", lat: "" });
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        setBoundaryEditPoints((prev) => prev.slice(0, -1));
+        return;
+      }
+      if (
+        event.key === "Enter" &&
+        mapContainerRef.current?.contains(document.activeElement)
+      ) {
+        event.preventDefault();
+        const center = mapRef.current?.getCenter?.();
+        const lng = Number(center?.lng);
+        const lat = Number(center?.lat);
+        if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+        setBoundaryEditPoints((prev) => prev.length >= 999 ? prev : [
+          ...prev,
+          { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, lng, lat, source: "manual" },
+        ]);
+      }
+    };
+    window.addEventListener("keydown", handleBoundaryEditorKeyDown);
+    return () => window.removeEventListener("keydown", handleBoundaryEditorKeyDown);
+  }, [boundaryEdit]);
+
+  useEffect(() => {
     if (!mapReady || !mapRef.current) return;
     const map = mapRef.current;
     applyBaseLayerVisibility(map, selectedBaseLayer);
     const layerMaxZoom = BASE_LAYER_MAX_ZOOM[selectedBaseLayer];
     const currentZoom = Number(map.getZoom?.() || DEFAULT_MAP_ZOOM);
     if (Number.isFinite(currentZoom) && currentZoom > layerMaxZoom) {
-      map.easeTo({ zoom: layerMaxZoom, duration: 250 });
+      map.easeTo({ zoom: layerMaxZoom, duration: mapMotionDuration(250) });
     }
     updateMapDebug((prev) => ({ ...prev, selectedBaseLayer, maxZoom: layerMaxZoom }));
   }, [mapReady, selectedBaseLayer, updateMapDebug]);
@@ -1829,7 +1984,11 @@ export function FieldsMapPage() {
     source.setData(mapCollection);
     measureSource.setData(buildMeasurementFeatureCollection(measurementMode, measurementPoints));
     engineeringSource.setData(engineeringCollection);
-    engineeringDraftSource.setData(buildEngineeringDraftFeatureCollection(engineeringDrawMode, engineeringDraftPoints));
+    engineeringDraftSource.setData(
+      boundaryEdit
+        ? buildEngineeringDraftFeatureCollection("polygon", boundaryEditPoints)
+        : buildEngineeringDraftFeatureCollection(engineeringDrawMode, engineeringDraftPoints)
+    );
 
     const fitReason = fitRequestReasonRef.current;
     if (!fitReason || fitReason === "none") {
@@ -1840,6 +1999,8 @@ export function FieldsMapPage() {
     fitRequestReasonRef.current = null;
   }, [
     engineeringCollection,
+    boundaryEdit,
+    boundaryEditPoints,
     engineeringDrawMode,
     engineeringDraftPoints,
     fitMapForReason,
@@ -1853,6 +2014,8 @@ export function FieldsMapPage() {
   const handleSelectField = useCallback(
     (fieldId: string) => {
       setSelectedFieldId(fieldId);
+      setFieldSearch("");
+      setShowFieldListMobile(false);
       requestFitByReason("field_selected");
     },
     [requestFitByReason]
@@ -1910,7 +2073,7 @@ export function FieldsMapPage() {
           element: createLocationMarkerElement(heading),
           anchor: "center",
         }).setLngLat(lngLat).addTo(map);
-        map.easeTo({ center: lngLat, zoom: Math.max(13, map.getZoom()), duration: 700 });
+        map.easeTo({ center: lngLat, zoom: Math.max(13, map.getZoom()), duration: mapMotionDuration(700) });
         setGeolocationStatus("granted");
         updateMapDebug((prev) => ({
           ...prev,
@@ -2119,6 +2282,7 @@ export function FieldsMapPage() {
     engineeringName,
     engineeringObjectType,
     engineeringObjects,
+    loadBootstrap,
     selectedSeasonId,
     toast,
   ]);
@@ -2142,7 +2306,7 @@ export function FieldsMapPage() {
     } finally {
       setEngineeringBusy(false);
     }
-  }, [selectedSeasonId, toast]);
+  }, [loadBootstrap, selectedSeasonId, toast]);
 
   const handleToggleFollowMeasure = useCallback(() => {
     if (!navigator.geolocation) {
@@ -2198,7 +2362,7 @@ export function FieldsMapPage() {
           }
           return [...prev, nextPoint];
         });
-        mapRef.current?.easeTo({ center: [lng, lat], duration: 250 });
+        mapRef.current?.easeTo({ center: [lng, lat], duration: mapMotionDuration(250) });
       },
       (error) => {
         let status: GeolocationStatus = "error";
@@ -2229,6 +2393,8 @@ export function FieldsMapPage() {
     }
     const exact = searchResults[0];
     setSelectedFieldId(exact.field_id);
+    setFieldSearch("");
+    setShowFieldListMobile(false);
     if (!exact.geometry) {
       toast({
         title: `Поле ${exact.field_display_name} найдено`,
@@ -2239,6 +2405,38 @@ export function FieldsMapPage() {
     requestFitByReason("field_selected");
   }, [fieldSearch, requestFitByReason, searchResults, toast]);
 
+  const focusGeometryOnMap = useCallback((geometry: GeoJsonGeometry, label: string) => {
+    const map = mapRef.current;
+    const maplibre = maplibreRef.current;
+    if (!map || !maplibre) {
+      toast({ title: "Карта ещё не готова", description: "Подождите загрузку карты.", variant: "destructive" });
+      return;
+    }
+    const bounds = new maplibre.LngLatBounds();
+    let hasCoordinates = false;
+    visitGeometryCoordinates(geometry, (lng, lat) => {
+      bounds.extend([lng, lat]);
+      hasCoordinates = true;
+    });
+    if (!hasCoordinates) {
+      toast({ title: "Контур пуст", description: `${label}: координаты не найдены.`, variant: "destructive" });
+      return;
+    }
+    map.fitBounds(bounds, { padding: 64, maxZoom: 16, duration: mapMotionDuration(180) });
+  }, [toast]);
+
+  const openKmlPicker = useCallback(() => {
+    if (!canMutateBoundaries) {
+      toast({
+        title: "Импорт выключен",
+        description: "Изменение границ доступно global_admin только в отдельной проверенной волне.",
+        variant: "destructive",
+      });
+      return;
+    }
+    fileInputRef.current?.click();
+  }, [canMutateBoundaries, toast]);
+
   const handleSeasonChange = async (seasonId: string) => {
     setSelectedSeasonId(seasonId);
     await refreshAll(seasonId);
@@ -2248,6 +2446,13 @@ export function FieldsMapPage() {
   const handleKmlSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    invalidatePreviewRequest();
+    const selectionGeneration = previewGenerationRef.current;
+    if (!canMutateBoundaries) {
+      toast({ title: "Импорт выключен", description: "Недостаточно прав или write-флаг выключен.", variant: "destructive" });
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     if (!file.name.toLowerCase().endsWith(".kml")) {
       toast({ title: "Ошибка", description: "Разрешены только .kml файлы", variant: "destructive" });
       return;
@@ -2255,6 +2460,7 @@ export function FieldsMapPage() {
 
     try {
       const kmlText = await file.text();
+      if (selectionGeneration !== previewGenerationRef.current) return;
       const parsed = parseKmlToGeoJson(kmlText);
       if (!parsed.features.length) {
         toast({ title: "Ошибка", description: parsed.errors[0] || "Полигонов не найдено", variant: "destructive" });
@@ -2270,6 +2476,7 @@ export function FieldsMapPage() {
       setPreviewApiStatus("idle");
       setPreviewDiagnostics(null);
       setOverrides({});
+      setImportReviewOpen(true);
       toast({
         title: "KML загружен",
         description: `Найдено полигонов: ${parsed.features.length}. Нажмите "Проверить совпадения полей".`,
@@ -2290,17 +2497,24 @@ export function FieldsMapPage() {
   };
 
   const runPreview = async () => {
-    if (!uploadState) return;
+    if (!uploadState || !canMutateBoundaries) return;
+    invalidatePreviewRequest();
+    const runGeneration = previewGenerationRef.current;
+    const controller = new AbortController();
+    previewAbortControllerRef.current = controller;
+    const pendingUpload = uploadState;
+    const pendingSeasonId = selectedSeasonId || null;
     setPreviewApiStatus("pending");
     setPreviewDiagnostics(null);
     setBusy(true);
     try {
       const preview = await previewFieldMapImport({
-        fileName: uploadState.fileName,
-        kmlText: uploadState.kmlText,
-        seasonId: selectedSeasonId || null,
-        polygons: uploadState.polygons,
-      });
+        fileName: pendingUpload.fileName,
+        kmlText: pendingUpload.kmlText,
+        seasonId: pendingSeasonId,
+        polygons: pendingUpload.polygons,
+      }, { signal: controller.signal });
+      if (runGeneration !== previewGenerationRef.current || controller.signal.aborted) return;
       setPreviewState({
         importId: preview.import_id,
         seasonId: preview.season_id,
@@ -2312,29 +2526,47 @@ export function FieldsMapPage() {
       setPreviewDiagnostics(preview.debug || null);
       setPreviewApiStatus("success");
       setOverrides({});
+      setImportReviewOpen(true);
       toast({
         title: "Preview готов",
         description: `Совпадений: ${preview.stats.matched_polygons}, несопоставленных: ${preview.stats.unmatched_polygons}.`,
       });
       await loadImports();
     } catch (error) {
+      if (runGeneration !== previewGenerationRef.current || controller.signal.aborted) return;
+      setPreviewApiStatus("error");
+      if (error instanceof FieldsMapApiError) {
+        setPreviewDiagnostics((error.payload?.debug || null) as FieldMapPreviewDiagnostics | null);
+      }
       toast({
         title: "Ошибка preview",
         description: error instanceof Error ? error.message : "Не удалось выполнить preview",
         variant: "destructive",
       });
     } finally {
-      setBusy(false);
+      if (runGeneration === previewGenerationRef.current) {
+        previewAbortControllerRef.current = null;
+        setBusy(false);
+      }
     }
   };
 
   const confirmImport = async () => {
-    if (!previewState) return;
+    if (!previewState || !canMutateBoundaries) return;
+    if (!importReviewSummary.canConfirm) {
+      toast({
+        title: "Очередь не готова",
+        description: importReviewSummary.pending > 0
+          ? `Примите решение ещё по ${importReviewSummary.pending} контурам.`
+          : "Одно поле назначено нескольким контурам.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setConfirmingImport(true);
     setBusy(true);
     try {
-      const overridesPayload = Object.entries(overrides)
-        .filter(([, fieldId]) => !!fieldId)
-        .map(([polygonId, fieldId]) => ({ polygon_id: polygonId, field_id: fieldId }));
+      const overridesPayload = buildFieldMapConfirmOverrides(previewState.matches, overrides);
 
       const result = await confirmFieldMapImport({
         import_id: previewState.importId,
@@ -2349,31 +2581,223 @@ export function FieldsMapPage() {
       setPreviewDiagnostics(null);
       setUploadState(null);
       setOverrides({});
+      setImportReviewOpen(false);
       await refreshAll(selectedSeasonId || undefined);
       requestFitByReason("import_success");
     } catch (error) {
+      await refreshAll(selectedSeasonId || undefined).catch(() => undefined);
       toast({
-        title: "Ошибка импорта",
-        description: error instanceof Error ? error.message : "Не удалось подтвердить импорт",
+        title: "Результат импорта нужно проверить",
+        description: `${error instanceof Error ? error.message : "Ответ сервера не подтверждён"}. История обновлена; если снимок не активен, выполните preview заново.`,
         variant: "destructive",
       });
     } finally {
+      setConfirmingImport(false);
       setBusy(false);
     }
   };
 
   const cancelImport = () => {
+    if (confirmingImport) return;
+    invalidatePreviewRequest();
+    setBusy(false);
     setUploadState(null);
     setPreviewState(null);
     setPreviewApiStatus("idle");
     setPreviewDiagnostics(null);
     setOverrides({});
+    setImportReviewOpen(false);
   };
 
+  const focusPreviewPolygon = useCallback((row: FieldMapPreviewMatch) => {
+    setImportReviewOpen(false);
+    focusGeometryOnMap(row.geometry, row.polygon_name);
+  }, [focusGeometryOnMap]);
+
+  const startBoundaryEdit = useCallback(() => {
+    if (!selectedField || !canMutateBoundaries) return;
+    if (boundaryRequiresKmlReplacement(selectedField.geometry)) {
+      toast({
+        title: "Сложный контур защищён",
+        description: "Мультиполигон или контур с внутренними кольцами заменяется только через проверяемый KML — редактор не удалит его части молча.",
+        variant: "destructive",
+      });
+      return;
+    }
+    boundaryEditModeRef.current = true;
+    setMeasurementMode("none");
+    setMeasurementPoints([]);
+    setEngineeringDrawMode("none");
+    setEngineeringDraftPoints([]);
+    setBoundaryTargetFieldId("none");
+    setBoundaryEdit({
+      fieldId: selectedField.field_id,
+      expectedGeometryId: selectedField.geometry_id,
+      originalGeometry: selectedField.geometry,
+    });
+    setBoundaryEditPoints([]);
+    setBoundaryCoordinateInput({ lng: "", lat: "" });
+    toast({
+      title: selectedField.geometry_id ? "Перерисуйте полный контур" : "Нарисуйте новый контур",
+      description: "Ставьте вершины по порядку. Ctrl+Z отменяет вершину, Esc отменяет весь черновик.",
+    });
+  }, [canMutateBoundaries, selectedField, toast]);
+
+  const cancelBoundaryEdit = useCallback(() => {
+    boundaryEditModeRef.current = false;
+    setBoundaryEdit(null);
+    setBoundaryEditPoints([]);
+    setBoundaryCoordinateInput({ lng: "", lat: "" });
+  }, []);
+
+  const undoBoundaryPoint = useCallback(() => {
+    setBoundaryEditPoints((prev) => prev.slice(0, -1));
+  }, []);
+
+  const addBoundaryCoordinate = useCallback(() => {
+    const lng = Number(boundaryCoordinateInput.lng.replace(",", "."));
+    const lat = Number(boundaryCoordinateInput.lat.replace(",", "."));
+    if (!Number.isFinite(lng) || lng < -180 || lng > 180 || !Number.isFinite(lat) || lat < -90 || lat > 90) {
+      toast({ title: "Координата не добавлена", description: "Введите долготу от −180 до 180 и широту от −90 до 90.", variant: "destructive" });
+      return;
+    }
+    setBoundaryEditPoints((prev) => prev.length >= 999 ? prev : [
+      ...prev,
+      { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, lng, lat, source: "manual" },
+    ]);
+    setBoundaryCoordinateInput({ lng: "", lat: "" });
+  }, [boundaryCoordinateInput.lat, boundaryCoordinateInput.lng, toast]);
+
+  const saveBoundaryEdit = useCallback(async () => {
+    if (!boundaryEdit || !boundaryDraftGeometry || !canMutateBoundaries) {
+      toast({ title: "Контур не готов", description: "Поставьте минимум три вершины.", variant: "destructive" });
+      return;
+    }
+    boundaryBusyRef.current = true;
+    setBoundaryBusy(true);
+    try {
+      await mutateFieldBoundary({
+        action: "replace",
+        field_id: boundaryEdit.fieldId,
+        expected_geometry_id: boundaryEdit.expectedGeometryId,
+        geometry: boundaryDraftGeometry,
+      });
+      await refreshAll(selectedSeasonId || undefined);
+      boundaryEditModeRef.current = false;
+      setBoundaryEdit(null);
+      setBoundaryEditPoints([]);
+      setBoundaryCoordinateInput({ lng: "", lat: "" });
+      setBoundaryUndo(null);
+      setSelectedFieldId(boundaryEdit.fieldId);
+      focusGeometryOnMap(boundaryDraftGeometry, "Новый контур");
+      toast({ title: "Контур сохранён", description: "Создана новая версия; предыдущая сохранена в истории." });
+    } catch (error) {
+      toast({
+        title: "Контур не сохранён",
+        description: error instanceof Error ? error.message : "Не удалось сохранить контур.",
+        variant: "destructive",
+      });
+    } finally {
+      boundaryBusyRef.current = false;
+      setBoundaryBusy(false);
+    }
+  }, [boundaryDraftGeometry, boundaryEdit, canMutateBoundaries, focusGeometryOnMap, refreshAll, selectedSeasonId, toast]);
+
+  const relinkSelectedBoundary = useCallback(async () => {
+    if (!selectedField?.geometry_id || !canMutateBoundaries || boundaryTargetFieldId === "none") return;
+    const target = fields.find((field) => field.field_id === boundaryTargetFieldId) || null;
+    if (!target || target.geometry_id) {
+      toast({ title: "Поле занято", description: "Выберите поле без активного контура.", variant: "destructive" });
+      return;
+    }
+    if (!window.confirm(`Перепривязать этот контур к полю ${target.field_display_name}?`)) return;
+    setBoundaryBusy(true);
+    try {
+      const geometry = selectedField.geometry;
+      await mutateFieldBoundary({
+        action: "relink",
+        field_id: selectedField.field_id,
+        expected_geometry_id: selectedField.geometry_id,
+        target_field_id: target.field_id,
+      });
+      await refreshAll(selectedSeasonId || undefined);
+      setSelectedFieldId(target.field_id);
+      setBoundaryTargetFieldId("none");
+      setBoundaryUndo(null);
+      if (geometry) focusGeometryOnMap(geometry, `Поле ${target.field_display_name}`);
+      toast({ title: "Контур перепривязан", description: `Теперь он связан с полем ${target.field_display_name}.` });
+    } catch (error) {
+      toast({ title: "Перепривязка не выполнена", description: error instanceof Error ? error.message : "Ошибка перепривязки.", variant: "destructive" });
+    } finally {
+      setBoundaryBusy(false);
+    }
+  }, [boundaryTargetFieldId, canMutateBoundaries, fields, focusGeometryOnMap, refreshAll, selectedField, selectedSeasonId, toast]);
+
+  const unlinkSelectedBoundary = useCallback(async () => {
+    if (!selectedField?.geometry_id || !canMutateBoundaries) return;
+    if (!window.confirm(`Отвязать контур от поля ${selectedField.field_display_name}? Сам контур останется в истории версий.`)) return;
+    const undoState: BoundaryUndoState = {
+      geometryId: selectedField.geometry_id,
+      fieldId: selectedField.field_id,
+      fieldLabel: selectedField.field_display_name,
+    };
+    setBoundaryBusy(true);
+    try {
+      await mutateFieldBoundary({
+        action: "unlink",
+        field_id: selectedField.field_id,
+        expected_geometry_id: selectedField.geometry_id,
+      });
+      setBoundaryUndo(undoState);
+      await refreshAll(selectedSeasonId || undefined);
+      toast({ title: "Контур отвязан", description: "Его можно вернуть кнопкой «Отменить отвязку» до следующего изменения." });
+    } catch (error) {
+      toast({ title: "Контур не отвязан", description: error instanceof Error ? error.message : "Ошибка отвязки.", variant: "destructive" });
+    } finally {
+      setBoundaryBusy(false);
+    }
+  }, [canMutateBoundaries, refreshAll, selectedField, selectedSeasonId, toast]);
+
+  const restoreUnlinkedBoundary = useCallback(async () => {
+    if (!boundaryUndo || !canMutateBoundaries) return;
+    setBoundaryBusy(true);
+    try {
+      await mutateFieldBoundary({
+        action: "restore",
+        field_id: boundaryUndo.fieldId,
+        expected_geometry_id: boundaryUndo.geometryId,
+        target_field_id: boundaryUndo.fieldId,
+      });
+      await refreshAll(selectedSeasonId || undefined);
+      setSelectedFieldId(boundaryUndo.fieldId);
+      setBoundaryUndo(null);
+      toast({ title: "Привязка восстановлена", description: `Контур снова связан с полем ${boundaryUndo.fieldLabel}.` });
+    } catch (error) {
+      toast({ title: "Не удалось вернуть контур", description: error instanceof Error ? error.message : "Ошибка восстановления.", variant: "destructive" });
+    } finally {
+      setBoundaryBusy(false);
+    }
+  }, [boundaryUndo, canMutateBoundaries, refreshAll, selectedSeasonId, toast]);
+
   const handleHistoryAction = async (importId: string, action: "activate" | "deactivate" | "delete") => {
+    const targetImport = imports.find((item) => item.id === importId) || null;
+    if (!targetImport || !mapRevision) {
+      toast({ title: "История изменилась", description: "Обновляем актуальную ревизию карты. Повторите действие после обновления.", variant: "destructive" });
+      await loadImports().catch(() => undefined);
+      return;
+    }
+    const confirmation = action === "activate"
+      ? `Восстановить исходный снимок «${targetImport.source_file_name}»? Текущие ручные правки контуров будут деактивированы, но останутся в истории.`
+      : action === "deactivate"
+        ? `Деактивировать снимок «${targetImport.source_file_name}» и убрать его текущие контуры с карты?`
+        : `Перенести импорт «${targetImport.source_file_name}» в архив? Если он активен, текущие контуры будут убраны с карты.`;
+    if (!window.confirm(confirmation)) return;
     setHistoryBusyId(importId);
     try {
-      await updateFieldMapImportAction(importId, action);
+      await updateFieldMapImportAction(importId, action, {
+        mapRevision,
+        targetUpdatedAt: targetImport.updated_at,
+      });
       await refreshAll(selectedSeasonId || undefined);
       toast({ title: "Готово", description: `Импорт: ${action}` });
     } catch (error) {
@@ -2388,20 +2812,7 @@ export function FieldsMapPage() {
   };
 
   const handleDeleteImport = async (importId: string) => {
-    setHistoryBusyId(importId);
-    try {
-      await deleteFieldMapImport(importId);
-      await refreshAll(selectedSeasonId || undefined);
-      toast({ title: "Удалено", description: "Импорт архивирован." });
-    } catch (error) {
-      toast({
-        title: "Ошибка",
-        description: error instanceof Error ? error.message : "Не удалось удалить импорт",
-        variant: "destructive",
-      });
-    } finally {
-      setHistoryBusyId(null);
-    }
+    await handleHistoryAction(importId, "delete");
   };
 
   const handleDownloadImport = async (importId: string) => {
@@ -2442,12 +2853,20 @@ export function FieldsMapPage() {
 
   return (
     <div className="tf2-shell -m-2 space-y-3 md:-m-4">
-      <input ref={fileInputRef} type="file" accept=".kml" className="hidden" onChange={handleKmlSelect} />
+      <input ref={fileInputRef} type="file" accept=".kml" className="hidden" disabled={!canMutateBoundaries} onChange={handleKmlSelect} />
       {mapError ? <div className="mx-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100 md:mx-4">{mapError}</div> : null}
 
       <section className="relative h-[calc(100vh-86px)] min-h-[720px] overflow-hidden rounded-[18px] border border-white/[0.07] bg-[#070B12] shadow-2xl">
         <div className="absolute inset-0">
-          <div ref={bindMapContainerRef} className="h-full w-full" />
+          <div
+            ref={bindMapContainerRef}
+            className="h-full w-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#E0B100]"
+            tabIndex={0}
+            role="application"
+            aria-label={boundaryEdit
+              ? "Редактор контура. Стрелками перемещайте карту, Enter добавляет вершину в центре, Ctrl+Z отменяет вершину, Escape закрывает редактор."
+              : "Интерактивная карта полей"}
+          />
         </div>
 
         <div
@@ -2458,36 +2877,36 @@ export function FieldsMapPage() {
           }`}
         >
           <div className="tf2-dock pointer-events-auto rounded-2xl p-2.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Режим</div>
-              <Button className="tf2-control h-9" size="sm" variant={mapWorkMode === "agro" ? "default" : "outline"} onClick={() => { setMapWorkMode("agro"); setEngineeringDrawMode("none"); setSelectedEngineeringObjectId(null); }}>
+            <div className="travkin-scrollbar flex flex-nowrap items-center gap-2 overflow-x-auto pb-0.5">
+              <div className="shrink-0 text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Режим</div>
+              <Button className="tf2-control min-h-11 shrink-0" size="sm" variant={mapWorkMode === "agro" ? "default" : "outline"} onClick={() => { setMapWorkMode("agro"); setEngineeringDrawMode("none"); setSelectedEngineeringObjectId(null); }}>
                 <Layers className="mr-2 h-4 w-4" /> Агро
               </Button>
-              <Button className="tf2-control h-9" size="sm" variant={mapWorkMode === "engineering" ? "default" : "outline"} onClick={() => { setMapWorkMode("engineering"); setSelectedFieldId(null); }}>
+              <Button className="tf2-control min-h-11 shrink-0" size="sm" disabled={Boolean(boundaryEdit)} variant={mapWorkMode === "engineering" ? "default" : "outline"} onClick={() => { setMapWorkMode("engineering"); setSelectedFieldId(null); }}>
                 <Wrench className="mr-2 h-4 w-4" /> Инженерия
               </Button>
               {mapWorkMode === "agro" ? (
                 <>
-                  <Select value={selectedCrop} onValueChange={setSelectedCrop}>
-                    <SelectTrigger aria-label="Фильтр культуры" className="h-9 min-w-[168px] flex-1 border-white/10 bg-black/25 sm:max-w-[220px]"><SelectValue /></SelectTrigger>
+                  <Select value={selectedCrop} onValueChange={setSelectedCrop} disabled={Boolean(boundaryEdit)}>
+                    <SelectTrigger aria-label="Фильтр культуры" className="h-11 w-[190px] shrink-0 border-white/10 bg-black/25"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Все культуры</SelectItem>
                       {cropOptions.map((crop) => <SelectItem key={crop} value={crop}>{crop}</SelectItem>)}
                     </SelectContent>
                   </Select>
                   <div className="hidden h-6 w-px bg-white/10 sm:block" />
-                  <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Цвет</div>
-                  <Button className="tf2-control h-9" size="sm" variant={colorMode === "crop" ? "default" : "outline"} onClick={() => setColorMode("crop")}>
+                  <div className="shrink-0 text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Цвет</div>
+                  <Button className="tf2-control min-h-11 shrink-0" size="sm" variant={colorMode === "crop" ? "default" : "outline"} onClick={() => setColorMode("crop")}>
                     Культура
                   </Button>
-                  <Button className="tf2-control h-9" size="sm" variant={colorMode === "work_status" ? "default" : "outline"} onClick={() => setColorMode("work_status")}>
+                  <Button className="tf2-control min-h-11 shrink-0" size="sm" variant={colorMode === "work_status" ? "default" : "outline"} onClick={() => setColorMode("work_status")}>
                     Работы
                   </Button>
                 </>
               ) : (
-                <div className="flex max-w-[540px] flex-wrap gap-1">
+                <div className="flex flex-nowrap gap-1">
                   {ENGINEERING_LAYER_FILTERS.map((item) => (
-                    <Button key={item.key} size="sm" variant={engineeringLayerFilter === item.key ? "default" : "outline"} className="tf2-control h-8 px-2 text-xs" onClick={() => setEngineeringLayerFilter(item.key)}>
+                    <Button key={item.key} size="sm" variant={engineeringLayerFilter === item.key ? "default" : "outline"} className="tf2-control min-h-11 shrink-0 px-2 text-xs" onClick={() => setEngineeringLayerFilter(item.key)}>
                       {item.label}
                     </Button>
                   ))}
@@ -2496,23 +2915,23 @@ export function FieldsMapPage() {
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-white/[0.07] pt-2">
               <div className="flex min-w-[220px] flex-1 items-center gap-2">
-                <input value={fieldSearch} onChange={(event) => setFieldSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); runFieldSearch(); } }} placeholder="Найти поле..." className="h-9 min-w-0 flex-1 rounded-lg border border-white/10 bg-black/25 px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[#E0B100] focus:ring-1 focus:ring-[#E0B100]/30" />
-                <Button aria-label="Найти поле" className="tf2-control h-9 w-9 shrink-0 p-0" size="sm" variant="outline" onClick={runFieldSearch}><Search className="h-4 w-4" /></Button>
-                <Button aria-label={`${showFieldListMobile ? "Скрыть" : "Показать"} список полей: ${filteredFields.length}`} className="tf2-control h-9 min-w-11 shrink-0 px-2" size="sm" variant="outline" onClick={() => setShowFieldListMobile((prev) => !prev)}>{filteredFields.length}</Button>
+                <input value={fieldSearch} disabled={Boolean(boundaryEdit)} onChange={(event) => setFieldSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); runFieldSearch(); } }} placeholder="Найти поле..." className="h-11 min-w-0 flex-1 rounded-lg border border-white/10 bg-black/25 px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[#E0B100] focus:ring-1 focus:ring-[#E0B100]/30 disabled:cursor-not-allowed disabled:opacity-50" />
+                <Button aria-label="Найти поле" className="tf2-control h-11 w-11 shrink-0 p-0" size="sm" variant="outline" disabled={Boolean(boundaryEdit)} onClick={runFieldSearch}><Search className="h-4 w-4" /></Button>
+                <Button aria-label={`${showFieldListMobile ? "Скрыть" : "Показать"} список полей: ${filteredFields.length}`} className="tf2-control h-11 min-w-11 shrink-0 px-2" size="sm" variant="outline" disabled={Boolean(boundaryEdit)} onClick={() => setShowFieldListMobile((prev) => !prev)}>{filteredFields.length}</Button>
               </div>
               <div className="travkin-scrollbar flex max-w-full items-center gap-1.5 overflow-x-auto pb-0.5">
-                <Button className="tf2-control h-9 shrink-0" size="sm" variant={selectedBaseLayer === "map" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("map")}>Карта</Button>
-                <Button className="tf2-control h-9 shrink-0" size="sm" variant={selectedBaseLayer === "satellite" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("satellite")}>Спутник</Button>
-                <Button className="tf2-control h-9 shrink-0" size="sm" variant={selectedBaseLayer === "hybrid" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("hybrid")}>Гибрид</Button>
-                <Button aria-label="Моё местоположение" className="tf2-control h-9 shrink-0 px-2" size="sm" variant="outline" onClick={handleLocateMe}><Navigation className="h-4 w-4" /></Button>
-                <Button className="tf2-control h-9 shrink-0" size="sm" variant="outline" onClick={handleShowAllFields}>Все поля</Button>
-                <Button className="tf2-control h-9 shrink-0" size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}><FileUp className="mr-2 h-4 w-4" />KML</Button>
+                <Button className="tf2-control h-11 shrink-0" size="sm" variant={selectedBaseLayer === "map" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("map")}>Карта</Button>
+                <Button className="tf2-control h-11 shrink-0" size="sm" variant={selectedBaseLayer === "satellite" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("satellite")}>Спутник</Button>
+                <Button className="tf2-control h-11 shrink-0" size="sm" variant={selectedBaseLayer === "hybrid" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("hybrid")}>Гибрид</Button>
+                <Button aria-label="Моё местоположение" className="tf2-control h-11 w-11 shrink-0 p-0" size="sm" variant="outline" onClick={handleLocateMe}><Navigation className="h-4 w-4" /></Button>
+                <Button className="tf2-control h-11 shrink-0" size="sm" variant="outline" onClick={handleShowAllFields}>Все поля</Button>
+                {canMutateBoundaries ? <Button className="tf2-control h-11 shrink-0" size="sm" variant="outline" disabled={Boolean(boundaryEdit)} onClick={openKmlPicker}><FileUp className="mr-2 h-4 w-4" />KML</Button> : null}
               </div>
             </div>
             {(showFieldListMobile || searchResults.length > 0) ? (
               <div className="travkin-scrollbar mt-2 max-h-[42vh] space-y-1 overflow-y-auto pr-1">
                 {(searchResults.length ? searchResults : filteredFields.slice(0, 18)).map((field) => (
-                  <button key={`map-rail-${field.field_id}`} type="button" onClick={() => handleSelectField(field.field_id)} className={`tf2-control w-full rounded-lg border px-3 py-2 text-left text-sm ${selectedFieldId === field.field_id ? "border-[#E0B100]/70 bg-[#1D2433] text-white" : "border-white/[0.07] bg-white/[0.025] text-slate-200 hover:bg-white/[0.06]"}`}>
+                  <button key={`map-rail-${field.field_id}`} type="button" disabled={Boolean(boundaryEdit)} onClick={() => handleSelectField(field.field_id)} className={`tf2-control w-full rounded-lg border px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50 ${selectedFieldId === field.field_id ? "border-[#E0B100]/70 bg-[#1D2433] text-white" : "border-white/[0.07] bg-white/[0.025] text-slate-200 hover:bg-white/[0.06]"}`}>
                     <div className="flex items-center justify-between gap-2"><span className="font-semibold">Поле {field.field_display_name}</span><span className="text-xs text-slate-400">{formatHa(field.field_area_ha)}</span></div>
                     <div className="mt-0.5 truncate text-xs text-slate-400">{field.crop_structure.slice(0, 2).map((row) => row.crop_name || "Культура не задана").join(", ") || "Структура не задана"}</div>
                   </button>
@@ -2523,78 +2942,128 @@ export function FieldsMapPage() {
         </div>
 
         <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 w-[min(980px,calc(100%-24px))] -translate-x-1/2">
-          <div className="tf2-dock pointer-events-auto rounded-2xl p-2">
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <Button className="tf2-control" size="sm" variant={measurementMode === "distance" ? "default" : "outline"} onClick={() => handleMeasurementMode("distance")}><Route className="mr-2 h-4 w-4" />Расстояние</Button>
-              <Button className="tf2-control" size="sm" variant={measurementMode === "area" ? "default" : "outline"} onClick={() => handleMeasurementMode("area")}><Ruler className="mr-2 h-4 w-4" />Площадь</Button>
-              <Button className="tf2-control" size="sm" variant={followMeasureActive ? "default" : "outline"} onClick={handleToggleFollowMeasure}><Crosshair className="mr-2 h-4 w-4" />Follow</Button>
-              <Button className="tf2-control" size="sm" variant="outline" onClick={clearMeasurement}><Trash2 className="mr-2 h-4 w-4" />Очистить</Button>
+          <div className="tf2-dock travkin-scrollbar pointer-events-auto overflow-x-auto rounded-2xl p-2">
+            <div className="flex min-w-max flex-nowrap items-center justify-start gap-2 sm:min-w-full sm:justify-center">
+              <Button className="tf2-control min-h-11 shrink-0" size="sm" disabled={Boolean(boundaryEdit)} variant={measurementMode === "distance" ? "default" : "outline"} onClick={() => handleMeasurementMode("distance")}><Route className="mr-2 h-4 w-4" />Расстояние</Button>
+              <Button className="tf2-control min-h-11 shrink-0" size="sm" disabled={Boolean(boundaryEdit)} variant={measurementMode === "area" ? "default" : "outline"} onClick={() => handleMeasurementMode("area")}><Ruler className="mr-2 h-4 w-4" />Площадь</Button>
+              <Button className="tf2-control min-h-11 shrink-0" size="sm" disabled={Boolean(boundaryEdit)} variant={followMeasureActive ? "default" : "outline"} onClick={handleToggleFollowMeasure}><Crosshair className="mr-2 h-4 w-4" />Follow</Button>
+              <Button className="tf2-control min-h-11 shrink-0" size="sm" disabled={Boolean(boundaryEdit)} variant="outline" onClick={clearMeasurement}><Trash2 className="mr-2 h-4 w-4" />Очистить</Button>
               {mapWorkMode === "engineering" ? (
                 <>
                   <div className="mx-1 hidden h-7 w-px bg-white/10 md:block" />
-                  <Button size="sm" variant={engineeringDrawMode === "point" ? "default" : "outline"} onClick={() => startEngineeringDraw("point")}><MapPin className="mr-2 h-4 w-4" />Точка</Button>
-                  <Button size="sm" variant={engineeringDrawMode === "line" ? "default" : "outline"} onClick={() => startEngineeringDraw("line")}><Route className="mr-2 h-4 w-4" />Линия</Button>
-                  <Button size="sm" variant={engineeringDrawMode === "polygon" ? "default" : "outline"} onClick={() => startEngineeringDraw("polygon")}><Droplets className="mr-2 h-4 w-4" />Зона</Button>
+                  <Button className="min-h-11 shrink-0" size="sm" variant={engineeringDrawMode === "point" ? "default" : "outline"} onClick={() => startEngineeringDraw("point")}><MapPin className="mr-2 h-4 w-4" />Точка</Button>
+                  <Button className="min-h-11 shrink-0" size="sm" variant={engineeringDrawMode === "line" ? "default" : "outline"} onClick={() => startEngineeringDraw("line")}><Route className="mr-2 h-4 w-4" />Линия</Button>
+                  <Button className="min-h-11 shrink-0" size="sm" variant={engineeringDrawMode === "polygon" ? "default" : "outline"} onClick={() => startEngineeringDraw("polygon")}><Droplets className="mr-2 h-4 w-4" />Зона</Button>
                 </>
               ) : null}
             </div>
-            {measurementMode !== "none" ? <div className="mt-2 text-center text-xs text-slate-300">Точек: {measurementPoints.length}{measurementMode === "distance" ? ` • длина ${formatDistance(measurementDistanceMeters)}` : ""}{measurementMode === "area" ? ` • площадь ${formatSquare(measurementAreaSqMeters)}` : ""}</div> : null}
+            {boundaryEdit ? <div className="mt-2 text-center text-xs text-amber-100">Редактор контура: кликайте по карте по порядку границы</div> : measurementMode !== "none" ? <div className="mt-2 text-center text-xs text-slate-300">Точек: {measurementPoints.length}{measurementMode === "distance" ? ` • длина ${formatDistance(measurementDistanceMeters)}` : ""}{measurementMode === "area" ? ` • площадь ${formatSquare(measurementAreaSqMeters)}` : ""}</div> : null}
           </div>
         </div>
 
         {mapWorkMode === "agro" && selectedField ? (
-          <aside className="tf2-panel travkin-scrollbar pointer-events-auto absolute inset-x-3 bottom-20 z-10 max-h-[52vh] overflow-y-auto rounded-2xl p-4 xl:inset-x-auto xl:bottom-auto xl:right-3 xl:top-3 xl:max-h-[calc(100%-112px)] xl:w-[430px]">
+          <aside className="tf2-panel travkin-scrollbar pointer-events-auto absolute inset-x-3 bottom-28 z-10 max-h-[48vh] overflow-y-auto rounded-2xl p-4 xl:inset-x-auto xl:bottom-auto xl:right-3 xl:top-3 xl:max-h-[calc(100%-112px)] xl:w-[430px]">
             <div className="mb-3 flex items-start justify-between gap-3">
-              <div><div className="text-xs uppercase tracking-[0.24em] text-emerald-300">Структура посевов</div><h2 className="mt-1 text-2xl font-bold text-slate-50">Поле {selectedField.field_display_name}</h2><div className="text-sm text-slate-400">{formatHa(selectedField.field_area_ha)} • участков {selectedFieldStructures.length}</div></div>
-              <Button size="sm" variant="ghost" onClick={() => setSelectedFieldId(null)}><X className="h-4 w-4" /></Button>
-            </div>
-            <div className="grid gap-2">
-              {selectedFieldStructures.slice(0, 7).map((row) => (
-                <div key={row.id} className="rounded-lg border border-white/10 bg-[#111A29] px-3 py-2">
-                  <div className="flex items-center justify-between gap-2"><div className="min-w-0 text-sm font-semibold text-slate-100">{row.crop_name || "Культура не задана"}{row.variety_name ? <span className="text-slate-400"> / {row.variety_name}</span> : null}</div><Badge variant="outline">{formatHa(row.area_ha)}</Badge></div>
-                  {row.reproduction_name ? <div className="mt-0.5 text-xs text-slate-400">{row.reproduction_name}</div> : null}
-                </div>
-              ))}
-              {selectedFieldStructures.length > 7 ? <div className="text-xs text-slate-400">+ ещё {selectedFieldStructures.length - 7} участков</div> : null}
-            </div>
-            <div className="mt-4 border-t border-white/10 pt-3">
-              <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Операции</div>
-              <div className="space-y-2">
-                {selectedFieldOperations.slice(0, 4).map((operation) => <div key={operation.id} className="rounded-lg bg-[#101827] px-3 py-2 text-sm"><div className="font-medium text-slate-100">{operation.operation_subtype || operation.operation_template || operation.operation_type || "Операция"}</div><div className="text-xs text-slate-400">{operation.date || "Дата не указана"} • {operation.status || "статус не указан"}</div></div>)}
-                {!selectedFieldOperations.length ? <div className="text-sm text-slate-400">Операций по полю пока нет.</div> : null}
+              <div>
+                <div className="text-xs uppercase tracking-[0.24em] text-emerald-300">Структура посевов</div>
+                <h2 className="mt-1 text-2xl font-bold text-slate-50">Поле {selectedField.field_display_name}</h2>
+                <div className="text-sm text-slate-400">{formatHa(selectedField.field_area_ha)} • участков {selectedFieldStructures.length}</div>
+              </div>
+              <div className="flex gap-1">
+                <Button size="sm" variant="outline" aria-label={`Открыть карточку поля ${selectedField.field_display_name}`} onClick={() => router.push(`/fields/${selectedField.field_id}`)}><MapPinned className="h-4 w-4" /></Button>
+                <Button size="sm" variant="ghost" aria-label="Закрыть инспектор поля" onClick={() => { cancelBoundaryEdit(); setSelectedFieldId(null); }}><X className="h-4 w-4" /></Button>
               </div>
             </div>
-            <div className="mt-4 grid gap-3 border-t border-white/10 pt-3 md:grid-cols-2">
-              <div>
-                <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Материалы</div>
-                <div className="space-y-2">
-                  {selectedFieldMaterials.slice(0, 4).map((item) => (
-                    <div key={item.id} className="rounded-lg bg-[#101827] px-3 py-2 text-sm">
-                      <div className="truncate font-medium text-slate-100">{item.product_name || "Материал"}</div>
-                      <div className="text-xs text-slate-400">{formatKg(item.quantity_kg)}{item.operation_type ? ` • ${item.operation_type}` : ""}</div>
+
+            {boundaryEdit ? (
+              <div className="rounded-xl border border-[#E0B100]/40 bg-[#E0B100]/10 p-3">
+                <div className="text-sm font-semibold text-amber-100">Новая версия полного контура</div>
+                <p className="mt-1 text-xs leading-5 text-slate-300">
+                  Ставьте вершины по границе поля. Исходный контур остаётся активным до успешного атомарного сохранения.
+                </p>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-lg bg-black/20 p-2"><span className="text-slate-400">Вершин</span><div className="font-semibold text-slate-100">{boundaryEditPoints.length}</div></div>
+                  <div className="rounded-lg bg-black/20 p-2"><span className="text-slate-400">Площадь</span><div className="font-semibold text-slate-100">{boundaryDraftGeometry ? formatSquare(geometryAreaSqMeters(boundaryDraftGeometry)) : "—"}</div></div>
+                </div>
+                <form className="mt-3 grid grid-cols-2 gap-2" onSubmit={(event) => { event.preventDefault(); addBoundaryCoordinate(); }}>
+                  <Label className="text-xs text-slate-300">
+                    Долгота
+                    <input aria-label="Долгота вершины" inputMode="decimal" value={boundaryCoordinateInput.lng} onChange={(event) => setBoundaryCoordinateInput((prev) => ({ ...prev, lng: event.target.value }))} className="mt-1 h-11 w-full rounded-lg border border-white/10 bg-[#080D16] px-3 text-sm text-slate-100" placeholder="69.123456" />
+                  </Label>
+                  <Label className="text-xs text-slate-300">
+                    Широта
+                    <input aria-label="Широта вершины" inputMode="decimal" value={boundaryCoordinateInput.lat} onChange={(event) => setBoundaryCoordinateInput((prev) => ({ ...prev, lat: event.target.value }))} className="mt-1 h-11 w-full rounded-lg border border-white/10 bg-[#080D16] px-3 text-sm text-slate-100" placeholder="53.123456" />
+                  </Label>
+                  <Button type="submit" size="sm" variant="outline" className="col-span-2 min-h-11">Добавить вершину по координатам</Button>
+                </form>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" disabled={!boundaryEditPoints.length || boundaryBusy} onClick={undoBoundaryPoint}><Undo2 className="mr-2 h-4 w-4" />Отменить вершину</Button>
+                  <Button size="sm" variant="outline" disabled={boundaryBusy} onClick={cancelBoundaryEdit}>Отмена</Button>
+                  <Button size="sm" className="flex-1" disabled={!boundaryDraftGeometry || boundaryBusy} onClick={() => void saveBoundaryEdit()}><Save className="mr-2 h-4 w-4" />{boundaryBusy ? "Сохранение…" : "Сохранить версию"}</Button>
+                </div>
+                <div aria-live="polite" className="mt-2 text-xs text-slate-400">Клавиатура: фокус на карте + стрелки и Enter — вершина в центре; Ctrl+Z — назад; Esc — отмена.</div>
+              </div>
+            ) : (
+              <>
+                <section aria-label="Контур поля" className="mb-4 rounded-xl border border-white/10 bg-[#101827] p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-100">Контур поля</div>
+                      <div className="mt-0.5 text-xs text-slate-400">{selectedField.geometry_id ? `Связан · ${formatHa(selectedField.geometry_area_ha)}` : "Не связан"}</div>
+                    </div>
+                    <Badge variant={selectedField.geometry_id ? "default" : "outline"}>{selectedField.geometry_id ? "На карте" : "Без геометрии"}</Badge>
+                  </div>
+                  {canMutateBoundaries ? (
+                    <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" disabled={boundaryBusy} onClick={boundaryRequiresKmlReplacement(selectedField.geometry) ? openKmlPicker : startBoundaryEdit}><Pencil className="mr-2 h-4 w-4" />{boundaryRequiresKmlReplacement(selectedField.geometry) ? "Заменить через KML" : selectedField.geometry_id ? "Перерисовать" : "Нарисовать контур"}</Button>
+                        {selectedField.geometry_id ? <Button size="sm" variant="destructive" disabled={boundaryBusy} onClick={() => void unlinkSelectedBoundary()}>Отвязать</Button> : null}
+                        {!selectedField.geometry_id && boundaryUndo?.fieldId === selectedField.field_id ? <Button size="sm" disabled={boundaryBusy} onClick={() => void restoreUnlinkedBoundary()}><Undo2 className="mr-2 h-4 w-4" />Отменить отвязку</Button> : null}
+                      </div>
+                      {boundaryRequiresKmlReplacement(selectedField.geometry) ? <p className="text-xs leading-5 text-amber-200">Сложный контур содержит несколько частей или внутренние кольца. Ручная перерисовка заблокирована, чтобы не потерять геометрию; используйте проверяемый KML.</p> : null}
+                      {selectedField.geometry_id && availableBoundaryTargets.length ? (
+                        <div className="grid grid-cols-[1fr_auto] gap-2">
+                          <Select value={boundaryTargetFieldId} onValueChange={setBoundaryTargetFieldId}>
+                            <SelectTrigger aria-label="Новое поле для контура" className="bg-[#080D16]"><SelectValue placeholder="Перепривязать к…" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Выберите поле без контура</SelectItem>
+                              {availableBoundaryTargets.map((field) => <SelectItem key={`boundary-target-${field.field_id}`} value={field.field_id}>Поле {field.field_display_name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                          <Button size="sm" variant="outline" disabled={boundaryTargetFieldId === "none" || boundaryBusy} onClick={() => void relinkSelectedBoundary()}>Связать</Button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : <div className="mt-2 text-xs text-slate-500">Контур доступен только для просмотра.</div>}
+                </section>
+
+                <div className="grid gap-2">
+                  {selectedFieldStructures.slice(0, 7).map((row) => (
+                    <div key={row.id} className="rounded-lg border border-white/10 bg-[#111A29] px-3 py-2">
+                      <div className="flex items-center justify-between gap-2"><div className="min-w-0 text-sm font-semibold text-slate-100">{row.crop_name || "Культура не задана"}{row.variety_name ? <span className="text-slate-400"> / {row.variety_name}</span> : null}</div><Badge variant="outline">{formatHa(row.area_ha)}</Badge></div>
+                      {row.reproduction_name ? <div className="mt-0.5 text-xs text-slate-400">{row.reproduction_name}</div> : null}
                     </div>
                   ))}
-                  {!selectedFieldMaterials.length ? <div className="text-sm text-slate-400">Фактических выдач пока нет.</div> : null}
+                  {selectedFieldStructures.length > 7 ? <div className="text-xs text-slate-400">+ ещё {selectedFieldStructures.length - 7} участков</div> : null}
                 </div>
-              </div>
-              <div>
-                <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Урожай</div>
-                <div className="space-y-2">
-                  {selectedFieldHarvests.slice(0, 4).map((item) => (
-                    <div key={item.id} className="rounded-lg bg-[#101827] px-3 py-2 text-sm">
-                      <div className="truncate font-medium text-slate-100">{item.product_name || item.ticket_no || "Талон урожая"}</div>
-                      <div className="text-xs text-slate-400">{item.quantity != null ? `${item.quantity.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} ${item.unit || ""}` : formatKg(item.net_weight_kg)}{item.status ? ` • ${item.status}` : ""}</div>
-                    </div>
-                  ))}
-                  {!selectedFieldHarvests.length ? <div className="text-sm text-slate-400">Урожай по весовой пока не найден.</div> : null}
+                <div className="mt-4 border-t border-white/10 pt-3">
+                  <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Операции</div>
+                  <div className="space-y-2">
+                    {selectedFieldOperations.slice(0, 4).map((operation) => <div key={operation.id} className="rounded-lg bg-[#101827] px-3 py-2 text-sm"><div className="font-medium text-slate-100">{operation.operation_subtype || operation.operation_template || operation.operation_type || "Операция"}</div><div className="text-xs text-slate-400">{operation.date || "Дата не указана"} • {operation.status || "статус не указан"}</div></div>)}
+                    {!selectedFieldOperations.length ? <div className="text-sm text-slate-400">Операций по полю пока нет.</div> : null}
+                  </div>
                 </div>
-              </div>
-            </div>
+                <div className="mt-4 grid gap-3 border-t border-white/10 pt-3 md:grid-cols-2">
+                  <div><div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Материалы</div><div className="space-y-2">{selectedFieldMaterials.slice(0, 4).map((item) => <div key={item.id} className="rounded-lg bg-[#101827] px-3 py-2 text-sm"><div className="truncate font-medium text-slate-100">{item.product_name || "Материал"}</div><div className="text-xs text-slate-400">{formatKg(item.quantity_kg)}{item.operation_type ? ` • ${item.operation_type}` : ""}</div></div>)}{!selectedFieldMaterials.length ? <div className="text-sm text-slate-400">Фактических выдач пока нет.</div> : null}</div></div>
+                  <div><div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Урожай</div><div className="space-y-2">{selectedFieldHarvests.slice(0, 4).map((item) => <div key={item.id} className="rounded-lg bg-[#101827] px-3 py-2 text-sm"><div className="truncate font-medium text-slate-100">{item.product_name || item.ticket_no || "Талон урожая"}</div><div className="text-xs text-slate-400">{item.quantity != null ? `${item.quantity.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} ${item.unit || ""}` : formatKg(item.net_weight_kg)}{item.status ? ` • ${item.status}` : ""}</div></div>)}{!selectedFieldHarvests.length ? <div className="text-sm text-slate-400">Урожай по весовой пока не найден.</div> : null}</div></div>
+                </div>
+              </>
+            )}
           </aside>
         ) : null}
 
         {mapWorkMode === "engineering" ? (
-          <aside className="tf2-panel pointer-events-auto absolute inset-x-3 bottom-20 z-10 max-h-[52vh] overflow-y-auto rounded-2xl p-4 xl:inset-x-auto xl:bottom-auto xl:right-3 xl:top-3 xl:max-h-[calc(100%-112px)] xl:w-[420px]">
+          <aside className="tf2-panel travkin-scrollbar pointer-events-auto absolute inset-x-3 bottom-28 z-10 max-h-[48vh] overflow-y-auto rounded-2xl p-4 xl:inset-x-auto xl:bottom-auto xl:right-3 xl:top-3 xl:max-h-[calc(100%-112px)] xl:w-[420px]">
             <div className="mb-3 flex items-start justify-between gap-3"><div><div className="text-xs uppercase tracking-[0.24em] text-cyan-300">Инженерия капельного</div><h2 className="mt-1 text-xl font-bold text-slate-50">{editingEngineeringObjectId ? "Редактировать объект" : "Добавить объект"}</h2></div><Button size="sm" variant="ghost" onClick={() => setSelectedEngineeringObjectId(null)}><X className="h-4 w-4" /></Button></div>
             <div className="space-y-3">
               <div className="grid grid-cols-[1fr_118px] gap-2">
@@ -2634,7 +3103,47 @@ export function FieldsMapPage() {
         {!mapReady ? <div className="absolute inset-0 z-20 grid place-items-center bg-[#070B12]/70 text-sm text-slate-300 backdrop-blur-sm">Инициализация карты...</div> : null}
       </section>
 
-      {uploadState || previewState ? <div className="rounded-xl border border-[#2B3448] bg-[#111827] p-3"><div className="flex flex-wrap items-center gap-2 text-sm text-slate-300">{uploadState ? <span>Файл: {uploadState.fileName} • полигонов {uploadState.polygons.length}</span> : null}{previewState ? <span>Совпало {previewState.stats.matched_polygons} / {previewState.stats.total_polygons}</span> : null}<div className="ml-auto flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={!uploadState || busy} onClick={() => void runPreview()}>Проверить совпадения</Button><Button size="sm" disabled={!previewState || busy} onClick={() => void confirmImport()}>Подтвердить импорт</Button><Button size="sm" variant="ghost" onClick={cancelImport}>Отмена</Button></div></div></div> : null}
+      {canMutateBoundaries && (uploadState || previewState) ? (
+        <div className="rounded-xl border border-[#2B3448] bg-[#111827] p-3">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-slate-300">
+            {uploadState ? <span className="min-w-0 truncate">{uploadState.fileName} • {uploadState.polygons.length} контуров</span> : null}
+            {previewState ? (
+              <span aria-live="polite">
+                Связано {importReviewSummary.linked} · ждут решения {importReviewSummary.pending} · пропущено {importReviewSummary.skipped}
+              </span>
+            ) : null}
+            <div className="ml-auto flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" disabled={!uploadState || busy} onClick={() => void runPreview()}>Проверить</Button>
+              <Button size="sm" variant="outline" disabled={!previewState} onClick={() => setImportReviewOpen(true)}>Открыть очередь</Button>
+              <Button size="sm" disabled={!previewState || busy || !importReviewSummary.canConfirm} onClick={() => void confirmImport()}>Подтвердить</Button>
+              <Button size="sm" variant="ghost" disabled={confirmingImport} onClick={cancelImport}>Отмена</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {canMutateBoundaries ? (
+        <FieldMapImportReview
+          open={importReviewOpen}
+          onOpenChange={setImportReviewOpen}
+          upload={uploadState ? { fileName: uploadState.fileName, polygonCount: uploadState.polygons.length, errors: uploadState.errors } : null}
+          preview={previewState}
+          fields={fields}
+          decisions={overrides}
+          imports={imports}
+          busy={busy}
+          confirming={confirmingImport}
+          historyBusyId={historyBusyId}
+          onDecision={(polygonId, value) => setOverrides((prev) => ({ ...prev, [polygonId]: value }))}
+          onPreview={() => void runPreview()}
+          onConfirm={() => void confirmImport()}
+          onCancel={cancelImport}
+          onFocusPolygon={focusPreviewPolygon}
+          onHistoryAction={(importId, action) => void handleHistoryAction(importId, action)}
+          onDownload={(importId) => void handleDownloadImport(importId)}
+          onArchive={(importId) => void handleDeleteImport(importId)}
+        />
+      ) : null}
     </div>
   );
 

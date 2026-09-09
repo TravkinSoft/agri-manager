@@ -4,7 +4,7 @@ import { fieldsMapErrorResponse, resolveFieldsMapContext } from "@/lib/fields-ma
 export async function GET(request: NextRequest) {
   try {
     const context = await resolveFieldsMapContext(request, { write: false });
-    const { companyId, supabase } = context;
+    const { companyId, supabase, actor } = context;
 
     const importsRes = await supabase
       .from("field_map_imports")
@@ -34,6 +34,21 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    let mapRevision: Record<string, unknown> | null = null;
+    if (
+      process.env.FIELD_BOUNDARY_WRITE_V1 === "1" &&
+      actor.role === "global_admin" &&
+      !actor.roleIsLegacyAlias &&
+      actor.roleRawKey === "global_admin"
+    ) {
+      const snapshotRes = await supabase.rpc("get_field_map_snapshot_v1", { p_company_id: companyId });
+      if (snapshotRes.error) throw new Error(snapshotRes.error.message);
+      const candidate = (snapshotRes.data as any)?.revision;
+      if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+        mapRevision = candidate as Record<string, unknown>;
+      }
+    }
+
     return NextResponse.json({
       imports: rows.map((row: any) => ({
         id: String(row.id),
@@ -51,6 +66,7 @@ export async function GET(request: NextRequest) {
         created_at: String(row.created_at || ""),
         updated_at: String(row.updated_at || ""),
       })),
+      map_revision: mapRevision,
     });
   } catch (error) {
     return fieldsMapErrorResponse(error);

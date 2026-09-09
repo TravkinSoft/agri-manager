@@ -46,10 +46,16 @@ export interface FieldMapPreviewMatch {
   matched_by: string | null;
   field_id: string | null;
   field_display_name: string | null;
+  suggested_field_id?: string | null;
+  reason_codes?: string[];
+  conflict_polygon_ids?: string[];
   candidates: Array<{
     field_id: string;
     field_display_name: string;
     technical_key: string | null;
+    field_area_ha?: number | null;
+    area_delta_ha?: number | null;
+    area_delta_pct?: number | null;
   }>;
 }
 

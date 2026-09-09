@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { validateParsedPolygonsForImport } from "@/lib/fields-map/import-validation";
 import { fieldsMapErrorResponse, resolveFieldsMapContext } from "@/lib/fields-map/server";
 import type { FieldMapPreviewMatch } from "@/lib/types/fields-map";
 
@@ -17,7 +18,7 @@ function toNumber(value: unknown): number | null {
 
 type OverrideRow = {
   polygon_id: string;
-  field_id: string;
+  field_id: string | null;
 };
 
 function normalizeOverrides(raw: unknown): OverrideRow[] {
@@ -26,8 +27,8 @@ function normalizeOverrides(raw: unknown): OverrideRow[] {
     .map((item) => {
       const row = item as Record<string, unknown>;
       const polygonId = normalizeText(row.polygon_id);
-      const fieldId = normalizeText(row.field_id);
-      if (!polygonId || !isUuidLike(fieldId)) return null;
+      const fieldId = row.field_id === null ? null : normalizeText(row.field_id);
+      if (!polygonId || (fieldId !== null && !isUuidLike(fieldId))) return null;
       return { polygon_id: polygonId, field_id: fieldId };
     })
     .filter((item): item is OverrideRow => Boolean(item));
@@ -61,6 +62,13 @@ function getPreviewRows(payload: unknown): FieldMapPreviewMatch[] {
         matched_by: normalizeText(row.matched_by) || null,
         field_id: isUuidLike(row.field_id) ? String(row.field_id) : null,
         field_display_name: normalizeText(row.field_display_name) || null,
+        suggested_field_id: isUuidLike(row.suggested_field_id) ? String(row.suggested_field_id) : null,
+        reason_codes: Array.isArray(row.reason_codes)
+          ? row.reason_codes.map((value: unknown) => normalizeText(value)).filter(Boolean).slice(0, 12)
+          : [],
+        conflict_polygon_ids: Array.isArray(row.conflict_polygon_ids)
+          ? row.conflict_polygon_ids.map((value: unknown) => normalizeText(value)).filter(Boolean).slice(0, 50)
+          : [],
         candidates: Array.isArray(row.candidates) ? row.candidates : [],
       } as FieldMapPreviewMatch;
     })
@@ -69,7 +77,7 @@ function getPreviewRows(payload: unknown): FieldMapPreviewMatch[] {
 
 export async function POST(request: NextRequest) {
   try {
-    const context = await resolveFieldsMapContext(request, { write: true });
+    const context = await resolveFieldsMapContext(request, { mutation: true });
     const { companyId, supabase, actor } = context;
     const body = await request.json();
     const importId = normalizeText(body.import_id);
@@ -78,6 +86,18 @@ export async function POST(request: NextRequest) {
     }
 
     const overrides = normalizeOverrides(body.overrides);
+    if (Array.isArray(body.overrides) && overrides.length !== body.overrides.length) {
+      return NextResponse.json({ error: "Некорректный формат ручных привязок" }, { status: 400 });
+    }
+    const duplicateOverrideIds = overrides
+      .map((item) => item.polygon_id)
+      .filter((polygonId, index, all) => all.indexOf(polygonId) !== index);
+    if (duplicateOverrideIds.length > 0) {
+      return NextResponse.json(
+        { error: `Ручная привязка полигона ${duplicateOverrideIds[0]} указана повторно` },
+        { status: 400 }
+      );
+    }
     const overrideMap = new Map(overrides.map((item) => [item.polygon_id, item.field_id]));
 
     const importRes = await supabase
@@ -93,10 +113,63 @@ export async function POST(request: NextRequest) {
     if (!importRes.data?.id) {
       return NextResponse.json({ error: "Импорт не найден" }, { status: 404 });
     }
+    if (String(importRes.data.status || "") !== "draft") {
+      return NextResponse.json(
+        { error: "Подтвердить можно только импорт в статусе draft" },
+        { status: 409 }
+      );
+    }
+    const expectedRevision = (importRes.data.preview_payload as any)?.map_revision;
+    if (!expectedRevision || typeof expectedRevision !== "object" || Array.isArray(expectedRevision)) {
+      return NextResponse.json(
+        { error: "Import draft не содержит ревизию карты. Выполните preview заново." },
+        { status: 409 }
+      );
+    }
 
-    const previewRows = getPreviewRows(importRes.data.preview_payload);
+    let previewRows = getPreviewRows(importRes.data.preview_payload);
     if (!previewRows.length) {
       return NextResponse.json({ error: "В import draft нет данных полигонов" }, { status: 400 });
+    }
+    const geometryValidation = validateParsedPolygonsForImport(
+      previewRows.map((row) => ({
+        id: row.polygon_id,
+        name: row.polygon_name,
+        geometry: row.geometry,
+        area_ha: row.area_ha,
+      }))
+    );
+    if (!geometryValidation.ok) {
+      return NextResponse.json(
+        { error: geometryValidation.error },
+        { status: geometryValidation.tooLarge ? 413 : 400 }
+      );
+    }
+    const validatedGeometryById = new Map(
+      geometryValidation.polygons.map((row) => [row.id, row] as const)
+    );
+    previewRows = previewRows.map((row) => {
+      const validated = validatedGeometryById.get(row.polygon_id);
+      return validated
+        ? { ...row, geometry: validated.geometry, area_ha: validated.area_ha }
+        : row;
+    });
+    const previewPolygonIds = new Set(previewRows.map((row) => row.polygon_id));
+    const unknownOverride = overrides.find((override) => !previewPolygonIds.has(override.polygon_id));
+    if (unknownOverride) {
+      return NextResponse.json(
+        { error: `Полигон ${unknownOverride.polygon_id} отсутствует в import draft` },
+        { status: 400 }
+      );
+    }
+    const pendingDecision = previewRows.find(
+      (row) => row.match_status !== "matched" && !overrideMap.has(row.polygon_id)
+    );
+    if (pendingDecision) {
+      return NextResponse.json(
+        { error: `Для контура ${pendingDecision.polygon_name} не принято явное решение: выберите поле или пропустите контур.` },
+        { status: 409 }
+      );
     }
 
     const fieldsRes = await supabase
@@ -111,17 +184,32 @@ export async function POST(request: NextRequest) {
 
     const validFieldIds = new Set((fieldsRes.data || []).map((row: any) => String(row.id)));
     const nowIso = new Date().toISOString();
-
-    let saved = 0;
-    let skipped = 0;
     const unresolved: string[] = [];
-    const finalizedRows = [];
+    const finalizedRows: Array<FieldMapPreviewMatch & {
+      final_field_id: string | null;
+      final_status: "saved" | "skipped";
+      final_reason: string | null;
+    }> = [];
+    const resolvedRows: Array<{
+      polygon_id: string;
+      field_id: string;
+      geometry_geojson: FieldMapPreviewMatch["geometry"];
+      area_from_kml_ha: number | null;
+    }> = [];
 
     for (const row of previewRows) {
+      const hasOverride = overrideMap.has(row.polygon_id);
       const overrideFieldId = overrideMap.get(row.polygon_id);
-      const resolvedFieldId = isUuidLike(overrideFieldId) ? overrideFieldId : row.field_id;
-      if (!resolvedFieldId || !validFieldIds.has(resolvedFieldId)) {
-        skipped += 1;
+      const resolvedFieldId = hasOverride
+        ? isUuidLike(overrideFieldId) ? overrideFieldId : null
+        : row.field_id;
+      if (!resolvedFieldId) {
+        if (!hasOverride || overrideFieldId !== null) {
+          return NextResponse.json(
+            { error: `Привязка контура ${row.polygon_name} устарела. Выполните preview заново.` },
+            { status: 409 }
+          );
+        }
         unresolved.push(row.polygon_name);
         finalizedRows.push({
           ...row,
@@ -131,57 +219,18 @@ export async function POST(request: NextRequest) {
         });
         continue;
       }
-
-      const deactivateRes = await supabase
-        .from("field_geometries")
-        .update({ is_active: false })
-        .eq("company_id", companyId)
-        .eq("field_id", resolvedFieldId)
-        .eq("is_active", true);
-
-      if (deactivateRes.error) {
-        if (/field_geometries|schema cache|could not find the table/i.test(deactivateRes.error.message)) {
-          throw new Error(deactivateRes.error.message);
-        }
-        skipped += 1;
-        unresolved.push(row.polygon_name);
-        finalizedRows.push({
-          ...row,
-          final_field_id: resolvedFieldId,
-          final_status: "skipped",
-          final_reason: deactivateRes.error.message,
-        });
-        continue;
+      if (!validFieldIds.has(resolvedFieldId)) {
+        return NextResponse.json(
+          { error: `Выбранное поле для контура ${row.polygon_name} больше недоступно. Обновите preview.` },
+          { status: 409 }
+        );
       }
-
-      const insertRes = await supabase.from("field_geometries").insert({
-        company_id: companyId,
+      resolvedRows.push({
+        polygon_id: row.polygon_id,
         field_id: resolvedFieldId,
-        import_id: importId,
-        source_file_name: importRes.data.source_file_name,
         geometry_geojson: row.geometry,
         area_from_kml_ha: row.area_ha == null ? null : Number(row.area_ha),
-        imported_at: nowIso,
-        imported_by: actor.id,
-        is_active: true,
       });
-
-      if (insertRes.error) {
-        if (/field_geometries|schema cache|could not find the table/i.test(insertRes.error.message)) {
-          throw new Error(insertRes.error.message);
-        }
-        skipped += 1;
-        unresolved.push(row.polygon_name);
-        finalizedRows.push({
-          ...row,
-          final_field_id: resolvedFieldId,
-          final_status: "skipped",
-          final_reason: insertRes.error.message,
-        });
-        continue;
-      }
-
-      saved += 1;
       finalizedRows.push({
         ...row,
         final_field_id: resolvedFieldId,
@@ -191,9 +240,28 @@ export async function POST(request: NextRequest) {
     }
 
     const totalPolygons = previewRows.length;
-    const matchedPolygons = saved;
-    const unmatchedPolygons = totalPolygons - saved;
-    const finalStatus = saved > 0 ? "imported" : "failed";
+    const matchedPolygons = resolvedRows.length;
+    const unmatchedPolygons = totalPolygons - matchedPolygons;
+    if (matchedPolygons === 0) {
+      return NextResponse.json(
+        { error: "Нет подтверждённых привязок. Разрешите хотя бы один контур перед импортом." },
+        { status: 400 }
+      );
+    }
+
+    const fieldToPolygon = new Map<string, string>();
+    for (const row of resolvedRows) {
+      const existingPolygonId = fieldToPolygon.get(row.field_id);
+      if (existingPolygonId) {
+        return NextResponse.json(
+          {
+            error: `Поле ${row.field_id} выбрано для двух контуров (${existingPolygonId} и ${row.polygon_id}). Объедините контуры или оставьте один без привязки.`,
+          },
+          { status: 409 }
+        );
+      }
+      fieldToPolygon.set(row.field_id, row.polygon_id);
+    }
 
     const nextPayload = {
       ...(importRes.data.preview_payload || {}),
@@ -202,39 +270,24 @@ export async function POST(request: NextRequest) {
       unresolved_polygons: unresolved,
     };
 
-    if (saved > 0) {
-      await supabase
-        .from("field_map_imports")
-        .update({ is_active: false })
-        .eq("company_id", companyId)
-        .neq("id", importId);
-    }
-
-    const updateRes = await supabase
-      .from("field_map_imports")
-      .update({
-        status: finalStatus,
-        total_polygons: totalPolygons,
-        matched_polygons: matchedPolygons,
-        unmatched_polygons: unmatchedPolygons,
-        error_count: skipped,
-        preview_payload: nextPayload,
-        imported_at: nowIso,
-        imported_by: actor.id,
-        is_active: saved > 0,
-      })
-      .eq("id", importId)
-      .eq("company_id", companyId);
-
-    if (updateRes.error) {
-      return NextResponse.json({ error: updateRes.error.message }, { status: 400 });
-    }
+    const confirmRes = await supabase.rpc("confirm_field_map_import_v2", {
+      p_company_id: companyId,
+      p_import_id: importId,
+      p_actor_id: actor.id,
+      p_rows: resolvedRows,
+      p_preview_payload: nextPayload,
+      p_total_polygons: totalPolygons,
+      p_unmatched_polygons: unmatchedPolygons,
+      p_error_count: unresolved.length,
+      p_expected_revision: expectedRevision,
+    });
+    if (confirmRes.error) throw new Error(confirmRes.error.message);
 
     return NextResponse.json({
       import_id: importId,
-      status: finalStatus,
-      saved_polygons: saved,
-      skipped_polygons: skipped,
+      status: "imported",
+      saved_polygons: matchedPolygons,
+      skipped_polygons: unmatchedPolygons,
       unresolved_polygons: unresolved,
     });
   } catch (error) {

@@ -19,10 +19,11 @@ assert.notEqual(activeRenderStart, -1, "active Fields Map render marker is missi
 assert.notEqual(legacyRenderStart, -1, "legacy Fields Map render marker is missing");
 const activeRender = source.slice(activeRenderStart, legacyRenderStart);
 const styles = read("app/globals.css");
+const service = read("lib/services/fields-map.ts");
 
 check("Fields Map uses the scoped TravkinFlow 2 shell", () => {
   assert.match(activeRender, /className="tf2-shell /);
-  assert.match(styles, /\.tf2-shell\s*\{/);
+  assert.match(styles, /\.tf2-shell(?:\s*,|\s*\{)/);
 });
 
 check("top controls and search share one dock", () => {
@@ -44,23 +45,65 @@ check("map icon controls have accessible names", () => {
   assert.match(activeRender, /aria-label=\{`\$\{showFieldListMobile/);
 });
 
+check("field selection collapses the compact search rail before opening the inspector", () => {
+  const selectHandler = source.slice(
+    source.indexOf("const handleSelectField"),
+    source.indexOf("const handleShowAllFields")
+  );
+  const searchHandler = source.slice(
+    source.indexOf("const runFieldSearch"),
+    source.indexOf("const focusGeometryOnMap")
+  );
+  for (const handler of [selectHandler, searchHandler]) {
+    assert.match(handler, /setFieldSearch\(""\)/);
+    assert.match(handler, /setShowFieldListMobile\(false\)/);
+  }
+});
+
+check("compact map controls and MapLibre zoom controls expose 44px touch targets", () => {
+  assert.match(styles, /@media \(max-width: 1023px\)/);
+  assert.match(styles, /\.tf2-shell button,[^}]*min-width: 44px;/s);
+  assert.match(styles, /\.tf2-shell input,[^}]*min-height: 44px;/s);
+  assert.match(styles, /\.tf2-shell \.maplibregl-ctrl-group button\s*\{[^}]*width: 44px;[^}]*height: 44px;/s);
+});
+
 check("measurement actions share the same dock surface", () => {
   const measurementDock = activeRender.slice(activeRender.indexOf("absolute bottom-4 left-1\/2"));
-  assert.match(measurementDock, /tf2-dock pointer-events-auto/);
+  assert.match(measurementDock, /tf2-dock[^"\n]*pointer-events-auto/);
   assert.match(measurementDock, />Расстояние<\/Button>/);
   assert.match(measurementDock, />Площадь<\/Button>/);
   assert.match(measurementDock, />Очистить<\/Button>/);
+  assert.match(measurementDock, /overflow-x-auto/);
+  assert.match(measurementDock, /min-w-max flex-nowrap/);
 });
 
 check("inspectors are bottom sheets on compact screens and side panels on desktop", () => {
   assert.equal((activeRender.match(/className="tf2-panel/g) || []).length, 2);
-  assert.equal((activeRender.match(/bottom-20[^\n]+xl:right-3[^\n]+xl:top-3/g) || []).length, 2);
+  assert.equal((activeRender.match(/bottom-28[^\n]+xl:right-3[^\n]+xl:top-3/g) || []).length, 2);
 });
 
 check("motion respects the operating-system preference", () => {
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(styles, /\.tf2-shell \*,/);
   assert.match(styles, /transition-duration: 0\.01ms !important/);
+  assert.match(source, /function mapMotionDuration/);
+  assert.match(source, /duration: mapMotionDuration\(650\)/);
+  assert.match(source, /duration: mapMotionDuration\(700\)/);
+});
+
+check("preview responses cannot resurrect a cancelled or stale draft", () => {
+  assert.match(source, /previewGenerationRef/);
+  assert.match(source, /previewAbortControllerRef/);
+  assert.match(source, /runGeneration !== previewGenerationRef\.current/);
+  assert.match(service, /signal: options\.signal/);
+});
+
+check("boundary editing is keyboard-operable and preserves complex geometry", () => {
+  assert.match(source, /boundaryRequiresKmlReplacement/);
+  assert.match(activeRender, /Заменить через KML/);
+  assert.match(activeRender, /aria-label="Долгота вершины"/);
+  assert.match(activeRender, /aria-label="Широта вершины"/);
+  assert.match(source, /boundaryBusyRef\.current/);
 });
 
 console.log(`TravkinFlow 2 Fields Map UI contract: ${checks} checks passed.`);
