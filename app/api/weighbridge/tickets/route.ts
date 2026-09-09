@@ -14,6 +14,11 @@ import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
 import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
 import { isWeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
 import { isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
+import {
+  physicalWeighbridgeVehicleIds,
+  requestedWeighbridgeVehicleSource,
+  selectWeighbridgeVehicle,
+} from "@/lib/weighbridge/vehicle-guard";
 import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
 import { enrichTicketCombineOperators, validateActiveCombineOperator } from "@/lib/server/weighbridge-combine-operator";
 import { resolveStockOutQuantityAtCreate } from "@/lib/weighbridge/stock-out-availability";
@@ -732,26 +737,22 @@ export async function POST(request: NextRequest) {
         });
     const vehicleGuardStartedAt = Date.now();
     const transportAudit = ticket.audit_json?.transport as Record<string, unknown> | undefined;
-    const requestedVehicleSource = transportAudit?.vehicle_source === "reference_machines"
-      ? "reference_machines" as const
-      : "reference_vehicles" as const;
+    const requestedVehicleSource = requestedWeighbridgeVehicleSource(transportAudit?.vehicle_source);
     const requestedTrailerId = String(transportAudit?.trailer_id || "").trim() || null;
     const vehicleGuardPromise = ticket.vehicle_id
       ? Promise.all([
-          requestedVehicleSource === "reference_machines"
-            ? supabase
-                .from("reference_machines")
-                .select("id,name,full_name,brand,model,series,license_plate,source_raw_name,type,category,machinery_type,status,is_active,archived,global_model:global_machine_model_id(category,full_name)")
-                .eq("company_id", ticket.company_id)
-                .eq("id", ticket.vehicle_id)
-                .maybeSingle()
-            : supabase
-                .from("reference_vehicles")
-                .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name,type,fleet_type,status,is_active,archived,source_machine_id,transport_model:transport_model_id(category,full_name)")
-                .eq("company_id", ticket.company_id)
-                .eq("id", ticket.vehicle_id)
-                .is("source_machine_id", null)
-                .maybeSingle(),
+          supabase
+            .from("reference_vehicles")
+            .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name,type,fleet_type,status,is_active,archived,source_machine_id,transport_model:transport_model_id(category,full_name)")
+            .eq("company_id", ticket.company_id)
+            .eq("id", ticket.vehicle_id)
+            .maybeSingle(),
+          supabase
+            .from("reference_machines")
+            .select("id,name,full_name,brand,model,series,license_plate,source_raw_name,type,category,machinery_type,status,is_active,archived,global_model:global_machine_model_id(category,full_name)")
+            .eq("company_id", ticket.company_id)
+            .eq("id", ticket.vehicle_id)
+            .maybeSingle(),
           supabase
             .from("tickets")
             .select("id, ticket_no")
@@ -1585,20 +1586,31 @@ export async function POST(request: NextRequest) {
       source: "reference_vehicles" | "reference_machines";
     } | null = null;
     if (ticket.vehicle_id) {
-      const [vehicleResult, activeTicketResult] =
+      const [vehicleResult, machineResult, activeTicketResult] =
         await (vehicleGuardPromise as NonNullable<typeof vehicleGuardPromise>);
       const { data: vehicle, error: vehicleError } = vehicleResult;
+      const { data: machine, error: machineError } = machineResult;
       const { data: activeByVehicle, error: activeByVehicleError } = activeTicketResult;
-      if (vehicleError) {
-        return NextResponse.json({ error: vehicleError.message }, { status: 400 });
+      if (vehicleError || machineError || activeByVehicleError) {
+        return NextResponse.json(
+          { error: vehicleError?.message || machineError?.message || activeByVehicleError?.message },
+          { status: 400 }
+        );
       }
-      const vehicleRow = vehicle as any;
-      const vehicleModelRaw = requestedVehicleSource === "reference_machines"
+      const vehicleSelection = selectWeighbridgeVehicle({
+        requestedId: ticket.vehicle_id,
+        requestedSource: requestedVehicleSource,
+        vehicleRow: vehicle as any,
+        machineRow: machine as any,
+      });
+      const vehicleRow = vehicleSelection?.row as any;
+      const actualVehicleSource = vehicleSelection?.source;
+      const vehicleModelRaw = actualVehicleSource === "reference_machines"
         ? vehicleRow?.global_model
         : vehicleRow?.transport_model;
       const vehicleModel = Array.isArray(vehicleModelRaw) ? vehicleModelRaw[0] : vehicleModelRaw;
       const selectableVehicle = vehicleRow?.id && (
-        requestedVehicleSource === "reference_machines" ||
+        actualVehicleSource === "reference_machines" ||
         !isTrailerTransport({
           type: vehicleRow.type,
           fleet_type: vehicleRow.fleet_type,
@@ -1613,11 +1625,43 @@ export async function POST(request: NextRequest) {
       if (!selectableVehicle.is_active || selectableVehicle.archived) {
         return NextResponse.json({ error: "Vehicle is inactive or archived" }, { status: 400 });
       }
+      const canonicalMachineId = actualVehicleSource === "reference_machines"
+        ? String(selectableVehicle.id)
+        : String(selectableVehicle.source_machine_id || "");
+      const projectionResult = canonicalMachineId
+        ? await supabase
+            .from("reference_vehicles")
+            .select("id,source_machine_id")
+            .eq("company_id", ticket.company_id)
+            .eq("source_machine_id", canonicalMachineId)
+        : { data: [], error: null };
+      if (projectionResult.error) {
+        return NextResponse.json({ error: projectionResult.error.message }, { status: 400 });
+      }
+      const physicalVehicleIds = physicalWeighbridgeVehicleIds(
+        vehicleSelection as NonNullable<typeof vehicleSelection>,
+        (projectionResult.data || []) as any[]
+      );
+      let activeVehicleTicket = (activeByVehicle || [])[0] as any;
+      const aliasVehicleIds = physicalVehicleIds.filter((id) => id !== String(ticket.vehicle_id));
+      if (!activeVehicleTicket && aliasVehicleIds.length > 0) {
+        const aliasActiveResult = await supabase
+          .from("tickets")
+          .select("id,ticket_no")
+          .eq("company_id", ticket.company_id)
+          .in("vehicle_id", aliasVehicleIds)
+          .in("status", ["draft", "active", "ready_to_close"])
+          .limit(1);
+        if (aliasActiveResult.error) {
+          return NextResponse.json({ error: aliasActiveResult.error.message }, { status: 400 });
+        }
+        activeVehicleTicket = (aliasActiveResult.data || [])[0];
+      }
       const transportIdentity = resolveTransportIdentity({
         ...selectableVehicle,
         fullName: selectableVehicle.full_name,
         sourceRawName: selectableVehicle.source_raw_name,
-        plate: requestedVehicleSource === "reference_machines"
+        plate: actualVehicleSource === "reference_machines"
           ? selectableVehicle.license_plate
           : selectableVehicle.plate_number,
       });
@@ -1628,12 +1672,8 @@ export async function POST(request: NextRequest) {
         search_terms: transportIdentity.searchTerms,
         type: selectableVehicle.type,
         fleet_type: selectableVehicle.fleet_type || selectableVehicle.machinery_type || selectableVehicle.type,
-        source: requestedVehicleSource,
+        source: actualVehicleSource as NonNullable<typeof actualVehicleSource>,
       };
-      if (activeByVehicleError) {
-        return NextResponse.json({ error: activeByVehicleError.message }, { status: 400 });
-      }
-      const activeVehicleTicket = (activeByVehicle || [])[0];
       if (activeVehicleTicket?.id) {
         return NextResponse.json(
           {
