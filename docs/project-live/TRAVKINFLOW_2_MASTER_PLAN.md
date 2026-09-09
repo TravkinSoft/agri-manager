@@ -10,9 +10,9 @@
 - Ветка: `codex/travkinflow-2`.
 - База ветки: `3274331e7180252dd0f740222f6c4d15e4d20ebd`.
 - На момент старта `origin/master`, GitHub и Product health совпадали на `3274331e7180`.
-- Реализация зафиксирована 21 независимо проверяемым коммитом от `36f5500` до `c36f9ff`; текущий closeout-журнал хранится отдельным 22-м коммитом.
+- Реализация зафиксирована 21 независимо проверяемым коммитом от `36f5500` до `c36f9ff`; closeout-журнал хранится в `d1bb983`, обязательный post-update audit — в `5125e64`, дальнейшие QA/release рубежи фиксируются отдельными journal-коммитами.
 - Последний рубеж: validated boundary import/match/relink/edit package карты зафиксирован отдельным коммитом `c36f9ff`; post-fix browser matrix, scoped gates и production build прошли.
-- Следующий безопасный шаг: восстановить отдельную QA Supabase-среду, проверить её ref/env, затем выполнить Preview и M09. Подключённый Supabase connector видит только Product `bhsemlvmkikpntabctml`; поэтому миграции/import не применялись и Product не использовался как замена QA.
+- Следующий безопасный шаг: завершить schema-drift/env preflight доступной изолированной Supabase branch DB `gsglkmudcwkdetqtocae`, затем развернуть точный кандидат в Preview и выполнить M09. Branch live-доступна для read-only schema/SQL, но `get_project` неприменим к ней как к standalone project; её migration history и физическая схема расходятся с Product, поэтому blind rebase/db push запрещены. Product `bhsemlvmkikpntabctml` не используется как замена QA.
 - Production rollout: `НЕ НАЧАТ`; каждую волну выкладывать отдельно после Preview/QA и свежей проверки Product.
 
 Если работа прерывается P0-задачей, продолжать с первого незакрытого чекбокса ниже. После каждого существенного рубежа обновлять этот раздел, а под выполненным пунктом писать краткое `Сделано` и доказательство проверки.
@@ -276,13 +276,14 @@ Data/write flags: `WAREHOUSE_ORDER_WRITE_V1`, `NEXT_PUBLIC_UI_WAREHOUSE_V2`, `NE
   - Сделано: PTC Chromium/WebKit 322/322 и breakdown 312/312; карта Chromium/WebKit на четырёх viewport, keyboard и reduced-motion PASS; two-tab stale write сценарии карты покрыты PGlite. Preview slow-network/reload/back-forward и физическое touch-устройство остаются после восстановления QA.
 - [-] W5.4. Data fingerprints: tickets/ledger/batches/warehouses/field boundaries before and after соответствующих волн.
   - Сделано: исходные ticket/ledger и STEM archive/KML fingerprints сохранены; post-import fingerprints невозможны до отдельного M09/Preview write.
-- [ ] W5.5. Preview deployment на точный SHA; permanent QA only after slot/env confirmation.
+- [-] W5.5. Preview deployment на точный SHA; permanent QA only after slot/env confirmation.
+  - Сделано: `qa.travkinflow.com` live отвечает 200 на старом Preview `dpl_HJUC…` / `f3ea4e6`; Supabase branch DB `gsglkmudcwkdetqtocae` снова live-доступна для read-only schema/SQL. Текущий `5125e64` там не развёрнут; точная Vercel env binding, schema alignment и runtime accounts ещё не подтверждены.
 - [ ] W5.6. Release one wave at a time: fresh fast-forward proof → immutable Production build → alias → health/log/browser smoke.
-- [ ] W5.7. Обновить этот журнал, CURRENT_HANDOFF и отправить один terminal signal только при настоящей финальной границе.
+- [ ] W5.7. После W6.8 обновить этот журнал, CURRENT_HANDOFF и отправить один terminal signal только при настоящей финальной границе.
 
 ### Wave 6 — Обязательный аудит ошибок после всего обновления
 
-Запускать только после завершения M09 и всех пунктов Wave 5. Сам факт успешного релиза не закрывает программу: финальной границей считается только завершённый W6 без открытых P0/P1, вызванных обновлением.
+Запускать только после завершения M09 и W5.1-W5.6. W5.7 является терминальным closeout после W6.8, а не prerequisite аудита. Сам факт успешного релиза не закрывает программу: финальной границей считается только завершённый W6 без открытых P0/P1, вызванных обновлением.
 
 - [ ] W6.1. Зафиксировать точный AFTER baseline: Product SHA/deployment, применённые migrations, значения rollout flags, health, runtime versions и fingerprints затронутых данных.
 - [ ] W6.2. Провести causal diff-audit всех изменённых поверхностей: карта, склады, PTC, весовая, dashboard, структура посевов, platform, references, profile и shell; каждую найденную ошибку классифицировать как `вызвана обновлением`, `существовала ранее` или `не доказано`.
@@ -352,6 +353,7 @@ Validated boundary package зафиксирован в `c36f9ff`. Обе нов�
 
 ## Журнал рубежей
 
+- 2026-09-09 — QA Supabase branch `gsglkmudcwkdetqtocae` повторно обнаружена и live-доступна для read-only schema/SQL; `qa.travkinflow.com` пока указывает на старый Preview `f3ea4e6`. Зафиксирован обязательный schema-drift/env preflight; blind rebase/db push запрещены. Логический цикл W5.7↔W6 устранён: W5.7 выполняется после W6.8.
 - 2026-09-09 — по прямому требованию владельца добавлен обязательный Wave 6: после выполнения всего плана провести отдельный causal bug/regression/data/performance audit обновления; без этого программа не считается окончательно завершённой.
 
 - 2026-09-09 — P0 duplicate storno завершён; 43 / 254 260 кг подтверждены.
@@ -360,6 +362,6 @@ Validated boundary package зафиксирован в `c36f9ff`. Обе нов�
 - 2026-09-09 — UI/operations waves закрыты коммитами `c43178c`…`4bd0c82`: все C01–C32 имеют реализацию и scoped evidence; новые data/write surfaces fail-closed.
 - 2026-09-09 — map boundary package M03–M08 локально готов: access 125/125, matcher 28/28, KML 16/16, atomic 22/22, boundary 38/38, map UI 11/11, PGlite 21/21, TypeScript PASS. Миграции/import/deploy не запускались.
 - 2026-09-09 — browser matrix после P1 corrective: Chromium/WebKit PASS на 360/768/1304/1440; overflow/overlap `0`, compact targets ≥44 px, keyboard/reduced-motion PASS. Коммит карты `c36f9ff`.
-- 2026-09-09 — реализация 100%; post-fix TypeScript/ESLint/diff-check/build и все scoped suites PASS. M09, Preview и Product rollout не запускались: отдельный QA Supabase сейчас не live-verified/недоступен, Product не подменяет QA.
+- 2026-09-09 — реализация 100%; post-fix TypeScript/ESLint/diff-check/build и все scoped suites PASS. M09, новый Preview и Product rollout не запускались; QA branch позже повторно обнаружена и теперь проходит отдельный drift/env preflight, Product не подменяет QA.
 - 2026-09-09 — Product/Git baseline `3274331e7180`; создан `codex/travkinflow-2`.
 - 2026-09-09 — master plan создан (`36f5500`), первый журнал реализации — `4a59b56`.
