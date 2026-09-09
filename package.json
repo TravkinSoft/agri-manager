@@ -46,6 +46,7 @@
     "verify:db-contract": "npx --no-install tsx scripts/audit/verify-db-contract.ts",
     "health:qa:permanent": "npx --no-install tsx scripts/audit/permanent-qa-health.ts",
     "qa:p0:weighbridge-pin-gate": "npx --no-install tsx scripts/qa-p0-weighbridge-pin-gate.ts",
+    "qa:p0:session-refresh": "npx --no-install tsx scripts/qa-p0-session-refresh.ts",
     "qa:tz294": "npx --no-install tsx scripts/qa-tz294-harvest-go-live.ts",
     "qa:tz294:correction": "npx --no-install tsx scripts/qa-tz294-transfer-correction.ts",
     "qa:tz294:reference": "npx --no-install tsx scripts/qa-tz294-reference-bootstrap.ts",

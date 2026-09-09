@@ -1,5 +1,5 @@
 import type { ActiveHarvestRoute, HarvestBatchSummary, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket, WeighingInput } from "@/lib/types/weighbridge";
-import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
+import { buildClientAuthHeaders, fetchWithClientAuth } from "@/lib/supabase/client-auth";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import {
   normalizeWeighbridgeTransportPickerData,
@@ -342,12 +342,10 @@ export async function patchTicket(
     confirm_tare_variance?: boolean;
   }
 ) {
-  const headers = await buildClientAuthHeaders("json");
-  const response = await fetch(`/api/weighbridge/tickets/${ticketId}`, {
+  const response = await fetchWithClientAuth(`/api/weighbridge/tickets/${ticketId}`, {
     method: "PATCH",
-    headers,
     body: JSON.stringify({ ...patch }),
-  });
+  }, "json");
   return parseJsonOrThrow(response);
 }
 
@@ -384,13 +382,13 @@ export async function createTicket(
     moisture_percent?: number | null;
   }
 ) {
-  const headers = await buildClientAuthHeaders("json");
+  const headers: Record<string, string> = {};
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
-  const response = await fetch("/api/weighbridge/tickets", {
+  const response = await fetchWithClientAuth("/api/weighbridge/tickets", {
     method: "POST",
     headers,
     body: JSON.stringify({ ticket: input, lines, weighings, paperBackfill }),
-  });
+  }, "json");
   return parseJsonOrThrow(response);
 }
 
@@ -409,14 +407,14 @@ export async function finalizeTicket(
   _actorUserId: string,
   harvest?: HarvestFinalizeInput
 ) {
-  const headers = await buildClientAuthHeaders("json");
+  const headers: Record<string, string> = {};
   if (harvest?.idempotency_key) headers["Idempotency-Key"] = harvest.idempotency_key;
-  const response = await fetch(`/api/weighbridge/tickets/${ticketId}/finalize`, {
+  const response = await fetchWithClientAuth(`/api/weighbridge/tickets/${ticketId}/finalize`, {
     method: "POST",
     headers,
     credentials: "include",
     body: JSON.stringify(harvest || {}),
-  });
+  }, "json");
   return parseJsonOrThrow(response);
 }
 
