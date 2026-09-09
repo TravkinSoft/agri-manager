@@ -42,6 +42,7 @@ import { SearchableCombobox, type SearchableComboboxOption } from "@/components/
 import { WeighbridgeTicketPaper, type WeighbridgeTicketPaperLabels } from "@/components/weighbridge/weighbridge-ticket-paper";
 import { weighbridgeHarvestDraftsStorageKey } from "@/lib/weighbridge/fast-repeat";
 import { formatWeightKg, formatWeightNumber } from "@/lib/weighbridge/weight-format";
+import { aggregateTicketCargoLines, shouldUseCanonicalJournalNet } from "@/lib/weighbridge/ticket-cargo-composition";
 import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
 import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
 import {
@@ -5204,21 +5205,22 @@ export default function WeighbridgeOperationsPage() {
     line?.warehouse_from_name ||
     warehouseName(line?.warehouse_to_id || line?.warehouse_from_id || ticket?.warehouse_to_id || ticket?.warehouse_from_id);
   const productSummary = (ticket: any, limit = 3) => {
-    const names = (ticket?.lines || []).map((line: any) => String(line.product_name || line.product_name_snapshot || "").trim()).filter(Boolean);
+    const lines = aggregateTicketCargoLines(ticket?.lines || []);
+    const names = lines.map((line: any) => String(line.product_name || line.product_name_snapshot || "").trim()).filter(Boolean);
     if (names.length === 0) return "-";
     const shown = names.slice(0, limit).join(", ");
     return names.length > limit ? `${shown} + ещё ${names.length - limit}` : shown;
   };
   const ticketQuantitySummary = (ticket: any, limit = 3) => {
-    if (ticket?.correction_of_ticket_id && ticket?.net_weight_kg != null) {
-      return formatQuantityWithUnit(ticket.net_weight_kg, "kg");
-    }
-    const lines = ticket?.lines || [];
+    // The header net is the canonical physical weight of one weighbridge
+    // ticket. Lines may be split by FIFO across internal inventory batches.
+    if (shouldUseCanonicalJournalNet(ticket)) return formatQuantityWithUnit(ticket.net_weight_kg, "kg");
+    const lines = aggregateTicketCargoLines(ticket?.lines || []);
     if (lines.length > 0) {
       const shown = lines.slice(0, limit).map((line: any) => formatQuantityWithUnit(line.quantity, line.uom)).join(", ");
       return lines.length > limit ? `${shown} + ещё ${lines.length - limit}` : shown;
     }
-    return ticket?.net_weight_kg != null ? formatQuantityWithUnit(ticket.net_weight_kg, "kg") : "-";
+    return "-";
   };
   const ticketCardMeta = (ticket: any, vehicleName: string, driverName: string) => {
     if (isDirectSupplierTicket(ticket)) return `Поставка от ${supplierName(ticket)}`;
@@ -6348,7 +6350,7 @@ export default function WeighbridgeOperationsPage() {
                     </div>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs">
-                    <div><span className="text-slate-500">Количество: </span><span className="font-semibold text-slate-100">{ticketQuantitySummary(t)}</span></div>
+                    <div><span className="text-slate-500">{shouldUseCanonicalJournalNet(t) ? "Нетто" : "Количество"}: </span><span className="font-semibold text-slate-100">{ticketQuantitySummary(t)}</span></div>
                     <div><span className="text-slate-500">{paperDocumentNo ? "Дата рейса" : "Время"}: </span><span className="font-semibold text-slate-100">{dt}</span></div>
                     {paperDocumentNo ? <div><span className="text-slate-500">Бумажная тара: </span><span className="font-semibold text-slate-100">{formatWeightKg(t.tare_weight_kg)}</span></div> : null}
                   </div>
