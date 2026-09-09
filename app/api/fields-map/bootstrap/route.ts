@@ -259,11 +259,9 @@ export async function GET(request: NextRequest) {
       .eq("company_id", companyId)
       .eq("archived", false)
       .order("name", { ascending: true });
-    const geometryPromise = supabase
-      .from("field_geometries")
-      .select("id,field_id,geometry_geojson,area_from_kml_ha")
-      .eq("company_id", companyId)
-      .eq("is_active", true);
+    // Independent contours include unlinked shapes and latest deletion tombstones.
+    // The RPC excludes superseded versions and inactive import snapshots.
+    const geometryPromise = supabase.rpc("get_field_map_contours_v3", { p_company_id: companyId });
     const cropPromise = selectedSeasonId
       ? supabase
           .from("crop_structure")
@@ -370,13 +368,27 @@ export async function GET(request: NextRequest) {
       selected_season_id: selectedSeasonId,
       fields: buildFieldCards({
         fields: fieldsRes.data || [],
-        geometryRows: geometryRes.data || [],
+        geometryRows: (geometryRes.data || []).filter((row: any) => row.is_active && row.field_id),
         cropRows,
         operationRows,
         materialRows,
         harvestRows,
       }),
       engineering_objects: engineeringObjects,
+      contours: (geometryRes.data || []).map((row: any) => ({
+        contour_id: String(row.contour_id),
+        geometry_id: String(row.id),
+        contour_version: Number(row.contour_version),
+        field_id: row.field_id ? String(row.field_id) : null,
+        display_name: String(row.display_name),
+        source_import_id: row.source_import_id ? String(row.source_import_id) : null,
+        source_polygon_id: row.source_polygon_id || null,
+        source_polygon_name: row.source_polygon_name || null,
+        source_file_name: row.source_file_name || null,
+        geometry: row.geometry_geojson,
+        area_ha: row.area_from_kml_ha == null ? null : Number(row.area_from_kml_ha),
+        deleted_at: row.deleted_at || null,
+      })),
     };
 
     return NextResponse.json(payload);

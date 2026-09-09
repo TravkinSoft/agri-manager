@@ -96,7 +96,7 @@ export async function previewFieldMapImport(payload: {
 
 export async function confirmFieldMapImport(payload: {
   import_id: string;
-  overrides: Array<{ polygon_id: string; field_id: string | null }>;
+  overrides: Array<{ polygon_id: string; field_id: string | null; action?: "link" | "unlinked" | "skip" }>;
 }) {
   const headers = await buildAuthHeaders("json");
   const response = await fetch("/api/fields-map/import/confirm", {
@@ -108,6 +108,8 @@ export async function confirmFieldMapImport(payload: {
     import_id: string;
     status: string;
     saved_polygons: number;
+    linked_polygons: number;
+    unlinked_polygons: number;
     skipped_polygons: number;
     unresolved_polygons: string[];
   }>;
@@ -116,20 +118,27 @@ export async function confirmFieldMapImport(payload: {
 export type FieldBoundaryMutationPayload =
   | {
       action: "replace";
-      field_id: string;
+      field_id: string | null;
       expected_geometry_id: string | null;
       geometry: GeoJsonGeometry;
     }
   | {
-      action: "relink" | "restore";
-      field_id: string;
+      action: "relink";
+      field_id: string | null;
       expected_geometry_id: string;
       target_field_id: string;
     }
   | {
-      action: "unlink";
-      field_id: string;
+      action: "unlink" | "delete" | "restore";
+      field_id: string | null;
       expected_geometry_id: string;
+      target_field_id?: string;
+    }
+  | {
+      action: "rename";
+      field_id: string | null;
+      expected_geometry_id: string;
+      display_name: string;
     };
 
 export async function mutateFieldBoundary(payload: FieldBoundaryMutationPayload) {
@@ -142,9 +151,11 @@ export async function mutateFieldBoundary(payload: FieldBoundaryMutationPayload)
   return parseJsonOrThrow(response) as Promise<{
     boundary: {
       action: string;
+      contour_id: string;
       geometry_id: string | null;
       previous_geometry_id: string | null;
       field_id: string | null;
+      deleted_at: string | null;
     };
   }>;
 }

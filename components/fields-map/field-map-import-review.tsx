@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   FIELD_MAP_SKIP_DECISION,
+  FIELD_MAP_UNLINKED_DECISION,
   resolveFieldMapDecision,
   summarizeFieldMapReview,
   type FieldMapMatchDecisions,
@@ -19,8 +20,6 @@ import type {
   FieldMapPreviewDiagnostics,
   FieldMapPreviewMatch,
 } from "@/lib/types/fields-map";
-
-const PENDING_DECISION = "__pending__";
 
 type ImportPreview = {
   fileName: string;
@@ -128,17 +127,17 @@ export function FieldMapImportReview({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="tf2-portal-panel flex w-full flex-col gap-0 border-border bg-card p-0 text-foreground duration-150 sm:max-w-2xl xl:max-w-4xl"
+        className="tf2-portal-panel flex w-full flex-col gap-0 border-border bg-background p-0 text-foreground duration-150 sm:max-w-2xl xl:max-w-4xl"
       >
         <SheetHeader className="border-b border-border px-4 py-4 pr-12 text-left sm:px-6">
-          <SheetTitle className="text-foreground">Импорт контуров полей</SheetTitle>
+          <SheetTitle className="tf-manor-heading text-foreground">Импорт контуров полей</SheetTitle>
           <SheetDescription className="text-muted-foreground">
-            Автоматически сохраняются только точные совпадения. Для каждого спорного контура выберите одно поле или явно пропустите его.
+            Все корректные контуры сохраняются. Точные совпадения связаны с полями, остальные останутся на карте без привязки — её можно добавить позже. Исключаются только явно пропущенные контуры.
           </SheetDescription>
         </SheetHeader>
 
         <div className="travkin-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
-          <section aria-labelledby="field-map-import-file" className="rounded-xl border border-border bg-accent/40 p-3">
+          <section aria-labelledby="field-map-import-file" className="rounded-xl border border-border bg-card p-3">
             <div className="flex flex-wrap items-center gap-2">
               <div className="min-w-0 flex-1">
                 <h3 id="field-map-import-file" className="truncate text-sm font-semibold text-foreground">
@@ -154,7 +153,7 @@ export function FieldMapImportReview({
               </Button>
             </div>
             {upload?.errors.length ? (
-              <div className="mt-2 rounded-lg border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs text-amber-800">
+              <div className="mt-2 rounded-lg border border-border bg-accent px-3 py-2 text-xs text-accent-foreground">
                 {upload.errors.slice(0, 4).join("; ")}
               </div>
             ) : null}
@@ -164,10 +163,10 @@ export function FieldMapImportReview({
             <>
               <section aria-labelledby="field-map-review-summary" className="mt-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 id="field-map-review-summary" className="text-sm font-semibold text-foreground">Очередь сопоставления</h3>
+                  <h3 id="field-map-review-summary" className="text-sm font-semibold text-foreground">Контуры и привязки</h3>
                   <div className="flex gap-1" role="group" aria-label="Фильтр очереди">
                     <Button size="sm" variant={filter === "attention" ? "default" : "outline"} onClick={() => setFilter("attention")}>
-                      Требуют решения
+                      Проверить привязки
                     </Button>
                     <Button size="sm" variant={filter === "all" ? "default" : "outline"} onClick={() => setFilter("all")}>
                       Все {summary.total}
@@ -176,25 +175,25 @@ export function FieldMapImportReview({
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4" aria-live="polite">
-                  <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 p-2"><div className="text-xl font-bold text-emerald-800">{summary.linked}</div><div className="text-xs text-muted-foreground">связано</div></div>
-                  <div className="rounded-lg border border-amber-400/20 bg-amber-400/10 p-2"><div className="text-xl font-bold text-amber-800">{summary.pending}</div><div className="text-xs text-muted-foreground">ждут решения</div></div>
-                  <div className="rounded-lg border border-border bg-accent/40 p-2"><div className="text-xl font-bold text-foreground">{summary.skipped}</div><div className="text-xs text-muted-foreground">пропущено явно</div></div>
-                  <div className="rounded-lg border border-rose-400/20 bg-rose-400/10 p-2"><div className="text-xl font-bold text-rose-800">{summary.duplicateFieldIds.length}</div><div className="text-xs text-muted-foreground">дубликатов полей</div></div>
+                  <div className="rounded-lg border border-primary/25 bg-primary/10 p-2"><div className="tf-manor-data text-xl font-bold text-primary">{summary.linked}</div><div className="text-xs text-muted-foreground">связано с полями</div></div>
+                  <div className="rounded-lg border border-border bg-accent p-2"><div className="tf-manor-data text-xl font-bold text-accent-foreground">{summary.unlinked}</div><div className="text-xs text-muted-foreground">сохранится без привязки</div></div>
+                  <div className="rounded-lg border border-border bg-card p-2"><div className="tf-manor-data text-xl font-bold text-foreground">{summary.skipped}</div><div className="text-xs text-muted-foreground">исключено явно</div></div>
+                  <div className="rounded-lg border border-destructive/25 bg-destructive/10 p-2"><div className="tf-manor-data text-xl font-bold text-destructive">{summary.duplicateFieldIds.length + summary.duplicatePolygonIds.length}</div><div className="text-xs text-muted-foreground">конфликтов назначения</div></div>
                 </div>
 
-                {summary.pending > 0 || summary.duplicateFieldIds.length > 0 || summary.linked === 0 ? (
-                  <div role="alert" className="mt-3 flex gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-800">
+                {!summary.canConfirm ? (
+                  <div role="alert" className="mt-3 flex gap-2 rounded-lg border border-border bg-accent px-3 py-2 text-sm text-accent-foreground">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>
-                      {summary.pending > 0 ? `Решите ${summary.pending} спорных контуров. ` : ""}
-                      {summary.duplicateFieldIds.length > 0 ? "Одно поле нельзя назначить двум контурам." : ""}
-                      {summary.linked === 0 && summary.pending === 0 ? "Оставьте хотя бы один контур для импорта." : ""}
+                      {summary.duplicateFieldIds.length > 0 ? "Одно поле нельзя назначить двум контурам. " : ""}
+                      {summary.duplicatePolygonIds.length > 0 ? "В источнике повторяются идентификаторы контуров. Проверьте KML. " : ""}
+                      {summary.linked + summary.unlinked === 0 ? "Оставьте хотя бы один контур для импорта." : ""}
                     </span>
                   </div>
                 ) : (
-                  <div className="mt-3 flex gap-2 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-800">
+                  <div className="mt-3 flex gap-2 rounded-lg border border-primary/25 bg-primary/10 px-3 py-2 text-sm text-primary">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                    Очередь разобрана. Подтверждение сохранит {summary.linked} контуров одной транзакцией.
+                    <span>Будет сохранено {summary.linked + summary.unlinked} контуров одной транзакцией: {summary.linked} с полями, {summary.unlinked} без привязки. Исходные названия сохранятся.</span>
                   </div>
                 )}
               </section>
@@ -202,30 +201,26 @@ export function FieldMapImportReview({
               <div className="mt-4 space-y-2">
                 {visibleRows.map((row) => {
                   const resolution = resolveFieldMapDecision(row, decisions);
-                  const selectValue = Object.prototype.hasOwnProperty.call(decisions, row.polygon_id)
-                    ? decisions[row.polygon_id] || FIELD_MAP_SKIP_DECISION
-                    : row.match_status === "matched" && row.field_id
-                      ? row.field_id
-                      : PENDING_DECISION;
+                  const selectValue = resolution.fieldId || (resolution.skipped ? FIELD_MAP_SKIP_DECISION : FIELD_MAP_UNLINKED_DECISION);
                   const duplicate = Boolean(resolution.fieldId && (polygonsByField.get(resolution.fieldId)?.length || 0) > 1);
-                  const statusLabel = row.match_status === "matched" ? "Точное совпадение" : row.match_status === "ambiguous" ? "Нужно решить" : "Не найдено";
+                  const statusLabel = resolution.skipped ? "Исключён из импорта" : resolution.unlinked ? "Сохранится без привязки" : resolution.explicit ? "Поле выбрано вручную" : "Точное совпадение";
                   return (
                     <article
                       key={row.polygon_id}
-                      className={`rounded-xl border p-3 ${duplicate ? "border-rose-400/50 bg-rose-400/[0.07]" : row.match_status === "matched" ? "border-emerald-400/20 bg-emerald-400/[0.04]" : "border-border bg-accent/40"}`}
+                      className={`rounded-xl border p-3 ${duplicate ? "border-destructive/50 bg-destructive/10" : resolution.fieldId ? "border-primary/25 bg-primary/5" : "border-border bg-card"}`}
                     >
                       <div className="flex items-start gap-3">
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <h4 className="truncate font-semibold text-foreground">{row.polygon_name}</h4>
+                            <h4 className="break-words font-semibold text-foreground">{row.polygon_name || "Контур без названия"}</h4>
                             <Badge variant="outline">{statusLabel}</Badge>
-                            {duplicate ? <Badge className="bg-rose-500 text-white">Поле повторяется</Badge> : null}
+                            {duplicate ? <Badge variant="destructive">Поле повторяется</Badge> : null}
                           </div>
                           <div className="mt-1 text-xs text-muted-foreground">
-                            {formatHa(row.area_ha)} · уверенность {Math.round(Number(row.confidence_score || 0) * 100)}%
+                            Имя из KML · {formatHa(row.area_ha)} · уверенность привязки {Math.round(Number(row.confidence_score || 0) * 100)}%
                           </div>
                           {row.reason_codes?.length ? (
-                            <div className="mt-1 text-xs text-amber-800">{row.reason_codes.map(reasonLabel).join(" · ")}</div>
+                            <div className="mt-1 text-xs text-accent-foreground">{row.reason_codes.map(reasonLabel).join(" · ")}</div>
                           ) : null}
                           {row.candidates.length ? (
                             <div className="mt-2 text-xs text-muted-foreground">
@@ -240,14 +235,14 @@ export function FieldMapImportReview({
 
                       <div className="mt-3">
                         <Label htmlFor={`field-map-match-${row.polygon_id}`} className="mb-1.5 block text-xs text-foreground">
-                          Поле TravkinFlow
+                          Привязка к полю TravkinFlow (необязательно)
                         </Label>
-                        <Select value={selectValue} onValueChange={(value) => onDecision(row.polygon_id, value)}>
-                          <SelectTrigger id={`field-map-match-${row.polygon_id}`} className={duplicate ? "border-rose-400" : "border-border bg-card"}>
+                        <Select value={selectValue} disabled={busy || confirming} onValueChange={(value) => onDecision(row.polygon_id, value)}>
+                          <SelectTrigger id={`field-map-match-${row.polygon_id}`} className={duplicate ? "border-destructive" : "border-border bg-background"}>
                             <SelectValue placeholder="Выберите решение" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value={PENDING_DECISION} disabled>Решение не принято</SelectItem>
+                            <SelectItem value={FIELD_MAP_UNLINKED_DECISION}>Сохранить контур без привязки к полю</SelectItem>
                             <SelectItem value={FIELD_MAP_SKIP_DECISION}>Не импортировать этот контур</SelectItem>
                             {fields.map((field) => {
                               const assignedElsewhere = (polygonsByField.get(field.field_id) || []).some((polygonId) => polygonId !== row.polygon_id);
@@ -259,6 +254,7 @@ export function FieldMapImportReview({
                             })}
                           </SelectContent>
                         </Select>
+                        {resolution.unlinked ? <p className="mt-1.5 text-xs text-muted-foreground">Контур останется виден на карте с исходным названием. Поле не создаётся; привязку можно добавить позже.</p> : null}
                       </div>
                     </article>
                   );
@@ -284,15 +280,15 @@ export function FieldMapImportReview({
           ) : null}
 
           {imports.length ? (
-            <details className="mt-5 rounded-xl border border-border bg-accent/40 p-3">
+            <details className="mt-5 rounded-xl border border-border bg-card p-3">
               <summary className="cursor-pointer text-sm font-semibold text-foreground">История импортов · {imports.length}</summary>
               <div className="mt-3 space-y-2">
                 {imports.map((item) => (
-                  <div key={item.id} className="rounded-lg border border-border bg-card p-3 text-sm">
+                  <div key={item.id} className="rounded-lg border border-border bg-background p-3 text-sm">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="truncate font-medium text-foreground">{item.source_file_name}</div>
-                        <div className="mt-0.5 text-xs text-muted-foreground">{formatDate(item.imported_at || item.created_at)} · {item.matched_polygons}/{item.total_polygons}</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">{formatDate(item.imported_at || item.created_at)} · {item.total_polygons} в источнике · {item.matched_polygons} связано с полями</div>
                       </div>
                       <Badge variant={item.is_active ? "default" : "outline"}>{item.is_active ? "Активен" : item.status}</Badge>
                     </div>
@@ -309,11 +305,11 @@ export function FieldMapImportReview({
           ) : null}
         </div>
 
-        <div className="border-t border-border bg-card px-4 py-3 sm:px-6">
+        <div className="border-t border-border bg-background px-4 py-3 sm:px-6">
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
             <Button variant="ghost" disabled={confirming} onClick={onCancel}><RotateCcw className="mr-2 h-4 w-4" />Сбросить текущий импорт</Button>
-            <Button disabled={!preview || busy || !summary.canConfirm} onClick={onConfirm}>
-              {confirming ? "Сохраняем…" : `Подтвердить ${summary.linked || ""}`.trim()}
+            <Button disabled={!preview || busy || confirming || !summary.canConfirm} onClick={onConfirm}>
+              {confirming ? "Сохраняем…" : `Сохранить ${summary.linked + summary.unlinked} контуров`}
             </Button>
           </div>
         </div>

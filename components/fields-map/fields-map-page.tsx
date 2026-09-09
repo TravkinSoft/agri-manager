@@ -30,6 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { FieldMapImportReview } from "@/components/fields-map/field-map-import-review";
+import { ContourControls } from "@/components/fields-map/contour-controls";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,7 @@ import {
   resolveWorkStatusColor,
 } from "@/lib/fields-map/colors";
 import { parseKmlToGeoJson } from "@/lib/fields-map/kml";
+import { contourRings, replaceContourRing } from "@/lib/fields-map/contour-editor";
 import {
   buildFieldMapConfirmOverrides,
   resolveFieldMapDecision,
@@ -99,16 +101,14 @@ type UploadState = {
 };
 
 type BoundaryEditState = {
-  fieldId: string;
+  fieldId: string | null;
   expectedGeometryId: string | null;
-  originalGeometry: GeoJsonGeometry | null;
+  originalGeometry: GeoJsonAreaGeometry | null;
+  workingGeometry: GeoJsonAreaGeometry | null;
+  part: number;
+  ring: number;
 };
 
-type BoundaryUndoState = {
-  geometryId: string;
-  fieldId: string;
-  fieldLabel: string;
-};
 
 type PreviewMapFeature = {
   geometry: GeoJsonGeometry;
@@ -123,17 +123,9 @@ function mapMotionDuration(durationMs: number): number {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? 0 : durationMs;
 }
 
-function boundaryRequiresKmlReplacement(geometry: GeoJsonGeometry | null): boolean {
-  return Boolean(
-    geometry && (
-      geometry.type !== "Polygon" ||
-      geometry.coordinates.length !== 1
-    )
-  );
-}
-
 type OverlayFeatureProperties = {
   overlay_mode: "field" | "preview";
+  contour_id?: string | null;
   field_id: string | null;
   field_display_name: string | null;
   crop_name: string | null;
@@ -625,14 +617,14 @@ function buildPopupHtml(feature: OverlayFeatureProperties, field: FieldMapFieldC
     `;
   }
 
-  const displayName = field?.field_display_name || feature.field_display_name || "—";
+  const displayName = field?.field_display_name || feature.field_display_name || feature.label || "Контур";
   const crop = field?.crop_plan?.crop_name || feature.crop_name || "Нет культуры";
 
   return `
     <div style="font-size:12px;line-height:1.4;padding:4px 2px;min-width:180px;">
-      <div style="font-weight:600;">Поле ${escapeHtml(displayName)}</div>
+      <div style="font-weight:600;">${feature.field_id ? "Поле " : ""}${escapeHtml(displayName)}</div>
       <div>Площадь: ${escapeHtml(formatHa(field?.field_area_ha ?? feature.area_ha))}</div>
-      <div>Культура: ${escapeHtml(crop)}</div>
+      <div>${feature.field_id ? `Культура: ${escapeHtml(crop)}` : "Без связи с полем"}</div>
     </div>
   `;
 }
@@ -995,6 +987,9 @@ export function FieldsMapPage() {
   const [editingEngineeringObjectId, setEditingEngineeringObjectId] = useState<string | null>(null);
   const [selectedEngineeringObjectId, setSelectedEngineeringObjectId] = useState<string | null>(null);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
+  const [selectedContourId, setSelectedContourId] = useState<string | null>(null);
+  const [contourName, setContourName] = useState("");
+  const [contourSearch, setContourSearch] = useState("");
   const [showFieldListMobile, setShowFieldListMobile] = useState(false);
 
   const [uploadState, setUploadState] = useState<UploadState | null>(null);
@@ -1003,10 +998,8 @@ export function FieldsMapPage() {
   const [importReviewOpen, setImportReviewOpen] = useState(false);
   const [boundaryEdit, setBoundaryEdit] = useState<BoundaryEditState | null>(null);
   const [boundaryEditPoints, setBoundaryEditPoints] = useState<MeasurementPoint[]>([]);
-  const [boundaryCoordinateInput, setBoundaryCoordinateInput] = useState({ lng: "", lat: "" });
   const [boundaryBusy, setBoundaryBusy] = useState(false);
   const [boundaryTargetFieldId, setBoundaryTargetFieldId] = useState<string>("none");
-  const [boundaryUndo, setBoundaryUndo] = useState<BoundaryUndoState | null>(null);
 
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -1063,6 +1056,7 @@ export function FieldsMapPage() {
   }, [canWriteEngineering]);
 
   const fields = bootstrap?.fields || EMPTY_FIELDS;
+  const contours = useMemo(() => bootstrap?.contours || [], [bootstrap?.contours]);
   const engineeringObjects = bootstrap?.engineering_objects || EMPTY_ENGINEERING_OBJECTS;
   const selectedEngineeringDefinition = getEngineeringDefinition(engineeringObjectType);
   const selectedEngineeringObject = selectedEngineeringObjectId
@@ -1090,6 +1084,13 @@ export function FieldsMapPage() {
     () => (selectedFieldId ? fields.find((field) => field.field_id === selectedFieldId) || null : null),
     [fields, selectedFieldId]
   );
+  const selectedContour = useMemo(() => selectedContourId
+    ? contours.find((contour) => contour.contour_id === selectedContourId) || null
+    : selectedFieldId ? contours.find((contour) => contour.field_id === selectedFieldId && !contour.deleted_at) || null : null,
+    [contours, selectedContourId, selectedFieldId]);
+  useEffect(() => { setContourName(selectedContour?.display_name || ""); }, [selectedContour?.geometry_id, selectedContour?.display_name]);
+  const visibleContours = useMemo(() => contours.filter((contour) => !contour.deleted_at &&
+    (selectedCrop === "all" || !contour.field_id || filteredFields.some((field) => field.field_id === contour.field_id))), [contours, filteredFields, selectedCrop]);
 
   const previewRows = previewState?.matches || EMPTY_PREVIEW_ROWS;
   const unresolvedRows = useMemo(() => previewRows.filter((row) => row.match_status !== "matched"), [previewRows]);
@@ -1177,26 +1178,26 @@ export function FieldsMapPage() {
 
     return {
       type: "FeatureCollection",
-      features: mappedFields
-        .filter((field): field is FieldMapFieldCard & { geometry: GeoJsonGeometry } => !!field.geometry)
-        .map((field) => {
+      features: visibleContours.map((contour) => {
+          const field = fields.find((item) => item.field_id === contour.field_id);
           const color =
             mapWorkMode === "engineering"
               ? "#64748b"
               : colorMode === "work_status"
-                ? resolveWorkStatusColor(field.work_status)
-                : resolveCropColor(field.crop_plan?.crop_name || "");
+                ? resolveWorkStatusColor(field?.work_status || "no_data")
+                : field ? resolveCropColor(field.crop_plan?.crop_name || "") : "#B79455";
           return {
             type: "Feature",
-            geometry: field.geometry,
+            geometry: contour.geometry,
             properties: {
               overlay_mode: "field",
-              field_id: field.field_id,
-              field_display_name: field.field_display_name,
-              crop_name: field.crop_plan?.crop_name || null,
-              work_status: field.work_status,
-              label: field.field_display_name,
-              area_ha: field.field_area_ha,
+              contour_id: contour.contour_id,
+              field_id: contour.field_id,
+              field_display_name: field?.field_display_name || null,
+              crop_name: field?.crop_plan?.crop_name || null,
+              work_status: field?.work_status || null,
+              label: contour.display_name,
+              area_ha: contour.area_ha,
               match_status: null,
               fill_color: color,
               line_color: color,
@@ -1205,7 +1206,7 @@ export function FieldsMapPage() {
           };
         }),
     };
-  }, [colorMode, mappedFields, mapWorkMode, previewMapFeatures]);
+  }, [colorMode, fields, visibleContours, mapWorkMode, previewMapFeatures]);
 
   const filteredEngineeringObjects = useMemo(() => {
     if (mapWorkMode !== "engineering") return EMPTY_ENGINEERING_OBJECTS;
@@ -1242,9 +1243,9 @@ export function FieldsMapPage() {
   );
 
   const boundaryDraftGeometry = useMemo<GeoJsonAreaGeometry | null>(() => {
-    const geometry = buildGeometryFromDraft("polygon", boundaryEditPoints);
-    return geometry?.type === "Polygon" ? geometry : null;
-  }, [boundaryEditPoints]);
+    return boundaryEdit ? replaceContourRing(boundaryEdit.workingGeometry, boundaryEdit.part, boundaryEdit.ring,
+      boundaryEditPoints.map((point) => [point.lng, point.lat])) : null;
+  }, [boundaryEdit, boundaryEditPoints]);
 
   const availableBoundaryTargets = useMemo(
     () => fields.filter((field) => field.field_id !== selectedField?.field_id && !field.geometry_id),
@@ -1814,6 +1815,7 @@ export function FieldsMapPage() {
               const objectId = toNullableString(features[0]?.properties?.object_id);
               if (objectId) {
                 setSelectedEngineeringObjectId(objectId);
+                setSelectedContourId(null);
                 setSelectedFieldId(null);
                 return;
               }
@@ -1825,6 +1827,9 @@ export function FieldsMapPage() {
             layers: [MAP_FILL_LAYER_ID],
           });
           const fieldId = toNullableString(features[0]?.properties?.field_id);
+          const contourId = toNullableString(features[0]?.properties?.contour_id);
+          setSelectedContourId(contourId);
+          if (contourId && !fieldId) setSelectedFieldId(null);
           if (fieldId) {
             setSelectedFieldId(fieldId);
             fitRequestReasonRef.current = "field_selected";
@@ -1971,10 +1976,11 @@ export function FieldsMapPage() {
         boundaryEditModeRef.current = false;
         setBoundaryEdit(null);
         setBoundaryEditPoints([]);
-        setBoundaryCoordinateInput({ lng: "", lat: "" });
         return;
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        const target = event.target;
+        if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/u.test(target.tagName))) return;
         event.preventDefault();
         setBoundaryEditPoints((prev) => prev.slice(0, -1));
         return;
@@ -2033,11 +2039,14 @@ export function FieldsMapPage() {
     source.setData(mapCollection);
     measureSource.setData(buildMeasurementFeatureCollection(measurementMode, measurementPoints));
     engineeringSource.setData(engineeringCollection);
-    engineeringDraftSource.setData(
-      boundaryEdit
-        ? buildEngineeringDraftFeatureCollection("polygon", boundaryEditPoints)
-        : buildEngineeringDraftFeatureCollection(engineeringDrawMode, engineeringDraftPoints)
-    );
+    const draft = boundaryEdit
+      ? buildEngineeringDraftFeatureCollection("polygon", boundaryEditPoints)
+      : buildEngineeringDraftFeatureCollection(engineeringDrawMode, engineeringDraftPoints);
+    engineeringDraftSource.setData(boundaryEdit && boundaryDraftGeometry ? {
+      ...draft,
+      features: draft.features.map((feature) => feature.geometry.type === "Polygon"
+        ? { ...feature, geometry: boundaryDraftGeometry } : feature),
+    } : draft);
 
     const fitReason = fitRequestReasonRef.current;
     if (!fitReason || fitReason === "none") {
@@ -2049,6 +2058,7 @@ export function FieldsMapPage() {
   }, [
     engineeringCollection,
     boundaryEdit,
+    boundaryDraftGeometry,
     boundaryEditPoints,
     engineeringDrawMode,
     engineeringDraftPoints,
@@ -2062,6 +2072,7 @@ export function FieldsMapPage() {
 
   const handleSelectField = useCallback(
     (fieldId: string) => {
+      setSelectedContourId(null);
       setSelectedFieldId(fieldId);
       setFieldSearch("");
       setShowFieldListMobile(false);
@@ -2473,6 +2484,7 @@ export function FieldsMapPage() {
     }
     const exact = searchResults[0];
     setSelectedFieldId(exact.field_id);
+    setSelectedContourId(null);
     setFieldSearch("");
     setShowFieldListMobile(false);
     if (!exact.geometry) {
@@ -2636,9 +2648,9 @@ export function FieldsMapPage() {
     if (!importReviewSummary.canConfirm) {
       toast({
         title: "Очередь не готова",
-        description: importReviewSummary.pending > 0
-          ? `Примите решение ещё по ${importReviewSummary.pending} контурам.`
-          : "Одно поле назначено нескольким контурам.",
+        description: importReviewSummary.linked + importReviewSummary.unlinked === 0
+          ? "Все контуры исключены. Оставьте хотя бы один контур."
+          : "Повторяется контур или одно поле назначено нескольким контурам.",
         variant: "destructive",
       });
       return;
@@ -2695,15 +2707,8 @@ export function FieldsMapPage() {
   }, [focusGeometryOnMap]);
 
   const startBoundaryEdit = useCallback(() => {
-    if (!selectedField || !canMutateBoundaries) return;
-    if (boundaryRequiresKmlReplacement(selectedField.geometry)) {
-      toast({
-        title: "Сложный контур защищён",
-        description: "Мультиполигон или контур с внутренними кольцами заменяется только через проверяемый KML — редактор не удалит его части молча.",
-        variant: "destructive",
-      });
-      return;
-    }
+    if ((!selectedField && !selectedContour) || selectedContour?.deleted_at || !canMutateBoundaries) return;
+    const geometry = selectedContour?.geometry || null;
     boundaryEditModeRef.current = true;
     setMeasurementMode("none");
     setMeasurementPoints([]);
@@ -2711,42 +2716,38 @@ export function FieldsMapPage() {
     setEngineeringDraftPoints([]);
     setBoundaryTargetFieldId("none");
     setBoundaryEdit({
-      fieldId: selectedField.field_id,
-      expectedGeometryId: selectedField.geometry_id,
-      originalGeometry: selectedField.geometry,
+      fieldId: selectedContour ? selectedContour.field_id : selectedField!.field_id,
+      expectedGeometryId: selectedContour?.geometry_id || null,
+      originalGeometry: geometry,
+      workingGeometry: geometry,
+      part: 0,
+      ring: 0,
     });
-    setBoundaryEditPoints([]);
-    setBoundaryCoordinateInput({ lng: "", lat: "" });
+    setBoundaryEditPoints(geometry ? contourRings(geometry)[0].coordinates.slice(0, -1)
+      .map(([lng, lat], index) => ({ id: `ring-0-${index}`, lng, lat, source: "manual" })) : []);
     toast({
-      title: selectedField.geometry_id ? "Перерисуйте полный контур" : "Нарисуйте новый контур",
-      description: "Ставьте вершины по порядку. Ctrl+Z отменяет вершину, Esc отменяет весь черновик.",
+      title: geometry ? "Редактор части и кольца" : "Нарисуйте новый контур",
+      description: "Меняется только выбранное кольцо. Другие части и отверстия сохраняются. Esc отменяет черновик.",
     });
-  }, [canMutateBoundaries, selectedField, toast]);
+  }, [canMutateBoundaries, selectedField, selectedContour, toast]);
+
+  const selectBoundaryRing = useCallback((value: string) => {
+    if (!boundaryEdit || !boundaryDraftGeometry) return;
+    const [part, ring] = value.split(":").map(Number);
+    const target = contourRings(boundaryDraftGeometry).find((item) => item.part === part && item.ring === ring);
+    if (!target) return;
+    setBoundaryEdit({ ...boundaryEdit, workingGeometry: boundaryDraftGeometry, part, ring });
+    setBoundaryEditPoints(target.coordinates.slice(0, -1).map(([lng, lat], index) => ({
+      id: `ring-${part}-${ring}-${index}`, lng, lat, source: "manual",
+    })));
+  }, [boundaryDraftGeometry, boundaryEdit]);
 
   const cancelBoundaryEdit = useCallback(() => {
     boundaryEditModeRef.current = false;
     setBoundaryEdit(null);
     setBoundaryEditPoints([]);
-    setBoundaryCoordinateInput({ lng: "", lat: "" });
   }, []);
 
-  const undoBoundaryPoint = useCallback(() => {
-    setBoundaryEditPoints((prev) => prev.slice(0, -1));
-  }, []);
-
-  const addBoundaryCoordinate = useCallback(() => {
-    const lng = Number(boundaryCoordinateInput.lng.replace(",", "."));
-    const lat = Number(boundaryCoordinateInput.lat.replace(",", "."));
-    if (!Number.isFinite(lng) || lng < -180 || lng > 180 || !Number.isFinite(lat) || lat < -90 || lat > 90) {
-      toast({ title: "Координата не добавлена", description: "Введите долготу от −180 до 180 и широту от −90 до 90.", variant: "destructive" });
-      return;
-    }
-    setBoundaryEditPoints((prev) => prev.length >= 999 ? prev : [
-      ...prev,
-      { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, lng, lat, source: "manual" },
-    ]);
-    setBoundaryCoordinateInput({ lng: "", lat: "" });
-  }, [boundaryCoordinateInput.lat, boundaryCoordinateInput.lng, toast]);
 
   const saveBoundaryEdit = useCallback(async () => {
     if (!boundaryEdit || !boundaryDraftGeometry || !canMutateBoundaries) {
@@ -2766,8 +2767,6 @@ export function FieldsMapPage() {
       boundaryEditModeRef.current = false;
       setBoundaryEdit(null);
       setBoundaryEditPoints([]);
-      setBoundaryCoordinateInput({ lng: "", lat: "" });
-      setBoundaryUndo(null);
       setSelectedFieldId(boundaryEdit.fieldId);
       focusGeometryOnMap(boundaryDraftGeometry, "Новый контур");
       toast({ title: "Контур сохранён", description: "Создана новая версия; предыдущая сохранена в истории." });
@@ -2784,7 +2783,7 @@ export function FieldsMapPage() {
   }, [boundaryDraftGeometry, boundaryEdit, canMutateBoundaries, focusGeometryOnMap, refreshAll, selectedSeasonId, toast]);
 
   const relinkSelectedBoundary = useCallback(async () => {
-    if (!selectedField?.geometry_id || !canMutateBoundaries || boundaryTargetFieldId === "none") return;
+    if (!selectedContour || selectedContour.deleted_at || !canMutateBoundaries || boundaryTargetFieldId === "none") return;
     const target = fields.find((field) => field.field_id === boundaryTargetFieldId) || null;
     if (!target || target.geometry_id) {
       toast({ title: "Поле занято", description: "Выберите поле без активного контура.", variant: "destructive" });
@@ -2793,17 +2792,16 @@ export function FieldsMapPage() {
     if (!window.confirm(`Перепривязать этот контур к полю ${target.field_display_name}?`)) return;
     setBoundaryBusy(true);
     try {
-      const geometry = selectedField.geometry;
+      const geometry = selectedContour.geometry;
       await mutateFieldBoundary({
         action: "relink",
-        field_id: selectedField.field_id,
-        expected_geometry_id: selectedField.geometry_id,
+        field_id: selectedContour.field_id,
+        expected_geometry_id: selectedContour.geometry_id,
         target_field_id: target.field_id,
       });
       await refreshAll(selectedSeasonId || undefined);
       setSelectedFieldId(target.field_id);
       setBoundaryTargetFieldId("none");
-      setBoundaryUndo(null);
       if (geometry) focusGeometryOnMap(geometry, `Поле ${target.field_display_name}`);
       toast({ title: "Контур перепривязан", description: `Теперь он связан с полем ${target.field_display_name}.` });
     } catch (error) {
@@ -2811,53 +2809,45 @@ export function FieldsMapPage() {
     } finally {
       setBoundaryBusy(false);
     }
-  }, [boundaryTargetFieldId, canMutateBoundaries, fields, focusGeometryOnMap, refreshAll, selectedField, selectedSeasonId, toast]);
+  }, [boundaryTargetFieldId, canMutateBoundaries, fields, focusGeometryOnMap, refreshAll, selectedContour, selectedSeasonId, toast]);
 
   const unlinkSelectedBoundary = useCallback(async () => {
-    if (!selectedField?.geometry_id || !canMutateBoundaries) return;
-    if (!window.confirm(`Отвязать контур от поля ${selectedField.field_display_name}? Сам контур останется в истории версий.`)) return;
-    const undoState: BoundaryUndoState = {
-      geometryId: selectedField.geometry_id,
-      fieldId: selectedField.field_id,
-      fieldLabel: selectedField.field_display_name,
-    };
+    if (!selectedContour?.field_id || selectedContour.deleted_at || !canMutateBoundaries) return;
+    if (!window.confirm("Отвязать контур от поля? Контур останется виден на карте, учёт поля не изменится.")) return;
     setBoundaryBusy(true);
     try {
       await mutateFieldBoundary({
         action: "unlink",
-        field_id: selectedField.field_id,
-        expected_geometry_id: selectedField.geometry_id,
+        field_id: selectedContour.field_id,
+        expected_geometry_id: selectedContour.geometry_id,
       });
-      setBoundaryUndo(undoState);
+      setSelectedContourId(selectedContour.contour_id);
+      setSelectedFieldId(null);
       await refreshAll(selectedSeasonId || undefined);
-      toast({ title: "Контур отвязан", description: "Его можно вернуть кнопкой «Отменить отвязку» до следующего изменения." });
+      toast({ title: "Контур отвязан", description: "Остаётся на карте без связи с полем. Можно подписать и привязать позднее." });
     } catch (error) {
       toast({ title: "Контур не отвязан", description: error instanceof Error ? error.message : "Ошибка отвязки.", variant: "destructive" });
     } finally {
       setBoundaryBusy(false);
     }
-  }, [canMutateBoundaries, refreshAll, selectedField, selectedSeasonId, toast]);
+  }, [canMutateBoundaries, refreshAll, selectedContour, selectedSeasonId, toast]);
 
-  const restoreUnlinkedBoundary = useCallback(async () => {
-    if (!boundaryUndo || !canMutateBoundaries) return;
+
+  const changeSelectedContour = useCallback(async (action: "rename" | "delete" | "restore") => {
+    if (!selectedContour || !canMutateBoundaries || boundaryBusy) return;
+    if (action === "delete" && !window.confirm(`Удалить контур «${selectedContour.display_name}» с карты? Его можно восстановить из списка удалённых.`)) return;
     setBoundaryBusy(true);
     try {
-      await mutateFieldBoundary({
-        action: "restore",
-        field_id: boundaryUndo.fieldId,
-        expected_geometry_id: boundaryUndo.geometryId,
-        target_field_id: boundaryUndo.fieldId,
-      });
+      const mutation = { field_id: selectedContour.field_id, expected_geometry_id: selectedContour.geometry_id };
+      await mutateFieldBoundary(action === "rename" ? { ...mutation, action, display_name: contourName } : { ...mutation, action });
       await refreshAll(selectedSeasonId || undefined);
-      setSelectedFieldId(boundaryUndo.fieldId);
-      setBoundaryUndo(null);
-      toast({ title: "Привязка восстановлена", description: `Контур снова связан с полем ${boundaryUndo.fieldLabel}.` });
+      setSelectedContourId(selectedContour.contour_id);
+      setSelectedFieldId(action === "delete" ? null : selectedContour.field_id);
+      toast({ title: action === "delete" ? "Контур удалён с карты" : action === "restore" ? "Контур восстановлен" : "Название контура сохранено" });
     } catch (error) {
-      toast({ title: "Не удалось вернуть контур", description: error instanceof Error ? error.message : "Ошибка восстановления.", variant: "destructive" });
-    } finally {
-      setBoundaryBusy(false);
-    }
-  }, [boundaryUndo, canMutateBoundaries, refreshAll, selectedSeasonId, toast]);
+      toast({ title: "Изменение не сохранено", description: error instanceof Error ? error.message : "Ошибка изменения контура", variant: "destructive" });
+    } finally { setBoundaryBusy(false); }
+  }, [selectedContour, canMutateBoundaries, boundaryBusy, contourName, refreshAll, selectedSeasonId, toast]);
 
   const handleHistoryAction = async (importId: string, action: "activate" | "deactivate" | "delete") => {
     const targetImport = imports.find((item) => item.id === importId) || null;
@@ -2867,7 +2857,7 @@ export function FieldsMapPage() {
       return;
     }
     const confirmation = action === "activate"
-      ? `Восстановить исходный снимок «${targetImport.source_file_name}»? Текущие ручные правки контуров будут деактивированы, но останутся в истории.`
+      ? `Активировать снимок «${targetImport.source_file_name}» с последними версиями его контуров? Отвязки и удаления сохранятся. Другой активный снимок будет скрыт.`
       : action === "deactivate"
         ? `Деактивировать снимок «${targetImport.source_file_name}» и убрать его текущие контуры с карты?`
         : `Перенести импорт «${targetImport.source_file_name}» в архив? Если он активен, текущие контуры будут убраны с карты.`;
@@ -2929,7 +2919,25 @@ export function FieldsMapPage() {
       : selectedEngineeringObject?.geometry_type === "Polygon"
         ? formatSquare(geometryAreaSqMeters(selectedEngineeringObject.geometry))
         : null;
-  const hasOpenInspector = mapWorkMode === "engineering" || Boolean(selectedField);
+  const hasOpenInspector = mapWorkMode === "engineering" || Boolean(selectedField || selectedContour);
+  const contourControls = <ContourControls contour={selectedContour} canWrite={canMutateBoundaries} busy={boundaryBusy}
+    name={contourName} onName={setContourName} targets={availableBoundaryTargets} target={boundaryTargetFieldId} onTarget={setBoundaryTargetFieldId}
+    onStart={startBoundaryEdit} onRename={() => void changeSelectedContour("rename")} onLink={() => void relinkSelectedBoundary()}
+    onDetach={() => void unlinkSelectedBoundary()} onDelete={() => void changeSelectedContour("delete")} onRestore={() => void changeSelectedContour("restore")}
+    edit={boundaryEdit ? { geometry: boundaryDraftGeometry || boundaryEdit.workingGeometry, part: boundaryEdit.part, ring: boundaryEdit.ring, points: boundaryEditPoints } : null}
+    onRing={selectBoundaryRing} onPoints={setBoundaryEditPoints} onSave={() => void saveBoundaryEdit()} onCancel={cancelBoundaryEdit} />;
+  const contourList = <details className="mt-2 rounded-lg border border-border bg-card p-2 text-foreground">
+    <summary className="cursor-pointer text-sm">Все контуры: {contours.filter((item) => !item.deleted_at).length} · без связи: {contours.filter((item) => !item.deleted_at && !item.field_id).length} · удалённые: {contours.filter((item) => item.deleted_at).length}</summary>
+    <input aria-label="Найти контур по названию или источнику" className="mt-2 h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" placeholder="Название / источник контура" value={contourSearch} disabled={Boolean(boundaryEdit)} onChange={(event) => setContourSearch(event.target.value)} />
+    <div className="mt-2 max-h-60 space-y-1 overflow-y-auto">
+      {contours.filter((item) => `${item.display_name} ${item.source_polygon_name || ""} ${item.source_polygon_id || ""}`.toLocaleLowerCase("ru").includes(contourSearch.toLocaleLowerCase("ru"))).map((item) =>
+        <button key={item.contour_id} disabled={Boolean(boundaryEdit)} className={`min-h-11 w-full rounded-lg border px-2 py-2 text-left text-sm ${item.contour_id === selectedContour?.contour_id ? "border-primary bg-accent" : "border-border bg-background"}`}
+          onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setShowFieldListMobile(false); setFieldSearch(""); setSelectedContourId(item.contour_id); setSelectedFieldId(item.deleted_at ? null : item.field_id); setBoundaryTargetFieldId("none"); if (!item.deleted_at) focusGeometryOnMap(item.geometry, item.display_name); }}>
+          <span className="block break-words font-medium">{item.display_name}</span>
+          <span className="text-xs text-muted-foreground">{item.deleted_at ? "Удалён · можно восстановить" : item.field_id ? "Связан с полем" : "Без связи с полем"} · {formatHa(item.area_ha)}</span>
+        </button>)}
+    </div>
+  </details>;
 
   return (
     <div className="tf2-shell -m-2 space-y-3 md:-m-4">
@@ -3047,81 +3055,23 @@ export function FieldsMapPage() {
           </div>
         </div>
 
-        {mapWorkMode === "agro" && selectedField ? (
+        {mapWorkMode === "agro" && (selectedField || selectedContour) ? (
           <aside data-testid="fields-map-inspector" className="tf2-map-inspector tf2-panel travkin-scrollbar pointer-events-auto absolute inset-x-3 bottom-28 top-[10.5rem] z-10 max-h-none overflow-y-auto rounded-2xl p-4 xl:inset-x-auto xl:bottom-auto xl:right-3 xl:top-3 xl:max-h-[calc(100%-112px)] xl:w-[430px]">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
-                <div className="text-xs uppercase tracking-[0.24em] text-emerald-800">Структура посевов</div>
-                <h2 className="mt-1 text-2xl font-bold text-foreground">Поле {selectedField.field_display_name}</h2>
-                <div className="text-sm text-muted-foreground">{formatHa(selectedField.field_area_ha)} • участков {selectedFieldStructures.length}</div>
+                <div className="text-xs uppercase tracking-[0.24em] text-primary">{selectedField ? "Структура посевов" : "Независимый контур"}</div>
+                <h2 className="tf-manor-heading mt-1 text-2xl font-bold text-foreground">{selectedField ? `Поле ${selectedField.field_display_name}` : selectedContour?.display_name}</h2>
+                <div className="text-sm text-muted-foreground">{formatHa(selectedContour?.area_ha ?? selectedField?.field_area_ha ?? null)}{selectedField ? ` • участков ${selectedFieldStructures.length}` : ""}</div>
               </div>
               <div className="flex gap-1">
-                <Button size="sm" variant="outline" aria-label={`Открыть карточку поля ${selectedField.field_display_name}`} onClick={() => router.push(`/fields/${selectedField.field_id}`)}><MapPinned className="h-4 w-4" /></Button>
-                <Button size="sm" variant="ghost" aria-label="Закрыть инспектор поля" onClick={() => { cancelBoundaryEdit(); setSelectedFieldId(null); }}><X className="h-4 w-4" /></Button>
+                {selectedField ? <Button size="sm" variant="outline" aria-label={`Открыть карточку поля ${selectedField.field_display_name}`} onClick={() => router.push(`/fields/${selectedField.field_id}`)}><MapPinned className="h-4 w-4" /></Button> : null}
+                <Button size="sm" variant="ghost" aria-label="Закрыть инспектор поля" onClick={() => { cancelBoundaryEdit(); setSelectedFieldId(null); setSelectedContourId(null); }}><X className="h-4 w-4" /></Button>
               </div>
             </div>
 
-            {boundaryEdit ? (
-              <div className="rounded-xl border border-primary/40 bg-primary/10 p-3">
-                <div className="text-sm font-semibold text-amber-800">Новая версия полного контура</div>
-                <p className="mt-1 text-xs leading-5 text-foreground">
-                  Ставьте вершины по границе поля. Исходный контур остаётся активным до успешного атомарного сохранения.
-                </p>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                  <div className="rounded-lg bg-muted/60 p-2"><span className="text-muted-foreground">Вершин</span><div className="font-semibold text-foreground">{boundaryEditPoints.length}</div></div>
-                  <div className="rounded-lg bg-muted/60 p-2"><span className="text-muted-foreground">Площадь</span><div className="font-semibold text-foreground">{boundaryDraftGeometry ? formatSquare(geometryAreaSqMeters(boundaryDraftGeometry)) : "—"}</div></div>
-                </div>
-                <form className="mt-3 grid grid-cols-2 gap-2" onSubmit={(event) => { event.preventDefault(); addBoundaryCoordinate(); }}>
-                  <Label className="text-xs text-foreground">
-                    Долгота
-                    <input aria-label="Долгота вершины" inputMode="decimal" value={boundaryCoordinateInput.lng} onChange={(event) => setBoundaryCoordinateInput((prev) => ({ ...prev, lng: event.target.value }))} className="mt-1 h-11 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground" placeholder="69.123456" />
-                  </Label>
-                  <Label className="text-xs text-foreground">
-                    Широта
-                    <input aria-label="Широта вершины" inputMode="decimal" value={boundaryCoordinateInput.lat} onChange={(event) => setBoundaryCoordinateInput((prev) => ({ ...prev, lat: event.target.value }))} className="mt-1 h-11 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground" placeholder="53.123456" />
-                  </Label>
-                  <Button type="submit" size="sm" variant="outline" className="col-span-2 min-h-11">Добавить вершину по координатам</Button>
-                </form>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" disabled={!boundaryEditPoints.length || boundaryBusy} onClick={undoBoundaryPoint}><Undo2 className="mr-2 h-4 w-4" />Отменить вершину</Button>
-                  <Button size="sm" variant="outline" disabled={boundaryBusy} onClick={cancelBoundaryEdit}>Отмена</Button>
-                  <Button size="sm" className="flex-1" disabled={!boundaryDraftGeometry || boundaryBusy} onClick={() => void saveBoundaryEdit()}><Save className="mr-2 h-4 w-4" />{boundaryBusy ? "Сохранение…" : "Сохранить версию"}</Button>
-                </div>
-                <div aria-live="polite" className="mt-2 text-xs text-muted-foreground">Клавиатура: фокус на карте + стрелки и Enter — вершина в центре; Ctrl+Z — назад; Esc — отмена.</div>
-              </div>
-            ) : (
+            {contourControls}
+            {!boundaryEdit && selectedField ? (
               <>
-                <section aria-label="Контур поля" className="mb-4 rounded-xl border border-border bg-card p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <div className="text-sm font-semibold text-foreground">Контур поля</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">{selectedField.geometry_id ? `Связан · ${formatHa(selectedField.geometry_area_ha)}` : "Не связан"}</div>
-                    </div>
-                    <Badge variant={selectedField.geometry_id ? "default" : "outline"}>{selectedField.geometry_id ? "На карте" : "Без геометрии"}</Badge>
-                  </div>
-                  {canMutateBoundaries ? (
-                    <div className="mt-3 space-y-2 border-t border-border pt-3">
-                      <div className="flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" disabled={boundaryBusy} onClick={boundaryRequiresKmlReplacement(selectedField.geometry) ? openKmlPicker : startBoundaryEdit}><Pencil className="mr-2 h-4 w-4" />{boundaryRequiresKmlReplacement(selectedField.geometry) ? "Заменить через KML" : selectedField.geometry_id ? "Перерисовать" : "Нарисовать контур"}</Button>
-                        {selectedField.geometry_id ? <Button size="sm" variant="destructive" disabled={boundaryBusy} onClick={() => void unlinkSelectedBoundary()}>Отвязать</Button> : null}
-                        {!selectedField.geometry_id && boundaryUndo?.fieldId === selectedField.field_id ? <Button size="sm" disabled={boundaryBusy} onClick={() => void restoreUnlinkedBoundary()}><Undo2 className="mr-2 h-4 w-4" />Отменить отвязку</Button> : null}
-                      </div>
-                      {boundaryRequiresKmlReplacement(selectedField.geometry) ? <p className="text-xs leading-5 text-amber-800">Сложный контур содержит несколько частей или внутренние кольца. Ручная перерисовка заблокирована, чтобы не потерять геометрию; используйте проверяемый KML.</p> : null}
-                      {selectedField.geometry_id && availableBoundaryTargets.length ? (
-                        <div className="grid grid-cols-[1fr_auto] gap-2">
-                          <Select value={boundaryTargetFieldId} onValueChange={setBoundaryTargetFieldId}>
-                            <SelectTrigger aria-label="Новое поле для контура" className="bg-card"><SelectValue placeholder="Перепривязать к…" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">Выберите поле без контура</SelectItem>
-                              {availableBoundaryTargets.map((field) => <SelectItem key={`boundary-target-${field.field_id}`} value={field.field_id}>Поле {field.field_display_name}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
-                          <Button size="sm" variant="outline" disabled={boundaryTargetFieldId === "none" || boundaryBusy} onClick={() => void relinkSelectedBoundary()}>Связать</Button>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : <div className="mt-2 text-xs text-muted-foreground">Контур доступен только для просмотра.</div>}
-                </section>
 
                 <div className="grid gap-2">
                   {selectedFieldStructures.slice(0, 7).map((row) => (
@@ -3144,7 +3094,8 @@ export function FieldsMapPage() {
                   <div><div className="mb-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">Урожай</div><div className="space-y-2">{selectedFieldHarvests.slice(0, 4).map((item) => <div key={item.id} className="rounded-lg bg-card px-3 py-2 text-sm"><div className="truncate font-medium text-foreground">{item.product_name || item.ticket_no || "Талон урожая"}</div><div className="text-xs text-muted-foreground">{item.quantity != null ? `${item.quantity.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} ${item.unit || ""}` : formatKg(item.net_weight_kg)}{item.status ? ` • ${item.status}` : ""}</div></div>)}{!selectedFieldHarvests.length ? <div className="text-sm text-muted-foreground">Урожай по весовой пока не найден.</div> : null}</div></div>
                 </div>
               </>
-            )}
+            ) : null}
+            {contourList}
           </aside>
         ) : null}
 
@@ -3226,7 +3177,7 @@ export function FieldsMapPage() {
             {uploadState ? <span className="min-w-0 truncate">{uploadState.fileName} • {uploadState.polygons.length} контуров</span> : null}
             {previewState ? (
               <span aria-live="polite">
-                Связано {importReviewSummary.linked} · ждут решения {importReviewSummary.pending} · пропущено {importReviewSummary.skipped}
+                Связано {importReviewSummary.linked} · сохранятся без связи {importReviewSummary.unlinked} · исключено {importReviewSummary.skipped}
               </span>
             ) : null}
             <div className="ml-auto flex flex-wrap gap-2">
@@ -3390,6 +3341,7 @@ export function FieldsMapPage() {
                 </div>
               ) : null}
             </div>
+            {contourList}
             {filteredFields.map((field) => {
               const isSelected = selectedFieldId === field.field_id;
               const isSearchMatch = matchedBySearch.includes(field.field_id);
@@ -3574,6 +3526,7 @@ export function FieldsMapPage() {
               ))}
             </div>
 
+            {(selectedField || selectedContour) ? contourControls : null}
             {selectedField ? (
               <div className="rounded-xl border border-[#2B3448] bg-[#151C28] p-3">
                 <div className="mb-2 flex items-center justify-between">

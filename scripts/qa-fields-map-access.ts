@@ -156,7 +156,7 @@ const confirmSource = fs.readFileSync(
 );
 assert.match(confirmSource, /validateParsedPolygonsForImport/u);
 assert.match(confirmSource, /status \|\| ""\) !== "draft"/u);
-assert.match(confirmSource, /rpc\("confirm_field_map_import_v2"/u);
+assert.match(confirmSource, /rpc\("confirm_field_map_import_v3"/u);
 assert.doesNotMatch(confirmSource, /from\("field_geometries"\)/u);
 const fieldsMapServerSource = fs.readFileSync(path.join(repoRoot, "lib/fields-map/server.ts"), "utf8");
 assert.match(fieldsMapServerSource, /FIELD_BOUNDARY_WRITE_V1 !== "1"/u);

@@ -136,10 +136,12 @@ check("preview responses cannot resurrect a cancelled or stale draft", () => {
 });
 
 check("boundary editing is keyboard-operable and preserves complex geometry", () => {
-  assert.match(source, /boundaryRequiresKmlReplacement/);
-  assert.match(activeRender, /Заменить через KML/);
-  assert.match(activeRender, /aria-label="Долгота вершины"/);
-  assert.match(activeRender, /aria-label="Широта вершины"/);
+  const controls = read("components/fields-map/contour-controls.tsx");
+  assert.match(source, /replaceContourRing/);
+  assert.match(source, /workingGeometry: boundaryDraftGeometry/);
+  assert.match(controls, /aria-label="Часть и кольцо контура"/);
+  assert.match(controls, /"Долгота" : "Широта"/);
+  assert.match(source, /target\.isContentEditable/);
   assert.match(source, /boundaryBusyRef\.current/);
 });
 

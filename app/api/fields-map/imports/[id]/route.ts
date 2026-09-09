@@ -14,7 +14,7 @@ async function mutateImportState(params: {
   expectedTargetUpdatedAt: string;
   supabase: Awaited<ReturnType<typeof resolveFieldsMapContext>>["supabase"];
 }) {
-  const result = await params.supabase.rpc("set_field_map_import_state_v2", {
+  const result = await params.supabase.rpc("set_field_map_import_state_v3", {
     p_company_id: params.companyId,
     p_import_id: params.importId,
     p_actor_id: params.actorId,

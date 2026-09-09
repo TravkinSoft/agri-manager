@@ -175,7 +175,24 @@ export interface FieldsMapBootstrapPayload {
   seasons: Array<{ id: string; year: number; name: string | null }>;
   selected_season_id: string | null;
   fields: FieldMapFieldCard[];
+  contours: FieldMapContour[];
   engineering_objects: FieldEngineeringObject[];
+}
+
+/** A real map object, not a synthetic business field. id is a version/CAS token. */
+export interface FieldMapContour {
+  contour_id: string;
+  geometry_id: string;
+  contour_version: number;
+  field_id: string | null;
+  display_name: string;
+  source_import_id: string | null;
+  source_polygon_id: string | null;
+  source_polygon_name: string | null;
+  source_file_name: string | null;
+  geometry: GeoJsonAreaGeometry;
+  area_ha: number | null;
+  deleted_at: string | null;
 }
 
 export interface FieldMapPreviewDiagnostics {

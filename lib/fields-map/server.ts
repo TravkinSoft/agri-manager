@@ -62,6 +62,10 @@ function isMissingRelationError(message: string): boolean {
     normalized.includes("field_map_imports") ||
     normalized.includes("field_engineering_objects") ||
     normalized.includes("confirm_field_map_import_v2") ||
+    normalized.includes("confirm_field_map_import_v3") ||
+    normalized.includes("set_field_map_import_state_v3") ||
+    normalized.includes("mutate_field_contour_v3") ||
+    normalized.includes("get_field_map_contours_v3") ||
     normalized.includes("get_field_map_snapshot_v1") ||
     normalized.includes("set_field_map_import_state_v2") ||
     normalized.includes("mutate_field_boundary_v1");

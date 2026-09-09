@@ -19,17 +19,23 @@ function toNumber(value: unknown): number | null {
 type OverrideRow = {
   polygon_id: string;
   field_id: string | null;
+  action: "link" | "unlinked" | "skip";
 };
 
 function normalizeOverrides(raw: unknown): OverrideRow[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
       const row = item as Record<string, unknown>;
       const polygonId = normalizeText(row.polygon_id);
       const fieldId = row.field_id === null ? null : normalizeText(row.field_id);
       if (!polygonId || (fieldId !== null && !isUuidLike(fieldId))) return null;
-      return { polygon_id: polygonId, field_id: fieldId };
+      const action = row.action ?? (fieldId ? "link" : "skip");
+      if (typeof action !== "string") return null;
+      if (!["link", "unlinked", "skip"].includes(String(action))) return null;
+      if ((action === "link") !== Boolean(fieldId)) return null;
+      return { polygon_id: polygonId, field_id: fieldId, action } as OverrideRow;
     })
     .filter((item): item is OverrideRow => Boolean(item));
 }
@@ -80,6 +86,9 @@ export async function POST(request: NextRequest) {
     const context = await resolveFieldsMapContext(request, { mutation: true });
     const { companyId, supabase, actor } = context;
     const body = await request.json();
+    if (!body || typeof body !== "object" || Array.isArray(body) || (body.overrides !== undefined && !Array.isArray(body.overrides))) {
+      return NextResponse.json({ error: "Некорректный формат подтверждения импорта" }, { status: 400 });
+    }
     const importId = normalizeText(body.import_id);
     if (!isUuidLike(importId)) {
       return NextResponse.json({ error: "Некорректный import_id" }, { status: 400 });
@@ -98,7 +107,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const overrideMap = new Map(overrides.map((item) => [item.polygon_id, item.field_id]));
+    const overrideMap = new Map(overrides.map((item) => [item.polygon_id, item]));
 
     const importRes = await supabase
       .from("field_map_imports")
@@ -162,15 +171,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const pendingDecision = previewRows.find(
-      (row) => row.match_status !== "matched" && !overrideMap.has(row.polygon_id)
-    );
-    if (pendingDecision) {
-      return NextResponse.json(
-        { error: `Для контура ${pendingDecision.polygon_name} не принято явное решение: выберите поле или пропустите контур.` },
-        { status: 409 }
-      );
-    }
+    // Unknown source names are not rejected or guessed: keep a real unlinked contour.
 
     const fieldsRes = await supabase
       .from("fields")
@@ -192,34 +193,25 @@ export async function POST(request: NextRequest) {
     }> = [];
     const resolvedRows: Array<{
       polygon_id: string;
-      field_id: string;
+      field_id: string | null;
       geometry_geojson: FieldMapPreviewMatch["geometry"];
       area_from_kml_ha: number | null;
     }> = [];
 
     for (const row of previewRows) {
-      const hasOverride = overrideMap.has(row.polygon_id);
-      const overrideFieldId = overrideMap.get(row.polygon_id);
-      const resolvedFieldId = hasOverride
-        ? isUuidLike(overrideFieldId) ? overrideFieldId : null
-        : row.field_id;
-      if (!resolvedFieldId) {
-        if (!hasOverride || overrideFieldId !== null) {
-          return NextResponse.json(
-            { error: `Привязка контура ${row.polygon_name} устарела. Выполните preview заново.` },
-            { status: 409 }
-          );
-        }
+      const override = overrideMap.get(row.polygon_id);
+      const resolvedFieldId = override ? override.field_id : row.match_status === "matched" ? row.field_id : null;
+      if (override?.action === "skip") {
         unresolved.push(row.polygon_name);
         finalizedRows.push({
           ...row,
           final_field_id: null,
           final_status: "skipped",
-          final_reason: "field_not_resolved",
+          final_reason: "explicitly_excluded",
         });
         continue;
       }
-      if (!validFieldIds.has(resolvedFieldId)) {
+      if (resolvedFieldId && !validFieldIds.has(resolvedFieldId)) {
         return NextResponse.json(
           { error: `Выбранное поле для контура ${row.polygon_name} больше недоступно. Обновите preview.` },
           { status: 409 }
@@ -235,22 +227,24 @@ export async function POST(request: NextRequest) {
         ...row,
         final_field_id: resolvedFieldId,
         final_status: "saved",
-        final_reason: null,
+        final_reason: resolvedFieldId ? null : "saved_unlinked",
       });
     }
 
     const totalPolygons = previewRows.length;
-    const matchedPolygons = resolvedRows.length;
+    const savedPolygons = resolvedRows.length;
+    const matchedPolygons = resolvedRows.filter((row) => row.field_id !== null).length;
     const unmatchedPolygons = totalPolygons - matchedPolygons;
-    if (matchedPolygons === 0) {
+    if (savedPolygons === 0) {
       return NextResponse.json(
-        { error: "Нет подтверждённых привязок. Разрешите хотя бы один контур перед импортом." },
+        { error: "Все контуры исключены. Оставьте хотя бы один связанный или независимый контур." },
         { status: 400 }
       );
     }
 
     const fieldToPolygon = new Map<string, string>();
     for (const row of resolvedRows) {
+      if (!row.field_id) continue;
       const existingPolygonId = fieldToPolygon.get(row.field_id);
       if (existingPolygonId) {
         return NextResponse.json(
@@ -270,7 +264,7 @@ export async function POST(request: NextRequest) {
       unresolved_polygons: unresolved,
     };
 
-    const confirmRes = await supabase.rpc("confirm_field_map_import_v2", {
+    const confirmRes = await supabase.rpc("confirm_field_map_import_v3", {
       p_company_id: companyId,
       p_import_id: importId,
       p_actor_id: actor.id,
@@ -286,8 +280,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       import_id: importId,
       status: "imported",
-      saved_polygons: matchedPolygons,
-      skipped_polygons: unmatchedPolygons,
+      saved_polygons: savedPolygons,
+      linked_polygons: matchedPolygons,
+      unlinked_polygons: savedPolygons - matchedPolygons,
+      skipped_polygons: totalPolygons - savedPolygons,
       unresolved_polygons: unresolved,
     });
   } catch (error) {

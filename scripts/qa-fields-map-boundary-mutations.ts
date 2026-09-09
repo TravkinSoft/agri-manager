@@ -49,8 +49,8 @@ const check = (condition: unknown, message: string) => {
 
 let summary = summarizeFieldMapReview(rows, {});
 check(summary.linked === 1, "high-confidence row remains automatically linked");
-check(summary.pending === 2, "ambiguous and no-match rows remain pending");
-check(!summary.canConfirm, "pending queue cannot be confirmed");
+check(summary.unlinked === 2 && summary.pending === 0, "ambiguous and no-match rows remain independent contours");
+check(summary.canConfirm, "all valid contours can be saved without invented fields");
 
 const decisions = { manual: fieldB, skip: FIELD_MAP_SKIP_DECISION };
 summary = summarizeFieldMapReview(rows, decisions);
@@ -69,16 +69,17 @@ check(!summary.canConfirm, "duplicate final assignment blocks confirmation");
 const route = read("app/api/fields-map/boundaries/mutate/route.ts");
 const confirmRoute = read("app/api/fields-map/import/confirm/route.ts");
 const migration = read("supabase/migrations/20260908232606_field_boundary_revision_v1.sql");
+const contourMigration = read("supabase/migrations/20260909211431_field_map_independent_contours_v3.sql");
 const page = read("components/fields-map/fields-map-page.tsx");
 const review = read("components/fields-map/field-map-import-review.tsx");
 const env = read(".env.example");
 
 check(route.includes("resolveFieldsMapContext(request, { mutation: true })"), "boundary route uses global-admin server gate");
 check(route.includes("validateParsedPolygonsForImport"), "replacement geometry is server validated");
-check(route.includes('.rpc("mutate_field_boundary_v1"'), "boundary write is one RPC");
+check(route.includes('.rpc("mutate_field_contour_v3"'), "boundary write is one versioned RPC");
 check(confirmRoute.includes("row.field_id === null ? null"), "confirm API preserves explicit skip");
-check(confirmRoute.includes("overrideMap.has(row.polygon_id)"), "explicit skip overrides automatic match");
-check(confirmRoute.includes('row.match_status !== "matched" && !overrideMap.has(row.polygon_id)'), "server requires an explicit decision for every ambiguous or unmatched contour");
+check(confirmRoute.includes('override?.action === "skip"'), "explicit skip overrides automatic match");
+check(confirmRoute.includes('row.match_status === "matched" ? row.field_id : null'), "server keeps ambiguous and unmatched contours unlinked");
 check(migration.includes("drop policy if exists \"Users can insert company field geometries\""), "legacy geometry insert policy is removed");
 check(migration.includes("drop policy if exists \"Users can update company field map imports\""), "legacy import update policy is removed");
 check(migration.includes("revoke insert, update, delete on table public.field_geometries from public, anon, authenticated"), "direct geometry DML is revoked");
@@ -90,17 +91,17 @@ check(migration.includes("profile.role = 'global_admin'"), "RPC rechecks global-
 check(migration.includes("pg_advisory_xact_lock"), "RPC serializes company boundary revisions");
 check(migration.includes("and geometry_row.is_active = true\n      for update"), "active geometry id is a locked CAS token");
 check(migration.includes("insert into public.audit_log"), "every boundary mutation appends audit log");
-check((migration.match(/p_company_id, p_target_field_id, null, v_source\.source_file_name/gu) || []).length === 2, "relink and restore stay outside immutable import snapshots");
-check(migration.includes("p_target_field_id <> p_field_id"), "restore cannot move an unlinked contour to another field");
-check(migration.includes("order by audit_row.when_at desc, audit_row.id desc"), "restore requires the latest boundary action");
+check(contourMigration.includes("s.import_id,s.source_import_id"), "new versions keep immutable import lineage");
+check(contourMigration.includes("and g.contour_version>s.contour_version"), "restore rejects superseded versions");
+check(contourMigration.includes("v_action='restore' and s.deleted_at is null"), "restore requires the current deletion tombstone");
 check(migration.includes("to service_role"), "boundary RPC is service-role only");
 check(!/grant execute on function public\.mutate_field_boundary_v1[\s\S]*?to authenticated/u.test(migration), "authenticated users cannot call boundary RPC");
 check(env.includes("FIELD_BOUNDARY_WRITE_V1=0") && env.includes("NEXT_PUBLIC_FIELD_BOUNDARY_WRITE_V1=0"), "both boundary flags default off");
 check(page.includes('profile?.role === "global_admin"'), "client mutation UI checks effective role");
 check(page.includes('NEXT_PUBLIC_FIELD_BOUNDARY_WRITE_V1 === "1"'), "client mutation UI is fail closed");
 check(page.includes("<FieldMapImportReview"), "active map renders the match queue");
-check(review.includes("Решение не принято") && review.includes("Не импортировать этот контур"), "ambiguous queue requires an explicit decision");
-check(page.includes("Ctrl+Z") && page.includes("Esc"), "full-boundary editor exposes undo and cancel shortcuts");
-check(page.includes('action: "relink"') && page.includes('action: "unlink"') && page.includes('action: "restore"'), "inspector exposes safe link, unlink, and undo actions");
+check(review.includes("FIELD_MAP_UNLINKED_DECISION") && review.includes("Не импортировать этот контур"), "save-unlinked and excluded are distinct decisions");
+check(page.includes('event.key.toLowerCase() === "z"') && page.includes('event.key === "Escape"'), "full-boundary editor exposes undo and cancel shortcuts");
+check(page.includes('action: "relink"') && page.includes('action: "unlink"') && page.includes('changeSelectedContour("restore")'), "inspector exposes link, visible detach and delete restoration");
 
 console.log(`Fields map boundary mutation PASS: ${assertions} assertions. No remote calls.`);
