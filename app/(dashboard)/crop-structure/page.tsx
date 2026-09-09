@@ -211,6 +211,8 @@ type FieldState = "empty" | "partial" | "complete" | "over";
 type StageKey = "prep" | "seeding" | "care" | "harvest";
 type MaterialCategory = "seed" | "fertilizer" | "chemical" | "organic" | "fuel" | "irrigation" | "other";
 type ViewMode = "cards" | "table" | "map";
+type FieldWorkspaceTab = "dossier" | "editor" | "legal";
+type PendingFieldSelection = { fieldId: string; tab: FieldWorkspaceTab };
 
 const EPS = 0.0001;
 const CROP_STRUCTURE_VIEW_KEY = "travkinflow.cropStructure.viewMode";
@@ -444,7 +446,7 @@ export default function CropStructurePage() {
   const [sortBy, setSortBy] = useState<"field" | "area" | "main_crop" | "state">("field");
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [draftRows, setDraftRows] = useState<Allocation[]>([]);
-  const [fieldDialogTab, setFieldDialogTab] = useState<"dossier" | "editor" | "legal">("dossier");
+  const [fieldDialogTab, setFieldDialogTab] = useState<FieldWorkspaceTab>("dossier");
   const [selectedDossierAllocationKey, setSelectedDossierAllocationKey] = useState<string | null>(null);
   const [dossierDetailTab, setDossierDetailTab] = useState<"overview" | "operations" | "materials">("overview");
   const [legalLinksByField, setLegalLinksByField] = useState<Map<string, FieldLegalLink[]>>(new Map());
@@ -454,6 +456,8 @@ export default function CropStructurePage() {
   const [sectionChoiceField, setSectionChoiceField] = useState<Field | null>(null);
   const [specialists, setSpecialists] = useState<SpecialistAssignee[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>("cards");
+  const [isDesktopWorkspace, setIsDesktopWorkspace] = useState(false);
+  const [pendingFieldSelection, setPendingFieldSelection] = useState<PendingFieldSelection | null>(null);
   const [pendingDeleteIndex, setPendingDeleteIndex] = useState<number | null>(null);
   const [saveConfirmationOpen, setSaveConfirmationOpen] = useState(false);
   const [discardConfirmationOpen, setDiscardConfirmationOpen] = useState(false);
@@ -758,6 +762,14 @@ export default function CropStructurePage() {
       // localStorage can be unavailable in hardened browser contexts.
     }
   }, [isGlobalAdmin]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1280px)");
+    const syncWorkspaceMode = () => setIsDesktopWorkspace(media.matches);
+    syncWorkspaceMode();
+    media.addEventListener("change", syncWorkspaceMode);
+    return () => media.removeEventListener("change", syncWorkspaceMode);
+  }, []);
 
   const changeViewMode = (mode: ViewMode) => {
     const nextMode = mode === "map" && !isGlobalAdmin ? "cards" : mode;
@@ -1266,7 +1278,7 @@ export default function CropStructurePage() {
     };
   }, [activeCompanyId, seasonId, selectedFieldId, cropMap, isGlobalAdmin]);
 
-  const openField = (fieldId: string, tab: "dossier" | "editor" | "legal" = "dossier") => {
+  const openField = (fieldId: string, tab: FieldWorkspaceTab = "dossier") => {
     if (tab === "editor" && !canEditSelectedSeason) {
       toast({
         title: !seasonId ? "Нет активного сезона" : "Сезон доступен только для чтения",
@@ -1301,16 +1313,46 @@ export default function CropStructurePage() {
     setDiscardConfirmationOpen(false);
     setPendingSaveRows([]);
     setPendingSaveSummary({ added: 0, updated: 0, deleted: 0 });
+    setPendingFieldSelection(null);
     setEditorValidationError(null);
   };
 
   const requestCloseField = () => {
+    setPendingFieldSelection(null);
     if (hasUnsavedStructureChanges && !saving) {
       setDiscardConfirmationOpen(true);
       return;
     }
     closeField();
   };
+
+  const requestOpenField = (fieldId: string, tab: FieldWorkspaceTab = "dossier") => {
+    if (selectedFieldId === fieldId) return;
+    if (selectedFieldId && hasUnsavedStructureChanges && !saving) {
+      setPendingFieldSelection({ fieldId, tab });
+      setDiscardConfirmationOpen(true);
+      return;
+    }
+    openField(fieldId, tab);
+  };
+
+  const confirmDiscardFieldChanges = () => {
+    const nextSelection = pendingFieldSelection;
+    closeField();
+    if (nextSelection) openField(nextSelection.fieldId, nextSelection.tab);
+  };
+
+  useEffect(() => {
+    if (!isDesktopWorkspace || viewMode !== "cards" || selectedFieldId || filteredFields.length === 0) return;
+    const fieldId = filteredFields[0].id;
+    setSelectedFieldId(fieldId);
+    setFieldDialogTab("dossier");
+    setDraftRows((allocByField.get(fieldId) || []).map((item) => ({
+      ...item,
+      mix_components: item.mix_components.map((component) => ({ ...component })),
+    })));
+    setEditorValidationError(null);
+  }, [allocByField, filteredFields, isDesktopWorkspace, selectedFieldId, viewMode]);
 
   const patchDraft = (index: number, patch: Partial<Allocation>) => {
     setEditorValidationError(null);
@@ -1756,7 +1798,7 @@ export default function CropStructurePage() {
     setOperationSourceLabel(
       `План по полю: ${field.name} • ${allocationIdentityLabel(allocation)} • ${fmtHa(Number(allocation.area || 0))}`
     );
-    setSelectedFieldId(null);
+    if (!isDesktopWorkspace || viewMode !== "cards") setSelectedFieldId(null);
     setSectionChoiceField(null);
     setOperationDialogOpen(true);
   };
@@ -1777,7 +1819,7 @@ export default function CropStructurePage() {
       notes: "",
     });
     setOperationSourceLabel(`План по полю: ${field.name} • Всё поле • ${fmtHa(Number(field.area || 0))}`);
-    setSelectedFieldId(null);
+    if (!isDesktopWorkspace || viewMode !== "cards") setSelectedFieldId(null);
     setSectionChoiceField(null);
     setOperationDialogOpen(true);
   };
@@ -1852,7 +1894,7 @@ export default function CropStructurePage() {
       <Card
         key={field.id}
         className="h-[202px] cursor-pointer overflow-hidden border-border transition hover:border-emerald-300 hover:shadow-sm"
-        onClick={() => openField(field.id)}
+        onClick={() => requestOpenField(field.id)}
       >
         <CardContent className="grid h-full grid-rows-[auto_minmax(0,1fr)_auto] gap-2 p-3">
           <div className="flex min-w-0 items-start justify-between gap-3">
@@ -1893,6 +1935,82 @@ export default function CropStructurePage() {
     );
   };
 
+  const renderFieldMasterItem = (field: Field) => {
+    const rows = allocByField.get(field.id) || [];
+    const visibleRows = rows.slice(0, 2);
+    const hiddenRows = Math.max(0, rows.length - visibleRows.length);
+    const planned = sumArea(rows);
+    const progress = field.area > 0 ? Math.min(100, Math.max(0, (planned / field.area) * 100)) : 0;
+    const isSelected = selectedFieldId === field.id;
+
+    return (
+      <article
+        key={`master-${field.id}`}
+        className={`overflow-hidden rounded-xl border bg-card transition-colors motion-reduce:transition-none ${
+          isSelected ? "border-primary shadow-sm" : "border-border hover:border-primary/40"
+        }`}
+        data-testid="crop-field-master-item"
+        data-selected={isSelected ? "true" : "false"}
+      >
+        <button
+          type="button"
+          className="block min-h-11 w-full px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          onClick={() => requestOpenField(field.id)}
+          aria-pressed={isSelected}
+        >
+          <span className="flex min-w-0 items-start justify-between gap-3">
+            <span className="min-w-0">
+              <span className="block truncate text-base font-semibold text-foreground">{fieldDisplayName(field)}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                План {fmtHa(planned)} из {fmtHa(field.area)}
+              </span>
+            </span>
+            <span className={`${stateClass(fieldState(field.id))} inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold`}>
+              {stateText(fieldState(field.id))}
+            </span>
+          </span>
+
+          <span className="mt-3 block space-y-1.5">
+            {visibleRows.length ? visibleRows.map((row, index) => (
+              <span key={`${field.id}-master-${row.id || index}`} className="flex min-w-0 items-center justify-between gap-2 text-xs">
+                <span className="min-w-0 truncate font-medium text-foreground">
+                  <span className="mr-1.5" aria-hidden="true">{cropIcon(cropName(row.crop_id))}</span>
+                  {allocationIdentityLabel(row)}
+                </span>
+                <span className="shrink-0 tabular-nums text-muted-foreground">{fmtHa(Number(row.area || 0))}</span>
+              </span>
+            )) : (
+              <span className="block text-xs text-muted-foreground">Культура не задана</span>
+            )}
+            {hiddenRows > 0 ? (
+              <span className="block text-[11px] text-muted-foreground">Ещё участков: {hiddenRows}</span>
+            ) : null}
+          </span>
+
+          <span className="mt-3 flex items-center gap-2">
+            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+              <span className="block h-full rounded-full bg-primary" style={{ width: `${progress}%` }} />
+            </span>
+            <span className="w-9 shrink-0 text-right text-[10px] font-semibold tabular-nums text-muted-foreground">{progress.toFixed(0)}%</span>
+          </span>
+        </button>
+        <div className="border-t border-border px-3 py-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-9 w-full"
+            onClick={(event) => openPrimaryOperationPlan(field, event)}
+            disabled={!FIELD_FIRST_CREATE_ENABLED || hasUnsavedStructureChanges}
+            title={hasUnsavedStructureChanges ? "Сначала сохраните или отмените изменения структуры" : undefined}
+          >
+            <Plus className="mr-1.5 h-3.5 w-3.5" />Операция
+          </Button>
+        </div>
+      </article>
+    );
+  };
+
   const renderTableView = () => (
     <Card>
       <CardContent className="p-0">
@@ -1912,7 +2030,7 @@ export default function CropStructurePage() {
                 const visibleRows = rows.slice(0, 4);
                 const hiddenRows = Math.max(0, rows.length - visibleRows.length);
                 return (
-                  <tr key={field.id} className="cursor-pointer border-b border-border hover:bg-muted" onClick={() => openField(field.id)}>
+                  <tr key={field.id} className="cursor-pointer border-b border-border hover:bg-muted" onClick={() => requestOpenField(field.id)}>
                     <td className="px-3 py-2 font-semibold text-primary">{fieldDisplayName(field)}</td>
                     <td className="px-3 py-2 text-muted-foreground">
                       {visibleRows.length ? (
@@ -3096,6 +3214,143 @@ export default function CropStructurePage() {
     );
   };
 
+  const renderDesktopFieldWorkspace = () => {
+    if (!selectedField) {
+      return (
+        <Card className="hidden min-h-[540px] min-w-0 items-center justify-center border-dashed xl:flex" data-testid="crop-field-workspace-empty">
+          <CardContent className="max-w-sm p-8 text-center">
+            <div className="text-lg font-semibold text-foreground">Выберите поле</div>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Слева показаны поля выбранного сезона. Откройте поле, чтобы увидеть его структуру, операции и материалы.
+            </p>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    return (
+      <Card
+        className="hidden h-[calc(100dvh-12rem)] min-h-[540px] max-h-[860px] min-w-0 flex-col overflow-hidden xl:flex"
+        data-testid="crop-field-workspace"
+      >
+        <div className="shrink-0 border-b border-border px-5 pt-5">
+          <div className="flex min-w-0 items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Сезонный контур поля</div>
+              <h2 className="tf-manor-heading mt-1 truncate text-2xl font-semibold text-foreground">
+                {fieldDisplayName(selectedField)}
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {fmtHa(selectedField.area)} · сезон {season?.year || "—"}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 shrink-0 px-3"
+              onClick={exportFieldPdf}
+              disabled={pdfLoading || !selectedFieldId || !seasonId}
+              aria-label={pdfLoading ? "Формируется PDF поля" : "Скачать PDF поля"}
+            >
+              <FileText className="mr-2 h-4 w-4" />
+              {pdfLoading ? "Формирование..." : "PDF поля"}
+            </Button>
+          </div>
+
+          <div className="mt-4 flex gap-1 overflow-x-auto" role="tablist" aria-label="Разделы выбранного поля">
+            <Button
+              id="field-workspace-tab-dossier"
+              role="tab"
+              aria-selected={fieldDialogTab === "dossier"}
+              aria-controls="field-workspace-panel"
+              tabIndex={fieldDialogTab === "dossier" ? 0 : -1}
+              variant="ghost"
+              size="sm"
+              className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "dossier" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
+              onClick={() => setFieldDialogTab("dossier")}
+              onKeyDown={moveTabFocus}
+            >
+              Агро-контур
+            </Button>
+            {canEditStructure ? (
+              <Button
+                id="field-workspace-tab-editor"
+                role="tab"
+                aria-selected={fieldDialogTab === "editor"}
+                aria-controls="field-workspace-panel"
+                tabIndex={fieldDialogTab === "editor" ? 0 : -1}
+                variant="ghost"
+                size="sm"
+                className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "editor" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
+                onClick={() => setFieldDialogTab("editor")}
+                onKeyDown={moveTabFocus}
+                disabled={!canEditSelectedSeason}
+                title={!seasonId ? "У компании нет активного сезона" : !canEditSelectedSeason ? "Сезон доступен только для чтения" : undefined}
+              >
+                Редактор структуры
+              </Button>
+            ) : null}
+            {isGlobalAdmin ? (
+              <Button
+                id="field-workspace-tab-legal"
+                role="tab"
+                aria-selected={fieldDialogTab === "legal"}
+                aria-controls="field-workspace-panel"
+                tabIndex={fieldDialogTab === "legal" ? 0 : -1}
+                variant="ghost"
+                size="sm"
+                className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "legal" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
+                onClick={() => setFieldDialogTab("legal")}
+                onKeyDown={moveTabFocus}
+              >
+                Юр. контур
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        <div
+          id="field-workspace-panel"
+          role="tabpanel"
+          aria-labelledby={`field-workspace-tab-${fieldDialogTab}`}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 travkin-scrollbar"
+        >
+          {fieldDialogTab === "dossier" ? renderFieldDossier() : null}
+          {fieldDialogTab === "editor" ? renderEditor() : null}
+          {fieldDialogTab === "legal" ? renderLegalContour() : null}
+        </div>
+
+        {fieldDialogTab === "editor" ? (
+          <div
+            className="flex shrink-0 items-center justify-between gap-3 border-t border-border bg-card px-5 py-3"
+            data-testid="crop-field-workspace-action-bar"
+          >
+            <div className="min-h-5 text-xs text-muted-foreground" aria-live="polite">
+              {hasUnsavedStructureChanges ? "Есть несохранённые изменения" : "Все изменения сохранены"}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {canEditSelectedSeason ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11"
+                  onClick={addRow}
+                >
+                  <Plus className="mr-2 h-4 w-4" />Добавить участок
+                </Button>
+              ) : null}
+              {canEditSelectedSeason ? (
+                <Button className="h-11" onClick={requestSave} disabled={saving || !hasUnsavedStructureChanges}>
+                  <Edit3 className="mr-2 h-4 w-4" />{saving ? "Сохранение..." : "Сохранить"}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </Card>
+    );
+  };
+
   if (loading) {
     return <PageHeader title="Структура посевов" description="Загрузка..." />;
   }
@@ -3114,7 +3369,7 @@ export default function CropStructurePage() {
               closeField();
               setSeasonId(value);
             }}
-            disabled={seasons.length === 0}
+            disabled={seasons.length === 0 || (isDesktopWorkspace && hasUnsavedStructureChanges)}
           >
             <SelectTrigger
               className="h-8 min-w-[92px] border-border bg-transparent px-2 text-xs font-medium text-muted-foreground shadow-none hover:border-border hover:text-foreground disabled:cursor-default disabled:opacity-70"
@@ -3266,10 +3521,30 @@ export default function CropStructurePage() {
         </Card>
       ) : null}
 
-      {!loadError && hasFields && viewMode === "cards" ? (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
-          {filteredFields.map(renderOverviewCard)}
-        </div>
+      {!loadError && hasFields && filteredFields.length > 0 && viewMode === "cards" ? (
+        <>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 xl:hidden" data-testid="crop-field-card-grid">
+            {filteredFields.map(renderOverviewCard)}
+          </div>
+          <div
+            className="hidden min-w-0 gap-4 xl:grid xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]"
+            data-testid="crop-master-detail-workspace"
+          >
+            <Card className="flex h-[calc(100dvh-12rem)] min-h-[540px] max-h-[860px] min-w-0 flex-col overflow-hidden">
+              <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">Поля</h2>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Выберите поле для подробного обзора</p>
+                </div>
+                <Badge className="border-border bg-background text-foreground hover:bg-background">{filteredFields.length}</Badge>
+              </div>
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 travkin-scrollbar" aria-label="Поля выбранного сезона">
+                {filteredFields.map(renderFieldMasterItem)}
+              </div>
+            </Card>
+            {renderDesktopFieldWorkspace()}
+          </div>
+        </>
       ) : null}
       {!loadError && hasFields && viewMode === "table" ? renderTableView() : null}
       {!loadError && hasFields && viewMode === "map" && isGlobalAdmin ? renderMapView() : null}
@@ -3286,8 +3561,9 @@ export default function CropStructurePage() {
         />
       ) : null}
 
-      <Dialog open={Boolean(selectedFieldId)} onOpenChange={(open) => !open && requestCloseField()}>
-        <DialogContent
+      {!isDesktopWorkspace || viewMode !== "cards" ? (
+        <Dialog open={Boolean(selectedFieldId)} onOpenChange={(open) => !open && requestCloseField()}>
+          <DialogContent
           hideCloseButton
           data-testid="field-dialog-content"
           overlayClassName="motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none motion-reduce:duration-0"
@@ -3418,8 +3694,9 @@ export default function CropStructurePage() {
               ) : null}
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+          </DialogContent>
+        </Dialog>
+      ) : null}
 
       <AlertDialog open={saveConfirmationOpen} onOpenChange={setSaveConfirmationOpen}>
         <AlertDialogContent className="border-border bg-card text-foreground">
@@ -3460,10 +3737,16 @@ export default function CropStructurePage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={discardConfirmationOpen} onOpenChange={setDiscardConfirmationOpen}>
+      <AlertDialog
+        open={discardConfirmationOpen}
+        onOpenChange={(open) => {
+          setDiscardConfirmationOpen(open);
+          if (!open) setPendingFieldSelection(null);
+        }}
+      >
         <AlertDialogContent className="border-border bg-card text-foreground">
           <AlertDialogHeader>
-            <AlertDialogTitle>Закрыть без сохранения?</AlertDialogTitle>
+            <AlertDialogTitle>{pendingFieldSelection ? "Перейти к другому полю без сохранения?" : "Закрыть без сохранения?"}</AlertDialogTitle>
             <AlertDialogDescription className="text-muted-foreground">
               Несохранённые добавления, изменения и удаления будут отменены. «Агро-контур» и база уже сохранённые данные не меняли.
             </AlertDialogDescription>
@@ -3472,8 +3755,8 @@ export default function CropStructurePage() {
             <AlertDialogCancel className="border-border bg-transparent text-foreground hover:bg-muted hover:text-foreground">
               Продолжить редактирование
             </AlertDialogCancel>
-            <AlertDialogAction className="bg-rose-600 text-white hover:bg-rose-500" onClick={closeField}>
-              Закрыть без сохранения
+            <AlertDialogAction className="bg-rose-600 text-white hover:bg-rose-500" onClick={confirmDiscardFieldChanges}>
+              {pendingFieldSelection ? "Перейти без сохранения" : "Закрыть без сохранения"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
