@@ -75,6 +75,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   let uploadedPath: string | null = null;
+  let editableProfileId: string | null = null;
+  let profileCommitAttempted = false;
+  let profileCommitted = false;
   try {
     assertWriteEnabled();
     const contentLength = Number(request.headers.get("content-length") || 0);
@@ -82,6 +85,7 @@ export async function POST(request: NextRequest) {
       throw new SessionAuthError("Avatar file is too large", 413);
     }
     const actor = await resolveEditableActor(request);
+    editableProfileId = actor.id;
     const formData = await request.formData();
     const candidate = formData.get("avatar");
     if (!(candidate instanceof File)) throw new SessionAuthError("Avatar file is required", 400);
@@ -101,19 +105,27 @@ export async function POST(request: NextRequest) {
     );
     if (uploadError) throw new Error("Profile avatar upload failed");
 
+    // Sign before committing the database pointer. If signing fails, the old
+    // avatar remains authoritative and the uncommitted upload can be removed.
+    const avatarUrl = await createPrivateAvatarUrl(uploadedPath);
     const updatedAt = new Date().toISOString();
+    profileCommitAttempted = true;
     const { error: profileError } = await admin
       .from("profiles")
       .update({ avatar_path: uploadedPath, avatar_updated_at: updatedAt })
       .eq("id", actor.id);
-    if (profileError) throw new Error("Profile avatar update failed");
+    if (profileError) {
+      const reconciledPath = await loadAvatarPath(actor.id).catch(() => undefined);
+      if (reconciledPath !== uploadedPath) throw new Error("Profile avatar update failed");
+    }
+    profileCommitted = true;
 
     if (oldPath && oldPath !== uploadedPath && isOwnedAvatarPath(actor.id, oldPath)) {
-      await admin.storage.from(PROFILE_AVATAR_BUCKET).remove([oldPath]);
+      await admin.storage.from(PROFILE_AVATAR_BUCKET).remove([oldPath]).catch(() => undefined);
     }
     return NextResponse.json(
       {
-        avatarUrl: await createPrivateAvatarUrl(uploadedPath),
+        avatarUrl,
         updatedAt,
         width: sanitized.width,
         height: sanitized.height,
@@ -121,7 +133,14 @@ export async function POST(request: NextRequest) {
       { headers: PRIVATE_HEADERS },
     );
   } catch (error) {
-    if (uploadedPath) {
+    let removeUncommittedUpload = Boolean(uploadedPath) && !profileCommitAttempted;
+    if (uploadedPath && editableProfileId && profileCommitAttempted && !profileCommitted) {
+      // A failed database response can be ambiguous. Prefer a harmless private
+      // orphan over deleting an object that a committed profile now references.
+      const currentPath = await loadAvatarPath(editableProfileId).catch(() => undefined);
+      removeUncommittedUpload = currentPath !== undefined && currentPath !== uploadedPath;
+    }
+    if (uploadedPath && removeUncommittedUpload) {
       await getServiceClient().storage.from(PROFILE_AVATAR_BUCKET).remove([uploadedPath]).catch(() => undefined);
     }
     return fail(error);
@@ -139,9 +158,12 @@ export async function DELETE(request: NextRequest) {
       .from("profiles")
       .update({ avatar_path: null, avatar_updated_at: updatedAt })
       .eq("id", actor.id);
-    if (error) throw new Error("Profile avatar removal failed");
+    if (error) {
+      const reconciledPath = await loadAvatarPath(actor.id).catch(() => undefined);
+      if (reconciledPath !== null) throw new Error("Profile avatar removal failed");
+    }
     if (path && isOwnedAvatarPath(actor.id, path)) {
-      await admin.storage.from(PROFILE_AVATAR_BUCKET).remove([path]);
+      await admin.storage.from(PROFILE_AVATAR_BUCKET).remove([path]).catch(() => undefined);
     }
     return NextResponse.json({ avatarUrl: null, updatedAt }, { headers: PRIVATE_HEADERS });
   } catch (error) {

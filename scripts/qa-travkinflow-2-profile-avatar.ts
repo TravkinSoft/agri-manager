@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { calculateSquareCrop } from "../lib/profile/avatar-client";
+import { calculateSquareCrop, profileAvatarRetryDelay } from "../lib/profile/avatar-client";
 import { isOwnedAvatarPath, sanitizeProfileAvatarWebp } from "../lib/profile/avatar";
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
@@ -49,6 +49,7 @@ assert.deepEqual(calculateSquareCrop(1200, 800), {
   sourceEdge: 800,
   outputEdge: 512,
 });
+assert.deepEqual([0, 1, 2, 3, 4, -1].map(profileAvatarRetryDelay), [5_000, 15_000, 60_000, 300_000, null, null]);
 
 const route = read("app/api/profile/avatar/route.ts");
 assert.match(route, /PROFILE_AVATAR_WRITE_V1\s*!==\s*["']1["']/);
@@ -60,6 +61,15 @@ assert.match(route, /randomUUID\(\)/);
 assert.match(route, /upsert: false/);
 assert.match(route, /createSignedUrl\(path, 60 \* 60\)/);
 assert.match(route, /"Cache-Control": "private, no-store, max-age=0"/);
+const signBeforeCommit = route.indexOf("const avatarUrl = await createPrivateAvatarUrl(uploadedPath)");
+const profileCommit = route.indexOf('.update({ avatar_path: uploadedPath, avatar_updated_at: updatedAt })');
+assert.ok(signBeforeCommit >= 0 && signBeforeCommit < profileCommit, "new object must be signed before the database pointer changes");
+assert.match(route, /profileCommitAttempted && !profileCommitted/);
+assert.match(route, /if \(profileError\)[\s\S]{0,220}reconciledPath !== uploadedPath/);
+assert.match(route, /currentPath !== undefined && currentPath !== uploadedPath/);
+assert.match(route, /remove\(\[oldPath\]\)\.catch\(\(\) => undefined\)/);
+assert.match(route, /if \(error\)[\s\S]{0,220}reconciledPath !== null/);
+assert.match(route, /remove\(\[path\]\)\.catch\(\(\) => undefined\)/);
 
 const migration = read("supabase/migrations/20260909024500_profile_avatar_v1.sql");
 assert.match(migration, /add column if not exists avatar_path text/);
@@ -79,9 +89,11 @@ assert.match(header, /version=\{profile\?\.avatar_updated_at\}/);
 const avatar = read("components/profile/profile-avatar.tsx");
 assert.match(avatar, /NEXT_PUBLIC_PROFILE_AVATAR_V1\s*===\s*["']1["']/);
 assert.match(avatar, /!PROFILE_AVATAR_UI_ENABLED\s*\|\|\s*!profileId/);
+assert.match(avatar, /profileAvatarRetryDelay\(retryAttempt\)/);
+assert.match(avatar, /setTimeout\(\(\) => void load\(\)\.catch\(\(\) => scheduleRetry\(\)\), delay\)/);
 
 const envExample = read(".env.example");
 assert.match(envExample, /^PROFILE_AVATAR_WRITE_V1=0$/m);
 assert.match(envExample, /^NEXT_PUBLIC_PROFILE_AVATAR_V1=0$/m);
 
-console.log("TRAVKINFLOW 2 PROFILE AVATAR: 31/31 PASS");
+console.log("TRAVKINFLOW 2 PROFILE AVATAR: 41/41 PASS");

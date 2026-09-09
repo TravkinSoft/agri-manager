@@ -29,11 +29,22 @@ assert.doesNotMatch(catchBlock, /finalizeTicket\(/, "ambiguous failures must rec
 assert.doesNotMatch(catchBlock, /setTickets\([^\n]*filter/, "ambiguous failures must not remove the canonical ticket locally");
 
 assert.match(source, /open=\{Boolean\(activeTicket\) && !ticketClosePending\}/);
+assert.match(source, /onOpenChange=\{\(open\) => \{[\s\S]{0,100}if \(!open && !ticketCloseLocked\)/);
 assert.match(source, /role="status"[\s\S]{0,160}aria-live="polite"/);
 assert.match(source, /Повторить закрытие безопасно/);
 assert.match(source, /disabled: finalizing \|\| ticketClosePending \|\| ticketCloseRetry/);
-assert.match(source, /finalizeTicketIdempotencyRef\.current = null;[\s\S]{0,180}setTicketCloseState\(EMPTY_TICKET_CLOSE_STATE\)/);
+assert.match(source, /finalizeTicketIdempotencyRef\.current = null;[\s\S]{0,180}commitTicketCloseState\(EMPTY_TICKET_CLOSE_STATE\)/);
 assert.match(source, /Изменить данные перед новой попыткой/);
 assert.match(source, /Других открытых талонов нет/);
+assert.match(source, /const ticketCloseLocked = ticketCloseState\.phase !== "idle"/);
+assert.match(source, /const ticketRowDisabled = isPending \|\| ticketCloseLocked/);
+assert.match(source, /disabled=\{ticketRowDisabled\}/);
+assert.match(source, /ticketCloseStateRef\.current\.phase !== "idle"/);
+assert.match(source, /const commitTicketCloseState = \(next: TicketCloseState\)[\s\S]{0,140}ticketCloseStateRef\.current = next[\s\S]{0,80}setTicketCloseState\(next\)/);
+assert.match(source, /disabled=\{loading \|\| submitting \|\| ticketCloseLocked\}/);
+assert.match(source, /handleVoid = async \(\) => \{[\s\S]{0,240}ticketCloseStateRef\.current\.phase !== "idle"/);
+assert.match(source, /handleAdminCleanup = async[\s\S]{0,260}ticketCloseStateRef\.current\.phase !== "idle"/);
+assert.match(source, /DropdownMenuItem disabled=\{ticketCloseLocked\} onSelect=\{openActiveTicketEditor\}/);
+assert.match(source, /notificationDeepLinkHandledRef\.current = false;[\s\S]{0,100}return/);
 
-console.log("TRAVKINFLOW 2 WEIGHBRIDGE CLOSE STATE: 22/22 PASS");
+console.log("TRAVKINFLOW 2 WEIGHBRIDGE CLOSE STATE: 33/33 PASS");

@@ -1,6 +1,12 @@
 export const PROFILE_AVATAR_ACCEPT = "image/jpeg,image/png,image/webp";
 export const PROFILE_AVATAR_MAX_SOURCE_BYTES = 5 * 1024 * 1024;
 export const PROFILE_AVATAR_MAX_EDGE = 512;
+export const PROFILE_AVATAR_RETRY_DELAYS_MS = [5_000, 15_000, 60_000, 5 * 60_000] as const;
+
+export function profileAvatarRetryDelay(attempt: number): number | null {
+  if (!Number.isInteger(attempt) || attempt < 0 || attempt >= PROFILE_AVATAR_RETRY_DELAYS_MS.length) return null;
+  return PROFILE_AVATAR_RETRY_DELAYS_MS[attempt];
+}
 
 const ALLOWED_SOURCE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
