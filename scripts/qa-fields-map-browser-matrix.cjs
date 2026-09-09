@@ -302,16 +302,33 @@ async function runEngine(name, browserType) {
       }
       assert.equal(result.query, "", `${name} ${label}: selected search remains expanded`);
       assert.deepEqual(result.smallTargets, [], `${name} ${label}: compact touch target below 44px`);
-      if (!expectOverlayBaseline && width === 390 && height === 844) {
+      if (!expectOverlayBaseline && ((width === 320 && height === 568) || (width === 390 && height === 844))) {
         const attributionButton = page.locator(".maplibregl-ctrl-attrib-button");
-        await attributionButton.click();
+        const useKeyboardDisclosure = name === "webkit" && width === 390;
+        if (useKeyboardDisclosure) {
+          await attributionButton.focus();
+          await attributionButton.press("Enter");
+        } else {
+          await attributionButton.click();
+        }
         await page.locator(".maplibregl-ctrl-attrib.maplibregl-compact-show").waitFor({ state: "visible" });
         const expandedAttribution = await measure(page);
         assert.ok(expandedAttribution.attributionText, `${name} ${label}: expanded provider credits are empty`);
         assert.equal(expandedAttribution.attributionDockOverlap, false, `${name} ${label}: expanded attribution overlaps a dock`);
         assert.equal(expandedAttribution.attributionInspectorOverlap, false, `${name} ${label}: expanded attribution overlaps the inspector`);
         assert.notEqual(expandedAttribution.attributionBackground, "rgb(255, 255, 255)", `${name} ${label}: expanded attribution retained the white surface`);
-        await attributionButton.click();
+        await page.getByRole("button", { name: "Карта", exact: true }).click();
+        await page.waitForTimeout(250);
+        const attributionAfterLateSourceEvent = await measure(page);
+        assert.equal(attributionAfterLateSourceEvent.attributionOpen, true, `${name} ${label}: late source event closed user-opened attribution`);
+        assert.equal(attributionAfterLateSourceEvent.attributionClassName.includes("maplibregl-compact-show"), true, `${name} ${label}: late source event visually collapsed user-opened attribution`);
+        assert.ok(attributionAfterLateSourceEvent.attributionLinks.some((href) => href.startsWith("https://www.openstreetmap.org/copyright")), `${name} ${label}: provider link is not available after source change`);
+        if (useKeyboardDisclosure) {
+          await attributionButton.press("Space");
+        } else {
+          await attributionButton.click();
+        }
+        await page.waitForFunction(() => !document.querySelector(".maplibregl-ctrl-attrib")?.classList.contains("maplibregl-compact-show"));
       }
       let activeMeasure = null;
       if (!expectOverlayBaseline && !shortLandscape) {

@@ -1412,6 +1412,8 @@ export function FieldsMapPage() {
     let cancelled = false;
     let readyResolved = false;
     let readyTimer: number | null = null;
+    let attributionFrame: number | null = null;
+    let handleAttributionActivation: ((event: Event) => void) | null = null;
     const container = mapContainerNode || mapContainerRef.current;
     const containerReady = !!container;
     updateMapDebug((prev) => ({ ...prev, containerReady }));
@@ -1525,16 +1527,30 @@ export function FieldsMapPage() {
         map.addControl(new maplibre.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-right");
         applyBaseLayerVisibility(map, selectedBaseLayerRef.current);
 
+        let initialAttributionSettled = false;
+        handleAttributionActivation = (event: Event) => {
+          const target = event.target;
+          if (target instanceof Element && target.closest(".maplibregl-ctrl-attrib-button")) {
+            initialAttributionSettled = true;
+          }
+        };
+        container.addEventListener("click", handleAttributionActivation, true);
+
         const minimizeCompactAttribution = (event?: { sourceDataType?: string }) => {
+          if (initialAttributionSettled || attributionFrame != null) return;
           if (event?.sourceDataType && !["metadata", "visibility"].includes(event.sourceDataType)) return;
-          window.requestAnimationFrame(() => {
-            if (cancelled) return;
+          attributionFrame = window.requestAnimationFrame(() => {
+            attributionFrame = null;
+            if (cancelled || initialAttributionSettled) return;
             const attribution = map
               .getContainer()
               .querySelector<HTMLDetailsElement>(".maplibregl-ctrl-attrib.maplibregl-compact");
-            if (!attribution?.classList.contains("maplibregl-compact-show")) return;
-            attribution.open = false;
-            attribution.classList.remove("maplibregl-compact-show");
+            if (!attribution) return;
+            if (attribution.classList.contains("maplibregl-compact-show")) {
+              attribution.open = false;
+              attribution.classList.remove("maplibregl-compact-show");
+            }
+            initialAttributionSettled = true;
           });
         };
 
@@ -1857,6 +1873,12 @@ export function FieldsMapPage() {
 
     return () => {
       cancelled = true;
+      if (handleAttributionActivation) {
+        container.removeEventListener("click", handleAttributionActivation, true);
+      }
+      if (attributionFrame != null) {
+        window.cancelAnimationFrame(attributionFrame);
+      }
       if (readyTimer != null) {
         window.clearTimeout(readyTimer);
       }

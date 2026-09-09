@@ -95,6 +95,9 @@ check("map viewport and native scale reserve responsive shell space", () => {
 
 check("native map attribution stays available without the accidental white overlay", () => {
   assert.match(source, /minimizeCompactAttribution/);
+  assert.match(source, /initialAttributionSettled/);
+  assert.match(source, /addEventListener\("click", handleAttributionActivation, true\)/);
+  assert.match(source, /removeEventListener\("click", handleAttributionActivation, true\)/);
   assert.match(source, /classList\.remove\("maplibregl-compact-show"\)/);
   assert.match(source, /https:\/\/www\.openstreetmap\.org\/copyright/);
   assert.match(styles, /maplibregl-ctrl-attrib\.maplibregl-compact[^}]+background-color: rgba\(10, 15, 24, 0\.96\)/s);
