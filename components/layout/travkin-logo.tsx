@@ -52,7 +52,10 @@ export function TravkinLogo({
           alt=""
           aria-hidden="true"
           fill
-          className={cn("object-contain", tiltMark && "-rotate-[14deg]")}
+          className={cn(
+            "object-contain",
+            tiltMark && "-rotate-[32deg] scale-[0.9] transform-gpu"
+          )}
           sizes={compact ? "56px" : isLarge ? "100px" : isMobile ? "62px" : "68px"}
           priority
         />

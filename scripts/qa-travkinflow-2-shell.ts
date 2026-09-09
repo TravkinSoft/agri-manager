@@ -7,6 +7,8 @@ const header = read("components/layout/header.tsx");
 const layout = read("components/layout/dashboard-layout.tsx");
 const logo = read("components/layout/travkin-logo.tsx");
 const sidebar = read("components/layout/sidebar.tsx");
+const login = read("app/auth/login/page.tsx");
+const platformLayout = read("components/layout/platform-layout.tsx");
 
 const checks: Array<[string, () => void]> = [
   ["desktop company switcher has no duplicated trailing company name", () => {
@@ -36,8 +38,11 @@ const checks: Array<[string, () => void]> = [
   }],
   ["logo tilt is opt-in and scoped to the sidebar mark", () => {
     assert.match(logo, /tiltMark = false/);
-    assert.match(logo, /tiltMark && "-rotate-\[14deg\]"/);
+    assert.match(logo, /tiltMark && "-rotate-\[32deg\] scale-\[0\.9\] transform-gpu"/);
     assert.match(sidebar, /<TravkinLogo compact=\{isCollapsed\} tiltMark \/>/);
+    assert.doesNotMatch(header, /<TravkinLogo[^>]*tiltMark/);
+    assert.doesNotMatch(login, /<TravkinLogo[^>]*tiltMark/);
+    assert.doesNotMatch(platformLayout, /<TravkinLogo[^>]*tiltMark/);
   }],
 ];
 
