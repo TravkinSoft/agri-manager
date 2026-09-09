@@ -4,8 +4,8 @@
 
 ## Текущая точка восстановления
 
-- Статус программы: `РЕАЛИЗАЦИЯ ЗАВЕРШЕНА / РЕЛИЗ НЕ НАЧАТ`.
-- Общий прогресс: `100% реализации / 0% релизных волн`.
+- Статус программы: `РЕАЛИЗАЦИЯ ЗАВЕРШЕНА / РЕЛИЗ НЕ НАЧАТ / POST-UPDATE AUDIT ЗАПЛАНИРОВАН`.
+- Общий прогресс: `100% реализации / 0% релизных волн / 0% финального аудита`.
 - Worktree: `C:\Users\TRAVKIN\Downloads\CodecSaaS\.worktrees\travkinflow-2`.
 - Ветка: `codex/travkinflow-2`.
 - База ветки: `3274331e7180252dd0f740222f6c4d15e4d20ebd`.
@@ -280,6 +280,21 @@ Data/write flags: `WAREHOUSE_ORDER_WRITE_V1`, `NEXT_PUBLIC_UI_WAREHOUSE_V2`, `NE
 - [ ] W5.6. Release one wave at a time: fresh fast-forward proof → immutable Production build → alias → health/log/browser smoke.
 - [ ] W5.7. Обновить этот журнал, CURRENT_HANDOFF и отправить один terminal signal только при настоящей финальной границе.
 
+### Wave 6 — Обязательный аудит ошибок после всего обновления
+
+Запускать только после завершения M09 и всех пунктов Wave 5. Сам факт успешного релиза не закрывает программу: финальной границей считается только завершённый W6 без открытых P0/P1, вызванных обновлением.
+
+- [ ] W6.1. Зафиксировать точный AFTER baseline: Product SHA/deployment, применённые migrations, значения rollout flags, health, runtime versions и fingerprints затронутых данных.
+- [ ] W6.2. Провести causal diff-audit всех изменённых поверхностей: карта, склады, PTC, весовая, dashboard, структура посевов, platform, references, profile и shell; каждую найденную ошибку классифицировать как `вызвана обновлением`, `существовала ранее` или `не доказано`.
+- [ ] W6.3. Выполнить read-only data-integrity audit: tickets/ledger/batches, warehouse balances/order, PTC shifts/states, field boundaries/import revisions/link uniqueness/audit trail, crop projections и private avatar references. Проверить cross-company leakage, orphan rows, двойные active revisions и расхождение BEFORE/AFTER fingerprints.
+- [ ] W6.4. Повторить реальный role/browser matrix на точном Product deployment: desktop/tablet/mobile, keyboard/touch, reduced motion, reload/back/forward, impersonation/session transitions и все роли из W5.2.
+- [ ] W6.5. Проверить конкурентные и деградационные сценарии: две вкладки, stale revision, slow/lost network, retry/idempotency, отмена запроса, cache invalidation, realtime reconnect и повторное открытие после длительного простоя.
+- [ ] W6.6. Сопоставить Vercel runtime/build logs, Supabase/Postgres advisors и scoped API telemetry: новые 4xx/5xx, exceptions, timeouts, N+1, lock contention, RLS denials, CLS/LCP и рост latency относительно BEFORE.
+- [ ] W6.7. Для подтверждённого P0/P1 немедленно выключить соответствующий реальный flag либо откатить точный immutable deployment; исправление делать только в отдельном clean corrective worktree, затем повторить затронутые и полные gates.
+- [ ] W6.8. Выпустить итоговый defect report: полный реестр находок с severity/evidence/root cause, исправлениями и повторной проверкой; отдельно перечислить остаточные P2/P3 и ограничения. Обновить master plan/CURRENT_HANDOFF и только после этого отправить `$CodexЗавершил`.
+
+Откат во время аудита: data/write flags выключаются первыми; pure visual regressions откатываются на последний подтверждённый immutable deployment. Никаких массовых исправлений данных без доказанного набора строк, BEFORE fingerprint и отдельного обратимого плана.
+
 ## Фактический реестр коммитов
 
 1. `36f5500` — `docs(travkinflow-2): add master delivery plan`.
@@ -326,6 +341,7 @@ Validated boundary package зафиксирован в `c36f9ff`. Обе нов�
 - Все экраны сохраняют явную роль/контекст; возврат из impersonation всегда доступен и fail-visible.
 - Нет новых 4xx/5xx/console errors, критичных CLS/LCP регрессий или нарушения `prefers-reduced-motion`.
 - Каждая Product-волна имеет точный SHA/deployment, health, browser evidence, data fingerprint и проверенный rollback.
+- После всех релизных волн W6 завершён отдельным причинно-следственным аудитом; открытых P0/P1, вызванных обновлением, нет, а остаточные P2/P3 явно записаны с владельцем и планом исправления.
 
 ## Открытые решения, которые можно принять без остановки владельца
 
@@ -335,6 +351,8 @@ Validated boundary package зафиксирован в `c36f9ff`. Обе нов�
 - Порядок релиза: сначала визуальные read-only изменения, затем query/state stability, затем отдельные write-capabilities.
 
 ## Журнал рубежей
+
+- 2026-09-09 — по прямому требованию владельца добавлен обязательный Wave 6: после выполнения всего плана провести отдельный causal bug/regression/data/performance audit обновления; без этого программа не считается окончательно завершённой.
 
 - 2026-09-09 — P0 duplicate storno завершён; 43 / 254 260 кг подтверждены.
 - 2026-09-09 — коммиты `63b68b2`, `eb6c3a0`, `673780f`; карта 7/7, platform 8/8 + 62/62, warehouse 22/22 + 13/13 + 48/48 + 13/13 + 27/27; TypeScript PASS.
