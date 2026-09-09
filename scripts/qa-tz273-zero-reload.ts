@@ -32,7 +32,9 @@ check("all working routes share the dashboard layout", () => {
 
 check("root providers live above dashboard pages", () => {
   assert.match(read("app/layout.tsx"), /<PublicAwareProviders>/);
-  assert.match(read("components/auth/protected-app.tsx"), /<AuthProvider>[\s\S]*<LanguageProvider>[\s\S]*<ProtectedRoute>/);
+  const protectedApp = read("components/auth/protected-app.tsx");
+  assert.match(protectedApp, /<AuthProvider>[\s\S]*<AccountLanguage>/);
+  assert.match(protectedApp, /function AccountLanguage[\s\S]*<LanguageProvider[\s\S]*<ProtectedRoute>/);
 });
 
 check("root shell is not keyed by route or business context", () => {
@@ -50,7 +52,8 @@ check("service worker never caches Next Flight responses", () => {
 check("service worker caches only explicit static assets", () => {
   assert.match(sw, /STATIC_ASSET_PATHS\.has/);
   assert.match(sw, /if \(isKnownStaticAsset\(request\)\)/);
-  assert.match(sw, /event\.respondWith\(fetch\(request\)\);\s*\}\);\s*$/);
+  const fetchHandler = sw.slice(sw.indexOf('self.addEventListener("fetch"'), sw.indexOf('self.addEventListener("push"'));
+  assert.match(fetchHandler, /event\.respondWith\(fetch\(request\)\);\s*\}\);\s*$/);
 });
 
 check("application controls no longer perform hard navigation", () => {

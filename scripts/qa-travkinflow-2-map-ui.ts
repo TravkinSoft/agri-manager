@@ -100,9 +100,9 @@ check("native map attribution stays available without the accidental white overl
   assert.match(source, /removeEventListener\("click", handleAttributionActivation, true\)/);
   assert.match(source, /classList\.remove\("maplibregl-compact-show"\)/);
   assert.match(source, /https:\/\/www\.openstreetmap\.org\/copyright/);
-  assert.match(styles, /maplibregl-ctrl-attrib\.maplibregl-compact[^}]+background-color: rgba\(10, 15, 24, 0\.96\)/s);
-  assert.match(styles, /maplibregl-ctrl-attrib a[^}]+color: #bae6fd/s);
-  assert.match(styles, /maplibregl-ctrl-attrib-button:focus-visible[^}]+#e0b100/s);
+  assert.match(styles, /maplibregl-ctrl-attrib\.maplibregl-compact[^}]+background-color: rgba\(43, 29, 19, 0\.96\)/s);
+  assert.match(styles, /maplibregl-ctrl-attrib a[^}]+color: #f0d493/s);
+  assert.match(styles, /maplibregl-ctrl-attrib-button:focus-visible[^}]+var\(--manor-brass\)/s);
   assert.match(styles, /tf2-map-measure-dock[^}]+width: calc\(100% - 4\.25rem\)/s);
 });
 
