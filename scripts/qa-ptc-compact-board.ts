@@ -112,6 +112,7 @@ function harness(role: model.TrafficRole, input = vehicles, options: {
     state: vehicle.state,
     inRepair: vehicle.inRepair,
     repairVersion: vehicle.repairVersion,
+    repairChangedAt: vehicle.repairChangedAt,
     lastActivity: vehicle.since,
   }));
   const props = { snapshot, fleet: role === "manager" ? options.fleet ?? inferredFleet : undefined,
@@ -182,26 +183,81 @@ function harness(role: model.TrafficRole, input = vehicles, options: {
 
 async function main() {
   // A repair mark does not replace cargo state. It only blocks starting new loads.
-  const repairVehicles = vehicles.map(vehicle => ({ ...vehicle, inRepair: true }));
+  // Keep the fixture away from an exact minute boundary because the component
+  // derives its server offset and local clock in two adjacent operations.
+  const repairChangedAt = "2026-09-04T10:04:30Z";
+  const repairVehicles = vehicles.map(vehicle => ({
+    ...vehicle,
+    since: "2026-09-04T09:59:30Z",
+    inRepair: true,
+    repairChangedAt,
+  }));
   for (const role of ["manager", "harvester", "weighman", "receiver"] as const) {
-    const repairTree = harness(role, repairVehicles).render();
+    const repairHarness = harness(role, repairVehicles);
+    const repairTree = repairHarness.render();
     const repairCards = cardNodes(repairTree);
-    check(repairCards.length, role === "manager" ? repairVehicles.length : 0);
-    check(repairCards.every(card => card.props.className.includes("bg-rose-950/80")), true);
-    check(repairCards.every(card => words(card).includes("На ремонте")), true);
-    check(repairCards.every(card => card.type === "button"), true);
+    check(repairCards.length, role === "manager" ? repairVehicles.length : role === "harvester" ? 0 : 1);
     const repairHtml = renderToStaticMarkup(repairTree);
     check(repairHtml.includes("На ремонте"), role === "manager");
+    if (role === "manager") {
+      check(repairCards.every(card => card.type === "button"), true);
+      check(repairCards.every(card => card.props.className.includes("bg-rose-950/80")), true);
+      check(repairCards.every(card => words(card).includes("Ремонт 3 мин")), true);
+      check(repairCards.every(card => card.props["data-repair-stage-action"] === undefined), true);
+    } else if (role === "harvester") {
+      check(repairCards, []);
+    } else {
+      check(repairCards.every(card => card.type === "button"), true);
+      check(repairCards.every(card => words(card).includes("Ремонт отмечен")), true);
+      check(repairCards.every(card => words(card).includes("8 мин")), true);
+      check(repairCards.every(card => card.props["data-repair-stage-action"] === "true"), true);
+      const expectedStateTone = role === "weighman" ? "bg-emerald-950/80" : "bg-amber-950/75";
+      check(repairCards[0].props.className.includes(expectedStateTone), true);
+      const stageNote = nodes(repairTree).find(node => node.props?.["data-testid"] === "traffic-repair-stage-note");
+      check(stageNote?.props.role, "status");
+      check(words(stageNote).includes(role === "receiver" ? "Завершите фактическую выгрузку" : "Отметьте прибытие на выгрузку"), true);
+      const cancelled = harness(role, repairVehicles, { confirm: false });
+      cardNodes(cancelled.render())[0].props.onClick();
+      await flush();
+      check(cancelled.calls.length, 0);
+      check(cancelled.confirmPrompts.length, 1);
+      check(cancelled.confirmPrompts[0].includes(role === "receiver"
+        ? "Выгрузка фактически завершена? Машина останется в ремонте."
+        : "Машина фактически прибыла на выгрузку? Она останется в ремонте."), true);
+    }
   }
+  const repairedUnload = repairVehicles[2];
+  const repairTimerManager = harness("manager", [repairedUnload]);
+  const repairBeforeUnload = repairTimerManager.render();
+  check(words(cardNodes(repairBeforeUnload)[0]).includes("Ремонт 3 мин"), true);
+  repairTimerManager.props.snapshot = model.applyTrafficCommit(
+    repairTimerManager.props.snapshot,
+    receiptFor(repairedUnload, "empty"),
+  );
+  const repairAfterUnload = repairTimerManager.render();
+  check(words(cardNodes(repairAfterUnload)[0]).includes("Ремонт 3 мин"), true);
+  check(nodes(repairAfterUnload).find(node => node.props?.["data-traffic-card-id"] === repairedUnload.vehicle_id)?.props["data-traffic-card-group"], "repair");
+  const returnedQueue = [
+    { ...vehicles[1], vehicle_id: "ordinary-empty", since: "2026-09-04T10:00:00Z" },
+    { ...vehicles[1], vehicle_id: "returned-empty", since: "2026-09-04T09:00:00Z", repairChangedAt: "2026-09-04T11:00:00Z" },
+    { ...vehicles[1], vehicle_id: "next-empty", since: "2026-09-04T12:00:00Z", repairChangedAt: "2026-09-04T11:00:00Z" },
+  ];
+  const returnedQueueTree = harness("manager", returnedQueue).render();
+  const returnedEmptyGroup = nodes(returnedQueueTree).find(node => node.props?.["data-testid"] === "traffic-group-empty");
+  check(cardNodes(returnedEmptyGroup).map(card => card.props["data-testid"]), [
+    "traffic-vehicle-ordinary-empty",
+    "traffic-vehicle-returned-empty",
+    "traffic-vehicle-next-empty",
+  ]);
   const managerVehicles = vehicles.map(vehicle => vehicle.vehicle_id === "car-3" ? { ...vehicle, inRepair: true } : vehicle);
   const managerFleet: FleetVehicle[] = [
     ...managerVehicles.map(vehicle => ({
       id: vehicle.vehicle_id, name: vehicle.name, brand: vehicle.brand, plate: vehicle.plate,
       driver: vehicle.driver, assigned: true, state: vehicle.state, inRepair: vehicle.inRepair,
-      repairVersion: vehicle.repairVersion, lastActivity: vehicle.since,
+      repairVersion: vehicle.repairVersion, repairChangedAt: vehicle.repairChangedAt, lastActivity: vehicle.since,
     })),
     { id: "car-4", name: "Reserve Truck", brand: "KAMAZ", plate: "OFF-4", driver: "Reserve Driver", assigned: false, state: "empty", lastActivity: "2026-09-04T09:00:00Z" },
-    { id: "car-5", name: "Offline Repair", brand: "MTZ", plate: "REP-5", driver: null, assigned: false, state: "empty", inRepair: true, repairVersion: 2, lastActivity: "2026-09-04T08:00:00Z" },
+    { id: "car-5", name: "Offline Repair", brand: "MTZ", plate: "REP-5", driver: null, assigned: false, state: "empty", inRepair: true, repairVersion: 2, repairChangedAt, lastActivity: "2026-09-04T08:00:00Z" },
   ];
   const manager = harness("manager", managerVehicles, { fleet: managerFleet });
   const tree = manager.render();
@@ -287,7 +343,8 @@ async function main() {
   check((managerText.match(/Пустые/g) ?? []).length, 2);
   check((managerText.match(/В пути на весовую/g) ?? []).length, 1);
   check((managerText.match(/На выгрузке/g) ?? []).length, 1);
-  check((managerText.match(/На ремонте/g) ?? []).length >= 2, true);
+  check((managerText.match(/На ремонте/g) ?? []).length, 1);
+  check(managerText.includes("Ремонт 3 мин"), true);
   check((managerText.match(/Не на линии/g) ?? []).length, 3);
   check(managerHtml.includes("lg:grid-cols-5"), true);
   check(managerHtml.includes("grid-cols-5") && !managerHtml.includes('class="grid grid-cols-5'), true);

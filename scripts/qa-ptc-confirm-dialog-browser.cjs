@@ -26,7 +26,9 @@ async function main() {
     const manager=params.get('manager')==='1';
     const state=params.get('state')||'unloading';
     const role=manager?'manager':state==='empty'?'harvester':state==='loaded'?'weighman':'receiver';
-    const car={vehicle_id:'60000000-0000-4000-8000-000000000001',name:'ZIL 130-76',plate:'LOCAL-829',driver:'Local driver',state,version:1,cycle:1,assigned:true,since:new Date().toISOString()};
+    const repaired=params.get('repair')==='1';
+    const serverTime='2026-09-09T06:30:00.000Z';
+    const car={vehicle_id:'60000000-0000-4000-8000-000000000001',name:'ZIL 130-76',plate:'LOCAL-829',driver:'Local driver',state,version:1,cycle:1,assigned:true,since:'2026-09-09T06:00:00.000Z',inRepair:repaired,repairVersion:repaired?4:0,repairChangedAt:repaired?'2026-09-09T06:25:00.000Z':null};
     const cars=manager?Array.from({length:36},(_,index)=>({
       ...car,
       vehicle_id:'manager-'+index,
@@ -37,7 +39,7 @@ async function main() {
       inRepair:index>=27&&index<32,
     })):[car,{...car,vehicle_id:'60000000-0000-4000-8000-000000000002',plate:'LOCAL-309'}];
     function App(){
-      const [snapshot,setSnapshot]=useState({role,companyId:'local-only',personName:'Local operator',enabled:true,fieldName:null,fieldId:null,serverTime:new Date().toISOString(),vehicles:cars,events:[]});
+      const [snapshot,setSnapshot]=useState({role,companyId:'local-only',personName:'Local operator',enabled:true,fieldName:null,fieldId:null,serverTime,vehicles:cars,events:[]});
       const [stale,setStale]=useState(false);
       window.setStale=setStale;
       window.updateCar=(patch)=>setSnapshot(s=>({...s,vehicles:s.vehicles.map(v=>v.vehicle_id===(manager?'manager-0':car.vehicle_id)?{...v,...patch}:v)}));
@@ -121,22 +123,38 @@ async function main() {
         const cases=[
           ...['tap','short','left','vertical','diagonal','pointer-cancel','multitouch','blur','accept','keyboard','enter','space','reject','uncertain','offline'].map(mode=>({state:'empty',mode})),
           ...['loaded','unloading'].flatMap(state=>['accept','cancel','cancel-repeat'].map(mode=>({state,mode}))),
+          ...['loaded','unloading'].map(state=>({state,mode:'repair-accept',repair:true})),
         ];
-        for(const {state,mode} of cases) {
+        for(const {state,mode,repair=false} of cases) {
           const page=await context.newPage();
           const errors=[];
           let nativeConfirmations=0;
+          const nativeConfirmationMessages=[];
           page.on('pageerror',error=>errors.push(error.message));
           page.on('dialog',dialog=>{
             nativeConfirmations++;
+            nativeConfirmationMessages.push(dialog.message());
             if(mode==='cancel'||mode==='cancel-repeat') void dialog.dismiss();
             else void dialog.accept();
           });
-          await page.goto(base+'/?state='+state+'&mode='+mode);
+          await page.goto(base+'/?state='+state+'&mode='+mode+(repair?'&repair=1':''));
           await page.waitForFunction(()=>typeof window.setStale==='function');
           const card=page.getByTestId('traffic-vehicle-60000000-0000-4000-8000-000000000001');
           const label=name+'/'+state+'/'+mode;
           const harvester=state==='empty';
+          if(repair) {
+            check(await card.count(),1,label+'/repair-stage-visible');
+            check(await card.evaluate(node=>node.tagName),'BUTTON',label+'/repair-stage-actionable');
+            check(await card.isEnabled(),true,label+'/repair-stage-enabled');
+            check(await card.getAttribute('data-repair-stage-action'),'true',label+'/repair-stage-marker');
+            const cardText=(await card.innerText()).replace(/\s+/g,' ').trim();
+            check(cardText.includes('Ремонт отмечен'),true,label+'/repair-copy');
+            check(cardText.includes(state==='loaded'?'Загружена':'На выгрузке'),true,label+'/cargo-state-copy');
+            check(/(?:29|30) мин/.test(cardText),true,label+'/cargo-timer-preserved');
+            check(cardText.includes('5 мин'),false,label+'/repair-timer-not-substituted');
+            const stageNote=(await page.getByTestId('traffic-repair-stage-note').innerText()).replace(/\s+/g,' ').trim();
+            check(stageNote.includes(state==='loaded'?'Отметьте прибытие на выгрузку':'Завершите фактическую выгрузку'),true,label+'/stage-note');
+          }
           if(mode==='offline') {
             await page.evaluate(()=>window.setStale(true));
             await page.waitForFunction(()=>document.querySelector('[data-testid="traffic-vehicle-60000000-0000-4000-8000-000000000001"]')?.disabled===true);
@@ -181,6 +199,11 @@ async function main() {
             await page.waitForFunction(()=>window.calls.length===1);
             const calls=await page.evaluate(()=>window.calls);
             check(nativeConfirmations,harvester?0:1,label+'/confirmation-contract');
+            if(repair) {
+              const confirmation=nativeConfirmationMessages[0]||'';
+              check(confirmation.includes(state==='loaded'?'Машина фактически прибыла на выгрузку?':'Выгрузка фактически завершена?'),true,label+'/repair-confirmation-stage');
+              check(confirmation.includes('останется в ремонте'),true,label+'/repair-confirmation-overlay');
+            }
             check(calls.length,1,label+'/single-command');
             check(calls[0]?.dialogCount,0,label+'/no-app-dialog');
             check(calls[0]?.overlayCount,0,label+'/no-app-overlay');

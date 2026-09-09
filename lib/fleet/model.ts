@@ -6,6 +6,7 @@ export interface FleetVehicle {
   driver: string | null;
   inRepair?: boolean;
   repairVersion?: number;
+  repairChangedAt?: string | null;
   assigned?: boolean;
   state?: "empty" | "loaded" | "unloading";
   lastActivity?: string | null;
@@ -76,7 +77,8 @@ export function applyFleetRepair(snapshot: FleetSnapshot, receipt: FleetRepairRe
   if (snapshot.companyId !== receipt.companyId) return snapshot;
   return { ...snapshot, vehicles: snapshot.vehicles.map(vehicle =>
     vehicle.id === receipt.vehicleId && (vehicle.repairVersion ?? 0) <= receipt.version
-      ? { ...vehicle, inRepair: receipt.inRepair, repairVersion: receipt.version } : vehicle) };
+      ? { ...vehicle, inRepair: receipt.inRepair, repairVersion: receipt.version,
+          repairChangedAt: receipt.changedAt } : vehicle) };
 }
 
 export function filterFleet(vehicles: FleetVehicle[], search: string, unassigned: boolean) {

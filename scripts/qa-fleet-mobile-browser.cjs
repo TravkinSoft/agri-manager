@@ -15,8 +15,9 @@ async function main() {
     import {TrafficAnalyticsPanel} from './components/traffic/traffic-analytics-panel';
     import {TrafficFleetControls} from './components/traffic/traffic-fleet-controls';
     const company='10000000-0000-4000-8000-000000000001';
-    const initialFleet=Array.from({length:60},(_,i)=>({id:'car-'+i,name:'КАМАЗ',plate:'НОМЕР-'+i,driver:i===5||i===6?null:'Виктор Новоковский '+i,assigned:i<2,inRepair:i===2,repairVersion:i===2?1:0,state:i===1?'loaded':'empty',lastActivity:new Date().toISOString()}));
-    const initialVehicles=initialFleet.filter(v=>v.assigned).map(v=>({...v,vehicle_id:v.id,version:0,cycle:0,since:new Date().toISOString()}));
+    const initialNow=Date.now();
+    const initialFleet=Array.from({length:60},(_,i)=>({id:'car-'+i,name:'КАМАЗ',plate:'НОМЕР-'+i,driver:i===5||i===6?null:'Виктор Новоковский '+i,assigned:i<2,inRepair:i===2,repairVersion:i===2?1:0,repairChangedAt:i===2?new Date(initialNow-30*60_000).toISOString():null,state:i===1?'loaded':'empty',lastActivity:new Date(initialNow-60*60_000).toISOString()}));
+    const initialVehicles=initialFleet.filter(v=>v.assigned).map(v=>({...v,vehicle_id:v.id,version:0,cycle:0,since:v.lastActivity}));
     window.calls=[]; window.published=[];
     function App(){
       const [snapshot,setSnapshot]=useState({companyId:company,role:'manager',personName:'',enabled:true,fieldId:null,fieldName:null,flowRevision:new Date().toISOString(),serverTime:new Date().toISOString(),vehicles:initialVehicles,events:[]});
@@ -34,8 +35,8 @@ async function main() {
           setSnapshot(s=>({...s,flowRevision:new Date(Date.now()+1).toISOString(),vehicles:call.body.assigned?[...s.vehicles,...initialFleet.filter(v=>call.body.vehicleIds.includes(v.id)&&!s.vehicles.some(row=>row.vehicle_id===v.id)).map(v=>({...v,vehicle_id:v.id,assigned:true,version:0,cycle:0,since:new Date().toISOString()}))]:s.vehicles.filter(v=>!call.body.vehicleIds.includes(v.vehicle_id))}));
         }
         if(call.url.includes('/repair')){
-          setManaged(m=>({...m,fleet:m.fleet.map(v=>v.id===call.body.vehicleId?{...v,inRepair:call.body.inRepair,repairVersion:2}:v)}));
-          setSnapshot(s=>({...s,vehicles:s.vehicles.map(v=>v.vehicle_id===call.body.vehicleId?{...v,inRepair:call.body.inRepair,repairVersion:2}:v)}));
+          setManaged(m=>({...m,fleet:m.fleet.map(v=>v.id===call.body.vehicleId?{...v,inRepair:call.body.inRepair,repairVersion:2,repairChangedAt:call.responseChangedAt}:v)}));
+          setSnapshot(s=>({...s,vehicles:s.vehicles.map(v=>v.vehicle_id===call.body.vehicleId?{...v,inRepair:call.body.inRepair,repairVersion:2,repairChangedAt:call.responseChangedAt}:v)}));
         }
       },[]);
       if(new URLSearchParams(location.search).has('compact'))return <main style={{padding:12}}><h1>Оборот машин</h1><section data-testid="compact-board"><TrafficBoard snapshot={compactSnapshot} fleet={compactFleet} stale={false} error='' refresh={async()=>{}} compactAgronomistMobile={true}/></section><section data-testid="compact-analytics"><TrafficAnalyticsPanel analytics={{windowLabel:'Текущая смена',windowStartedAt:new Date().toISOString(),completedLoads:4,lastLoadIntervalMinutes:12,averageLoadIntervalMinutes:14,averageFieldToWeighbridgeMinutes:18,averageUnloadingMinutes:6,averageReturnToLoadMinutes:22,averageVehicleCycleMinutes:46,latestFleetRoundMinutes:38,probableDowntimeCount:1,probableDowntimeMinutes:3,currentProbableDowntimeMinutes:null}}/></section></main>;
@@ -45,9 +46,10 @@ async function main() {
   `;
   const mocks = {
     transport: `export async function trafficRequest(url,method,body){
-      window.calls.push({url,body,dialogs:document.querySelectorAll('[role=dialog],[role=alertdialog]').length,pointer:document.body.style.pointerEvents});
+      const responseChangedAt=url.includes('/repair')?new Date().toISOString():null;
+      window.calls.push({url,body,responseChangedAt,dialogs:document.querySelectorAll('[role=dialog],[role=alertdialog]').length,pointer:document.body.style.pointerEvents});
       await new Promise(r=>setTimeout(r,150));
-      return url.includes('/repair')?{companyId:body.companyId,vehicleId:body.vehicleId,inRepair:body.inRepair,version:2,changedAt:new Date().toISOString()}:{};
+      return url.includes('/repair')?{companyId:body.companyId,vehicleId:body.vehicleId,inRepair:body.inRepair,version:2,changedAt:responseChangedAt}:{};
     }`,
     changes: 'export const publishTrafficChanged=(companyId,kind="traffic")=>window.published.push({companyId,kind});',
     auth: 'export const supabase={auth:{onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}})}};',
@@ -55,7 +57,7 @@ async function main() {
       export async function saveVehicleDriverAssignment(body){window.driverSave=body;return {companyId:body.companyId,vehicle:{id:body.vehicleId,driverPersonId:body.driverPersonId}};}
       export const publishVehicleDriverAssignment=()=>{};`
   };
-  const bundle=await esbuild.build({stdin:{contents:source,resolveDir:root,loader:'tsx'},bundle:true,write:false,platform:'browser',format:'iife',jsx:'automatic',define:{'process.env.NODE_ENV':'"production"'},
+  const bundle=await esbuild.build({stdin:{contents:source,resolveDir:root,loader:'tsx'},bundle:true,write:false,platform:'browser',format:'iife',jsx:'automatic',define:{'process.env.NODE_ENV':'"production"','process.env.NEXT_PUBLIC_PTC_BOARD_V2':'"1"'},
     plugins:[{name:'business-boundaries',setup(build){
       for(const [pattern,name] of [[/^\.\/use-traffic$/,'transport'],[/^@\/lib\/traffic\/changes$/,'changes'],[/^@\/lib\/supabase\/client$/,'auth'],[/^@\/lib\/vehicles\/driver-assignment-client$/,'drivers']])
         build.onResolve({filter:pattern},()=>({path:name,namespace:'mock'}));
@@ -78,6 +80,8 @@ async function main() {
           const context=await browser.newContext({viewport:{width,height:844},isMobile:true,hasTouch:true});
           const page=await context.newPage(), errors=[]; page.on('pageerror',e=>errors.push(e.message));
           await page.goto('http://127.0.0.1:'+server.address().port);
+          await page.waitForTimeout(50);
+          if(errors.length)throw new Error(name+' fleet bootstrap: '+errors.join(' | '));
           await page.getByTestId('traffic-vehicle-car-0').tap();
           await page.getByRole('button',{name:'Сменить водителя',exact:true}).waitFor();
           await page.waitForFunction(()=>Array.from(document.querySelectorAll('button')).some(button=>
@@ -105,6 +109,15 @@ async function main() {
           check(await page.evaluate(()=>window.driverSave.driverPersonId),'driver-74','canonical driver selected');
           check(await page.evaluate(()=>window.published.at(-1).kind),'fleet','driver assignment broadcasts typed fleet invalidation');
           await page.evaluate(()=>{window.published=[];});
+          await page.getByTestId('traffic-filter-loaded').tap();
+          await page.getByTestId('traffic-vehicle-car-1').tap();
+          await page.getByRole('button',{name:'Отправить на ремонт',exact:true}).tap();
+          const loadedRepairCopy=(await page.getByTestId('vehicle-actions').innerText()).replace(/\s+/g,' ').trim();
+          check(loadedRepairCopy.includes('Таймер ремонта начнётся сразу'),true,'loaded repair starts its own timer');
+          check(loadedRepairCopy.includes('Машина останется у весовщика до завершения этапа'),true,'loaded cargo stage remains actionable');
+          check(loadedRepairCopy.includes('новая загрузка будет заблокирована'),true,'repair blocks a new load');
+          await page.getByRole('button',{name:'Отмена',exact:true}).tap();
+          check(await page.evaluate(()=>window.calls.length),0,'repair explanation has no premature request');
           check(await page.getByTestId('offline-sheet').count(),0,'old offline sheet removed');
           check(await page.getByTestId('offline-scroll-list').count(),0,'old offline scroll list removed');
           check(await page.locator('[data-testid^="traffic-group-"]').count(),5,'five board groups rendered');
@@ -125,12 +138,18 @@ async function main() {
           await page.getByTestId('traffic-vehicle-car-2').tap();
           check(await page.getByRole('button',{name:'Вывести на линию',exact:true}).count(),0,'repair not sent onto line');
           await page.getByRole('button',{name:'Вернуть из ремонта',exact:true}).tap();
+          const returnRepairCopy=(await page.getByTestId('vehicle-actions').innerText()).replace(/\s+/g,' ').trim();
+          check(returnRepairCopy.includes('таймер текущего статуса начнётся заново'),true,'repair exit resets operational timer');
+          check(returnRepairCopy.includes('пустая машина встанет в конец очереди'),true,'repair exit explains empty queue tail');
           await page.getByRole('button',{name:'Подтвердить',exact:true}).tap();
           check(await page.getByRole('dialog').count(),0,'repair confirmation unmounts');
           await page.waitForTimeout(350);
           check(await page.evaluate(()=>window.calls.at(-1).body.inRepair),false,'return repair only');
           check(await page.evaluate(()=>window.published.length),2,'repair change broadcasts after commit');
           check(await page.evaluate(()=>window.published.at(-1).kind),'fleet','repair broadcasts typed fleet invalidation');
+          await page.getByTestId('traffic-filter-offline').tap();
+          const returnedRepairCard=(await page.getByTestId('traffic-vehicle-car-2').innerText()).replace(/\s+/g,' ').trim();
+          check(returnedRepairCard.includes('только что'),true,'repair exit timer starts from receipt changedAt');
           await page.getByTestId('traffic-filter-empty').tap();
           await page.getByTestId('traffic-vehicle-car-0').tap();
           await page.getByRole('button',{name:'Убрать с линии',exact:true}).tap();
@@ -156,6 +175,8 @@ async function main() {
           const compactPage=await compactContext.newPage(), compactErrors=[];
           compactPage.on('pageerror',error=>compactErrors.push(error.message));
           await compactPage.goto('http://127.0.0.1:'+server.address().port+'/?compact=1');
+          await compactPage.waitForTimeout(50);
+          if(compactErrors.length)throw new Error(name+' compact bootstrap: '+compactErrors.join(' | '));
           const compactBoard=await compactPage.getByTestId('compact-board').boundingBox();
           const compactAnalytics=await compactPage.getByTestId('compact-analytics').boundingBox();
           check(compactBoard.y<compactAnalytics.y,true,'mobile status board precedes analytics');

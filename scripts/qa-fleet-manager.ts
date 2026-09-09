@@ -69,7 +69,8 @@ async function main() {
     queries++;
     let subset: any[] = table === "reference_vehicles" ? [...rows,
       { ...rows[0], id: "foreign", company_id: foreign }, { ...rows[0], id: "archived", archived: true }] : table === "fleet_vehicle_repairs"
-      ? [{ vehicle_id: "0", company_id: company, in_repair: true, version: 3 }, { vehicle_id: "1", company_id: foreign, in_repair: true, version: 9 }] : specialists;
+      ? [{ vehicle_id: "0", company_id: company, in_repair: true, version: 3, changed_at: "2026-09-05T00:00:00Z" },
+        { vehicle_id: "1", company_id: foreign, in_repair: true, version: 9, changed_at: "2026-09-05T01:00:00Z" }] : specialists;
     let start = 0, end = Infinity;
     const q: any = {
       select: () => q, order: () => q,
@@ -121,8 +122,10 @@ async function main() {
   equal(queries, 8);
   equal(payload.vehicles[0].inRepair, true);
   equal(payload.vehicles[0].repairVersion, 3);
+  equal(payload.vehicles[0].repairChangedAt, "2026-09-05T00:00:00Z");
   equal(payload.vehicles[1].inRepair, false);
   equal(payload.vehicles[1].repairVersion, 0);
+  equal(payload.vehicles[1].repairChangedAt, null);
   person.company_id = foreign;
   equal((await (await get()).json()).vehicles[0].driver, null);
   person.company_id = company;

@@ -22,9 +22,20 @@ async function main() {
   const snapshot = { companyId: "a", vehicles: [{ id: "v", name: "KAMAZ", plate: "QA", driver: "Driver", repairVersion: 0 }] } as FleetSnapshot;
   const repaired = applyFleetRepair(snapshot, receipt);
   equal(repaired.vehicles[0].inRepair, true);
+  equal(repaired.vehicles[0].repairChangedAt, receipt.changedAt);
   equal(snapshot.vehicles[0].inRepair, undefined);
+  equal(snapshot.vehicles[0].repairChangedAt, undefined);
   equal(applyFleetRepair(repaired, { ...receipt, companyId: "b" }), repaired);
-  equal(applyFleetRepair(repaired, { ...receipt, version: 0, inRepair: false }).vehicles[0].inRepair, true);
+  const staleRepair = applyFleetRepair(repaired, { ...receipt, version: 0, inRepair: false, changedAt: "2026-09-04T00:00:00Z" });
+  equal(staleRepair.vehicles[0].inRepair, true);
+  equal(staleRepair.vehicles[0].repairChangedAt, receipt.changedAt);
+  const exitedRepair = applyFleetRepair(repaired, { ...receipt, version: 2, inRepair: false, changedAt: "2026-09-05T01:00:00Z" });
+  equal(exitedRepair.vehicles[0].inRepair, false);
+  equal(exitedRepair.vehicles[0].repairChangedAt, "2026-09-05T01:00:00Z");
+  const hydratedRepairs = await readVehicleRepairs({ from: () => ({ select: () => ({ eq: () => ({ in: async () => ({
+    data: [{ vehicle_id: "v", in_repair: true, version: 7, changed_at: "2026-09-05T02:00:00Z" }], error: null,
+  }) }) }) }) } as any, "a", ["v"]);
+  equal(hydratedRepairs.get("v"), { inRepair: true, repairVersion: 7, changedAt: "2026-09-05T02:00:00Z" });
   await assert.rejects(() => readVehicleRepairs({ from: () => ({ select: () => ({ eq: () => ({ in: async () => ({ error: new Error("unavailable") }) }) }) }) } as any, "a", ["v"])); checks++;
 
   // Run actual SQL, including the existing PTC transitions, in PostgreSQL.
@@ -60,6 +71,11 @@ async function main() {
   const transition = async (who: string, version: number, state: string, key = randomUUID()) =>
     (await db.query<{ value: any }>("select ptc_actor_transition_v1($1,$2,$3,$4,$5) as value", [who, vehicle, version, state, key])).rows[0].value;
   const state = async () => (await db.query<{ state: string; version: number; cycle: number; since: unknown }>("select state,version,cycle,since from ptc_vehicle_states where vehicle_id=$1", [vehicle])).rows[0];
+  const repairState = async () => (await db.query<{ in_repair: boolean; version: number; changed_at: string }>(
+    "select in_repair,version,changed_at::text as changed_at from fleet_vehicle_repairs where vehicle_id=$1",
+    [vehicle],
+  )).rows[0];
+  const sameInstant = (actual: string, expected: string) => equal(Date.parse(actual), Date.parse(expected));
   const counts = async () => (await db.query("select (select count(*)::int from ptc_events) ptc,(select count(*)::int from fleet_vehicle_repair_events) repairs")).rows[0];
   const reject = async (call: () => Promise<unknown>, code: string) => { await assert.rejects(call, new RegExp(code)); checks++; };
 
@@ -73,6 +89,7 @@ async function main() {
   await db.exec("set role service_role");
   const first = await repair(true, 0);
   equal(first.inRepair, true); equal(first.version, 1);
+  sameInstant(first.changedAt, (await repairState()).changed_at);
   equal(await state(), before);
   equal((await repair(true, 0)).version, 1); // Lost-response retry is not a second event.
   equal(await counts(), { ptc: 0, repairs: 1 });
@@ -83,17 +100,24 @@ async function main() {
   const loaded = await transition(harvester, 0, "loaded", loadKey);
   equal(loaded.replayed, false);
   const cargo = await state();
-  equal((await repair(true, 2, manager)).version, 3);
+  const secondRepair = await repair(true, 2, manager);
+  equal(secondRepair.version, 3);
+  const repairBeforeCargoCompletion = await repairState();
+  sameInstant(secondRepair.changedAt, repairBeforeCargoCompletion.changed_at);
   equal(await state(), cargo);
   equal((await transition(harvester, 0, "loaded", loadKey)).replayed, true);
   await transition(weighman, 1, "unloading");
+  equal(await repairState(), repairBeforeCargoCompletion);
   await transition(receiver, 2, "empty");
+  equal(await repairState(), repairBeforeCargoCompletion);
   const returned = await state();
   equal({ state: returned.state, version: returned.version, cycle: returned.cycle }, { state: "empty", version: 3, cycle: 1 });
   await reject(() => transition(harvester, 3, "loaded"), "FLEET_VEHICLE_IN_REPAIR");
   await reject(() => repair(false, 1), "FLEET_REPAIR_CONFLICT");
   await reject(() => repair(true, 0), "FLEET_REPAIR_CONFLICT");
-  equal((await repair(false, 3)).version, 4);
+  const secondExit = await repair(false, 3);
+  equal(secondExit.version, 4);
+  sameInstant(secondExit.changedAt, (await repairState()).changed_at);
   equal(await state(), returned);
   equal((await db.query("select status from reference_vehicles where id=$1", [vehicle])).rows, [{ status: "in_trip" }]);
   equal(await counts(), { ptc: 3, repairs: 4 });

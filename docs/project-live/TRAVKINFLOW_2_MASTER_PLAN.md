@@ -4,15 +4,16 @@
 
 ## Текущая точка восстановления
 
-- Статус программы: `РЕАЛИЗАЦИЯ ЗАВЕРШЕНА / PREVIEW PREFLIGHT ВЫПОЛНЯЕТСЯ / PRODUCT РЕЛИЗ НЕ НАЧАТ / POST-UPDATE AUDIT ЗАПЛАНИРОВАН`.
-- Общий прогресс: `100% реализации / первый immutable Preview проверен / 0% Product-релизных волн / 0% финального аудита`.
+- Статус программы: `C01-C33 ЛОКАЛЬНО ЗАВЕРШЕНЫ / НОВЫЙ QA CANDIDATE ГОТОВИТСЯ / PRODUCT РЕЛИЗ TF2 НЕ НАЧАТ / POST-UPDATE AUDIT ЗАПЛАНИРОВАН`.
+- Общий прогресс: `C01-C33 выполнены / QA baseline развёрнут с flags=0 / C33 Preview pending / 0% Product-релизных волн / 0% финального аудита`.
 - Worktree: `C:\Users\TRAVKIN\Downloads\CodecSaaS\.worktrees\travkinflow-2`.
 - Ветка: `codex/travkinflow-2`.
-- База ветки: `3274331e7180252dd0f740222f6c4d15e4d20ebd`.
-- На момент старта `origin/master`, GitHub и Product health совпадали на `3274331e7180`.
-- Реализация и журнал зафиксированы 22 независимо проверяемыми коммитами от `36f5500` до `d86af53`; обязательный post-update audit добавлен в `5125e64`, QA drift preflight — в `d86af53`. Следующий corrective checkpoint пока не закоммичен и не развёрнут.
-- Последний локальный рубеж: исправлены effective-actor access dashboard при impersonation, безопасная сортировка видимых складов с сохранением скрытых QA-строк и независимый server-side gate live harvest; corrective review дал GO (P0/P1/P2 = 0). Три field-map `SECURITY DEFINER` RPC усилены пустым `search_path`; static 22/22 и PGlite 21/21 PASS.
-- Следующий безопасный шаг: завершить physical prerequisite matrix и восстановить в изолированной QA branch `gsglkmudcwkdetqtocae` точную PTC-цепочку перед пятью TF2 migrations. В QA отсутствуют `ptc_last_vehicle_*`, `ptc_combine_shift*`, `ptc_combine_operator_status*` и зависимые RPC, поэтому применение только TF2 index завершится ошибкой. Blind rebase/db push, подмена Product и маскировка отсутствующей таблицы через `IF EXISTS` запрещены. После этого — новый immutable Preview точного corrective SHA, доказательство client/server QA binding и только затем M09.
+- База ветки на старте программы: `3274331e7180252dd0f740222f6c4d15e4d20ebd`.
+- На момент старта `origin/master`, GitHub и Product health совпадали на `3274331e7180`. Во время C33 отдельный срочный P0 hotfix весовой был выпущен в Product как `9acb78b52d234cf43714c41b67f03f46b5b98347`; перед новым TF2 Preview этот commit должен быть включён без потери любой из двух реализаций.
+- Corrective checkpoint зафиксирован коммитом `72918a8190c37fa1d9fe3437e50f54c6127956d2`; независимые corrective/search-path review дали GO (P0/P1/P2 = 0), все целевые suites, TypeScript, ESLint, diff-check и production build PASS.
+- QA branch `gsglkmudcwkdetqtocae` восстановлена точной цепочкой из десяти миграций. PRE был quiescent, POST дал неизменные двенадцать business fingerprints, ноль PTC/ticket/ledger writes, пустые новые PTC/map таблицы и точные ACL/index/function contracts. Permanent `qa.travkinflow.com` указывает на READY Preview `dpl_5S47LAWk79efWj57QTg3VuM2BGUS` точного `72918a`; client/server QA binding и вход Global Admin в пять QA-компаний доказаны. Все одиннадцать rollout-флагов остаются `0`.
+- C33 локально закрыт: независимый review P0/P1/P2=`0/0/0`; model 80, repair PGlite 86, manager 63, compact board 757, fast client 282, agronomist read-only 46, browser confirm 398 и fleet mobile 285 PASS, включая Chromium/WebKit, reload/realtime/idempotency и стабильный tie-break.
+- Следующий безопасный шаг: зафиксировать C33, включить новый Product P0 commit `9acb78b`, повторить полный local/build gate и развернуть новый immutable QA-кандидат с flags=0. Только после browser smoke продолжать последовательные server-first flag waves и M09. Blind rebase/db push, подмена Product и маскировка отсутствующих prerequisite через `IF EXISTS` запрещены.
 - Production rollout: `НЕ НАЧАТ`; каждую волну выкладывать отдельно после Preview/QA и свежей проверки Product.
 
 Если работа прерывается P0-задачей, продолжать с первого незакрытого чекбокса ниже. После каждого существенного рубежа обновлять этот раздел, а под выполненным пунктом писать краткое `Сделано` и доказательство проверки.
@@ -72,7 +73,7 @@ flowchart LR
   R --> D
 ```
 
-## Реестр 32 замечаний
+## Реестр 33 замечаний
 
 Статусы: `[ ]` не начато, `[-]` в работе, `[x]` выполнено и проверено.
 
@@ -113,6 +114,11 @@ flowchart LR
   - Сделано: operator/manager board приведён к общему shell и auth transition без изменения ролевых контрактов (`b77ae26`); operator 131/131 и Chromium/WebKit 322/322.
 - [x] C32. Сделать заголовки статусных колонок sticky в пределах board scroll.
   - Сделано: lane headers закреплены внутри собственного board scroll и не перекрывают shell (`b77ae26`); compact board 739/739.
+- [x] C33. Исправить время в статусах PTC, возврат из ремонта и сохранение незавершённого этапа.
+  - Контракт: вход в ремонт начинает отдельный ремонтный таймер с момента фактической отметки; выход из ремонта начинает новый интервал текущего рабочего статуса. При возврате в `Пустые` машина становится в конец очереди, а не первой.
+  - Контракт: ремонт остаётся независимым техническим признаком с собственным таймером. У заведующего любая отмеченная машина сразу находится в `Ремонте`, а машина `С грузом` одновременно остаётся видимой и доступной весовщику, машина `На выгрузке` — приёмке; операторский cargo timer продолжает текущий этап, но новая загрузка ремонтной машины по-прежнему запрещена.
+  - Реализация: использовать уже существующие `ptc_vehicle_states.since` и `fleet_vehicle_repairs.changed_at`; новая таблица или разрушительное изменение state machine не требуется. Обязательны model/UI/PGlite/browser regressions, reload/realtime/idempotency и проверка сортировки нескольких машин с одинаковыми временами.
+  - Сделано: ремонтный и cargo-интервалы разделены на существующих timestamp; после выхода текущий статус начинается заново, empty-возврат идёт в хвост, loaded/unloading остаются доступны только нужному оператору до завершения. Независимый review P0/P1/P2=`0/0/0`; model 80, repair 86, compact 757, fast-client 282, browser confirm 398 и mobile 285 PASS.
 
 ### Весовая
 
@@ -227,6 +233,9 @@ Data/write flags: `FIELD_BOUNDARY_WRITE_V1`, `NEXT_PUBLIC_FIELD_BOUNDARY_WRITE_V
   - Сделано: `b77ae26`; compact 739/739, operator 131/131, Chromium/WebKit 322/322 и breakdown 312/312.
 - [x] W2.5. Проверить сценарии active weighbridge/PTC без тестовых Product movements.
   - Сделано: contract/browser проверки выполнены локально и read-only относительно Product; Product tickets/ledger/PTC не изменялись.
+- [x] W2.6. C33: починить ремонтный/current-state timer, active-stage visibility и tail insertion после ремонта.
+  - Приёмка: `empty → repair`, `loaded/unloading → repair`, завершение weighman/receiver при активном ремонте, `repair → empty`, повторный reload/realtime и стабильный tie-break не теряют карточку и не поднимают вернувшуюся машину над уже ожидающими.
+  - Сделано: все перечисленные переходы покрыты model/PGlite/component/browser suites; грузовой state machine, tenant scope и серверная идемпотентность не менялись.
 
 Data/capability flags: `DASHBOARD_DATA_V2`, `NEXT_PUBLIC_DASHBOARD_DATA_V2`, `NEXT_PUBLIC_PTC_BOARD_V2`. Отдельного weighbridge surface flag нет.
 
@@ -277,7 +286,7 @@ Data/write flags: `WAREHOUSE_ORDER_WRITE_V1`, `NEXT_PUBLIC_UI_WAREHOUSE_V2`, `NE
 - [-] W5.4. Data fingerprints: tickets/ledger/batches/warehouses/field boundaries before and after соответствующих волн.
   - Сделано: исходные ticket/ledger и STEM archive/KML fingerprints сохранены; post-import fingerprints невозможны до отдельного M09/Preview write.
 - [-] W5.5. Preview deployment на точный SHA; permanent QA only after slot/env confirmation.
-  - Сделано: immutable Preview `dpl_EV6fwXmJrvfmbAa5wrLoovwtzw93` (`agri-manager-nqu03jxbr-travkin-ais-projects.vercel.app`) READY на точном `d86af53`, без alias. Client bundle доказанно связан с QA `gsglkmudcwkdetqtocae`; server/service-role binding ещё не доказан. Постоянный `qa.travkinflow.com` сохранён на старом `dpl_HJUC…` / `f3ea4e6`, corrected working tree туда не развёрнут. QA physical schema не соответствует текущим PTC routes, поэтому alias/migrations заблокированы до точечного prerequisite recovery.
+  - Сделано: prerequisite и пять TF2 migrations применены в QA после quiescent PRE; POST fingerprints/ACL/index contracts прошли. Permanent `qa.travkinflow.com` указывает на READY `dpl_5S47LAWk79efWj57QTg3VuM2BGUS` точного `72918a`; client/server QA binding и вход Global Admin в пять QA-компаний доказаны, все одиннадцать rollout flags=`0`. C33 появился позже и требует нового immutable Preview до flag waves.
 - [ ] W5.6. Release one wave at a time: fresh fast-forward proof → immutable Production build → alias → health/log/browser smoke.
 - [ ] W5.7. После W6.8 обновить этот журнал, CURRENT_HANDOFF и отправить один terminal signal только при настоящей финальной границе.
 
@@ -358,6 +367,8 @@ Validated boundary package зафиксирован в `c36f9ff`. Обе нов�
 - 2026-09-09 — immutable Preview `dpl_EV6fwXmJrvfmbAa5wrLoovwtzw93` READY на `d86af53`, alias отсутствует; client Supabase binding соответствует QA branch. Server binding остаётся неподтверждённым, permanent QA/Product не переключались.
 - 2026-09-09 — physical QA audit обнаружил отсутствующую PTC prerequisite schema: без точечного восстановления цепочки 7–8 сентября текущие summary/history/operator routes дадут 500, а TF2 index migration — `42P01`. Blind push/rebase и ложный `IF EXISTS` PASS запрещены.
 - 2026-09-09 — QA Supabase branch `gsglkmudcwkdetqtocae` повторно обнаружена и live-доступна для read-only schema/SQL; `qa.travkinflow.com` пока указывает на старый Preview `f3ea4e6`. Зафиксирован обязательный schema-drift/env preflight; blind rebase/db push запрещены. Логический цикл W5.7↔W6 устранён: W5.7 выполняется после W6.8.
+- 2026-09-09 — QA prerequisite+TF2 chain применена после quiescent PRE; business fingerprints не изменились. `qa.travkinflow.com` переключён на `dpl_5S47LAWk79efWj57QTg3VuM2BGUS` / `72918a`, exact QA client/server binding доказан, flags=`0`.
+- 2026-09-09 — C33 локально закрыт: корректные статусные/ремонтные таймеры, хвост empty-очереди после ремонта и сохранение active cargo stage; независимый review и model/PGlite/component/Chromium/WebKit gates PASS. Новый QA Preview ещё не создан.
 - 2026-09-09 — по прямому требованию владельца добавлен обязательный Wave 6: после выполнения всего плана провести отдельный causal bug/regression/data/performance audit обновления; без этого программа не считается окончательно завершённой.
 
 - 2026-09-09 — P0 duplicate storno завершён; 43 / 254 260 кг подтверждены.

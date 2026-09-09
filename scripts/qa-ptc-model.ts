@@ -4,6 +4,8 @@ import {
   nextState,
   visibleVehicles,
   stateAge,
+  trafficRepairPhase,
+  trafficStatusSince,
   operatorRole,
   type TrafficVehicle,
   type TrafficRole,
@@ -62,12 +64,39 @@ async function main() {
     vehicles.map((v) => v.state),
     ["loaded", "unloading", "empty"],
   );
+  const repairChangedAt = "2026-09-04T10:05:00Z";
+  const repairedLoaded = { ...vehicles[0], inRepair: true, repairChangedAt };
+  const repairedUnloading = { ...vehicles[1], inRepair: true, repairChangedAt };
+  const repairedEmpty = { ...vehicles[2], inRepair: true, repairChangedAt };
+  check(trafficRepairPhase(repairedLoaded), "active");
+  check(trafficRepairPhase(vehicles[0]), "none");
+  check(visibleVehicles([repairedLoaded], "weighman").map((v) => v.vehicle_id), ["0"]);
+  check(visibleVehicles([repairedUnloading], "receiver").map((v) => v.vehicle_id), ["1"]);
+  check(visibleVehicles([repairedEmpty], "harvester"), []);
+  check(visibleVehicles([repairedEmpty], "weighman"), []);
+  check(visibleVehicles([repairedEmpty], "receiver"), []);
+  check(trafficStatusSince(repairedLoaded, "manager"), repairChangedAt);
+  check(trafficStatusSince(repairedLoaded, "weighman"), repairedLoaded.since);
+  check(trafficStatusSince(repairedUnloading, "receiver"), repairedUnloading.since);
+  const unloadedWhileRepairing = {
+    ...repairedUnloading,
+    state: "empty" as const,
+    since: "2026-09-04T10:12:00Z",
+  };
+  check(trafficStatusSince(unloadedWhileRepairing, "manager"), repairChangedAt);
+  const returnedFromRepair = { ...unloadedWhileRepairing, inRepair: false, repairChangedAt: "2026-09-04T10:20:00Z" };
+  check(trafficStatusSince(returnedFromRepair, "manager"), "2026-09-04T10:20:00Z");
+  check(
+    trafficStatusSince({ ...returnedFromRepair, since: "2026-09-04T10:25:00Z" }, "manager"),
+    "2026-09-04T10:25:00Z",
+  );
   const emptyOrder = visibleVehicles([
     { ...vehicles[2], vehicle_id: "ordinary", since: "2026-09-04T10:00:00Z" },
-    { ...vehicles[2], vehicle_id: "returned", since: "2026-09-04T09:00:00Z", repairChangedAt: "2026-09-04T11:00:00Z" },
+    { ...vehicles[2], vehicle_id: "returned-b", since: "2026-09-04T09:00:00Z", repairChangedAt: "2026-09-04T11:00:00Z" },
+    { ...vehicles[2], vehicle_id: "returned-a", since: "2026-09-04T08:00:00Z", repairChangedAt: "2026-09-04T11:00:00Z" },
     { ...vehicles[2], vehicle_id: "completed-after-repair", since: "2026-09-04T12:00:00Z", repairChangedAt: "2026-09-04T11:00:00Z" },
   ], "manager");
-  check(emptyOrder.map((v) => v.vehicle_id), ["returned", "ordinary", "completed-after-repair"]);
+  check(emptyOrder.map((v) => v.vehicle_id), ["ordinary", "returned-a", "returned-b", "completed-after-repair"]);
   check(
     stateAge("2026-09-04T10:00:00Z", Date.parse("2026-09-04T10:15:00Z")),
     "15 мин",

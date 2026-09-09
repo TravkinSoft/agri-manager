@@ -29,6 +29,7 @@ export function TrafficFleetControls({ managed, snapshot, selected, onSelected, 
       ...rows.get(vehicle.vehicle_id), id: vehicle.vehicle_id, name: vehicle.name, plate: vehicle.plate,
       brand: vehicle.brand, driver: vehicle.driver, assigned: true, state: vehicle.state, lastActivity: vehicle.since,
       inRepair: vehicle.inRepair, repairVersion: vehicle.repairVersion,
+      repairChangedAt: vehicle.repairChangedAt,
     });
     return Array.from(rows.values());
   }, [managed.fleet, snapshot.vehicles]);
@@ -49,6 +50,7 @@ export function TrafficFleetControls({ managed, snapshot, selected, onSelected, 
       lastActivity: selected.since,
       inRepair: selected.inRepair,
       repairVersion: selected.repairVersion,
+      repairChangedAt: selected.repairChangedAt,
     });
     setError(""); setPanel("actions"); onSelected(null);
   }, [fleet, selected, onSelected]);
@@ -104,7 +106,15 @@ export function TrafficFleetControls({ managed, snapshot, selected, onSelected, 
           {current.assigned ? <Button variant="outline" disabled={stale || pending || current.state !== "empty"} className="min-h-[48px] w-full justify-start" onClick={() => setPanel("remove")}>Убрать с линии</Button> : !current.inRepair ? <Button disabled={stale || pending} className="min-h-[48px] w-full" onClick={() => void mutate("line", current, [current.id], true)}>Вывести на линию</Button> : null}
           {current.assigned && current.state !== "empty" ? <p className="text-xs text-slate-400">Снять с линии можно после разгрузки. Отметка ремонта сохраняет груз.</p> : null}
         </div> : current ? <>
-          {panel === "repair" ? <p className="text-sm text-slate-400">{STATE_LABEL[current.state ?? "empty"]} — груз не изменится.</p> : null}
+          {panel === "repair" ? <p className="text-sm text-slate-400">
+            {current.inRepair
+              ? "После возврата таймер текущего статуса начнётся заново; пустая машина встанет в конец очереди."
+              : current.state === "loaded"
+                ? "Таймер ремонта начнётся сразу. Машина останется у весовщика до завершения этапа; новая загрузка будет заблокирована."
+                : current.state === "unloading"
+                  ? "Таймер ремонта начнётся сразу. Машина останется у приёмки до отметки выгрузки; новая загрузка будет заблокирована."
+                  : `${STATE_LABEL[current.state ?? "empty"]} — начнётся новый таймер ремонта.`}
+          </p> : null}
           <Button className="min-h-[48px] w-full" disabled={stale || pending} onClick={() => void mutate(panel === "repair" ? "repair" : "line", current, [current.id], false)}>Подтвердить</Button>
           <Button variant="outline" className="min-h-[48px] w-full" onClick={close}>Отмена</Button>
         </> : null}

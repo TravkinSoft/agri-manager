@@ -225,8 +225,8 @@ function FleetCabinet({ companyId }: { companyId: string }) {
             <AlertDialogDescription>
               <span className="block font-semibold text-slate-100">{repairSelection?.name} · {repairSelection?.plate || "Без номера"}</span>
               <span className="mt-2 block">{repairSelection?.inRepair
-                ? "Снимется только отметка ремонта. Статус рейса не изменится."
-                : "Новая загрузка станет недоступна. Текущий рейс и его история сохранятся."}</span>
+                ? "Снимется только отметка ремонта. Таймер текущего статуса начнётся заново; пустая машина встанет в конец очереди."
+                : "Таймер ремонта начнётся сразу. Новая загрузка станет недоступна, а текущий грузовой этап останется доступен весовщику или приёмке до завершения."}</span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

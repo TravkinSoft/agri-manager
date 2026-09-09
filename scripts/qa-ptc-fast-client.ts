@@ -50,7 +50,7 @@ function harness(isManager = false, initiallyHidden = false) {
   class TestDate extends Date { static now() { return now; } }
   let authChange: (event: string, session: { user: { id: string } } | null) => void = () => undefined;
   let assignmentListener: ((result: VehicleDriverAssignmentResult) => void) | null = null;
-  let trafficListener: ((companyId: string) => void) | null = null;
+  let trafficListener: ((companyId: string, kind?: "traffic" | "fleet") => void) | null = null;
   const published: string[] = [];
   const sameDeps = (left: unknown[], right: unknown[]) => left.length === right.length && left.every((value, index) => Object.is(value, right[index]));
   const loaded = { exports: {} as any };
@@ -78,7 +78,7 @@ function harness(isManager = false, initiallyHidden = false) {
     "@/lib/traffic/model": model,
     "@/lib/traffic/changes": {
       publishTrafficChanged: (companyId: string) => published.push(companyId),
-      subscribeTrafficChanges: (_companyId: string | undefined, listener: (companyId: string) => void) => {
+      subscribeTrafficChanges: (_companyId: string | undefined, listener: (companyId: string, kind?: "traffic" | "fleet") => void) => {
         trafficListener = listener; return () => { if (trafficListener === listener) trafficListener = null; };
       },
     },
@@ -125,7 +125,7 @@ function harness(isManager = false, initiallyHidden = false) {
     auth: (event: string, id: string | null) => authChange(event, id ? { user: { id } } : null),
     assignment: (value: VehicleDriverAssignmentResult) => assignmentListener?.(value),
     hasAssignmentListener: () => assignmentListener !== null,
-    changed: (companyId: string) => trafficListener?.(companyId),
+    changed: (companyId: string, kind: "traffic" | "fleet" = "traffic") => trafficListener?.(companyId, kind),
     hasTrafficListener: () => trafficListener !== null,
     published,
     fire: (event: string) => (windowListeners.get(event) ?? documentListeners.get(event))?.(),
@@ -385,6 +385,66 @@ async function main() {
   });
   check(rhythm.render().managerData.canManageFleet, true);
   rhythm.unmount();
+
+  // C33: a fleet repair toggle invalidates both repair metadata and the board
+  // overlay. Repeated hints abort the old compact GET and coalesce into exactly
+  // one full successor; the ignored response cannot roll repairChangedAt back.
+  const repairCurrentAt = "2026-09-04T10:05:00Z";
+  const repairNextAt = "2026-09-04T10:06:00Z";
+  const repairOldAt = "2026-09-04T09:55:00Z";
+  const repairSnapshot = {
+    ...managerSnapshot,
+    vehicles: managerSnapshot.vehicles.map(vehicle => ({
+      ...vehicle, state: "loaded" as const, inRepair: true, repairVersion: 4,
+      repairChangedAt: repairCurrentAt,
+    })),
+  };
+  const repairMetadata = {
+    ...metadata,
+    snapshot: repairSnapshot,
+    fleet: [{ id: "car-a", inRepair: true, repairVersion: 4, repairChangedAt: repairCurrentAt }],
+  };
+  const fleetInvalidation = harness(true);
+  fleetInvalidation.render(); await flush(); await fleetInvalidation.respond(0, repairMetadata);
+  const beforeFleetInvalidation = fleetInvalidation.render();
+  const staleFleetRead = beforeFleetInvalidation.refresh(); await flush();
+  check(fleetInvalidation.requests[1].path, "/api/traffic?snapshot=1");
+  check(fleetInvalidation.requests[1].options.signal?.aborted, false);
+  fleetInvalidation.changed("company-a", "fleet");
+  fleetInvalidation.changed("company-a", "fleet");
+  fleetInvalidation.changed("company-a", "fleet");
+  await flush();
+  check(fleetInvalidation.requests[1].options.signal?.aborted, true);
+  check(fleetInvalidation.requests.length, 2);
+  await fleetInvalidation.respond(1, {
+    snapshot: {
+      ...repairSnapshot,
+      vehicles: repairSnapshot.vehicles.map(vehicle => ({
+        ...vehicle, repairVersion: 3, repairChangedAt: repairOldAt,
+      })),
+    },
+    managerRole: "agronomist",
+  });
+  await staleFleetRead; await flush();
+  check(fleetInvalidation.requests.length, 3);
+  check(fleetInvalidation.requests[2].path, "/api/traffic");
+  check(fleetInvalidation.render().data.vehicles[0].repairChangedAt, repairCurrentAt);
+  check(fleetInvalidation.render().managerData.fleet[0].repairChangedAt, repairCurrentAt);
+  const repairSuccessor = {
+    ...repairMetadata,
+    snapshot: {
+      ...repairSnapshot,
+      vehicles: repairSnapshot.vehicles.map(vehicle => ({
+        ...vehicle, repairVersion: 5, repairChangedAt: repairNextAt,
+      })),
+    },
+    fleet: [{ id: "car-a", inRepair: true, repairVersion: 5, repairChangedAt: repairNextAt }],
+  };
+  await fleetInvalidation.respond(2, repairSuccessor); await flush();
+  check(fleetInvalidation.requests.length, 3);
+  check(fleetInvalidation.render().data.vehicles[0].repairChangedAt, repairNextAt);
+  check(fleetInvalidation.render().managerData.fleet[0].repairChangedAt, repairNextAt);
+  fleetInvalidation.unmount();
 
   // A server-side company-context switch never combines the new board with
   // cached events/analytics/metadata from the previous tenant.

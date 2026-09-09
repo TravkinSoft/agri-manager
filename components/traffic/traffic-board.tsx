@@ -21,6 +21,8 @@ import {
   nextState,
   STATE_LABEL,
   stateAge,
+  trafficRepairPhase,
+  trafficStatusSince,
   trafficEventSummary,
   type TrafficSnapshot,
   type TrafficState,
@@ -390,19 +392,14 @@ export function TrafficBoard({
         assigned: false,
         inRepair: vehicle.inRepair,
         repairVersion: vehicle.repairVersion,
+        repairChangedAt: vehicle.repairChangedAt,
       }));
     return [...displayVehicles, ...supplemental];
   }, [displayVehicles, fleet, isManager, snapshot.serverTime]);
   const groups = isManager
     ? managerGroupOrder.map((state) => ({
         state,
-        vehicles: managerVehicles.filter((vehicle) => PTC_BOARD_V2
-          ? managerGroupForVehicle(vehicle) === state
-          : state === "repair"
-            ? !!vehicle.inRepair
-            : state === "offline"
-              ? !vehicle.assigned && !vehicle.inRepair
-              : vehicle.assigned && !vehicle.inRepair && vehicle.state === state),
+        vehicles: managerVehicles.filter((vehicle) => managerGroupForVehicle(vehicle) === state),
       }))
     : [{ state: null, vehicles: displayVehicles }];
   const managerGroupsByVehicle = useMemo(() => {
@@ -434,6 +431,13 @@ export function TrafficBoard({
         (lineVehicleCount % 100 < 12 || lineVehicleCount % 100 > 14)
       ? "машины"
       : "машин";
+  const activeRepairStageMessage = !isManager && displayVehicles.some((vehicle) => vehicle.inRepair)
+    ? snapshot.role === "receiver"
+      ? "Ремонт отмечен. Завершите фактическую выгрузку — машина останется в ремонте."
+      : snapshot.role === "weighman"
+        ? "Ремонт отмечен. Отметьте прибытие на выгрузку — машина останется в ремонте."
+        : null
+    : null;
   const combineBreakdowns = snapshot.combineBreakdowns ?? [];
   return (
     <>
@@ -469,6 +473,11 @@ export function TrafficBoard({
         </p>
       ) : null}
       {actionError ? <p role="alert" className="mb-3 text-sm text-rose-300">{actionError}</p> : null}
+      {activeRepairStageMessage ? (
+        <p data-testid="traffic-repair-stage-note" role="status" className="mb-3 rounded-xl border border-rose-400/35 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+          {activeRepairStageMessage}
+        </p>
+      ) : null}
       {pendingCommands.filter(command => command.phase === "uncertain").map(command => (
         <div key={command.key} role="alert" className="mb-3 text-sm text-rose-300">
           <p>{command.vehicle.plate || command.vehicle.name}: {command.error || "Нет подтверждения сервера."}</p>
@@ -583,6 +592,8 @@ export function TrafficBoard({
               : "grid gap-2 sm:grid-cols-2 xl:grid-cols-3"}>
         {group.vehicles.map((vehicle) => {
           const target = nextState(snapshot.role, vehicle.state, vehicle.inRepair);
+          const repairPhase = trafficRepairPhase(vehicle);
+          const statusSince = trafficStatusSince(vehicle, snapshot.role);
           const usesHarvesterSwipe = snapshot.role === "harvester" && target === "loaded";
           const pendingCommand = PTC_BOARD_V2
             ? pendingCommands.find(command => command.vehicle.vehicle_id === vehicle.vehicle_id)
@@ -596,7 +607,7 @@ export function TrafficBoard({
             (isLastVehicle || vehicle.state === "empty");
           const cardClass = `${PTC_BOARD_V2 ? "tf2-traffic-card " : ""}${compactAgronomistMobile
             ? "h-[4.875rem] p-1.5 lg:h-24 lg:p-2.5"
-            : "h-24 p-2.5"} min-w-0 overflow-hidden rounded-xl border text-left ${PTC_BOARD_V2 ? "shadow-[0_8px_22px_rgba(2,6,12,0.24)]" : "shadow-sm"} ${vehicle.inRepair
+              : "h-24 p-2.5"} min-w-0 overflow-hidden rounded-xl border text-left ${PTC_BOARD_V2 ? "shadow-[0_8px_22px_rgba(2,6,12,0.24)]" : "shadow-sm"} ${isManager && repairPhase === "active"
               ? PTC_BOARD_V2
                 ? "border-rose-400/55 bg-rose-950/80 text-rose-100"
                 : "border-rose-400 bg-rose-100 text-rose-950"
@@ -621,13 +632,24 @@ export function TrafficBoard({
               <span className={`flex min-w-0 items-center gap-1 truncate opacity-70 ${compactAgronomistMobile ? "h-3 text-[10px] leading-3 lg:h-4 lg:text-[11px] lg:leading-4" : "h-4 text-[11px] leading-4"}`}>
                 {isLastVehicle ? <span className={`shrink-0 font-extrabold ${PTC_BOARD_V2 ? "text-rose-300" : "text-rose-700"}`}>ПОСЛЕДНЯЯ ·</span> : null}
                 {!identity.hasDriver ? <span className="shrink-0 font-medium">Без водителя ·</span> : null}
-                {vehicle.inRepair ? <span className="flex shrink-0 items-center gap-1 font-semibold">
-                  <Wrench size={11} aria-hidden /> На ремонте · {STATE_LABEL[vehicle.state]} ·
-                </span> : !vehicle.assigned ? <span className="shrink-0 font-semibold">Не на линии ·</span>
-                  : usesHarvesterSwipe ? <span className={`shrink-0 font-semibold ${PTC_BOARD_V2 ? "text-emerald-300" : "text-emerald-800"}`}>Свайп вправо → ·</span>
-                    : !isManager ? <span className="shrink-0">{STATE_LABEL[vehicle.state]} ·</span> : null}
-                <Clock3 aria-hidden size={11} />
-                <span className="truncate">{stateAge(vehicle.since, now + offset)}</span>
+                {isManager && repairPhase === "active" ? <>
+                  <span className="flex shrink-0 items-center gap-1 font-semibold">
+                    <Wrench size={11} aria-hidden /> Ремонт {stateAge(statusSince, now + offset)} ·
+                  </span>
+                  <span className="truncate">{STATE_LABEL[vehicle.state]}</span>
+                </> : !isManager && vehicle.inRepair ? <>
+                  <span className={`flex shrink-0 items-center gap-1 font-semibold ${PTC_BOARD_V2 ? "text-rose-300" : "text-rose-700"}`}>
+                    <Wrench size={11} aria-hidden /> Ремонт отмечен · {STATE_LABEL[vehicle.state]} ·
+                  </span>
+                  <Clock3 aria-hidden size={11} />
+                  <span className="truncate">{stateAge(statusSince, now + offset)}</span>
+                </> : <>
+                  {!vehicle.assigned ? <span className="shrink-0 font-semibold">Не на линии ·</span>
+                    : usesHarvesterSwipe ? <span className={`shrink-0 font-semibold ${PTC_BOARD_V2 ? "text-emerald-300" : "text-emerald-800"}`}>Свайп вправо → ·</span>
+                      : !isManager ? <span className="shrink-0">{STATE_LABEL[vehicle.state]} ·</span> : null}
+                  <Clock3 aria-hidden size={11} />
+                  <span className="truncate">{stateAge(statusSince, now + offset)}</span>
+                </>}
               </span>
             </>
           );
@@ -643,9 +665,12 @@ export function TrafficBoard({
               data-swipe-action={usesHarvesterSwipe ? "loaded" : undefined}
               data-swipe-ready={usesHarvesterSwipe ? String(swipeReady) : undefined}
               data-command-phase={PTC_BOARD_V2 ? pendingCommand?.phase : undefined}
+              data-repair-stage-action={!isManager && vehicle.inRepair ? "true" : undefined}
               aria-label={usesHarvesterSwipe
                 ? `Смахните вправо, чтобы отметить загруженной: ${vehicle.name}, ${vehicle.plate || "без номера"}. С клавиатуры или программой экранного доступа активируйте карточку.`
-                : `${ACTION_LABEL[target]}: ${vehicle.name}, ${vehicle.plate || "без номера"}`}
+                : `${ACTION_LABEL[target]}: ${vehicle.name}, ${vehicle.plate || "без номера"}${vehicle.inRepair
+                  ? ". Машина отмечена в ремонте; завершите текущий этап."
+                  : ""}`}
               aria-keyshortcuts={PTC_BOARD_V2 && usesHarvesterSwipe ? "ArrowRight Enter Space" : undefined}
               aria-busy={PTC_BOARD_V2 ? pendingVehicle || undefined : undefined}
               disabled={pendingVehicle || stale || !snapshot.enabled}
@@ -655,7 +680,11 @@ export function TrafficBoard({
                 if (event.detail === 0) submitTransition(vehicle, target);
               } : () => {
                 const approved = window.confirm(
-                  `${ACTION_LABEL[target]}\n\n${vehicle.name} · ${vehicle.plate || "Без номера"}\n\nПодтвердите только фактически выполненное действие.`,
+                  `${ACTION_LABEL[target]}\n\n${vehicle.name} · ${vehicle.plate || "Без номера"}\n\n${vehicle.inRepair
+                    ? snapshot.role === "receiver"
+                      ? "Выгрузка фактически завершена? Машина останется в ремонте."
+                      : "Машина фактически прибыла на выгрузку? Она останется в ремонте."
+                    : "Подтвердите только фактически выполненное действие."}`,
                 );
                 if (approved === true) submitTransition(vehicle, target);
               }}

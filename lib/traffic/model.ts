@@ -51,6 +51,11 @@ export interface TrafficVehicle {
   repairVersion?: number;
   repairChangedAt?: string | null;
 }
+export type TrafficRepairPhase = "none" | "active";
+
+export function trafficRepairPhase(vehicle: TrafficVehicle): TrafficRepairPhase {
+  return vehicle.inRepair ? "active" : "none";
+}
 export interface TrafficLastVehicle {
   vehicleId: string;
   driver: string | null;
@@ -169,30 +174,48 @@ export function visibleVehicles(
   role: TrafficRole,
 ): TrafficVehicle[] {
   const rank = { empty: 0, loaded: 1, unloading: 2 };
-  const returnedFromRepairAt = (vehicle: TrafficVehicle) => {
-    if (vehicle.inRepair || vehicle.state !== "empty" || !vehicle.repairChangedAt) return 0;
-    const repairAt = Date.parse(vehicle.repairChangedAt);
-    const stateAt = Date.parse(vehicle.since);
-    return Number.isFinite(repairAt) && repairAt > stateAt ? repairAt : 0;
-  };
   return vehicles
     .filter((v) =>
       v.assigned &&
-      (role === "manager" || !v.inRepair) &&
+      (role === "manager" || !v.inRepair ||
+        (role === "weighman" && v.state === "loaded") ||
+        (role === "receiver" && v.state === "unloading")) &&
       (role !== "weighman" || v.state === "loaded") &&
       (role !== "receiver" || v.state === "unloading"))
     .sort(
       (a, b) => {
-        const stateOrder = rank[a.state] - rank[b.state];
-        const aReturnedAt = returnedFromRepairAt(a);
-        const bReturnedAt = returnedFromRepairAt(b);
-        return Number(!!a.inRepair) - Number(!!b.inRepair) ||
+        const aRepairGroup = role === "manager" && !!a.inRepair;
+        const bRepairGroup = role === "manager" && !!b.inRepair;
+        const stateOrder = aRepairGroup && bRepairGroup
+          ? 0
+          : rank[a.state] - rank[b.state];
+        const aStartedAt = Date.parse(trafficStatusSince(a, role));
+        const bStartedAt = Date.parse(trafficStatusSince(b, role));
+        const timeOrder = (Number.isFinite(aStartedAt) ? aStartedAt : Number.MAX_SAFE_INTEGER) -
+          (Number.isFinite(bStartedAt) ? bStartedAt : Number.MAX_SAFE_INTEGER);
+        return Number(aRepairGroup) - Number(bRepairGroup) ||
           stateOrder ||
-          bReturnedAt - aReturnedAt ||
-          a.since.localeCompare(b.since) ||
+          timeOrder ||
           a.vehicle_id.localeCompare(b.vehicle_id);
       },
     );
+}
+
+// Repair is independent from the cargo state. The manager sees the repair
+// interval from the repair toggle, while weighman/receiver keep the cargo-state
+// interval until they finish that physical stage. On repair exit, the same
+// toggle starts a fresh operational interval and returned empty vehicles sort
+// to the tail until their next cargo transition updates `since`.
+export function trafficStatusSince(vehicle: TrafficVehicle, role: TrafficRole): string {
+  const repairChangedAt = vehicle.repairChangedAt;
+  if (!repairChangedAt) return vehicle.since;
+  const repairAt = Date.parse(repairChangedAt);
+  const stateAt = Date.parse(vehicle.since);
+  if (!Number.isFinite(repairAt)) return vehicle.since;
+  if (vehicle.inRepair) return role === "manager" ? repairChangedAt : vehicle.since;
+  return !Number.isFinite(stateAt) || repairAt > stateAt
+    ? repairChangedAt
+    : vehicle.since;
 }
 export function stateAge(since: string, now: number): string {
   const minutes = Math.max(0, Math.floor((now - Date.parse(since)) / 60000));
