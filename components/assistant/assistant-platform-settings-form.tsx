@@ -669,7 +669,7 @@ export function AssistantPlatformSettingsForm() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-muted-foreground">Настройки ассистента</h1>
+        <h1 className="tf-manor-heading text-3xl font-bold text-foreground">Настройки ассистента</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Пульт управления Travkin Copilot: мозг, источники знаний, память, действия и быстрый тест.
         </p>

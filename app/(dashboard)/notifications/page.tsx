@@ -103,7 +103,7 @@ export default function NotificationsPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Уведомления</h1>
+          <h1 className="tf-manor-heading text-2xl font-semibold text-foreground">Уведомления</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {profile?.role === "global_admin"
               ? "События операций, склада, весовой, оборота машин и рекомендации Assist"

@@ -82,7 +82,7 @@ export default function TicketsPage() {
 
   return (
     <div className="mx-auto w-full max-w-[1350px] space-y-4 overflow-x-hidden">
-      <div><h1 className="text-2xl font-semibold text-foreground sm:text-3xl">Талоны</h1><p className="mt-1 text-sm text-muted-foreground">Просмотр документов весовой</p></div>
+      <div><h1 className="tf-manor-heading text-2xl font-semibold text-foreground sm:text-3xl">Талоны</h1><p className="mt-1 text-sm text-muted-foreground">Просмотр документов весовой</p></div>
       <div className="travkin-scrollbar flex gap-1 overflow-x-auto rounded-lg border border-border bg-background p-1" role="tablist">
         {modes.map(({ id, label, icon: Icon }) => <Button key={id} type="button" size="sm" variant={mode === id ? "default" : "ghost"} className="h-9 shrink-0" onClick={() => setMode(id)}><Icon className="mr-2 h-4 w-4" />{label}</Button>)}
       </div>

@@ -726,7 +726,7 @@ export default function UsersPage() {
                   <option value="new">Новый сотрудник — создать запись по указанному ФИО</option>
                 </select>
                 <p className="text-sm text-muted-foreground">Письмо активирует единый аккаунт TravkinFlow. Роль открывает только кабинет PTC, без весовой. Если человек уже есть в персонале, выберите его — новую запись создавать не нужно.</p>
-                {peopleError ? <p role="alert" className="text-sm text-red-500">{peopleError}. Закройте и откройте приглашение для повтора.</p> : null}
+                {peopleError ? <p role="alert" className="text-sm text-red-800">{peopleError}. Закройте и откройте приглашение для повтора.</p> : null}
               </div>
             ) : null}
           </div>

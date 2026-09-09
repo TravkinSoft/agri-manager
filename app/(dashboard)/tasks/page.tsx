@@ -1584,7 +1584,7 @@ export default function TasksPage() {
   if (!isTaskRole) {
     return (
       <div className="space-y-4">
-        <h1 className="text-[28px] font-bold text-foreground">Мои задачи</h1>
+        <h1 className="tf-manor-heading text-[28px] font-bold text-foreground">Мои задачи</h1>
         <Alert variant="destructive">
           <AlertDescription>Эта страница доступна специалистам и бригадирам.</AlertDescription>
         </Alert>
@@ -1597,7 +1597,7 @@ export default function TasksPage() {
       <header>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-[28px] font-bold text-foreground sm:text-[30px]">Мои задачи</h1>
+            <h1 className="tf-manor-heading text-[28px] font-bold text-foreground sm:text-[30px]">Мои задачи</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               Утверждённые планы, сменный прогресс и история выполнения
             </p>

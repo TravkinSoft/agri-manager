@@ -103,7 +103,7 @@ function statusClass(status: string): string {
     return "border-emerald-400/30 bg-emerald-500/15 text-emerald-800";
   }
   if (status === "issued" || status === "issued_by_warehouse") {
-    return "border-violet-400/30 bg-violet-500/15 text-violet-200";
+    return "border-violet-400/30 bg-violet-500/15 text-violet-800";
   }
   if (status === "closed") {
     return "border-emerald-500/40 bg-emerald-500/15 text-emerald-800";

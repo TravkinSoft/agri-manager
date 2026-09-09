@@ -967,7 +967,7 @@ function OperationWorkSelector(props: {
                 onKeyDownCapture={(event) => handleRadioOptionKeyDown(event, onCategoryChange)}
                 className={cn(
                   "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-semibold leading-5 transition-colors sm:min-h-[52px]",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1017]",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
                   checked
                     ? "border-yellow-400 bg-yellow-400/10 text-amber-800"
                     : "border-border bg-background text-foreground hover:border-border hover:bg-muted",
@@ -1015,7 +1015,7 @@ function OperationWorkSelector(props: {
                     onKeyDownCapture={(event) => handleRadioOptionKeyDown(event, onWorkChange)}
                     className={cn(
                       "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-medium leading-5 transition-colors",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1017]",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
                       checked
                         ? "border-transparent bg-primary font-semibold text-primary-foreground"
                         : "border-border bg-background text-foreground hover:border-border hover:bg-muted",

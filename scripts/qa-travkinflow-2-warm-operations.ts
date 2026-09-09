@@ -7,13 +7,14 @@ import ts from "typescript";
 // Release-specific audit: compare this presentation change with its reviewed base.
 // Pass a different base explicitly for a later design-only patch.
 const base = process.argv[2] || "31eab7e99cafeee03e9bbe8cb5ee6876801925cc";
+const candidate = process.argv[3]; // Pin the visual tranche when later functional work is integrated.
 const root = process.cwd();
 const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
 const scope = /^(?:app\/\(dashboard\)\/(?:weighbridge|warehouses|traffic|fleet|processing)\/|app\/traffic-operator\/|components\/(?:weighbridge|warehouses|traffic)\/|components\/vehicles\/vehicle-driver-assignment\.tsx$)/;
-const files = git("diff", "--name-only", base, "--").trim().split(/\r?\n/).filter(file => scope.test(file) && file.endsWith(".tsx"));
+const files = git("diff", "--name-only", base, ...(candidate ? [candidate] : []), "--").trim().split(/\r?\n/).filter(file => scope.test(file) && file.endsWith(".tsx"));
 assert.ok(files.length > 0, "the audit must inspect changed operational components");
 
-const colorToken = /^(?:(?:[\w[\]=.-]+):)*(?:bg|text|border|divide|ring|outline|from|to|via)-(?:slate|gray|neutral|zinc|stone|white|black|yellow|amber|red|rose|emerald|green|teal|blue|sky|cyan|purple|indigo|background|foreground|card|muted|primary|secondary|accent|border|ring)(?:[-/\w.[\]]*)$/;
+const colorToken = /^(?:(?:[\w[\]=.-]+):)*(?:bg|text|border|divide|ring|outline|from|to|via)-(?:slate|gray|neutral|zinc|stone|white|black|yellow|amber|red|rose|emerald|green|teal|blue|sky|cyan|purple|indigo|violet|background|foreground|card|muted|primary|secondary|accent|border|ring)(?:[-/\w.[\]]*)$/;
 const literalColor = /^(?:(?:[\w[\]=.-]+):)*(?:bg|text|border|from|to|via)-\[#[\da-fA-F]+\](?:\/[\d.]+)?$/;
 const presentationToken = (token: string) => colorToken.test(token) || literalColor.test(token) ||
   /^(?:shadow-(?:sm|\[[^\]]+\])|tf-manor-(?:heading|data)|tabular-nums|opacity-(?:70|90))$/.test(token);
@@ -24,7 +25,7 @@ let paletteChanges = 0;
 
 for (const file of files) {
   const beforeText = git("show", `${base}:${file}`).replace(/\r\n/g, "\n");
-  const afterText = readFileSync(path.join(root, file), "utf8").replace(/\r\n/g, "\n");
+  const afterText = (candidate ? git("show", `${candidate}:${file}`) : readFileSync(path.join(root, file), "utf8")).replace(/\r\n/g, "\n");
   const before = ts.createSourceFile(file, beforeText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const after = ts.createSourceFile(file, afterText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const compare = (left: ts.Node, right: ts.Node): void => {

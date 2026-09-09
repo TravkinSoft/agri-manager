@@ -86,7 +86,7 @@ function statusBadge(orderStatus: MealOrderStatus) {
   if (orderStatus === "cooking") return <Badge className="bg-amber-600 text-black">Готовится</Badge>;
   if (orderStatus === "ready") return <Badge className="bg-emerald-600 text-white">Готово</Badge>;
   if (orderStatus === "issued") return <Badge className="bg-cyan-600 text-foreground">Выдано</Badge>;
-  if (orderStatus === "partially_returned") return <Badge className="bg-orange-600 text-foreground">Частично возвращено</Badge>;
+  if (orderStatus === "partially_returned") return <Badge className="bg-orange-100 text-orange-900">Частично возвращено</Badge>;
   if (orderStatus === "returned") return <Badge className="bg-green-700 text-white">Закрыто</Badge>;
   return <Badge variant="destructive">Отменена</Badge>;
 }

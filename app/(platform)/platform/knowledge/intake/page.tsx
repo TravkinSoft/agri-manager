@@ -777,7 +777,7 @@ const consoleReadableStat =
 const consoleReadableCard =
   "rounded-none border-border !bg-white text-foreground shadow-none [&_.text-foreground]:!text-foreground [&_.text-foreground]:!text-foreground [&_.text-muted-foreground]:!text-muted-foreground";
 const consoleReadablePill =
-  "rounded-none border-amber-300 !bg-amber-50 !text-amber-800";
+  "rounded-none";
 
 export default function KnowledgeIntakePage() {
   const { profile, loading: authLoading } = useAuth();
@@ -1342,7 +1342,7 @@ export default function KnowledgeIntakePage() {
                           type="file"
                           accept=".pdf,.txt,application/pdf,text/plain"
                           onChange={(event) => setDocumentFile(event.target.files?.[0] || null)}
-                          className="border-border bg-card text-foreground file:mr-3 file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-foreground focus-visible:ring-ring"
+                          className="border-border bg-card text-foreground file:mr-3 file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-primary-foreground focus-visible:ring-ring"
                         />
                         <div className="text-xs leading-5 text-muted-foreground">
                           V0 поддерживает PDF/TXT до 10 MB. DOCX и OCR будут отдельным этапом.

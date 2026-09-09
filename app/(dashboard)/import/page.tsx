@@ -246,7 +246,7 @@ export default function ImportPage() {
                         <div className="font-medium text-amber-700 dark:text-amber-800 mb-1">
                           ⚠ Warnings ({results.errors.length}):
                         </div>
-                        <ul className="list-disc list-inside space-y-1 text-xs text-amber-600 dark:text-amber-800">
+                        <ul className="list-disc list-inside space-y-1 text-xs text-amber-800 dark:text-amber-800">
                           {results.errors.map((err, idx) => (
                             <li key={idx}>{err}</li>
                           ))}

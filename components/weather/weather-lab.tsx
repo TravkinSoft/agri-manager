@@ -588,7 +588,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
     <div className="mx-auto w-full max-w-[1560px] space-y-4 text-foreground">
       <header>
         <div>
-          <h1 className="text-2xl font-semibold text-foreground sm:text-3xl">Погода</h1>
+          <h1 className="tf-manor-heading text-2xl font-semibold text-foreground sm:text-3xl">Погода</h1>
           <p className="mt-1 text-sm text-muted-foreground">Лаборатория реального прогноза UAV Forecast</p>
         </div>
       </header>

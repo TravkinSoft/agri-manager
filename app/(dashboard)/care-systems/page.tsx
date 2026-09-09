@@ -1276,7 +1276,7 @@ export default function CareSystemsPage() {
           <GlassToolbar className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <div className="text-xs text-muted-foreground">Схемы › {selectedScheme?.name || "обзор"}</div>
-              <h1 className="mt-1 text-2xl font-semibold">Системы защиты и ухода</h1>
+              <h1 className="tf-manor-heading mt-1 text-2xl font-semibold">Системы защиты и ухода</h1>
             </div>
             <div className="grid gap-2 sm:grid-cols-4 lg:min-w-[560px]">
               {summaryCards.map(({ label, value, Icon }) => (

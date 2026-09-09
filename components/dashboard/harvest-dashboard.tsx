@@ -221,7 +221,7 @@ export function HarvestDashboard() {
     <div className="mx-auto w-full max-w-[1500px] space-y-6 overflow-x-hidden">
       <div className="flex min-w-0 items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="truncate text-2xl font-semibold text-foreground sm:text-3xl">Сводка</h1>
+          <h1 className="tf-manor-heading truncate text-2xl font-semibold text-foreground sm:text-3xl">Сводка</h1>
           <p className="mt-1 text-sm text-muted-foreground">Смены, партии урожая, фактические остатки и рейсы</p>
         </div>
         <div className="hidden rounded-md border border-emerald-700/40 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-800 sm:block">Live</div>

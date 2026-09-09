@@ -23,7 +23,7 @@
     --destructive: 5 50% 43%;
     --destructive-foreground: 41 100% 97%;
     --border: 36 30% 76%;
-    --input: 36 30% 73%;
+    --input: 36 22% 51%;
     --ring: 82 36% 31%;
     --chart-1: 82 36% 31%;
     --chart-2: 39 51% 47%;
@@ -404,7 +404,6 @@
     color: var(--manor-text-muted) !important;
   }
 
-  [data-theme="warm-manor"] .assistant-surface .border,
   [data-theme="warm-manor"] .assistant-surface .border-slate-100,
   [data-theme="warm-manor"] .assistant-surface .border-slate-200,
   [data-theme="warm-manor"] .assistant-surface .border-slate-300 {

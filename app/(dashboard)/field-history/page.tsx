@@ -80,7 +80,7 @@ export default function FieldHistoryPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">{t("История полей", "Алаң тарихы", "Field History")}</h1>
+        <h1 className="tf-manor-heading text-3xl font-bold">{t("История полей", "Алаң тарихы", "Field History")}</h1>
         <p className="text-muted-foreground mt-2">
           {t("История севооборота по каждому полю за разные сезоны", "Әр алаң бойынша маусымдардағы ауыспалы егіс тарихы", "View crop rotation history for each field across seasons")}
         </p>

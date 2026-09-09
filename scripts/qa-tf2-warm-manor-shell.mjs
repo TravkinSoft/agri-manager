@@ -85,6 +85,9 @@ check("core text and actions meet WCAG AA contrast", () => {
   assert.ok(contrast("#736353", "#F7F1E7") >= 4.5);
   assert.ok(contrast("#FFF9EE", "#536B32") >= 4.5);
   assert.ok(contrast("#F8F0E2", "#2B1D13") >= 4.5);
+  assert.match(globals, /--input: 36 22% 51%/);
+  assert.ok(contrast("#9e8867", "#fbf8f1") >= 3, "input boundary is visible on warm paper");
+  assert.doesNotMatch(globals, /\.assistant-surface \.border\s*,/, "generic border override must not erase semantic status borders");
 });
 
 check("shell surfaces use stable manor classes", () => {
