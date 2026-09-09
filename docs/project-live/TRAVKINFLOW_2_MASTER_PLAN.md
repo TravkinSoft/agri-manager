@@ -4,14 +4,15 @@
 
 ## Текущая точка восстановления
 
-- Статус программы: `В РАБОТЕ`.
-- Общий прогресс: `49% реализации / 0% релизных волн`.
+- Статус программы: `РЕАЛИЗАЦИЯ ЗАВЕРШЕНА / РЕЛИЗ НЕ НАЧАТ`.
+- Общий прогресс: `100% реализации / 0% релизных волн`.
 - Worktree: `C:\Users\TRAVKIN\Downloads\CodecSaaS\.worktrees\travkinflow-2`.
 - Ветка: `codex/travkinflow-2`.
 - База ветки: `3274331e7180252dd0f740222f6c4d15e4d20ebd`.
 - На момент старта `origin/master`, GitHub и Product health совпадали на `3274331e7180`.
-- Локальные коммиты: `36f5500` план, `63b68b2` карта, `eb6c3a0` склады, `673780f` platform chooser.
-- Следующий безопасный шаг: закончить безопасный parser/matcher/access package карты, затем browser QA; параллельно завершить справочники и Сводку без Product deploy.
+- Реализация зафиксирована 21 независимо проверяемым коммитом от `36f5500` до `c36f9ff`; текущий closeout-журнал хранится отдельным 22-м коммитом.
+- Последний рубеж: validated boundary import/match/relink/edit package карты зафиксирован отдельным коммитом `c36f9ff`; post-fix browser matrix, scoped gates и production build прошли.
+- Следующий безопасный шаг: восстановить отдельную QA Supabase-среду, проверить её ref/env, затем выполнить Preview и M09. Подключённый Supabase connector видит только Product `bhsemlvmkikpntabctml`; поэтому миграции/import не применялись и Product не использовался как замена QA.
 - Production rollout: `НЕ НАЧАТ`; каждую волну выкладывать отдельно после Preview/QA и свежей проверки Product.
 
 Если работа прерывается P0-задачей, продолжать с первого незакрытого чекбокса ниже. После каждого существенного рубежа обновлять этот раздел, а под выполненным пунктом писать краткое `Сделано` и доказательство проверки.
@@ -62,10 +63,13 @@ flowchart LR
   W --> Y[Live field harvest and yield projection]
   Y --> O
 
-  FF[Independent feature flags] --> S
-  FF --> M
+  FF[Data and write feature flags] --> M
   FF --> O
   FF --> D
+  R[Immutable deploy or scoped revert] --> S
+  R --> M
+  R --> O
+  R --> D
 ```
 
 ## Реестр 32 замечаний
@@ -76,63 +80,85 @@ flowchart LR
 
 - [x] C01. Полностью пересобрать композицию `/fields-map`, чтобы панели не лежали друг на друге.
   - Сделано: controls/search собраны в один top dock; inspector стал bottom sheet на компактных экранах и правой панелью на desktop.
-  - Проверено: scoped UI contract 7/7 и TypeScript PASS; полный viewport browser QA ещё учитывается отдельно в W1.5.
-- [ ] C02. Убрать дублирующее название выбранной компании из header.
+  - Проверено: `63b68b2`, `c36f9ff`, map UI contract 11/11 и Chromium/WebKit matrix на 360/768/1304/1440 px без перекрытий и horizontal overflow.
+- [x] C02. Убрать дублирующее название выбранной компании из header.
+  - Сделано: повторяющаяся подпись компании удалена, company/role context собран в компактный shell (`c43178c`); shell contract 6/6.
 - [x] C03. Привести все плавающие панели карты к одной спокойной matte/glass surface.
-  - Сделано: добавлены scoped `tf2-dock`/`tf2-panel`, без глобальной замены `Card`.
+  - Сделано: добавлены scoped `tf2-dock`/`tf2-panel`, без глобальной замены `Card` (`63b68b2`, `c36f9ff`); map UI 11/11.
 - [x] C04. Привести кнопки измерения к той же панели, убрать белую/случайную подложку.
-  - Сделано: measurement actions используют тот же matte dock и короткую motion policy.
+  - Сделано: measurement actions используют тот же matte dock, 44 px touch targets и reduced-motion policy (`63b68b2`, `c36f9ff`); map UI 11/11.
 - [x] C05. Убрать селектор года из карты; сезон брать из общего контекста.
-  - Сделано: отдельный selector удалён из active render; внутренний сезонный контекст данных сохранён.
+  - Сделано: отдельный selector удалён из active render; внутренний сезонный контекст данных сохранён (`63b68b2`); map UI 11/11.
 
 ### Склады
 
-- [ ] C06. Добавить доступную сортировку складов hold/drag/drop с плавным settle и сохранением порядка.
+- [x] C06. Добавить доступную сортировку складов hold/drag/drop с плавным settle и сохранением порядка.
+  - Сделано: добавлены мышь/touch/keyboard reorder, атомарное сохранение порядка и reduced-motion settle (`658a649`); warehouse order contract 32/32.
 - [x] C22. Пересобрать визуал карточек складов: единый размер, ясная иерархия, без декоративной «формы склада» ради формы.
-  - Сделано: единая flat surface, растянутые grid rows, мягкие hover/focus и reduced motion.
+  - Сделано: единая flat surface, растянутые grid rows, мягкие hover/focus и reduced motion (`eb6c3a0`); warehouse cards 23/23.
 - [x] C29. Исправить семантику счётчика: не заменять смешанную «группу» словом «партия» вслепую; показывать партии и материалы отдельно либо нейтральные позиции.
-  - Сделано: достоверный breakdown `партии · позиции материалов`, при неполных данных нейтральные `позиции`.
+  - Сделано: достоверный breakdown `партии · позиции материалов`, при неполных данных нейтральные `позиции` (`eb6c3a0`); warehouse cards 23/23.
 - [x] C30. Убрать внешнюю строку `Движение: дата`; история остаётся в detail.
-  - Сделано: timestamp удалён только с карточки, detail сохраняет последнее движение.
+  - Сделано: timestamp удалён только с карточки, detail сохраняет последнее движение (`eb6c3a0`); warehouse cards 23/23.
 - [x] C31. Убрать бессодержательные `Свободно` и `Движений пока нет`; пустое состояние показать спокойно и компактно.
-  - Сделано: пустой склад показывает `0 кг`; материал без массы — `Есть материалы`.
+  - Сделано: пустой склад показывает `0 кг`; материал без массы — `Есть материалы` (`eb6c3a0`); agronomist warehouse contract 36/36.
 
 ### PTC / оборот машин
 
-- [ ] C07. Улучшить desktop board и анимации перехода карточек между колонками для агронома/автопарка/операторов.
-- [ ] C08. Сделать свайп комбайнёра намеренным: больший width-aware threshold, horizontal-intent guard, плавный preview/commit/cancel.
-- [ ] C09. Убрать ощущение отдельного продукта: единый shell, визуальный язык и понятный auth/session transition без переписывания безопасной ролевой модели.
-- [ ] C32. Сделать заголовки статусных колонок sticky в пределах board scroll.
+- [x] C07. Улучшить desktop board и анимации перехода карточек между колонками для агронома/автопарка/операторов.
+  - Сделано: board получил общую state-motion модель, стабильные карточки и reduced-motion fallback (`b77ae26`); compact board 739/739, operator 131/131.
+- [x] C08. Сделать свайп комбайнёра намеренным: больший width-aware threshold, horizontal-intent guard, плавный preview/commit/cancel.
+  - Сделано: добавлены width-aware threshold, проверка горизонтального намерения и единственный commit после preview/cancel (`b77ae26`); Chromium/WebKit 322/322 и breakdown 312/312.
+- [x] C09. Убрать ощущение отдельного продукта: единый shell, визуальный язык и понятный auth/session transition без переписывания безопасной ролевой модели.
+  - Сделано: operator/manager board приведён к общему shell и auth transition без изменения ролевых контрактов (`b77ae26`); operator 131/131 и Chromium/WebKit 322/322.
+- [x] C32. Сделать заголовки статусных колонок sticky в пределах board scroll.
+  - Сделано: lane headers закреплены внутри собственного board scroll и не перекрывают shell (`b77ae26`); compact board 739/739.
 
 ### Весовая
 
-- [ ] C10. Устранить layout shift блока `Партия урожая`: стабильная высота, retained data/cache и предсказуемый loading state при сворачивании/возврате.
-- [ ] C11. Закрывать открытый талон оптимистично в UI с idempotency, rollback и явным retry при ошибке.
-- [ ] C12. Пересобрать информационную архитектуру всех режимов весовой вокруг одной главной задачи и progressive disclosure.
-- [ ] C13. Выполнить полный визуальный redesign режимов без вложенных рамок, сохранив все роли, проводки и контракты.
+- [x] C10. Устранить layout shift блока `Партия урожая`: стабильная высота, retained data/cache и предсказуемый loading state при сворачивании/возврате.
+  - Сделано: options сохраняются между режимами, loading geometry стабилизирована, stale request не сбрасывает выбор (`49fcd7f`); lot contract 19/19.
+- [x] C11. Закрывать открытый талон оптимистично в UI с idempotency, rollback и явным retry при ошибке.
+  - Сделано: добавлены idempotent reconcile, optimistic state, полный rollback и явный retry (`96a3df7`); close contract 22/22.
+- [x] C12. Пересобрать информационную архитектуру всех режимов весовой вокруг одной главной задачи и progressive disclosure.
+  - Сделано: семь режимов собраны вокруг основного действия, контекст и вторичные данные раскрываются последовательно (`4135e99`); hierarchy contract 18/18.
+- [x] C13. Выполнить полный визуальный redesign режимов без вложенных рамок, сохранив все роли, проводки и контракты.
+  - Сделано: поверхности семи режимов выровнены и лишняя рамочная вложенность удалена без изменения ledger/ticket contracts (`34000ab`); visual contract 18/18.
 
 ### Сводка / dashboard / структура посевов
 
-- [ ] C14. Вернуть и хранить историю закрытых PTC-смен, а не только эфемерный `последний` блок.
-- [ ] C15. В карточке поля показывать live принятую массу и урожайность из канонических талонов/ledger.
-- [ ] C16. Полностью упростить модальное окно поля и редактор структуры, заменив рамки ясными секциями и sticky action bar.
-- [ ] C17. Устранить повторную тяжёлую загрузку и появление/исчезновение scrollbar на dashboard.
-- [ ] C27. Переименовать `Сводка уборки` в короткое `Сводка`, если страница остаётся общей операционной точкой входа.
-- [ ] C28. Убрать разрозненную рамочную композицию dashboard; сформировать одну вертикальную историю состояния хозяйства.
+- [x] C14. Вернуть и хранить историю закрытых PTC-смен, а не только эфемерный `последний` блок.
+  - Сделано: добавлена bounded history закрытых смен и стабильная summary hydration (`ab0bd95`); history 78/78, summary 99/99.
+- [x] C15. В карточке поля показывать live принятую массу и урожайность из канонических талонов/ledger.
+  - Сделано: масса и урожайность считаются из reconciled канонической проекции, новая data surface fail-closed по флагу (`02d05f4`, `3e15435`); field harvest 13/13.
+- [x] C16. Полностью упростить модальное окно поля и редактор структуры, заменив рамки ясными секциями и sticky action bar.
+  - Сделано: редактор разделён на читаемые секции со sticky actions и спокойными состояниями (`9602748`); crop dialog 30/30, optional seed 20/20.
+- [x] C17. Устранить повторную тяжёлую загрузку и появление/исчезновение scrollbar на dashboard.
+  - Сделано: summary reads стабилизированы, повторная hydration/loading geometry больше не пересобирает страницу (`bacafe7`); dashboard scoped contracts и TypeScript PASS.
+- [x] C27. Переименовать `Сводка уборки` в короткое `Сводка`, если страница остаётся общей операционной точкой входа.
+  - Сделано: общий operational entry переименован в `Сводка`, специализированные подписи сохранены внутри данных (`bacafe7`); dashboard scoped contracts PASS.
+- [x] C28. Убрать разрозненную рамочную композицию dashboard; сформировать одну вертикальную историю состояния хозяйства.
+  - Сделано: dashboard собран в одну вертикальную иерархию summary → period → active harvest (`bacafe7`); dashboard scoped contracts и TypeScript PASS.
 
 ### Platform / справочники / профиль / shell
 
 - [x] C18. Поднять выбор компаний в начало global platform page.
-  - Сделано: chooser расположен сразу после page header, до диагностических консолей.
+  - Сделано: chooser расположен сразу после page header, до диагностических консолей (`673780f`); platform contract 8/8, TZ246 62/62.
 - [x] C19. Сделать всю карточку компании настоящей доступной кнопкой; отдельную кнопку `Войти в компанию` убрать, delete изолировать.
   - Сделано: поверхность — native button с focus/loading/ARIA; delete — отдельный sibling control.
   - Проверено: новый контракт 8/8, TZ246 62/62, TypeScript и scoped ESLint PASS.
-- [ ] C20. Добавить subnav и категории в `Машины и техника`, сохранив deep links.
-- [ ] C21. Добавить мгновенный умный поиск по названию, бренду, модели, категории, номеру, VIN и водителю с нормализацией RU/латиницы.
-- [ ] C23. Добавить безопасную загрузку/замену фото профиля.
-- [ ] C24. Показывать фото или initials fallback в header.
-- [ ] C25. Проверить опциональный поворот знака логотипа примерно на 40° против часовой стрелки; применять только к mark-варианту, если visual QA не даёт clipping/кринжа.
-- [ ] C26. Убрать тяжёлый impersonation banner, но сохранить компактный постоянный индикатор и безопасный возврат в `global_admin`.
+- [x] C20. Добавить subnav и категории в `Машины и техника`, сохранив deep links.
+  - Сделано: добавлены category subnav и сохранение URL/deep-link состояния (`11c7fc5`); references scoped QA и TypeScript PASS.
+- [x] C21. Добавить мгновенный умный поиск по названию, бренду, модели, категории, номеру, VIN и водителю с нормализацией RU/латиницы.
+  - Сделано: единый нормализованный индекс ищет по всем указанным полям, кириллице/латинице и номеру (`11c7fc5`); references scoped QA и TypeScript PASS.
+- [x] C23. Добавить безопасную загрузку/замену фото профиля.
+  - Сделано: private storage contract, content validation, scoped replace/delete и fail-closed write flag (`7e0af84`, `3e15435`); avatar contract 31/31.
+- [x] C24. Показывать фото или initials fallback в header.
+  - Сделано: header показывает приватно разрешённое фото, иначе устойчивый initials fallback (`7e0af84`); avatar contract 31/31.
+- [x] C25. Проверить опциональный поворот знака логотипа примерно на 40° против часовой стрелки; применять только к mark-варианту, если visual QA не даёт clipping/кринжа.
+  - Сделано: применён сдержанный угол 32° только к sidebar mark; wordmark/login не затронуты (`4bd0c82`), статическая проверка дала 6,7 px clearance.
+- [x] C26. Убрать тяжёлый impersonation banner, но сохранить компактный постоянный индикатор и безопасный возврат в `global_admin`.
+  - Сделано: banner заменён компактным постоянным context control с явной ролью и возвратом (`c43178c`); shell contract 6/6.
 
 ## Дополнительный блок M — реальные границы полей STEM
 
@@ -140,17 +166,24 @@ flowchart LR
   - Сделано: SHA-256 `B5D927B63D16EA15E74CD647C9AF4C1E46715B51C77EA58627E9B3D7B5E9AAA6`; KML 2.2/WGS84, 130 Placemarks, 131 parts, 73 212 positions.
 - [x] M02. Провести геометрический preflight: Polygon/MultiPolygon, замыкание колец, self-intersections, пустые геометрии, дубли, bbox хозяйства и расчёт площади.
   - Сделано: 939 замкнутых колец, bbox `69.802157..70.316471 / 53.487527..53.919218`, обнаружены дубли/вложения; слепая сумма площадей запрещена.
-- [-] M03. Зафиксировать существующую схему карты и выбрать аддитивный контракт хранения без разрушения текущих полей.
-  - Аудит: Product пока имеет `field_map_imports=0`, `field_geometries=0`, `field_engineering_objects=0`; PostGIS отсутствует. Проектируется versioned import-item/revision contract.
-- [-] M04. Построить deterministic dry-run matching к `fields`/структуре по нормализованному имени, номеру, площади и пространственной близости.
-  - Аудит: текущий matcher даёт опасные ложные auto-match; консервативный baseline допускает максимум 28/130 до ручного решения вложений.
-- [ ] M05. Автоматически связать только `high confidence`; ambiguous/no-match оставить в очереди без догадок.
-- [ ] M06. Добавить global-admin-only API импорта/перепривязки с company scope, optimistic concurrency и audit trail.
-- [ ] M07. На карте: клик по контуру открывает компактный inspector; администратор может связать/отвязать контур с полем структуры.
-- [ ] M08. Добавить редактирование полного контура поля с undo/cancel и server validation; agronomist пока только читает.
+- [x] M03. Зафиксировать существующую схему карты и выбрать аддитивный контракт хранения без разрушения текущих полей.
+  - Сделано: подготовлены аддитивные revision/import migrations `20260908232606` и `20260909073000`, service-only RLS/DML и атомарный snapshot contract; обе миграции применяются дословно на чистой PGlite, 21/21. В окружения они не применялись.
+- [x] M04. Построить deterministic dry-run matching к `fields`/структуре по нормализованному имени, номеру, площади и пространственной близости.
+  - Сделано: server-side SAX parser и консервативный matcher не доверяют client geometry и не угадывают конфликтные совпадения; matcher 28/28, KML 16/16, STEM golden PASS.
+- [x] M05. Автоматически связать только `high confidence`; ambiguous/no-match оставить в очереди без догадок.
+  - Сделано: review queue требует явного решения для ambiguous/unmatched, поддерживает явный skip и запрещает дублирующую привязку поля; atomic/static import contract 22/22.
+- [x] M06. Добавить global-admin-only API импорта/перепривязки с company scope, optimistic concurrency и audit trail.
+  - Сделано: exact `global_admin`, company advisory lock, map revision CAS, immutable import snapshot и audit реализованы в атомарных RPC; access 125/125, boundary mutations 38/38, PGlite 21/21.
+- [x] M07. На карте: клик по контуру открывает компактный inspector; администратор может связать/отвязать контур с полем структуры.
+  - Сделано: selected-field inspector поддерживает link/relink/unlink и строгий одноразовый restore; write UI доступен только exact `global_admin` при default-off public flag; map UI 11/11.
+- [x] M08. Добавить редактирование полного контура поля с undo/cancel и server validation; agronomist пока только читает.
+  - Сделано: simple Polygon можно перерисовать с keyboard/undo/cancel; MultiPolygon/holes защищены от flattening и направляются в validated KML; сервер повторно валидирует геометрию, agronomist read-only; boundary mutations 38/38.
 - [ ] M09. Импортировать подтверждённые контуры через Preview/QA; перед Product write сохранить fingerprint и dry-run отчёт, после — сверить число/площади/связи.
-- [ ] M10. Оставить расширяемую связь parent field → future plots, но не рисовать и не мигрировать участки в этой волне.
-- [ ] M11. Ортофото/дрон-снимки явно отложены и в этот scope не входят.
+  - Ожидает: migrations не применялись, QA/Preview import не запускался, Product write не выполнялся. Source fingerprint: архив `B5D927B63D16EA15E74CD647C9AF4C1E46715B51C77EA58627E9B3D7B5E9AAA6`, KML `51ABDA21BEB7A0AD276B3AC2AB926E95919F84682F107700E7B302620E619BF2`.
+- [x] M10. Оставить расширяемую связь parent field → future plots, но не рисовать и не мигрировать участки в этой волне.
+  - Сделано: решение зафиксировано — текущий import хранит полный контур поля и не создаёт plot-level UI/миграции; будущие участки добавляются отдельным аддитивным контрактом.
+- [x] M11. Ортофото/дрон-снимки явно отложены и в этот scope не входят.
+  - Сделано: ортофото/дрон-слои исключены из Wave 1; текущий пакет меняет только KML-контуры и их административную привязку.
 
 ## Волны реализации
 
@@ -160,8 +193,10 @@ flowchart LR
 - [x] W0.2. Зафиксировать этот master plan и реестр замечаний.
 - [x] W0.3. Завершить read-only аудит точных компонентов, API, схемы и архива контуров.
   - Проверено: UI/API/auth/schema и STEM KML сопоставлены; противоречие UI/API mutation roles зафиксировано для fail-closed исправления.
-- [ ] W0.4. Сохранить initial screenshots/viewport matrix и измерить loading/layout-shift проблемных экранов.
-- [ ] W0.5. Зафиксировать независимые default-off flags и release matrix.
+- [x] W0.4. Сохранить initial screenshots/viewport matrix и измерить loading/layout-shift проблемных экранов.
+  - Сделано: исходные browser comments/screenshots сохранены; финальная Chromium/WebKit matrix проверила 360×800, 768×1024, 1304×930 и 1440×900. После исправления mobile search overlay: document overflow `0`, dock/inspector overlap `false`.
+- [x] W0.5. Зафиксировать независимые default-off flags и release matrix.
+  - Сделано: реальные data/write flags зафиксированы exact `=== "1"`: `FIELD_BOUNDARY_WRITE_V1`, `NEXT_PUBLIC_FIELD_BOUNDARY_WRITE_V1`, `WAREHOUSE_ORDER_WRITE_V1`, `NEXT_PUBLIC_UI_WAREHOUSE_V2`, `DASHBOARD_DATA_V2`, `NEXT_PUBLIC_DASHBOARD_DATA_V2`, `NEXT_PUBLIC_PTC_BOARD_V2`, `NEXT_PUBLIC_FIELD_HARVEST_LIVE_V2`, `PROFILE_AVATAR_WRITE_V1`, `NEXT_PUBLIC_PROFILE_AVATAR_V1`. Несуществующие surface flags не считаются механизмом отката.
 
 Откат: удалить только ветку/worktree; Product не меняется.
 
@@ -169,82 +204,109 @@ flowchart LR
 
 - [x] W1.1. Добавить scoped surface/motion tokens и глобальную reduced-motion policy без изменения default `Card` всего продукта.
 - [x] W1.2. Пересобрать layout карты: одно рабочее полотно, компактный top dock, контекстный inspector и единый bottom measurement dock.
-- [-] W1.3. Убрать C02/C05 и исправить C01/C03/C04.
-  - Сделано: C01/C03/C04/C05; C02 остаётся в работе в shell-пакете.
-- [ ] W1.4. Реализовать M01–M08 и покрыть parser/matcher/API/role tests.
-- [ ] W1.5. Провести browser QA карты на 360/768/1304/1440 px, keyboard, touch и reduced motion.
+- [x] W1.3. Убрать C02/C05 и исправить C01/C03/C04.
+  - Сделано: C01–C05 закрыты коммитами `63b68b2`, `c43178c` и `c36f9ff`; map UI 11/11, shell 6/6.
+- [x] W1.4. Реализовать M01–M08 и покрыть parser/matcher/API/role tests.
+  - Сделано: server KML/matcher, review queue, atomic import/state/boundary RPC, CAS/audit, inspector и editor готовы; access 125/125, matcher 28/28, KML 16/16, atomic 22/22, boundary 38/38, PGlite 21/21.
+- [x] W1.5. Провести browser QA карты на 360/768/1304/1440 px, keyboard, touch и reduced motion.
+  - Сделано: Chromium и WebKit PASS на 360×800, 768×1024, 1304×930 и 1440×900; overflow/перекрытия `0`, compact targets ≥44×44, `19` + Enter открывает поле и сворачивает поиск, reduced-motion max transition `0,01 ms`, map write requests `[]`. Ограничение: headless touch geometry; физическое устройство не проверено.
 
-Флаги: `NEXT_PUBLIC_UI_SHELL_V2`, `NEXT_PUBLIC_FIELDS_MAP_V2`, server `FIELD_BOUNDARY_WRITE_V1`.
+Data/write flags: `FIELD_BOUNDARY_WRITE_V1`, `NEXT_PUBLIC_FIELD_BOUNDARY_WRITE_V1`. Pure visual map/shell surfaces откатываются предыдущим immutable deployment или точечным revert.
 
-Откат: UI flags off; write endpoint off; nullable/adдитивные поля и импортные строки остаются inert. Перед Product import обязателен отдельный export/fingerprint.
+Откат: оба write flags off; pure visual commit revert/предыдущий immutable deployment; nullable/аддитивные поля и импортные строки остаются inert. Перед Product import обязателен отдельный export/fingerprint.
 
 ### Wave 2 — Operational reliability before visual polish
 
-- [ ] W2.1. C10: retained lot options + stable loading geometry.
-- [ ] W2.2. C11: optimistic close state machine + rollback/retry/idempotency.
-- [ ] W2.3. C14/C17: durable PTC shift history и retained/single-flight dashboard reads.
-- [ ] W2.4. C08/C32: intentional swipe and sticky board headers.
-- [ ] W2.5. Проверить сценарии active weighbridge/PTC без тестовых Product movements.
+- [x] W2.1. C10: retained lot options + stable loading geometry.
+  - Сделано: `49fcd7f`; lot contract 19/19.
+- [x] W2.2. C11: optimistic close state machine + rollback/retry/idempotency.
+  - Сделано: `96a3df7`; close contract 22/22.
+- [x] W2.3. C14/C17: durable PTC shift history и retained/single-flight dashboard reads.
+  - Сделано: `ab0bd95`, `bacafe7`; history 78/78, summary 99/99, dashboard contracts PASS.
+- [x] W2.4. C08/C32: intentional swipe and sticky board headers.
+  - Сделано: `b77ae26`; compact 739/739, operator 131/131, Chromium/WebKit 322/322 и breakdown 312/312.
+- [x] W2.5. Проверить сценарии active weighbridge/PTC без тестовых Product movements.
+  - Сделано: contract/browser проверки выполнены локально и read-only относительно Product; Product tickets/ledger/PTC не изменялись.
 
-Флаги: `NEXT_PUBLIC_WEIGHBRIDGE_UX_V2`, `NEXT_PUBLIC_DASHBOARD_DATA_V2`, `NEXT_PUBLIC_PTC_BOARD_V2`.
+Data/capability flags: `DASHBOARD_DATA_V2`, `NEXT_PUBLIC_DASHBOARD_DATA_V2`, `NEXT_PUBLIC_PTC_BOARD_V2`. Отдельного weighbridge surface flag нет.
 
-Откат: flags off + предыдущий immutable deployment; schema changes только additive и игнорируются старым кодом.
+Откат: реальные data/capability flags off; визуальные weighbridge/PTC/dashboard commits — предыдущий immutable deployment или точечный revert; schema changes только additive.
 
 ### Wave 3 — Operational visual redesign and field truth
 
-- [ ] W3.1. C12/C13: visual/information redesign всех режимов весовой поверх уже проверенных контрактов.
-- [ ] W3.2. C07/C09: unified PTC shell and state motion.
-- [ ] W3.3. C15: каноническая projection принятой массы и урожайности в поле.
-- [ ] W3.4. C16: новый field/crop-structure editor.
-- [ ] W3.5. C27/C28: единая композиция `Сводки`.
+- [x] W3.1. C12/C13: visual/information redesign всех режимов весовой поверх уже проверенных контрактов.
+  - Сделано: `4135e99`, `34000ab`; hierarchy/visual contracts 18/18.
+- [x] W3.2. C07/C09: unified PTC shell and state motion.
+  - Сделано: `b77ae26`; compact 739/739, operator 131/131.
+- [x] W3.3. C15: каноническая projection принятой массы и урожайности в поле.
+  - Сделано: `02d05f4`, fail-closed в `3e15435`; field harvest 13/13.
+- [x] W3.4. C16: новый field/crop-structure editor.
+  - Сделано: `9602748`; crop dialog 30/30, optional seed 20/20.
+- [x] W3.5. C27/C28: единая композиция `Сводки`.
+  - Сделано: `bacafe7`; dashboard scoped contracts и TypeScript PASS.
 
-Откат: независимые UI flags; никаких откатов бухгалтерских данных.
+Data flag: `NEXT_PUBLIC_FIELD_HARVEST_LIVE_V2`. Pure visual surfaces откатываются предыдущим immutable deployment/точечным revert; бухгалтерские данные не откатываются.
 
 ### Wave 4 — Warehouses, platform, references, profile
 
-- [ ] W4.1. C22/C29/C30/C31: flatten warehouse cards and truthful copy.
-- [ ] W4.2. C06: additive `display_order` + атомарный reorder API + accessible DnD.
-- [ ] W4.3. C18/C19: accessible clickable company list first.
-- [ ] W4.4. C20/C21: machinery subnav and normalized smart search.
-- [ ] W4.5. C23/C24: private profile media contract, upload/replace/delete and header avatar.
-- [ ] W4.6. C25/C26: opt-in logo angle after visual QA и compact impersonation control с явной ролью/возвратом.
+- [x] W4.1. C22/C29/C30/C31: flatten warehouse cards and truthful copy.
+  - Сделано: `eb6c3a0`; cards 23/23, agronomist 36/36.
+- [x] W4.2. C06: additive `display_order` + атомарный reorder API + accessible DnD.
+  - Сделано: `658a649`; warehouse order 32/32.
+- [x] W4.3. C18/C19: accessible clickable company list first.
+  - Сделано: `673780f`; platform 8/8, TZ246 62/62.
+- [x] W4.4. C20/C21: machinery subnav and normalized smart search.
+  - Сделано: `11c7fc5`; references scoped QA и TypeScript PASS.
+- [x] W4.5. C23/C24: private profile media contract, upload/replace/delete and header avatar.
+  - Сделано: `7e0af84`, fail-closed в `3e15435`; avatar 31/31.
+- [x] W4.6. C25/C26: opt-in logo angle after visual QA и compact impersonation control с явной ролью/возвратом.
+  - Сделано: `4bd0c82`, `c43178c`; mark clearance 6,7 px, shell 6/6.
 
-Флаги: `NEXT_PUBLIC_UI_WAREHOUSE_V2`, `WAREHOUSE_ORDER_WRITE_V1`, `NEXT_PUBLIC_UI_PLATFORM_V2`, `NEXT_PUBLIC_UI_REFERENCES_V2`, `NEXT_PUBLIC_PROFILE_AVATAR_V1`, `PROFILE_AVATAR_WRITE_V1`, `NEXT_PUBLIC_UI_SHELL_V2`.
+Data/write flags: `WAREHOUSE_ORDER_WRITE_V1`, `NEXT_PUBLIC_UI_WAREHOUSE_V2`, `NEXT_PUBLIC_PROFILE_AVATAR_V1`, `PROFILE_AVATAR_WRITE_V1`. Отдельных platform/references/shell/logo surface flags нет.
 
-Откат: отключение конкретного surface flag; write endpoints off; nullable DB fields/private bucket не удалять аварийно.
+Откат: write endpoints off; pure visual commits — предыдущий immutable deployment/точечный revert; nullable DB fields/private bucket не удалять аварийно.
 
 ### Wave 5 — Full-story QA and rollout
 
-- [ ] W5.1. TypeScript, scoped ESLint, unit/contract suites и production build.
-- [ ] W5.2. Role matrix: global_admin, company_admin, agronomist, fleet manager, weighman, warehouse operator, harvester.
-- [ ] W5.3. Browser matrix: desktop/tablet/mobile, touch/keyboard, slow network, reload/back/forward, two tabs, reduced motion.
-- [ ] W5.4. Data fingerprints: tickets/ledger/batches/warehouses/field boundaries before and after соответствующих волн.
+- [x] W5.1. TypeScript, scoped ESLint, unit/contract suites и production build.
+  - Сделано: post-fix TypeScript, scoped ESLint, diff-check и production build PASS; все изменённые поверхности прошли свои contract/browser suites. Сборка выполнялась при всех новых data/write flags=`0`; сохранились только известные warnings `realtime-js`, optional `bufferutil`/`utf-8-validate` и Browserslist.
+- [x] W5.2. Role matrix: global_admin, company_admin, agronomist, fleet manager, weighman, warehouse operator, harvester.
+  - Сделано: локальные access/role contracts пройдены для карты, склада, профиля, crop structure, PTC и весовой; точный runtime role smoke остаётся частью W5.5 на восстановленной QA-среде.
+- [-] W5.3. Browser matrix: desktop/tablet/mobile, touch/keyboard, slow network, reload/back/forward, two tabs, reduced motion.
+  - Сделано: PTC Chromium/WebKit 322/322 и breakdown 312/312; карта Chromium/WebKit на четырёх viewport, keyboard и reduced-motion PASS; two-tab stale write сценарии карты покрыты PGlite. Preview slow-network/reload/back-forward и физическое touch-устройство остаются после восстановления QA.
+- [-] W5.4. Data fingerprints: tickets/ledger/batches/warehouses/field boundaries before and after соответствующих волн.
+  - Сделано: исходные ticket/ledger и STEM archive/KML fingerprints сохранены; post-import fingerprints невозможны до отдельного M09/Preview write.
 - [ ] W5.5. Preview deployment на точный SHA; permanent QA only after slot/env confirmation.
 - [ ] W5.6. Release one wave at a time: fresh fast-forward proof → immutable Production build → alias → health/log/browser smoke.
 - [ ] W5.7. Обновить этот журнал, CURRENT_HANDOFF и отправить один terminal signal только при настоящей финальной границе.
 
-## Предварительная разбивка на коммиты
+## Фактический реестр коммитов
 
-1. `docs(travkinflow-2): add master delivery plan`
-2. `feat(ui): add scoped agrarian surfaces and reduced-motion policy`
-3. `refactor(fields-map): introduce uncluttered workspace layout`
-4. `feat(fields-map): add validated boundary import and match queue`
-5. `feat(fields-map): add admin contour inspector and linking`
-6. `fix(weighbridge): retain lot data and eliminate form layout shift`
-7. `fix(weighbridge): add optimistic close rollback state machine`
-8. `fix(dashboard): retain summaries and persist closed shift history`
-9. `feat(ptc): refine swipe, sticky lanes and state motion`
-10. `refactor(operations-ui): unify weighbridge, PTC and summary surfaces`
-11. `feat(fields): add canonical live harvest and yield projection`
-12. `refactor(crop-structure): simplify field structure editor`
-13. `refactor(warehouses): flatten cards and correct stock copy`
-14. `feat(warehouses): add atomic accessible ordering`
-15. `refactor(platform): promote accessible clickable company list`
-16. `feat(references): add machinery navigation and smart search`
-17. `feat(profile-media): add private avatar storage and guarded API`
-18. `feat(profile): add avatar UI and opt-in logo mark angle`
-19. `refactor(auth-ui): add compact safe impersonation control`
-20. `test(travkinflow-2): add visual, role and full-story gates`
+1. `36f5500` — `docs(travkinflow-2): add master delivery plan`.
+2. `63b68b2` — `feat(fields-map): unify responsive map workspace`.
+3. `eb6c3a0` — `refactor(warehouses): clarify cards and stock counts`.
+4. `673780f` — `refactor(platform): make company chooser primary`.
+5. `4a59b56` — `docs(travkinflow-2): record first implementation wave`.
+6. `c43178c` — `refactor(shell): compact company and impersonation context`.
+7. `11c7fc5` — `feat(references): add categorized smart fleet search`.
+8. `7e0af84` — `feat(profile): add private sanitized avatars`.
+9. `bacafe7` — `refactor(dashboard): stabilize operational summary`.
+10. `49fcd7f` — `fix(weighbridge): retain stable harvest lot options`.
+11. `96a3df7` — `fix(weighbridge): reconcile ticket closure safely`.
+12. `02d05f4` — `feat(crop-structure): add reconciled field harvest live data`.
+13. `4135e99` — `refactor(weighbridge): clarify operational workspace`.
+14. `658a649` — `feat(warehouses): add safe card ordering`.
+15. `ab0bd95` — `feat(ptc): add bounded closed shift history`.
+16. `9602748` — `refactor(crop-structure): simplify field editor`.
+17. `b77ae26` — `feat(ptc): unify board motion and operator shell`.
+18. `34000ab` — `refactor(weighbridge): flatten operational surfaces`.
+19. `3e15435` — `chore(rollout): fail close new data surfaces`.
+20. `4bd0c82` — `refactor(brand): refine sidebar mark angle`.
+21. `c36f9ff` — `feat(fields-map): add validated boundary workflows`.
+
+Closeout master plan хранится следующим отдельным коммитом; его точный SHA всегда берётся из `git rev-parse HEAD`, чтобы журнал не содержал невозможную самоссылку на собственный hash.
+
+Validated boundary package зафиксирован в `c36f9ff`. Обе новые map migrations остаются неприменёнными во всех окружениях; следующий кодовый коммит допускается только для подтверждённого QA/rollout corrective, если он понадобится.
 
 Коммиты можно объединять только если они остаются независимо проверяемыми и откатываемыми. Стадирование всегда выборочное; `git add .` запрещён.
 
@@ -268,8 +330,8 @@ flowchart LR
 ## Открытые решения, которые можно принять без остановки владельца
 
 - `Группы остатков`: по аудиту это смесь harvest lots и material identity groups. По умолчанию показывать раздельно `N партий · M материалов`; если данных для разделения нет — `N позиций`.
-- Поворот логотипа: сделать opt-in prototype; оставить только если sidebar/header/mobile/login visual QA проходит без clipping и выглядит взросло.
-- Автоматическая привязка контуров: порог high-confidence задаётся после статистики архива; ниже порога никогда не угадывать.
+- Поворот логотипа: принят угол 32° только для sidebar mark; wordmark/login не менять, при визуальной регрессии откатывать `4bd0c82`.
+- Автоматическая привязка контуров: принят консервативный deterministic matcher; ambiguous/unmatched всегда требуют явного решения, ниже high-confidence не угадывать.
 - Порядок релиза: сначала визуальные read-only изменения, затем query/state stability, затем отдельные write-capabilities.
 
 ## Журнал рубежей
@@ -277,5 +339,9 @@ flowchart LR
 - 2026-09-09 — P0 duplicate storno завершён; 43 / 254 260 кг подтверждены.
 - 2026-09-09 — коммиты `63b68b2`, `eb6c3a0`, `673780f`; карта 7/7, platform 8/8 + 62/62, warehouse 22/22 + 13/13 + 48/48 + 13/13 + 27/27; TypeScript PASS.
 - 2026-09-09 — STEM preflight запретил blind import: 130 source features на 99 полей, overlap/parent-subplot review обязателен; Product map writes 0.
+- 2026-09-09 — UI/operations waves закрыты коммитами `c43178c`…`4bd0c82`: все C01–C32 имеют реализацию и scoped evidence; новые data/write surfaces fail-closed.
+- 2026-09-09 — map boundary package M03–M08 локально готов: access 125/125, matcher 28/28, KML 16/16, atomic 22/22, boundary 38/38, map UI 11/11, PGlite 21/21, TypeScript PASS. Миграции/import/deploy не запускались.
+- 2026-09-09 — browser matrix после P1 corrective: Chromium/WebKit PASS на 360/768/1304/1440; overflow/overlap `0`, compact targets ≥44 px, keyboard/reduced-motion PASS. Коммит карты `c36f9ff`.
+- 2026-09-09 — реализация 100%; post-fix TypeScript/ESLint/diff-check/build и все scoped suites PASS. M09, Preview и Product rollout не запускались: отдельный QA Supabase сейчас не live-verified/недоступен, Product не подменяет QA.
 - 2026-09-09 — Product/Git baseline `3274331e7180`; создан `codex/travkinflow-2`.
-- 2026-09-09 — master plan создан; реализация ещё не начиналась.
+- 2026-09-09 — master plan создан (`36f5500`), первый журнал реализации — `4a59b56`.
