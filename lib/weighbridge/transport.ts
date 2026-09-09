@@ -133,8 +133,8 @@ function canonicalTransportName(transport: TransportIdentityInput) {
 export function resolveTransportIdentity(transport: TransportIdentityInput): TransportIdentity {
   const name = canonicalTransportName(transport);
   const rawPlate = [transport.plate, transport.plate_number, transport.license_plate]
-    .find((value) => cleanTransportPart(value));
-  const plate = isRealVehiclePlate(rawPlate) ? formatVehiclePlate(rawPlate) : "";
+    .find((value) => isRealVehiclePlate(value));
+  const plate = rawPlate ? formatVehiclePlate(rawPlate) : "";
   const rawSearchTerms = [
     transport.name,
     transport.customName,
