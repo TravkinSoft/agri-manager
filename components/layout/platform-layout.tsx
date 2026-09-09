@@ -150,19 +150,19 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
   const selectedCompany = runtimeStatus?.companies.selected || null;
 
   return (
-    <div className="min-h-screen bg-[#e8ebef] text-[#111827]">
-      <header className="border-b border-[#061329] bg-[#0b1f3a] text-slate-100 shadow-[0_1px_0_rgba(255,255,255,0.08)_inset]">
+    <div className="tf-manor-shell min-h-screen">
+      <header className="tf-manor-topbar border-b text-[#F8F0E2] shadow-[0_8px_28px_rgba(43,29,19,0.16)]">
         <div className="flex min-h-10 flex-col gap-2 px-3 py-2 text-[11px] sm:flex-row sm:items-center sm:justify-between sm:px-4">
           <div className="flex min-w-0 flex-wrap items-center gap-3">
             <TravkinLogo size="mobile" />
             <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.18em]">
               ГЛОБАЛЬНАЯ КОНСОЛЬ
             </span>
-            <span className="border border-slate-400/30 bg-white/5 px-2 py-0.5 font-mono uppercase text-slate-300">
+            <span className="border border-[#B98939]/35 bg-[#F8F0E2]/5 px-2 py-0.5 font-mono uppercase text-[#D8C8AC]">
               внутренний доступ администратора
             </span>
           </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-2 font-mono text-[10px] uppercase text-slate-300">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 font-mono text-[10px] uppercase text-[#D8C8AC]">
             <span className="border border-slate-400/25 px-2 py-0.5">env:{environment}</span>
             <span className="border border-slate-400/25 px-2 py-0.5">db:{database}</span>
             <span className="border border-slate-400/25 px-2 py-0.5">branch:{branch}</span>
@@ -186,16 +186,16 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
           : "Компания не выбрана. Сначала выберите компанию на главной странице платформы."}
       </div>
       <div className="grid w-full grid-cols-1 gap-3 px-3 py-3 sm:px-4 lg:grid-cols-[268px_minmax(0,1fr)]">
-        <aside className="h-fit border border-[#9aa8ba] bg-[#f6f7f9] shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
-          <div className="border-b border-[#9aa8ba] bg-[#d7dde6] px-2 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-[#18324f]">
+        <aside className="tf-manor-panel h-fit overflow-hidden rounded-xl">
+          <div className="border-b border-[color:var(--manor-line)] bg-[var(--manor-paper-recessed)] px-3 py-2 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--manor-espresso)]">
             Дерево консоли
           </div>
           <div className="space-y-2 p-2">
           {NAV_GROUPS.map((group) => {
             const GroupIcon = group.icon;
             return (
-              <div key={group.titleKey} className="border border-[#c3ccd8] bg-white">
-                <div className="flex items-center gap-2 border-b border-[#c3ccd8] bg-[#eef1f5] px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[#42566f]">
+              <div key={group.titleKey} className="overflow-hidden rounded-lg border border-[color:var(--manor-line)] bg-[var(--manor-paper-raised)]">
+                <div className="flex items-center gap-2 border-b border-[color:var(--manor-line)] bg-[var(--manor-paper-recessed)] px-2 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[color:var(--manor-text-muted)]">
                   <GroupIcon className="h-3.5 w-3.5" />
                   {group.title || t(group.titleKey)}
                 </div>
@@ -209,11 +209,11 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
                         className={cn(
                           "grid grid-cols-[58px_minmax(0,1fr)] items-center border-l-2 px-2 py-1 text-[12px] leading-5",
                           active
-                            ? "border-[#163d68] bg-[#dfe7f1] font-semibold text-[#0c2544]"
-                            : "border-transparent text-[#243247] hover:bg-[#f1f4f8]",
+                            ? "border-[#536B32] bg-[#E8D6AE]/60 font-semibold text-[#31251C]"
+                            : "border-transparent text-[#49392C] hover:bg-[#EDE4D4]",
                         )}
                       >
-                        <span className="font-mono text-[10px] text-[#69788d]">{item.code || "NODE"}</span>
+                        <span className="font-mono text-[10px] text-[color:var(--manor-text-muted)]">{item.code || "NODE"}</span>
                         <span className="truncate">├ {item.labelKey ? t(item.labelKey) : item.label}</span>
                       </Link>
                     );
@@ -222,8 +222,8 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
               </div>
             );
           })}
-          <div className="border border-[#c3ccd8] bg-[#fbfcfd] p-2 text-[11px] leading-5 text-[#42566f]">
-            <div className="flex items-center gap-1 font-mono font-semibold uppercase text-[#18324f]">
+          <div className="rounded-lg border border-[color:var(--manor-line)] bg-[var(--manor-paper-recessed)]/65 p-2 text-[11px] leading-5 text-[color:var(--manor-text-muted)]">
+            <div className="flex items-center gap-1 font-mono font-semibold uppercase text-[color:var(--manor-espresso)]">
               <Settings className="h-3.5 w-3.5" />
               Системные заметки
             </div>
@@ -239,14 +239,14 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
           <Button
             variant="outline"
             onClick={() => router.push("/dashboard")}
-            className="h-8 w-full justify-start gap-2 rounded-none border-[#9aa8ba] bg-[#eef1f5] px-2 text-[12px] text-[#10243d] hover:bg-white"
+            className="tf-manor-control h-10 w-full justify-start gap-2 border-[color:var(--manor-line)] bg-[var(--manor-paper-raised)] px-2 text-[12px] text-[color:var(--manor-olive-deep)] hover:bg-[var(--manor-brass-soft)]"
           >
             <ArrowLeftRight className="h-3.5 w-3.5" />
             {t("enter_company_context")}
           </Button>
           </div>
         </aside>
-        <main className="min-w-0 border border-[#9aa8ba] bg-[#f3f4f6] p-3 shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+        <main className="tf-manor-panel min-w-0 rounded-xl p-3 sm:p-5">
           {children}
         </main>
       </div>

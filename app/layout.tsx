@@ -15,11 +15,11 @@ export const metadata: Metadata = {
   description: 'Operational AI-native platform for fields, operations, weighbridge, warehouses, ledger and harvest flow',
   metadataBase,
   manifest: '/manifest.webmanifest',
-  themeColor: '#e0b100',
+  themeColor: '#f7f1e7',
   appleWebApp: {
     capable: true,
     title: 'TravkinFlow',
-    statusBarStyle: 'black-translucent',
+    statusBarStyle: 'default',
   },
   icons: {
     icon: [
@@ -58,8 +58,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ru">
-      <body className={inter.className}>
+    <html lang="ru" data-theme="warm-manor">
+      <body className={`${inter.className} tf-manor`}>
         <PublicAwareProviders>
           {children}
           <OfflineRuntime />

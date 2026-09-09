@@ -144,13 +144,13 @@ export function Sidebar() {
   return (
     <div
       className={cn(
-        "flex h-full flex-col border-r border-[#262D3D] bg-[#11151E] text-[#F3F4F6] transition-all duration-300 ease-in-out",
+        "tf-manor-sidebar flex h-full flex-col border-r text-[#F8F0E2] transition-all duration-150 ease-out",
         isCollapsed ? "w-16" : "w-64"
       )}
     >
       <div
         className={cn(
-          "flex h-16 items-center border-b border-[#262D3D] transition-all duration-300",
+          "flex h-16 items-center border-b border-[#B98939]/25 transition-all duration-150",
           isCollapsed ? "justify-center px-0" : "px-4"
         )}
       >
@@ -161,7 +161,7 @@ export function Sidebar() {
         <TooltipProvider delayDuration={0}>
           {navigation.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href;
+            const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
             const label = t(item.labelKey);
             const linkContent = (
               <Link
@@ -169,17 +169,17 @@ export function Sidebar() {
                 href={item.href}
                 prefetch={["/weighbridge", "/warehouses", "/ledger"].includes(item.href) ? true : undefined}
                 className={cn(
-                  "flex items-center rounded-lg text-sm font-medium transition-all duration-200",
+                  "tf-manor-control flex min-h-11 items-center rounded-lg text-sm font-medium",
                   isCollapsed ? "justify-center px-3 py-2" : "gap-3 px-3 py-2",
                   isActive
-                    ? "bg-[#E0B100] text-[#111827] shadow-[0_0_0_1px_rgba(224,177,0,0.25)]"
-                    : "text-[#C7CDD8] hover:bg-[#202738] hover:text-[#F3F4F6]"
+                    ? "bg-gradient-to-r from-[#F2D48A] to-[#E5BE67] text-[#2B1D13] shadow-[0_0_0_1px_rgba(185,137,57,0.38),0_8px_20px_rgba(19,12,7,0.16)]"
+                    : "text-[#DED2C1] hover:bg-[#F8F0E2]/10 hover:text-white"
                 )}
               >
                 <Icon className="h-5 w-5 flex-shrink-0" />
                 <span
                   className={cn(
-                    "overflow-hidden whitespace-nowrap transition-all duration-300",
+                    "overflow-hidden whitespace-nowrap transition-all duration-150",
                     isCollapsed ? "w-0 opacity-0" : "w-auto opacity-100"
                   )}
                 >
@@ -209,7 +209,7 @@ export function Sidebar() {
       ) : null}
 
       {!isCollapsed ? (
-        <div className="border-t border-[#262D3D] px-4 py-3 text-[11px] text-[#7F8A9B]">
+        <div className="border-t border-[#B98939]/25 px-4 py-3 text-[11px] text-[#BDAE98]">
           Copyright © Сунгатов Айымбек
         </div>
       ) : null}

@@ -162,7 +162,7 @@ export function MobileBottomNav() {
   if (items.length === 0) return null;
 
   return (
-    <nav className="fixed inset-x-3 bottom-3 z-40 rounded-[22px] border border-white/10 bg-[#101520]/92 px-2 py-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] shadow-[0_18px_45px_rgba(0,0,0,0.5)] backdrop-blur-xl md:hidden">
+    <nav className="tf-manor-topbar fixed inset-x-3 bottom-3 z-40 rounded-[22px] border px-2 py-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] shadow-[0_18px_42px_rgba(43,29,19,0.3)] md:hidden">
       <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
         {items.map((item) => {
           const Icon = item.icon;
@@ -177,10 +177,10 @@ export function MobileBottomNav() {
                 onClick={() => setMoreOpen(true)}
                 aria-label={label}
                 className={cn(
-                  "relative flex min-h-12 flex-col items-center justify-center rounded-2xl px-1 py-1 text-[10px] font-medium",
+                  "tf-manor-control relative flex min-h-12 flex-col items-center justify-center rounded-2xl px-1 py-1 text-[10px] font-medium",
                   moreOpen
-                    ? "bg-white/[0.07] text-[#E0B100]"
-                    : "text-[#A9B2C2] hover:bg-[#202738] hover:text-[#F3F4F6]"
+                    ? "bg-[#F2D48A] text-[#2B1D13]"
+                    : "text-[#D8C8AC] hover:bg-[#F8F0E2]/10 hover:text-white"
                 )}
               >
                 <Icon className="mb-1 h-4 w-4" />
@@ -195,13 +195,13 @@ export function MobileBottomNav() {
               href={item.href || "/dashboard"}
               aria-label={label}
               className={cn(
-                "relative flex min-h-12 flex-col items-center justify-center rounded-2xl px-1 py-1 text-[10px] font-medium",
+                "tf-manor-control relative flex min-h-12 flex-col items-center justify-center rounded-2xl px-1 py-1 text-[10px] font-medium",
                 active
-                  ? "bg-white/[0.07] text-[#E0B100]"
-                  : "text-[#A9B2C2] hover:bg-[#202738] hover:text-[#F3F4F6]"
+                  ? "bg-[#F2D48A] text-[#2B1D13]"
+                  : "text-[#D8C8AC] hover:bg-[#F8F0E2]/10 hover:text-white"
               )}
             >
-              {active ? <span className="absolute top-1 h-1 w-4 rounded-full bg-[#E0B100]" /> : null}
+              {active ? <span className="absolute top-1 h-1 w-4 rounded-full bg-[#536B32]" /> : null}
               <Icon className="mb-1 h-4 w-4" />
               <span className="line-clamp-2 max-w-full text-center leading-3">{label}</span>
             </Link>
@@ -209,9 +209,9 @@ export function MobileBottomNav() {
         })}
       </div>
       <Dialog open={moreOpen} onOpenChange={setMoreOpen}>
-        <DialogContent className="!bottom-0 !left-0 !top-auto !w-full !max-w-none !translate-x-0 !translate-y-0 rounded-t-2xl border-[#2A3345] bg-[#101520] px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] pt-5 md:hidden">
+        <DialogContent className="!bottom-0 !left-0 !top-auto !w-full !max-w-none !translate-x-0 !translate-y-0 rounded-t-2xl border-[color:var(--manor-line)] bg-[var(--manor-paper-raised)] px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] pt-5 text-[color:var(--manor-walnut)] shadow-manor-md md:hidden">
           <DialogHeader>
-            <DialogTitle className="text-left text-base text-[#F3F4F6]">{t("mobile_more")}</DialogTitle>
+            <DialogTitle className="tf-manor-heading text-left text-xl">{t("mobile_more")}</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-2">
             {moreItems.map((item) => {
@@ -223,10 +223,10 @@ export function MobileBottomNav() {
                   href={item.href || "/dashboard"}
                   onClick={() => setMoreOpen(false)}
                   className={cn(
-                    "flex min-h-14 items-center gap-3 rounded-lg border border-[#2A3345] px-3 py-2 text-sm font-medium",
+                    "tf-manor-control flex min-h-14 items-center gap-3 rounded-lg border px-3 py-2 text-sm font-medium",
                     isActivePath(pathname, item.href)
-                      ? "border-[#E0B100]/60 bg-[#E0B100]/10 text-[#E0B100]"
-                      : "bg-[#151C29] text-[#E4E7EC]"
+                      ? "border-[#B98939]/65 bg-[#E8D6AE] text-[#3A281B]"
+                      : "border-[color:var(--manor-line)] bg-[var(--manor-paper)] text-[color:var(--manor-walnut)] hover:bg-[var(--manor-paper-recessed)]"
                   )}
                 >
                   <Icon className="h-5 w-5 shrink-0" />

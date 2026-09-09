@@ -14,7 +14,7 @@ export function LanguageSwitcher() {
   ];
 
   return (
-    <div className="flex items-center gap-0.5 rounded-xl bg-[#0B0F17]/60 p-0.5">
+    <div className="flex items-center gap-0.5 rounded-xl border border-[#B98939]/25 bg-[#3A281B]/72 p-0.5">
       {languages.map((lang) => (
         <Button
           key={lang.code}
@@ -22,7 +22,7 @@ export function LanguageSwitcher() {
           size="sm"
           onClick={() => setLanguage(lang.code)}
           aria-label={lang.label}
-          className="h-8 min-w-8 rounded-lg px-2 text-xs font-medium"
+          className="tf-manor-control h-8 min-w-8 rounded-lg px-2 text-xs font-medium"
         >
           {lang.label}
         </Button>

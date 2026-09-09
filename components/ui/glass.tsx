@@ -4,7 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const glassBase =
-  "border border-white/10 bg-[#111827]/72 shadow-[0_18px_60px_rgba(0,0,0,0.24)] backdrop-blur-xl";
+  "tf-manor-panel border-border bg-card/90 shadow-manor-sm backdrop-blur-sm";
 
 function GlassPanel({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn(glassBase, "rounded-lg", className)} {...props} />;
@@ -19,16 +19,16 @@ function GlassSidebar({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
 }
 
 function GlassCard({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("rounded-lg border border-white/10 bg-white/[0.035] backdrop-blur-md", className)} {...props} />;
+  return <div className={cn("rounded-lg border border-border bg-card/80 shadow-manor-sm", className)} {...props} />;
 }
 
 const statusToneClasses = {
-  neutral: "border-white/10 bg-white/8 text-[#D7DEEA]",
-  success: "border-emerald-300/20 bg-emerald-400/12 text-emerald-200",
-  warning: "border-amber-300/25 bg-amber-400/12 text-amber-100",
-  danger: "border-red-300/25 bg-red-400/12 text-red-200",
-  accent: "border-[#E0B100]/35 bg-[#E0B100]/14 text-[#FDE68A]",
-  muted: "border-slate-400/15 bg-slate-400/10 text-slate-300",
+  neutral: "border-border bg-muted text-foreground",
+  success: "border-emerald-700/25 bg-emerald-50 text-emerald-900",
+  warning: "border-amber-700/25 bg-amber-50 text-amber-900",
+  danger: "border-red-700/25 bg-red-50 text-red-900",
+  accent: "border-[#B98939]/40 bg-[#E8D6AE]/65 text-[#3A281B]",
+  muted: "border-border bg-secondary text-muted-foreground",
 } as const;
 
 type StatusTone = keyof typeof statusToneClasses;
@@ -62,12 +62,12 @@ function CompactStat({
   className?: string;
 }) {
   return (
-    <div className={cn("rounded-lg bg-white/[0.045] px-3 py-2", className)}>
-      <div className="flex items-center gap-2 text-[11px] font-medium uppercase text-[#93A4B8]">
-        {Icon ? <Icon className="h-3.5 w-3.5 text-[#E0B100]" /> : null}
+    <div className={cn("rounded-lg border border-border/70 bg-muted/65 px-3 py-2", className)}>
+      <div className="flex items-center gap-2 text-[11px] font-medium uppercase text-muted-foreground">
+        {Icon ? <Icon className="h-3.5 w-3.5 text-primary" /> : null}
         {label}
       </div>
-      <div className="mt-1 text-sm font-semibold text-[#F8FAFC]">{value}</div>
+      <div className="tf-manor-data mt-1 text-sm font-semibold text-foreground">{value}</div>
     </div>
   );
 }
@@ -76,7 +76,7 @@ function EntityListItem({ className, ...props }: React.ButtonHTMLAttributes<HTML
   return (
     <button
       className={cn(
-        "w-full rounded-lg border border-white/8 bg-white/[0.035] px-3 py-3 text-left transition hover:border-white/18 hover:bg-white/[0.055]",
+        "tf-manor-control w-full rounded-lg border border-border bg-card px-3 py-3 text-left text-foreground shadow-manor-sm hover:border-[#B98939]/50 hover:bg-accent/45",
         className
       )}
       {...props}
@@ -88,7 +88,7 @@ function EmptyState({ className, ...props }: React.HTMLAttributes<HTMLDivElement
   return (
     <div
       className={cn(
-        "rounded-lg border border-dashed border-white/12 bg-white/[0.025] px-4 py-6 text-sm text-[#93A4B8]",
+        "rounded-lg border border-dashed border-border bg-muted/45 px-4 py-6 text-sm text-muted-foreground",
         className
       )}
       {...props}

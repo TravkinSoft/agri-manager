@@ -65,12 +65,12 @@ export function TravkinLogo({
         <span
           aria-hidden="true"
           className={cn(
-            "flex min-w-0 items-baseline whitespace-nowrap font-semibold leading-none",
+            "flex min-w-0 items-baseline whitespace-nowrap font-display font-semibold leading-none",
             isLarge ? "text-[32px]" : isMobile ? "text-[20px]" : "text-[22px]"
           )}
         >
-          <span className="text-[#F3F4F6]">Travkin</span>
-          <span className="text-[#E0B100]">Flow</span>
+          <span className="text-[#F8F0E2]">Travkin</span>
+          <span className="text-[#D2A852]">Flow</span>
         </span>
       ) : null}
     </div>

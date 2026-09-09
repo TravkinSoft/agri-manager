@@ -110,15 +110,15 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <AssistantShellProvider>
-        <div className={`travkin-shell flex bg-transparent ${isTraffic ? "h-[100dvh] min-h-0 overflow-hidden md:h-screen" : "min-h-screen"}`}>
+        <div className={`travkin-shell tf-manor-shell flex ${isTraffic ? "h-[100dvh] min-h-0 overflow-hidden md:h-screen" : "min-h-screen"}`}>
           <div className="hidden md:flex md:h-screen md:shrink-0">
             <Sidebar />
           </div>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <Header />
-            <main className={`travkin-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] bg-transparent p-3 sm:p-4 md:p-6 ${profile?.role === "fleet_manager" ? "pb-[calc(env(safe-area-inset-bottom)+1rem)]" : "pb-[calc(env(safe-area-inset-bottom)+6.25rem)] sm:pb-[calc(env(safe-area-inset-bottom)+6.25rem)] md:pb-6"}`}>
+            <main className={`travkin-scrollbar tf-manor-workspace min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] p-3 sm:p-4 md:p-6 ${profile?.role === "fleet_manager" ? "pb-[calc(env(safe-area-inset-bottom)+1rem)]" : "pb-[calc(env(safe-area-inset-bottom)+6.25rem)] sm:pb-[calc(env(safe-area-inset-bottom)+6.25rem)] md:pb-6"}`}>
               {children}
-              <footer className="mt-8 hidden border-t border-[#262D3D] pt-3 text-center text-xs text-[#7F8A9B] md:block">
+              <footer className="mt-8 hidden border-t border-[color:var(--manor-line)] pt-3 text-center text-xs text-[color:var(--manor-text-muted)] md:block">
                 Copyright © Сунгатов Айымбек
               </footer>
             </main>

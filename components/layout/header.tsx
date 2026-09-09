@@ -296,12 +296,12 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-[#262D3D] bg-[#11151E]/95 px-3 backdrop-blur md:h-16 md:px-6">
+    <header className="tf-manor-topbar sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b px-3 shadow-[0_8px_26px_rgba(43,29,19,0.14)] md:h-16 md:px-6">
       <Button
         variant="ghost"
         size="icon"
         onClick={toggleSidebar}
-        className="hidden text-[#F3F4F6] hover:bg-[#202738] hover:text-[#F3F4F6] md:inline-flex"
+        className="tf-manor-control hidden text-[#F8F0E2] hover:bg-[#F8F0E2]/10 hover:text-white md:inline-flex"
         aria-label={t("mobile_more")}
       >
         <Menu className="h-5 w-5" />
@@ -309,7 +309,7 @@ export function Header() {
 
       <div className="flex min-w-0 flex-col gap-0.5 md:hidden">
         <TravkinLogo size="mobile" />
-        <div className="max-w-[166px] truncate text-[10px] leading-none text-[#9CA3AF]">
+        <div className="max-w-[166px] truncate text-[10px] leading-none text-[#D8C8AC]">
           {activeCompanyName || (isGlobal ? t("platform_mode") : getRoleLabel(profile?.role))}
         </div>
       </div>
@@ -317,11 +317,11 @@ export function Header() {
       <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-2 md:gap-4">
         {isGlobal ? (
           <div className="hidden min-w-[340px] items-center gap-2 md:flex">
-            <span className="text-xs font-medium text-[#9CA3AF]">
+            <span className="text-xs font-medium text-[#D8C8AC]">
               {activeCompanyId ? t("company_context") : t("platform_mode")}
             </span>
             <Select value={selectedCompanyId} onValueChange={handleSwitchCompany} disabled={switchingCompany}>
-              <SelectTrigger className="h-9 border-[#2C3446] bg-[#1A1F2B] text-[#F3F4F6]">
+              <SelectTrigger className="tf-manor-control h-9 border-[#B98939]/45 bg-[#3A281B]/80 text-[#F8F0E2] focus:ring-[#D2A852]">
                 <SelectValue placeholder={t("select_company")} />
               </SelectTrigger>
               <SelectContent>
@@ -338,14 +338,14 @@ export function Header() {
 
         {canUseUserSwitcher && activeUserCompanyId ? (
           <div className="hidden min-w-[280px] items-center gap-2 lg:flex">
-            <span className="text-xs font-medium text-[#9CA3AF]">Вы как</span>
+            <span className="text-xs font-medium text-[#D8C8AC]">Вы как</span>
             <Select
               key={`${activeUserCompanyId}:${activeUserValue}`}
               value={activeUserValue}
               onValueChange={handleSwitchUser}
               disabled={switchingUser || loadingCompanyUsers}
             >
-              <SelectTrigger className="h-9 border-[#2C3446] bg-[#1A1F2B] text-[#F3F4F6]">
+              <SelectTrigger className="tf-manor-control h-9 border-[#B98939]/45 bg-[#3A281B]/80 text-[#F8F0E2] focus:ring-[#D2A852]">
                 <SelectValue placeholder="Выберите пользователя" />
               </SelectTrigger>
               <SelectContent>
@@ -383,7 +383,7 @@ export function Header() {
             type="button"
             size="sm"
             variant="outline"
-            className="h-9 max-w-[210px] shrink-0 border-amber-500/35 bg-amber-500/10 px-2 text-amber-100 hover:border-amber-400/55 hover:bg-amber-500/15 hover:text-amber-50"
+            className="tf-manor-control h-9 max-w-[210px] shrink-0 border-[#D2A852]/55 bg-[#D2A852]/10 px-2 text-[#F8E7BC] hover:border-[#E1BC69] hover:bg-[#D2A852]/18 hover:text-white"
             onClick={() => void handleSwitchUser("__admin__")}
             disabled={switchingUser}
             aria-label={`${t("impersonation_as")} ${profile?.full_name || profile?.email || profile?.id}. ${t("return_to_global_admin")}`}
@@ -399,7 +399,7 @@ export function Header() {
         {profile ? (
           <Badge
             variant="outline"
-            className="hidden h-8 max-w-[150px] items-center truncate border-[#384256] bg-[#171d29] px-2.5 text-xs font-medium text-[#CBD5E1] hover:bg-[#171d29] sm:inline-flex"
+            className="hidden h-8 max-w-[150px] items-center truncate border-[#B98939]/35 bg-[#3A281B]/72 px-2.5 text-xs font-medium text-[#E8DCC9] hover:bg-[#3A281B]/90 sm:inline-flex"
             title={user?.email || getRoleLabel(profile.role)}
           >
             {getRoleLabel(profile.role)}
@@ -418,7 +418,7 @@ export function Header() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9 rounded-full p-0 text-[#F3F4F6] hover:bg-[#202738] hover:text-[#F3F4F6]"
+              className="tf-manor-control h-9 w-9 rounded-full p-0 text-[#F8F0E2] hover:bg-[#F8F0E2]/10 hover:text-white"
               aria-label={t("profile_menu")}
               title={t("profile_menu")}
             >
@@ -431,7 +431,7 @@ export function Header() {
               />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56 border-[#2C3446] bg-[#1A1F2B] text-[#F3F4F6]">
+          <DropdownMenuContent align="end" className="w-56 border-[color:var(--manor-line)] bg-[var(--manor-paper-raised)] text-[color:var(--manor-walnut)] shadow-manor-md">
             <DropdownMenuLabel className="md:hidden">Язык</DropdownMenuLabel>
             {profile?.role !== "fleet_manager" && MOBILE_LANGUAGES.map((item) => (
               <DropdownMenuItem
@@ -443,7 +443,7 @@ export function Header() {
                 {language === item.code ? <Check aria-hidden className="h-4 w-4" /> : null}
               </DropdownMenuItem>
             ))}
-            <DropdownMenuSeparator className="bg-[#2C3446] md:hidden" />
+            <DropdownMenuSeparator className="bg-[var(--manor-line)] md:hidden" />
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col space-y-1">
                 <p className="text-sm font-medium leading-none">{user?.email}</p>
@@ -455,13 +455,13 @@ export function Header() {
                 ) : null}
               </div>
             </DropdownMenuLabel>
-            <DropdownMenuSeparator className="bg-[#2C3446]" />
+            <DropdownMenuSeparator className="bg-[var(--manor-line)]" />
             {profile?.role !== "fleet_manager" ? <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
               <SettingsIcon className="mr-2 h-4 w-4" />
               {t("settings_menu")}
             </DropdownMenuItem> : null}
-            <DropdownMenuSeparator className="bg-[#2C3446]" />
-            <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-400 focus:text-red-300">
+            <DropdownMenuSeparator className="bg-[var(--manor-line)]" />
+            <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-700 focus:bg-red-50 focus:text-red-800">
               <LogOut className="mr-2 h-4 w-4" />
               {t("logout")}
             </DropdownMenuItem>
