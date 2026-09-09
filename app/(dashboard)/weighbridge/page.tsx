@@ -5300,7 +5300,7 @@ export default function WeighbridgeOperationsPage() {
       aria-hidden={operatorGateBlocked ? true : undefined}
       className={`mx-auto max-w-[1680px] space-y-2 px-2 pb-4 sm:px-3 ${operatorGateBlocked ? "pointer-events-none select-none blur-sm opacity-35" : ""}`}
     >
-      <header aria-label="Режим весовой" className="rounded-xl bg-[linear-gradient(135deg,rgba(30,41,59,0.92),rgba(15,23,36,0.92))] px-4 py-3 shadow-[0_18px_55px_rgba(2,6,23,0.2)]">
+      <header aria-label="Режим весовой" className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
         <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-800">
