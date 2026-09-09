@@ -38,6 +38,8 @@ const defaultPreferences: NotificationPreferences = {
   proactive_assist_cadence: "events",
 };
 
+const PROFILE_AVATAR_UI_ENABLED = process.env.NEXT_PUBLIC_PROFILE_AVATAR_V1 === "1";
+
 export default function SettingsPage() {
   const { language } = useLanguage();
   const { profile, refreshProfile } = useAuth();
@@ -131,7 +133,7 @@ export default function SettingsPage() {
   const handleAvatarFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] || null;
     event.target.value = "";
-    if (!file || avatarBusy || profile?.is_impersonating) return;
+    if (!PROFILE_AVATAR_UI_ENABLED || !file || avatarBusy || profile?.is_impersonating) return;
     setAvatarBusy(true);
     try {
       const prepared = await prepareProfileAvatarWebp(file);
@@ -159,7 +161,7 @@ export default function SettingsPage() {
   };
 
   const removeAvatar = async () => {
-    if (avatarBusy || profile?.is_impersonating) return;
+    if (!PROFILE_AVATAR_UI_ENABLED || avatarBusy || profile?.is_impersonating) return;
     setAvatarBusy(true);
     try {
       const authorization = await getAuthorization();
@@ -226,7 +228,15 @@ export default function SettingsPage() {
                   <div className="truncate font-medium text-slate-100">{profile?.full_name || profile?.email || "—"}</div>
                   <div className="text-sm text-slate-400">JPEG, PNG или WebP · до 5 МБ · итог до 512×512</div>
                 </div>
-                {profile?.is_impersonating ? (
+                {!PROFILE_AVATAR_UI_ENABLED ? (
+                  <p className="text-sm text-slate-400" role="status">
+                    {t(
+                      "Фото профиля ещё не включено для этой волны.",
+                      "Профиль фотосы бұл кезең үшін әлі қосылмаған.",
+                      "Profile photos are not enabled for this rollout yet."
+                    )}
+                  </p>
+                ) : profile?.is_impersonating ? (
                   <p className="text-sm text-amber-200" role="status">
                     {t(
                       "Вернитесь в Global Admin, чтобы менять собственное фото.",

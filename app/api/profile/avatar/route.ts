@@ -14,6 +14,12 @@ export const runtime = "nodejs";
 
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store, max-age=0" };
 
+function assertWriteEnabled() {
+  if (process.env.PROFILE_AVATAR_WRITE_V1 !== "1") {
+    throw new SessionAuthError("Profile photo changes are temporarily disabled", 503);
+  }
+}
+
 function fail(error: unknown): NextResponse {
   if (error instanceof SessionAuthError) {
     return NextResponse.json({ error: error.message }, { status: error.status, headers: PRIVATE_HEADERS });
@@ -70,6 +76,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   let uploadedPath: string | null = null;
   try {
+    assertWriteEnabled();
     const contentLength = Number(request.headers.get("content-length") || 0);
     if (Number.isFinite(contentLength) && contentLength > PROFILE_AVATAR_MAX_SOURCE_BYTES + 256 * 1024) {
       throw new SessionAuthError("Avatar file is too large", 413);
@@ -123,6 +130,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    assertWriteEnabled();
     const actor = await resolveEditableActor(request);
     const admin = getServiceClient();
     const path = await loadAvatarPath(actor.id);

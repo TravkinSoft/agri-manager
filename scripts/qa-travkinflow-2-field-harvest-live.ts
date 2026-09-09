@@ -185,6 +185,7 @@ const page = readFileSync(
   resolve(process.cwd(), "app/(dashboard)/crop-structure/page.tsx"),
   "utf8"
 );
+const envExample = readFileSync(resolve(process.cwd(), ".env.example"), "utf8");
 
 check("route scopes effective tickets by company, season and field", () => {
   assert.match(route, /\.eq\("company_id", scope\.companyId\)/);
@@ -210,7 +211,8 @@ check("client retains exact-scope data and exposes stale/error states", () => {
 });
 
 check("field modal mounts the projection behind an independently reversible flag", () => {
-  assert.match(page, /NEXT_PUBLIC_FIELD_HARVEST_LIVE_V2/);
+  assert.match(page, /NEXT_PUBLIC_FIELD_HARVEST_LIVE_V2\s*===\s*["']1["']/);
+  assert.match(envExample, /^NEXT_PUBLIC_FIELD_HARVEST_LIVE_V2=0$/m);
   assert.match(page, /<FieldHarvestLive[\s\S]*?companyId=\{activeCompanyId\}[\s\S]*?seasonId=\{seasonId\}[\s\S]*?fieldId=\{selectedField\.id\}/);
 });
 

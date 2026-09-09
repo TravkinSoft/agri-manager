@@ -13,6 +13,8 @@ type ProfileAvatarProps = {
   className?: string;
 };
 
+const PROFILE_AVATAR_UI_ENABLED = process.env.NEXT_PUBLIC_PROFILE_AVATAR_V1 === "1";
+
 function avatarInitials(fullName?: string | null, email?: string | null): string {
   const nameParts = String(fullName || "").trim().split(/\s+/).filter(Boolean);
   if (nameParts.length > 0) {
@@ -27,7 +29,7 @@ export function ProfileAvatar({ profileId, fullName, email, version, className }
   const initials = useMemo(() => avatarInitials(fullName, email), [email, fullName]);
 
   useEffect(() => {
-    if (!profileId) {
+    if (!PROFILE_AVATAR_UI_ENABLED || !profileId) {
       setAvatarUrl(null);
       return;
     }

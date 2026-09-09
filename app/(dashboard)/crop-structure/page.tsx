@@ -217,7 +217,7 @@ const CROP_STRUCTURE_VIEW_KEY = "travkinflow.cropStructure.viewMode";
 const FIELD_FIRST_CREATE_ENABLED =
   process.env.NEXT_PUBLIC_OPERATIONS_FIELD_FIRST_CREATE !== "0" &&
   process.env.OPERATIONS_FIELD_FIRST_CREATE !== "0";
-const FIELD_HARVEST_LIVE_ENABLED = process.env.NEXT_PUBLIC_FIELD_HARVEST_LIVE_V2 !== "0";
+const FIELD_HARVEST_LIVE_ENABLED = process.env.NEXT_PUBLIC_FIELD_HARVEST_LIVE_V2 === "1";
 
 const stageDefs: Array<{ key: StageKey; label: string; operations: string[] }> = [
   { key: "prep", label: "Подготовка", operations: ["preparation", "tillage", "cultivation", "plowing", "other"] },

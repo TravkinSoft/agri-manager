@@ -51,6 +51,7 @@ assert.deepEqual(calculateSquareCrop(1200, 800), {
 });
 
 const route = read("app/api/profile/avatar/route.ts");
+assert.match(route, /PROFILE_AVATAR_WRITE_V1\s*!==\s*["']1["']/);
 assert.match(route, /effectiveActor\.isImpersonating/);
 assert.match(route, /ignoreImpersonation: true/);
 assert.match(route, /candidate\.type !== "image\/webp"/);
@@ -66,6 +67,7 @@ assert.match(migration, /'profile-media'[\s\S]*false[\s\S]*array\['image\/webp'\
 assert.doesNotMatch(migration, /create policy/i);
 
 const settings = read("app/(dashboard)/settings/page.tsx");
+assert.match(settings, /NEXT_PUBLIC_PROFILE_AVATAR_V1\s*===\s*["']1["']/);
 assert.match(settings, /prepareProfileAvatarWebp/);
 assert.match(settings, /profile\?\.is_impersonating/);
 assert.match(settings, /method: "DELETE"/);
@@ -74,4 +76,12 @@ const header = read("components/layout/header.tsx");
 assert.match(header, /<ProfileAvatar/);
 assert.match(header, /version=\{profile\?\.avatar_updated_at\}/);
 
-console.log("TRAVKINFLOW 2 PROFILE AVATAR: 25/25 PASS");
+const avatar = read("components/profile/profile-avatar.tsx");
+assert.match(avatar, /NEXT_PUBLIC_PROFILE_AVATAR_V1\s*===\s*["']1["']/);
+assert.match(avatar, /!PROFILE_AVATAR_UI_ENABLED\s*\|\|\s*!profileId/);
+
+const envExample = read(".env.example");
+assert.match(envExample, /^PROFILE_AVATAR_WRITE_V1=0$/m);
+assert.match(envExample, /^NEXT_PUBLIC_PROFILE_AVATAR_V1=0$/m);
+
+console.log("TRAVKINFLOW 2 PROFILE AVATAR: 31/31 PASS");
