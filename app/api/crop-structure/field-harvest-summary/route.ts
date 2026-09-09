@@ -86,6 +86,9 @@ async function loadLedgerEntries(
 
 export async function GET(request: NextRequest) {
   try {
+    if (process.env.FIELD_HARVEST_LIVE_V2 !== "1") {
+      throw new SessionAuthError("Field harvest summary is temporarily disabled", 404);
+    }
     const actor = await getServerActorFromSession(request);
     if (!READ_ALLOWED_ROLES.has(actor.role)) {
       throw new SessionAuthError("Current role cannot view field harvest", 403);

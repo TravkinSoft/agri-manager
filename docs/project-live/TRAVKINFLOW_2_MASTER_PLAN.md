@@ -4,15 +4,15 @@
 
 ## Текущая точка восстановления
 
-- Статус программы: `РЕАЛИЗАЦИЯ ЗАВЕРШЕНА / РЕЛИЗ НЕ НАЧАТ / POST-UPDATE AUDIT ЗАПЛАНИРОВАН`.
-- Общий прогресс: `100% реализации / 0% релизных волн / 0% финального аудита`.
+- Статус программы: `РЕАЛИЗАЦИЯ ЗАВЕРШЕНА / PREVIEW PREFLIGHT ВЫПОЛНЯЕТСЯ / PRODUCT РЕЛИЗ НЕ НАЧАТ / POST-UPDATE AUDIT ЗАПЛАНИРОВАН`.
+- Общий прогресс: `100% реализации / первый immutable Preview проверен / 0% Product-релизных волн / 0% финального аудита`.
 - Worktree: `C:\Users\TRAVKIN\Downloads\CodecSaaS\.worktrees\travkinflow-2`.
 - Ветка: `codex/travkinflow-2`.
 - База ветки: `3274331e7180252dd0f740222f6c4d15e4d20ebd`.
 - На момент старта `origin/master`, GitHub и Product health совпадали на `3274331e7180`.
-- Реализация зафиксирована 21 независимо проверяемым коммитом от `36f5500` до `c36f9ff`; closeout-журнал хранится в `d1bb983`, обязательный post-update audit — в `5125e64`, дальнейшие QA/release рубежи фиксируются отдельными journal-коммитами.
-- Последний рубеж: validated boundary import/match/relink/edit package карты зафиксирован отдельным коммитом `c36f9ff`; post-fix browser matrix, scoped gates и production build прошли.
-- Следующий безопасный шаг: завершить schema-drift/env preflight доступной изолированной Supabase branch DB `gsglkmudcwkdetqtocae`, затем развернуть точный кандидат в Preview и выполнить M09. Branch live-доступна для read-only schema/SQL, но `get_project` неприменим к ней как к standalone project; её migration history и физическая схема расходятся с Product, поэтому blind rebase/db push запрещены. Product `bhsemlvmkikpntabctml` не используется как замена QA.
+- Реализация и журнал зафиксированы 22 независимо проверяемыми коммитами от `36f5500` до `d86af53`; обязательный post-update audit добавлен в `5125e64`, QA drift preflight — в `d86af53`. Следующий corrective checkpoint пока не закоммичен и не развёрнут.
+- Последний локальный рубеж: исправлены effective-actor access dashboard при impersonation, безопасная сортировка видимых складов с сохранением скрытых QA-строк и независимый server-side gate live harvest; corrective review дал GO (P0/P1/P2 = 0). Три field-map `SECURITY DEFINER` RPC усилены пустым `search_path`; static 22/22 и PGlite 21/21 PASS.
+- Следующий безопасный шаг: завершить physical prerequisite matrix и восстановить в изолированной QA branch `gsglkmudcwkdetqtocae` точную PTC-цепочку перед пятью TF2 migrations. В QA отсутствуют `ptc_last_vehicle_*`, `ptc_combine_shift*`, `ptc_combine_operator_status*` и зависимые RPC, поэтому применение только TF2 index завершится ошибкой. Blind rebase/db push, подмена Product и маскировка отсутствующей таблицы через `IF EXISTS` запрещены. После этого — новый immutable Preview точного corrective SHA, доказательство client/server QA binding и только затем M09.
 - Production rollout: `НЕ НАЧАТ`; каждую волну выкладывать отдельно после Preview/QA и свежей проверки Product.
 
 Если работа прерывается P0-задачей, продолжать с первого незакрытого чекбокса ниже. После каждого существенного рубежа обновлять этот раздел, а под выполненным пунктом писать краткое `Сделано` и доказательство проверки.
@@ -167,7 +167,7 @@ flowchart LR
 - [x] M02. Провести геометрический preflight: Polygon/MultiPolygon, замыкание колец, self-intersections, пустые геометрии, дубли, bbox хозяйства и расчёт площади.
   - Сделано: 939 замкнутых колец, bbox `69.802157..70.316471 / 53.487527..53.919218`, обнаружены дубли/вложения; слепая сумма площадей запрещена.
 - [x] M03. Зафиксировать существующую схему карты и выбрать аддитивный контракт хранения без разрушения текущих полей.
-  - Сделано: подготовлены аддитивные revision/import migrations `20260908232606` и `20260909073000`, service-only RLS/DML и атомарный snapshot contract; обе миграции применяются дословно на чистой PGlite, 21/21. В окружения они не применялись.
+  - Сделано: подготовлены аддитивные revision/import migrations `20260908232606` и `20260909073000`, service-only RLS/DML и атомарный snapshot contract; три `SECURITY DEFINER` RPC используют пустой `search_path`, все persistent references квалифицированы. Обе миграции применяются дословно на чистой PGlite, 21/21. В окружения они не применялись.
 - [x] M04. Построить deterministic dry-run matching к `fields`/структуре по нормализованному имени, номеру, площади и пространственной близости.
   - Сделано: server-side SAX parser и консервативный matcher не доверяют client geometry и не угадывают конфликтные совпадения; matcher 28/28, KML 16/16, STEM golden PASS.
 - [x] M05. Автоматически связать только `high confidence`; ambiguous/no-match оставить в очереди без догадок.
@@ -196,7 +196,7 @@ flowchart LR
 - [x] W0.4. Сохранить initial screenshots/viewport matrix и измерить loading/layout-shift проблемных экранов.
   - Сделано: исходные browser comments/screenshots сохранены; финальная Chromium/WebKit matrix проверила 360×800, 768×1024, 1304×930 и 1440×900. После исправления mobile search overlay: document overflow `0`, dock/inspector overlap `false`.
 - [x] W0.5. Зафиксировать независимые default-off flags и release matrix.
-  - Сделано: реальные data/write flags зафиксированы exact `=== "1"`: `FIELD_BOUNDARY_WRITE_V1`, `NEXT_PUBLIC_FIELD_BOUNDARY_WRITE_V1`, `WAREHOUSE_ORDER_WRITE_V1`, `NEXT_PUBLIC_UI_WAREHOUSE_V2`, `DASHBOARD_DATA_V2`, `NEXT_PUBLIC_DASHBOARD_DATA_V2`, `NEXT_PUBLIC_PTC_BOARD_V2`, `NEXT_PUBLIC_FIELD_HARVEST_LIVE_V2`, `PROFILE_AVATAR_WRITE_V1`, `NEXT_PUBLIC_PROFILE_AVATAR_V1`. Несуществующие surface flags не считаются механизмом отката.
+  - Сделано: реальные data/write flags зафиксированы exact `=== "1"`: `FIELD_BOUNDARY_WRITE_V1`, `NEXT_PUBLIC_FIELD_BOUNDARY_WRITE_V1`, `WAREHOUSE_ORDER_WRITE_V1`, `NEXT_PUBLIC_UI_WAREHOUSE_V2`, `DASHBOARD_DATA_V2`, `NEXT_PUBLIC_DASHBOARD_DATA_V2`, `NEXT_PUBLIC_PTC_BOARD_V2`, `FIELD_HARVEST_LIVE_V2`, `NEXT_PUBLIC_FIELD_HARVEST_LIVE_V2`, `PROFILE_AVATAR_WRITE_V1`, `NEXT_PUBLIC_PROFILE_AVATAR_V1`. Несуществующие surface flags не считаются механизмом отката.
 
 Откат: удалить только ветку/worktree; Product не меняется.
 
@@ -269,7 +269,7 @@ Data/write flags: `WAREHOUSE_ORDER_WRITE_V1`, `NEXT_PUBLIC_UI_WAREHOUSE_V2`, `NE
 ### Wave 5 — Full-story QA and rollout
 
 - [x] W5.1. TypeScript, scoped ESLint, unit/contract suites и production build.
-  - Сделано: post-fix TypeScript, scoped ESLint, diff-check и production build PASS; все изменённые поверхности прошли свои contract/browser suites. Сборка выполнялась при всех новых data/write flags=`0`; сохранились только известные warnings `realtime-js`, optional `bufferutil`/`utf-8-validate` и Browserslist.
+  - Сделано: post-corrective TypeScript, scoped ESLint, diff-check и production build PASS; warehouse 37/37 + 22 + 23, PTC 104 + 83 + 45, field harvest 13/13, field-map atomic/PGlite 22/22 + 21/21. Сборка выполнялась при всех новых data/write flags=`0` и подтверждённых QA env, загруженных только в память процесса; сохранились лишь известные warnings `realtime-js`, optional `bufferutil`/`utf-8-validate` и Browserslist.
 - [x] W5.2. Role matrix: global_admin, company_admin, agronomist, fleet manager, weighman, warehouse operator, harvester.
   - Сделано: локальные access/role contracts пройдены для карты, склада, профиля, crop structure, PTC и весовой; точный runtime role smoke остаётся частью W5.5 на восстановленной QA-среде.
 - [-] W5.3. Browser matrix: desktop/tablet/mobile, touch/keyboard, slow network, reload/back/forward, two tabs, reduced motion.
@@ -277,7 +277,7 @@ Data/write flags: `WAREHOUSE_ORDER_WRITE_V1`, `NEXT_PUBLIC_UI_WAREHOUSE_V2`, `NE
 - [-] W5.4. Data fingerprints: tickets/ledger/batches/warehouses/field boundaries before and after соответствующих волн.
   - Сделано: исходные ticket/ledger и STEM archive/KML fingerprints сохранены; post-import fingerprints невозможны до отдельного M09/Preview write.
 - [-] W5.5. Preview deployment на точный SHA; permanent QA only after slot/env confirmation.
-  - Сделано: `qa.travkinflow.com` live отвечает 200 на старом Preview `dpl_HJUC…` / `f3ea4e6`; Supabase branch DB `gsglkmudcwkdetqtocae` снова live-доступна для read-only schema/SQL. Текущий `5125e64` там не развёрнут; точная Vercel env binding, schema alignment и runtime accounts ещё не подтверждены.
+  - Сделано: immutable Preview `dpl_EV6fwXmJrvfmbAa5wrLoovwtzw93` (`agri-manager-nqu03jxbr-travkin-ais-projects.vercel.app`) READY на точном `d86af53`, без alias. Client bundle доказанно связан с QA `gsglkmudcwkdetqtocae`; server/service-role binding ещё не доказан. Постоянный `qa.travkinflow.com` сохранён на старом `dpl_HJUC…` / `f3ea4e6`, corrected working tree туда не развёрнут. QA physical schema не соответствует текущим PTC routes, поэтому alias/migrations заблокированы до точечного prerequisite recovery.
 - [ ] W5.6. Release one wave at a time: fresh fast-forward proof → immutable Production build → alias → health/log/browser smoke.
 - [ ] W5.7. После W6.8 обновить этот журнал, CURRENT_HANDOFF и отправить один terminal signal только при настоящей финальной границе.
 
@@ -353,6 +353,10 @@ Validated boundary package зафиксирован в `c36f9ff`. Обе нов�
 
 ## Журнал рубежей
 
+- 2026-09-09 — pre-release corrective: dashboard теперь учитывает effective impersonated agronomist, warehouse reorder сохраняет позиции скрытых QA-складов, live harvest защищён отдельным server flag. Независимый review GO, P0/P1/P2=0; targeted suites 37/37, 22, 23, 104/104, 83/83, 45/45 и 13/13, TypeScript/ESLint/diff-check/production build PASS. Corrective commit/Preview ещё не созданы.
+- 2026-09-09 — field-map atomic RPC усилены `search_path=''`; static contract 22/22, PGlite 21/21 и независимый review GO. Удалённые БД не изменялись.
+- 2026-09-09 — immutable Preview `dpl_EV6fwXmJrvfmbAa5wrLoovwtzw93` READY на `d86af53`, alias отсутствует; client Supabase binding соответствует QA branch. Server binding остаётся неподтверждённым, permanent QA/Product не переключались.
+- 2026-09-09 — physical QA audit обнаружил отсутствующую PTC prerequisite schema: без точечного восстановления цепочки 7–8 сентября текущие summary/history/operator routes дадут 500, а TF2 index migration — `42P01`. Blind push/rebase и ложный `IF EXISTS` PASS запрещены.
 - 2026-09-09 — QA Supabase branch `gsglkmudcwkdetqtocae` повторно обнаружена и live-доступна для read-only schema/SQL; `qa.travkinflow.com` пока указывает на старый Preview `f3ea4e6`. Зафиксирован обязательный schema-drift/env preflight; blind rebase/db push запрещены. Логический цикл W5.7↔W6 устранён: W5.7 выполняется после W6.8.
 - 2026-09-09 — по прямому требованию владельца добавлен обязательный Wave 6: после выполнения всего плана провести отдельный causal bug/regression/data/performance audit обновления; без этого программа не считается окончательно завершённой.
 

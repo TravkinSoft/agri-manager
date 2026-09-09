@@ -127,6 +127,21 @@ export async function manager(request: NextRequest) {
   });
   return { actor, companyId };
 }
+export async function dashboardAgronomist(request: NextRequest) {
+  const actor = await getServerActorFromSession(request, {
+    skipCache: true,
+  });
+  if (actor.role !== "agronomist")
+    throw new TrafficError("Итоги смен доступны только агроному", 403);
+  const companyId = resolveCompanyForActor(actor);
+  await assertActorAccess({
+    supabase: getServiceClient(),
+    actorUserId: actor.id,
+    companyId,
+    allowedRoles: ["agronomist"],
+  });
+  return { actor, companyId };
+}
 export async function fleetManager(request: NextRequest) {
   const actor = await getServerActorFromSession(request, {
     ignoreImpersonation: true,

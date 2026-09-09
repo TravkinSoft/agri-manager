@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
+import vm from "node:vm";
+import ts from "typescript";
+import { rowHasQaDataMarker } from "../lib/utils/qa-data";
 import {
+  WAREHOUSE_ORDER_MAX_ITEMS,
   compareWarehouseDisplayOrder,
+  mergeVisibleWarehouseOrder,
   moveWarehouseId,
   moveWarehouseIdByOffset,
   reconcileWarehouseOrder,
@@ -20,12 +26,36 @@ const helpers = read("app/api/warehouses/_helpers.ts");
 const types = read("lib/types/warehouse.ts");
 const migration = read("supabase/migrations/20260908215514_warehouse_display_order_v1.sql");
 const envExample = read(".env.example");
+const localRequire = createRequire(import.meta.url);
 
 let checks = 0;
 function check(name: string, fn: () => void) {
   fn();
   checks += 1;
   console.log(`PASS ${checks}: ${name}`);
+}
+
+async function checkAsync(name: string, fn: () => Promise<void>) {
+  await fn();
+  checks += 1;
+  console.log(`PASS ${checks}: ${name}`);
+}
+
+function loadCommonJs(source: string, dependencies: Record<string, unknown>) {
+  const output = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText;
+  const loaded = { exports: {} as Record<string, any> };
+  vm.runInNewContext(output, {
+    exports: loaded.exports,
+    module: loaded,
+    process: { env: { WAREHOUSE_ORDER_WRITE_V1: "1" } },
+    require: (name: string) => dependencies[name] ?? localRequire(name),
+  });
+  return loaded.exports;
 }
 
 check("display order sorts before the legacy fallback", () => {
@@ -53,6 +83,34 @@ check("keyboard offset respects list boundaries", () => {
 });
 check("live list reconciliation drops archived ids and appends new active ids", () => {
   assert.deepEqual(reconcileWarehouseOrder(["b", "removed", "a"], ["a", "b", "new"]), ["b", "a", "new"]);
+});
+check("server expands a visible reorder without moving hidden QA warehouses", () => {
+  assert.deepEqual(
+    mergeVisibleWarehouseOrder(
+      ["visible-a", "qa-hidden-a", "visible-b", "qa-hidden-b"],
+      ["visible-a", "visible-b"],
+      ["visible-b", "visible-a"],
+    ),
+    ["visible-b", "qa-hidden-a", "visible-a", "qa-hidden-b"],
+  );
+});
+check("server rejects a stale or out-of-scope visible reorder", () => {
+  assert.equal(
+    mergeVisibleWarehouseOrder(
+      ["visible-a", "qa-hidden", "visible-b"],
+      ["visible-a", "visible-b"],
+      ["visible-a"],
+    ),
+    null,
+  );
+  assert.equal(
+    mergeVisibleWarehouseOrder(
+      ["visible-a", "qa-hidden", "visible-b"],
+      ["visible-a", "visible-b"],
+      ["visible-a", "other-company"],
+    ),
+    null,
+  );
 });
 check("optimistic display order touches only requested active ids", () => {
   assert.deepEqual(withWarehouseDisplayOrder([
@@ -119,7 +177,7 @@ check("scope changes invalidate stale save responses", () => {
   assert.match(page, /reorderSaveGeneration\.current \+= 1/);
   assert.match(page, /reorderSaveGeneration\.current !== saveGeneration/);
 });
-check("client service sends one authenticated PATCH with the complete order", () => {
+check("client service sends one authenticated PATCH with the complete visible order", () => {
   assert.match(service, /export async function reorderWarehouses/);
   assert.match(service, /fetch\("\/api\/warehouses\/reorder"/);
   assert.match(service, /method: "PATCH"/);
@@ -138,6 +196,13 @@ check("write API resolves trusted actor and company scope", () => {
 check("write API authorizes only warehouse entity admins", () => {
   assert.match(route, /allowedRoles: \[\.\.\.WAREHOUSE_ENTITY_WRITE_ROLES\]/);
 });
+check("write API expands the exact visible company set with hidden QA rows before RPC", () => {
+  assert.match(route, /\.from\("warehouses"\)[\s\S]*?\.eq\("company_id", companyId\)/);
+  assert.match(route, /!warehouse\.archived && !warehouse\.is_archived/);
+  assert.match(route, /rowHasQaDataMarker\([\s\S]*?\["name", "description", "warehouse_type"\]/);
+  assert.match(route, /mergeVisibleWarehouseOrder\([\s\S]*?activeWarehouses\.map/);
+  assert.match(route, /if \(!completeWarehouseIds[\s\S]*?, 409\)/);
+});
 check("write API rejects malformed and duplicate ids before RPC", () => {
   assert.match(route, /UUID_PATTERN\.test\(warehouseId\)/);
   assert.match(route, /new Set\(warehouseIds\)\.size !== warehouseIds\.length/);
@@ -145,12 +210,139 @@ check("write API rejects malformed and duplicate ids before RPC", () => {
 check("write API invokes one service-role atomic RPC", () => {
   assert.match(route, /getServiceClient\(\)/);
   assert.match(route, /\.rpc\("reorder_warehouses_atomic_v1"/);
+  assert.match(route, /p_warehouse_ids: completeWarehouseIds/);
   assert.doesNotMatch(route, /\.from\("warehouses"\)\.update/);
+});
+check("write API never exposes hidden warehouse ids in its response", () => {
+  assert.match(route, /visibleWarehouseIdSet\.has/);
+  assert.match(route, /warehouses: visibleResultWarehouses/);
 });
 check("write API maps stale sets to a conflict response", () => {
   assert.match(route, /code === "40001"/);
   assert.match(route, /status.*409|, 409\)/);
 });
+
+async function runRouteIntegration() {
+  await checkAsync("PATCH expands hidden QA rows atomically and sanitizes its response", async () => {
+  const companyId = "10000000-0000-4000-8000-000000000001";
+  const foreignCompanyId = "10000000-0000-4000-8000-000000000002";
+  const visibleA = "20000000-0000-4000-8000-000000000001";
+  const hiddenByName = "20000000-0000-4000-8000-000000000002";
+  const visibleB = "20000000-0000-4000-8000-000000000003";
+  const hiddenByDescription = "20000000-0000-4000-8000-000000000004";
+  const hiddenByType = "20000000-0000-4000-8000-000000000005";
+  const archivedQa = "20000000-0000-4000-8000-000000000006";
+  const foreignWarehouse = "20000000-0000-4000-8000-000000000007";
+  const rows = [
+    { id: visibleA, company_id: companyId, name: "А", display_order: 1, archived: false, is_archived: false },
+    { id: hiddenByName, company_id: companyId, name: "QA_TEST_2026", display_order: 2, archived: false, is_archived: false },
+    { id: visibleB, company_id: companyId, name: "Б", display_order: 3, archived: false, is_archived: false },
+    { id: hiddenByDescription, company_id: companyId, name: "В", description: "qacodex", display_order: 4, archived: false, is_archived: false },
+    { id: hiddenByType, company_id: companyId, name: "Г", warehouse_type: "E2E_TZ_999", display_order: 5, archived: false, is_archived: false },
+    { id: archivedQa, company_id: companyId, name: "QA_TEST archived", display_order: 6, archived: true, is_archived: true },
+    { id: foreignWarehouse, company_id: foreignCompanyId, name: "Чужой", display_order: 1, archived: false, is_archived: false },
+  ];
+  const rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  let accessChecks = 0;
+  const serviceClient = {
+    from(table: string) {
+      assert.equal(table, "warehouses");
+      const filters: Array<(row: typeof rows[number]) => boolean> = [];
+      const query: any = {
+        select: () => query,
+        eq: (column: keyof typeof rows[number], value: unknown) => {
+          filters.push((row) => row[column] === value);
+          return query;
+        },
+        then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) => Promise.resolve({
+          data: rows.filter((row) => filters.every((filter) => filter(row))),
+          error: null,
+        }).then(resolve, reject),
+      };
+      return query;
+    },
+    async rpc(name: string, args: Record<string, unknown>) {
+      rpcCalls.push({ name, args });
+      const ids = args.p_warehouse_ids as string[];
+      return {
+        data: {
+          companyId,
+          updatedCount: ids.length,
+          warehouses: ids.map((id, index) => ({ id, displayOrder: index + 1 })),
+        },
+        error: null,
+      };
+    },
+  };
+  class SessionAuthError extends Error {
+    status = 401;
+  }
+  const api = loadCommonJs(route, {
+    "next/server": {
+      NextResponse: {
+        json: (body: unknown, init: { status?: number } = {}) => ({ body, status: init.status || 200 }),
+      },
+    },
+    "@/app/api/warehouses/_helpers": {
+      WAREHOUSE_ENTITY_WRITE_ROLES: ["company_admin", "global_admin"],
+      normalizeWarehouseRow: (row: typeof rows[number]) => ({
+        ...row,
+        id: String(row.id),
+        name: String(row.name || "Склад"),
+        warehouse_type: row.warehouse_type ?? null,
+        description: row.description ?? null,
+        display_order: row.display_order ?? null,
+        archived: row.archived === true,
+        is_archived: row.is_archived === true,
+      }),
+      warehouseVisibleToRole: () => true,
+    },
+    "@/lib/auth/server-acl": {
+      assertActorAccess: async () => { accessChecks += 1; },
+    },
+    "@/lib/auth/server-session": {
+      SessionAuthError,
+      getServerActorFromSession: async () => ({ id: "actor", role: "company_admin" }),
+      resolveCompanyForActor: (_actor: unknown, requestedCompanyId: string | null) => requestedCompanyId || companyId,
+    },
+    "@/lib/supabase/service": { getServiceClient: () => serviceClient },
+    "@/lib/utils/qa-data": { rowHasQaDataMarker },
+    "@/lib/warehouse/warehouse-order": {
+      WAREHOUSE_ORDER_MAX_ITEMS,
+      compareWarehouseDisplayOrder,
+      mergeVisibleWarehouseOrder,
+    },
+  });
+
+  const success = await api.PATCH({
+    json: async () => ({ companyId, warehouseIds: [visibleB, visibleA] }),
+  });
+  assert.equal(success.status, 200);
+  assert.equal(accessChecks, 1);
+  assert.equal(rpcCalls.length, 1);
+  assert.equal(rpcCalls[0].name, "reorder_warehouses_atomic_v1");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(rpcCalls[0].args.p_warehouse_ids)),
+    [visibleB, hiddenByName, visibleA, hiddenByDescription, hiddenByType],
+  );
+  const successBody = JSON.parse(JSON.stringify(success.body));
+  assert.deepEqual(
+    successBody.result.warehouses.map((warehouse: { id: string }) => warehouse.id),
+    [visibleB, visibleA],
+  );
+  assert.equal(JSON.stringify(successBody).includes(hiddenByName), false);
+  assert.equal(JSON.stringify(successBody).includes(hiddenByDescription), false);
+  assert.equal(JSON.stringify(successBody).includes(hiddenByType), false);
+  assert.equal(JSON.stringify(rpcCalls[0].args).includes(archivedQa), false);
+  assert.equal(JSON.stringify(rpcCalls[0].args).includes(foreignWarehouse), false);
+
+  const stale = await api.PATCH({
+    json: async () => ({ companyId, warehouseIds: [visibleA] }),
+  });
+  assert.equal(stale.status, 409);
+  assert.equal(rpcCalls.length, 1);
+  });
+}
 
 check("migration is additive and nullable", () => {
   assert.match(migration, /add column if not exists display_order integer/);
@@ -191,4 +383,9 @@ check("RPC catches an active-set change before commit", () => {
   assert.match(migration, /raise exception 'WAREHOUSE_ORDER_CONFLICT' using errcode = '40001'/);
 });
 
-console.log(`TravkinFlow 2 warehouse ordering regression PASS: ${checks}/${checks}`);
+void runRouteIntegration()
+  .then(() => console.log(`TravkinFlow 2 warehouse ordering regression PASS: ${checks}/${checks}`))
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });

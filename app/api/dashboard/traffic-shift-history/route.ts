@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { failed, manager, noStore, TrafficError } from "@/lib/traffic/server";
+import { dashboardAgronomist, failed, noStore, TrafficError } from "@/lib/traffic/server";
 import {
   readClosedTrafficShiftHistoryPage,
   readClosedTrafficShiftSummaryById,
@@ -25,9 +25,7 @@ export async function GET(request: NextRequest) {
   try {
     if (process.env.DASHBOARD_DATA_V2 !== "1")
       throw new TrafficError("История смен пока не включена", 404);
-    const { actor, companyId } = await manager(request);
-    if (actor.role !== "agronomist")
-      throw new TrafficError("История смен доступна только агроному", 403);
+    const { companyId } = await dashboardAgronomist(request);
 
     const shiftId = request.nextUrl.searchParams.get("shiftId");
     if (shiftId) {

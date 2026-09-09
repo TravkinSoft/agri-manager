@@ -211,7 +211,9 @@ check("client retains exact-scope data and exposes stale/error states", () => {
 });
 
 check("field modal mounts the projection behind an independently reversible flag", () => {
+  assert.match(route, /process\.env\.FIELD_HARVEST_LIVE_V2\s*!==\s*["']1["']/);
   assert.match(page, /NEXT_PUBLIC_FIELD_HARVEST_LIVE_V2\s*===\s*["']1["']/);
+  assert.match(envExample, /^FIELD_HARVEST_LIVE_V2=0$/m);
   assert.match(envExample, /^NEXT_PUBLIC_FIELD_HARVEST_LIVE_V2=0$/m);
   assert.match(page, /<FieldHarvestLive[\s\S]*?companyId=\{activeCompanyId\}[\s\S]*?seasonId=\{seasonId\}[\s\S]*?fieldId=\{selectedField\.id\}/);
 });

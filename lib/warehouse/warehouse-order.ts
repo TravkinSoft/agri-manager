@@ -69,6 +69,34 @@ export function reconcileWarehouseOrder(
   return [...retained, ...availableWarehouseIds.filter((warehouseId) => !retainedSet.has(warehouseId))];
 }
 
+export function mergeVisibleWarehouseOrder(
+  activeWarehouseIds: readonly string[],
+  visibleWarehouseIds: readonly string[],
+  requestedVisibleWarehouseIds: readonly string[],
+): string[] | null {
+  const active = new Set(activeWarehouseIds);
+  const visible = new Set(visibleWarehouseIds);
+  const requested = new Set(requestedVisibleWarehouseIds);
+
+  if (
+    active.size !== activeWarehouseIds.length
+    || visible.size !== visibleWarehouseIds.length
+    || requested.size !== requestedVisibleWarehouseIds.length
+    || requested.size !== visible.size
+    || visibleWarehouseIds.some((warehouseId) => !active.has(warehouseId))
+    || requestedVisibleWarehouseIds.some((warehouseId) => !visible.has(warehouseId))
+  ) {
+    return null;
+  }
+
+  let requestedIndex = 0;
+  return activeWarehouseIds.map((warehouseId) => (
+    visible.has(warehouseId)
+      ? requestedVisibleWarehouseIds[requestedIndex++]
+      : warehouseId
+  ));
+}
+
 export function withWarehouseDisplayOrder<T extends WarehouseOrderable>(
   warehouses: readonly T[],
   orderedWarehouseIds: readonly string[],

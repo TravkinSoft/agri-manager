@@ -6,7 +6,7 @@ create or replace function public.get_field_map_snapshot_v1(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, pg_temp
+set search_path = ''
 as $$
 declare
   v_fields jsonb;
@@ -75,7 +75,7 @@ create or replace function public.confirm_field_map_import_v2(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, pg_temp
+set search_path = ''
 as $$
 declare
   v_source_file_name text;
@@ -298,7 +298,7 @@ create or replace function public.set_field_map_import_state_v2(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, pg_temp
+set search_path = ''
 as $$
 declare
   v_status text;

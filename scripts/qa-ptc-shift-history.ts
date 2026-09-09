@@ -311,8 +311,8 @@ async function verifyReconstructionBudgets() {
 }
 
 const route = readFileSync("app/api/dashboard/traffic-shift-history/route.ts", "utf8");
-matches(route, /const \{ actor, companyId \} = await manager\(request\)/);
-matches(route, /actor\.role !== "agronomist"/);
+matches(route, /const \{ companyId \} = await dashboardAgronomist\(request\)/);
+excludes(route, /await manager\(request\)|actor\.role !== "agronomist"/);
 matches(route, /readClosedTrafficShiftHistoryPage\(companyId/);
 matches(route, /readClosedTrafficShiftSummaryById\(companyId, shiftId\)/);
 matches(route, /const MAX_PAGE_SIZE = 25/);
@@ -320,6 +320,17 @@ matches(route, /process\.env\.DASHBOARD_DATA_V2 !== "1"/);
 matches(route, /TrafficShiftReconstructionLimitError[\s\S]*422/);
 excludes(route, /requestedCompany|company_id|companyId\s*:/);
 excludes(route, /\.(?:insert|update|upsert|delete|rpc)\s*\(/);
+
+const trafficServer = readFileSync("lib/traffic/server.ts", "utf8");
+const dashboardAgronomistHelper = trafficServer.slice(
+  trafficServer.indexOf("export async function dashboardAgronomist"),
+  trafficServer.indexOf("export async function fleetManager"),
+);
+matches(dashboardAgronomistHelper, /getServerActorFromSession\(request, \{\s*skipCache: true,\s*\}\)/);
+excludes(dashboardAgronomistHelper, /ignoreImpersonation:\s*true/);
+matches(dashboardAgronomistHelper, /actor\.role !== "agronomist"/);
+matches(dashboardAgronomistHelper, /actorUserId: actor\.id/);
+matches(dashboardAgronomistHelper, /allowedRoles: \["agronomist"\]/);
 
 const server = readFileSync("lib/traffic/shift-summary-server.ts", "utf8");
 matches(server, /const HISTORY_PAGE_SIZE = 10/);

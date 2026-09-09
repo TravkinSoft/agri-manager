@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { WAREHOUSE_ENTITY_WRITE_ROLES } from "@/app/api/warehouses/_helpers";
+import {
+  WAREHOUSE_ENTITY_WRITE_ROLES,
+  normalizeWarehouseRow,
+  warehouseVisibleToRole,
+} from "@/app/api/warehouses/_helpers";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import {
   SessionAuthError,
@@ -7,7 +11,12 @@ import {
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
 import { getServiceClient } from "@/lib/supabase/service";
-import { WAREHOUSE_ORDER_MAX_ITEMS } from "@/lib/warehouse/warehouse-order";
+import { rowHasQaDataMarker } from "@/lib/utils/qa-data";
+import {
+  WAREHOUSE_ORDER_MAX_ITEMS,
+  compareWarehouseDisplayOrder,
+  mergeVisibleWarehouseOrder,
+} from "@/lib/warehouse/warehouse-order";
 
 export const dynamic = "force-dynamic";
 
@@ -47,9 +56,37 @@ export async function PATCH(request: NextRequest) {
       allowedRoles: [...WAREHOUSE_ENTITY_WRITE_ROLES],
     });
 
+    const { data: warehouseRows, error: warehouseRowsError } = await serviceSupabase
+      .from("warehouses")
+      .select("*")
+      .eq("company_id", companyId);
+    if (warehouseRowsError) {
+      return errorResponse("Не удалось проверить актуальный список складов", 500);
+    }
+
+    const activeWarehouses = (warehouseRows || [])
+      .map(normalizeWarehouseRow)
+      .filter((warehouse) => !warehouse.archived && !warehouse.is_archived)
+      .sort(compareWarehouseDisplayOrder);
+    const visibleWarehouseIds = activeWarehouses
+      .filter((warehouse) => warehouseVisibleToRole(warehouse, actor.role))
+      .filter((warehouse) => !rowHasQaDataMarker(
+        warehouse as unknown as Record<string, unknown>,
+        ["name", "description", "warehouse_type"],
+      ))
+      .map((warehouse) => warehouse.id);
+    const completeWarehouseIds = mergeVisibleWarehouseOrder(
+      activeWarehouses.map((warehouse) => warehouse.id),
+      visibleWarehouseIds,
+      warehouseIds,
+    );
+    if (!completeWarehouseIds || completeWarehouseIds.length > WAREHOUSE_ORDER_MAX_ITEMS) {
+      return errorResponse("Список складов изменился. Обновите страницу и повторите.", 409);
+    }
+
     const { data, error } = await serviceSupabase.rpc("reorder_warehouses_atomic_v1", {
       p_company_id: companyId,
-      p_warehouse_ids: warehouseIds,
+      p_warehouse_ids: completeWarehouseIds,
     });
 
     if (error) {
@@ -70,7 +107,25 @@ export async function PATCH(request: NextRequest) {
       return errorResponse("Не удалось сохранить порядок складов", 500);
     }
 
-    return NextResponse.json({ result: data });
+    const visibleWarehouseIdSet = new Set(warehouseIds);
+    const rpcResult = data && typeof data === "object" && !Array.isArray(data)
+      ? data as Record<string, unknown>
+      : {};
+    const visibleResultWarehouses = Array.isArray(rpcResult.warehouses)
+      ? rpcResult.warehouses.filter((warehouse) => (
+        warehouse != null
+        && typeof warehouse === "object"
+        && visibleWarehouseIdSet.has(String((warehouse as Record<string, unknown>).id || ""))
+      ))
+      : [];
+
+    return NextResponse.json({
+      result: {
+        ...rpcResult,
+        updatedCount: warehouseIds.length,
+        warehouses: visibleResultWarehouses,
+      },
+    });
   } catch (error) {
     if (error instanceof SessionAuthError) {
       return errorResponse(error.message, error.status);
