@@ -10,7 +10,9 @@ import {
 import type { FieldMapPreviewMatch, GeoJsonAreaGeometry } from "../lib/types/fields-map";
 
 const root = path.resolve(__dirname, "..");
-const read = (relativePath: string) => fs.readFileSync(path.join(root, relativePath), "utf8");
+const read = (relativePath: string) => fs
+  .readFileSync(path.join(root, relativePath), "utf8")
+  .replace(/\r\n/gu, "\n");
 const geometry: GeoJsonAreaGeometry = {
   type: "Polygon",
   coordinates: [[[69, 54], [69.01, 54], [69.01, 54.01], [69, 54]]],

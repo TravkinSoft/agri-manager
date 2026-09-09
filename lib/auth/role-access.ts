@@ -1,7 +1,6 @@
 import type { AppRole } from "@/lib/auth/roles";
 
 const HIDDEN_PILOT_PREFIXES = [
-  "/fields-map",
   "/map",
   "/land-legal",
   "/care-systems",
@@ -84,7 +83,7 @@ const AGRONOMIST_ALLOWED_PREFIXES = [
   "/auth",
 ];
 
-const AGRONOMIST_ALLOWED_EXACT = ["/warehouses", "/settings", "/traffic"];
+const AGRONOMIST_ALLOWED_EXACT = ["/fields-map", "/warehouses", "/settings", "/traffic"];
 
 const DIRECTOR_ALLOWED_PREFIXES = [
   "/dashboard",

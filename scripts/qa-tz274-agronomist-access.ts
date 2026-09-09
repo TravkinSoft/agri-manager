@@ -31,6 +31,7 @@ check("agronomist can open approved pages", () => {
   assert.equal(canAccessPath("agronomist", "/dashboard"), true);
   assert.equal(canAccessPath("agronomist", "/crop-structure"), true);
   assert.equal(canAccessPath("agronomist", "/weather-lab"), true);
+  assert.equal(canAccessPath("agronomist", "/fields-map"), true);
   assert.equal(canAccessPath("agronomist", "/warehouses"), true);
   assert.equal(canAccessPath("agronomist", "/tickets"), true);
 });
@@ -38,6 +39,9 @@ check("agronomist can open approved pages", () => {
 check("agronomist fields and operations remain hidden", () => {
   assert.equal(canAccessPath("agronomist", "/fields"), false);
   assert.equal(canAccessPath("agronomist", "/operations"), false);
+  assert.equal(canAccessPath("agronomist", "/map"), false);
+  assert.equal(canAccessPath("agronomist", "/fields-map/import"), false);
+  assert.equal(canAccessPath("company_admin", "/fields-map"), false);
 });
 
 check("director receives no structure write route", () => {
@@ -46,12 +50,13 @@ check("director receives no structure write route", () => {
 });
 
 check("desktop menu order matches owner contract", () => {
-  assert.match(sidebar, /const AGRONOMIST_NAV[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?warehouses[\s\S]*?tickets_nav[\s\S]*?weather[\s\S]*?\];/);
+  assert.match(sidebar, /const AGRONOMIST_NAV[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?field_map[\s\S]*?warehouses[\s\S]*?traffic[\s\S]*?weather[\s\S]*?\];/);
   assert.doesNotMatch(sidebar.match(/const AGRONOMIST_NAV[\s\S]*?\];/)?.[0] || "", /labelKey: "fields"|labelKey: "operations"/);
 });
 
-check("mobile menu has all five routes and stable labels", () => {
-  assert.match(mobileNav, /case "agronomist":[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?warehouses[\s\S]*?tickets_nav[\s\S]*?weather/);
+check("mobile menu keeps primary routes and exposes the read-only map through More", () => {
+  assert.match(mobileNav, /case "agronomist":[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?warehouses[\s\S]*?traffic[\s\S]*?MORE_ITEM/);
+  assert.match(mobileNav, /const shared:[\s\S]*?weather[\s\S]*?field_map[\s\S]*?\/fields-map/);
   assert.doesNotMatch(mobileNav, /COPILOT_ITEM|mobile-nav-copilot|canUseAssistantShell/);
   assert.match(mobileNav, /normalizedRole === "agronomist" \? 5 : 4/);
   assert.match(mobileNav, /line-clamp-2/);

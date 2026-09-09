@@ -11,6 +11,7 @@ import {
   canWriteFieldMap,
 } from "../lib/fields-map/access";
 import type { ServerActorContext } from "../lib/auth/server-session";
+import { canAccessPath } from "../lib/auth/role-access";
 
 const READ_ROLES = new Set<CanonicalRole>([
   "global_admin",
@@ -23,7 +24,6 @@ const WRITE_ROLES = new Set<CanonicalRole>([
   "global_admin",
   "company_admin",
   "director",
-  "agronomist",
 ]);
 
 function actorForRole(role: CanonicalRole): ServerActorContext {
@@ -80,6 +80,14 @@ for (const invalidRole of [null, undefined, "", "admin", "unknown"]) {
   assertions += 3;
 }
 
+assert.equal(canAccessPath("global_admin", "/fields-map"), true);
+assert.equal(canAccessPath("agronomist", "/fields-map"), true);
+assert.equal(canAccessPath("agronomist", "/fields-map/import"), false);
+assert.equal(canAccessPath("agronomist", "/map"), false);
+assert.equal(canAccessPath("company_admin", "/fields-map"), false);
+assert.equal(canAccessPath("director", "/fields-map"), false);
+assertions += 6;
+
 for (const legacyGlobalAdminAlias of ["super_admin", "superadmin", "globaladmin"]) {
   const actor = {
     ...actorForRole("global_admin"),
@@ -124,6 +132,15 @@ for (const relativePath of [
 ]) {
   const source = fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
   assert.match(source, /resolveFieldsMapContext\(request, \{ write: false \}\)/u, relativePath);
+  assertions += 1;
+}
+
+for (const relativePath of [
+  "app/api/fields-map/engineering-objects/route.ts",
+  "app/api/fields-map/engineering-objects/[id]/route.ts",
+]) {
+  const source = fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
+  assert.match(source, /resolveFieldsMapContext\([^)]*, \{ write: true \}\)/u, relativePath);
   assertions += 1;
 }
 

@@ -13,7 +13,6 @@ const FIELD_MAP_WRITE_ROLES = new Set([
   "global_admin",
   "company_admin",
   "director",
-  "agronomist",
 ] as const);
 
 const FIELD_MAP_MUTATION_ROLES = new Set(["global_admin"] as const);
