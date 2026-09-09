@@ -1525,6 +1525,19 @@ export function FieldsMapPage() {
         map.addControl(new maplibre.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-right");
         applyBaseLayerVisibility(map, selectedBaseLayerRef.current);
 
+        const minimizeCompactAttribution = (event?: { sourceDataType?: string }) => {
+          if (event?.sourceDataType && !["metadata", "visibility"].includes(event.sourceDataType)) return;
+          window.requestAnimationFrame(() => {
+            if (cancelled) return;
+            const attribution = map
+              .getContainer()
+              .querySelector<HTMLDetailsElement>(".maplibregl-ctrl-attrib.maplibregl-compact");
+            if (!attribution?.classList.contains("maplibregl-compact-show")) return;
+            attribution.open = false;
+            attribution.classList.remove("maplibregl-compact-show");
+          });
+        };
+
         const setRuntimeError = (message: string) => {
           setMapReady(false);
           setMapError(message);
@@ -1567,9 +1580,11 @@ export function FieldsMapPage() {
 
         map.on("load", () => {
           updateMapDebug((prev) => ({ ...prev, loadEventFired: true, styleLoaded: true }));
+          minimizeCompactAttribution();
           resolveReady("load");
         });
         map.on("styledata", () => {
+          minimizeCompactAttribution();
           const styleLoaded = typeof map.isStyleLoaded === "function" ? Boolean(map.isStyleLoaded()) : true;
           updateMapDebug((prev) => ({ ...prev, styleLoaded }));
           if (styleLoaded) {
@@ -1579,6 +1594,7 @@ export function FieldsMapPage() {
         map.on("dataloading", () => {
           updateMapDebug((prev) => ({ ...prev, tilesLoading: true }));
         });
+        map.on("sourcedata", minimizeCompactAttribution);
         map.on("idle", () => {
           updateMapDebug((prev) => ({ ...prev, tilesLoading: false }));
         });

@@ -130,11 +130,56 @@
     .tf2-map-viewport .maplibregl-ctrl-scale {
       display: none;
     }
+
+    .tf2-map-viewport .tf2-map-measure-dock {
+      left: 0.75rem;
+      width: calc(100% - 4.25rem);
+      transform: none;
+    }
+  }
+
+  .tf2-map-viewport .maplibregl-ctrl-attrib,
+  .tf2-map-viewport .maplibregl-ctrl-attrib.maplibregl-compact {
+    border: 1px solid rgba(148, 163, 184, 0.32);
+    background-color: rgba(10, 15, 24, 0.96);
+    color: #e2e8f0;
+    box-shadow: 0 8px 24px rgba(2, 6, 12, 0.38);
+  }
+
+  .tf2-map-viewport .maplibregl-ctrl-attrib a {
+    color: #bae6fd;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .tf2-map-viewport .maplibregl-ctrl-attrib-button,
+  .tf2-map-viewport .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
+    background-color: transparent;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='%23E2E8F0' fill-rule='evenodd' viewBox='0 0 20 20'%3E%3Cpath d='M4 10a6 6 0 1 0 12 0 6 6 0 1 0-12 0m5-3a1 1 0 1 0 2 0 1 1 0 1 0-2 0m0 3a1 1 0 1 1 2 0v3a1 1 0 1 1-2 0'/%3E%3C/svg%3E");
+  }
+
+  .tf2-map-viewport .maplibregl-ctrl-attrib-button:focus-visible {
+    outline: 2px solid #e0b100;
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 1279px) and (orientation: portrait) {
+    .tf2-map-viewport .maplibregl-ctrl-attrib.maplibregl-compact-show {
+      transform: translateY(-4.75rem);
+    }
+
+    .tf2-map-viewport[data-has-open-inspector="true"] .tf2-map-inspector {
+      bottom: 8.5rem;
+    }
   }
 
   @media (min-width: 1280px) {
     .tf2-map-viewport .maplibregl-ctrl-bottom-right {
       bottom: 4.75rem;
+    }
+
+    .tf2-map-viewport[data-has-open-inspector="true"] .tf2-map-inspector {
+      max-height: calc(100% - 136px);
     }
   }
 
@@ -154,7 +199,15 @@
 
     .tf2-map-viewport[data-has-open-inspector="true"] .tf2-map-inspector {
       inset: 5.25rem 0.75rem 0.75rem;
+      right: 3.75rem;
       max-height: none;
+    }
+
+    .tf2-map-viewport:has(.maplibregl-ctrl-attrib.maplibregl-compact-show) .tf2-map-top-dock,
+    .tf2-map-viewport:has(.maplibregl-ctrl-attrib.maplibregl-compact-show) .tf2-map-measure-dock,
+    .tf2-map-viewport:has(.maplibregl-ctrl-attrib.maplibregl-compact-show) .tf2-map-inspector {
+      visibility: hidden;
+      pointer-events: none;
     }
   }
 

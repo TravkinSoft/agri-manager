@@ -93,6 +93,16 @@ check("map viewport and native scale reserve responsive shell space", () => {
   assert.match(styles, /@media \(min-width: 1280px\)[^}]+maplibregl-ctrl-bottom-right[^}]+bottom: 4\.75rem/s);
 });
 
+check("native map attribution stays available without the accidental white overlay", () => {
+  assert.match(source, /minimizeCompactAttribution/);
+  assert.match(source, /classList\.remove\("maplibregl-compact-show"\)/);
+  assert.match(source, /https:\/\/www\.openstreetmap\.org\/copyright/);
+  assert.match(styles, /maplibregl-ctrl-attrib\.maplibregl-compact[^}]+background-color: rgba\(10, 15, 24, 0\.96\)/s);
+  assert.match(styles, /maplibregl-ctrl-attrib a[^}]+color: #bae6fd/s);
+  assert.match(styles, /maplibregl-ctrl-attrib-button:focus-visible[^}]+#e0b100/s);
+  assert.match(styles, /tf2-map-measure-dock[^}]+width: calc\(100% - 4\.25rem\)/s);
+});
+
 check("engineering mutations are guarded by field-map write access", () => {
   assert.match(source, /import \{ canWriteFieldMap \} from "@\/lib\/fields-map\/access-policy"/);
   const policy = read("lib/fields-map/access-policy.ts");

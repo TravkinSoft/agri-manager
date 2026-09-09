@@ -139,6 +139,13 @@ async function measure(page) {
     const mobileNav = mobileNavNode ? rect(mobileNavNode) : null;
     const nativeZoom = [...document.querySelectorAll(".maplibregl-ctrl-zoom-in,.maplibregl-ctrl-zoom-out")].filter(visible).map(rect);
     const nativeScale = [...document.querySelectorAll(".maplibregl-ctrl-scale")].filter(visible).map(rect);
+    const attributionNode = document.querySelector(".maplibregl-ctrl-attrib");
+    const attributionButtonNode = document.querySelector(".maplibregl-ctrl-attrib-button");
+    const attribution = attributionNode && visible(attributionNode) ? rect(attributionNode) : null;
+    const attributionButton = attributionButtonNode && visible(attributionButtonNode) ? rect(attributionButtonNode) : null;
+    const attributionStyle = attributionNode ? getComputedStyle(attributionNode) : null;
+    const attributionInner = attributionNode?.querySelector(".maplibregl-ctrl-attrib-inner");
+    const attributionLinks = attributionInner ? [...attributionInner.querySelectorAll("a")].map((link) => link.href) : [];
     const zoomButtons = [...document.querySelectorAll('[aria-label="Приблизить карту"],[aria-label="Отдалить карту"]')].filter(visible).map(rect);
     const controls = [...document.querySelectorAll(".tf2-shell > section button,.tf2-shell > section input,.tf2-shell > section [role=combobox]")]
       .filter(visible)
@@ -163,6 +170,18 @@ async function measure(page) {
       bottomDockBeyondViewport: bottomDock ? bottomDock.bottom > innerHeight + 1 : false,
       nativeZoomDockOverlap: nativeZoom.some((control) => docks.some((dock) => overlaps(control, dock))),
       nativeScaleDockOverlap: nativeScale.some((control) => docks.some((dock) => overlaps(control, dock))),
+      attribution,
+      attributionButton,
+      attributionBackground: attributionStyle?.backgroundColor || null,
+      attributionColor: attributionStyle?.color || null,
+      attributionClassName: attributionNode?.className || null,
+      attributionOpen: attributionNode instanceof HTMLDetailsElement ? attributionNode.open : null,
+      attributionInnerDisplay: attributionInner ? getComputedStyle(attributionInner).display : null,
+      attributionText: attributionInner?.textContent?.trim() || null,
+      attributionLinks,
+      attributionButtonLabel: attributionButtonNode?.getAttribute("aria-label") || attributionButtonNode?.getAttribute("title") || null,
+      attributionDockOverlap: docks.some((dock) => overlaps(attribution, dock)),
+      attributionInspectorOverlap: overlaps(attribution, inspector),
       nativeZoomCount: nativeZoom.length,
       nativeScaleCount: nativeScale.length,
       zoomButtons,
@@ -231,6 +250,10 @@ async function runEngine(name, browserType) {
         assert.equal(baseResult.nativeZoomCount, 0, `${name} ${label} base: native floating zoom must be removed`);
         assert.equal(baseResult.nativeScaleCount, width < 1280 ? 0 : 1, `${name} ${label} base: responsive scale visibility`);
         assert.equal(baseResult.nativeScaleDockOverlap, false, `${name} ${label} base: native scale overlaps a dock`);
+        if (baseResult.attribution) {
+          assert.equal(baseResult.attributionDockOverlap, false, `${name} ${label} base: attribution access overlaps a dock`);
+          assert.equal(baseResult.attributionOpen, false, `${name} ${label} base: compact attribution starts expanded`);
+        }
         assert.equal(baseResult.zoomButtons.length, 2, `${name} ${label} base: unified dock zoom buttons missing`);
         assert.ok(baseResult.zoomButtons.every((item) => item.width >= 44 && item.height >= 44), `${name} ${label} base: zoom target below 44px`);
         assert.deepEqual(baseResult.smallTargets, [], `${name} ${label} base: compact touch target below 44px`);
@@ -264,6 +287,14 @@ async function runEngine(name, browserType) {
         assert.equal(result.bottomDockBeyondViewport, false, `${name} ${label}: measurement dock is below the viewport`);
         assert.equal(result.nativeZoomDockOverlap, false, `${name} ${label}: native zoom overlaps a dock`);
         assert.equal(result.nativeScaleDockOverlap, false, `${name} ${label}: native scale overlaps a dock`);
+        assert.ok(result.attribution, `${name} ${label}: attribution access is missing`);
+        assert.ok(result.attributionText, `${name} ${label}: provider attribution is missing`);
+        assert.ok(result.attributionButtonLabel, `${name} ${label}: attribution access has no accessible name`);
+        assert.equal(result.attributionDockOverlap, false, `${name} ${label}: attribution access overlaps a dock`);
+        assert.equal(result.attributionInspectorOverlap, false, `${name} ${label}: attribution access overlaps the inspector`);
+        assert.equal(result.attributionOpen, false, `${name} ${label}: compact attribution starts expanded`);
+        assert.equal(result.attributionClassName.includes("maplibregl-compact-show"), false, `${name} ${label}: compact attribution starts visually expanded`);
+        assert.notEqual(result.attributionBackground, "rgb(255, 255, 255)", `${name} ${label}: attribution retained the accidental white surface`);
         assert.equal(result.nativeZoomCount, 0, `${name} ${label}: native floating zoom must be removed`);
         assert.equal(result.nativeScaleCount, width < 1280 ? 0 : 1, `${name} ${label}: responsive scale visibility`);
         assert.equal(result.zoomButtons.length, shortLandscape ? 0 : 2, `${name} ${label}: responsive unified dock zoom visibility`);
@@ -271,6 +302,17 @@ async function runEngine(name, browserType) {
       }
       assert.equal(result.query, "", `${name} ${label}: selected search remains expanded`);
       assert.deepEqual(result.smallTargets, [], `${name} ${label}: compact touch target below 44px`);
+      if (!expectOverlayBaseline && width === 390 && height === 844) {
+        const attributionButton = page.locator(".maplibregl-ctrl-attrib-button");
+        await attributionButton.click();
+        await page.locator(".maplibregl-ctrl-attrib.maplibregl-compact-show").waitFor({ state: "visible" });
+        const expandedAttribution = await measure(page);
+        assert.ok(expandedAttribution.attributionText, `${name} ${label}: expanded provider credits are empty`);
+        assert.equal(expandedAttribution.attributionDockOverlap, false, `${name} ${label}: expanded attribution overlaps a dock`);
+        assert.equal(expandedAttribution.attributionInspectorOverlap, false, `${name} ${label}: expanded attribution overlaps the inspector`);
+        assert.notEqual(expandedAttribution.attributionBackground, "rgb(255, 255, 255)", `${name} ${label}: expanded attribution retained the white surface`);
+        await attributionButton.click();
+      }
       let activeMeasure = null;
       if (!expectOverlayBaseline && !shortLandscape) {
         const distanceButton = page.getByRole("button", { name: "Расстояние" });
@@ -353,6 +395,17 @@ async function runEngine(name, browserType) {
               nativeZoomCount: base.nativeZoomCount,
               nativeScaleCount: base.nativeScaleCount,
               nativeScaleDockOverlap: base.nativeScaleDockOverlap,
+              attribution: base.attribution,
+              attributionButton: base.attributionButton,
+              attributionBackground: base.attributionBackground,
+              attributionColor: base.attributionColor,
+              attributionClassName: base.attributionClassName,
+              attributionOpen: base.attributionOpen,
+              attributionInnerDisplay: base.attributionInnerDisplay,
+              attributionText: base.attributionText,
+              attributionLinks: base.attributionLinks,
+              attributionButtonLabel: base.attributionButtonLabel,
+              attributionDockOverlap: base.attributionDockOverlap,
               zoomButtons: base.zoomButtons,
             },
             selected: {
@@ -362,6 +415,17 @@ async function runEngine(name, browserType) {
               inspectorTopOverlap: selected.inspectorTopOverlap,
               inspectorBottomOverlap: selected.inspectorBottomOverlap,
               bottomDockNavOverlap: selected.bottomDockNavOverlap,
+              attribution: selected.attribution,
+              attributionBackground: selected.attributionBackground,
+              attributionColor: selected.attributionColor,
+              attributionClassName: selected.attributionClassName,
+              attributionOpen: selected.attributionOpen,
+              attributionInnerDisplay: selected.attributionInnerDisplay,
+              attributionText: selected.attributionText,
+              attributionLinks: selected.attributionLinks,
+              attributionButtonLabel: selected.attributionButtonLabel,
+              attributionDockOverlap: selected.attributionDockOverlap,
+              attributionInspectorOverlap: selected.attributionInspectorOverlap,
             },
           })),
         })),
