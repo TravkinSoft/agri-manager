@@ -172,7 +172,9 @@ async function main() {
   try {
     await bootstrap(db);
     const original = await query(db,"select id,field_id,import_id,geometry_geojson,area_from_kml_ha from public.field_geometries order by id");
+    let preV3Revision: unknown;
     for (const migration of migrations) {
+      if (migration.includes("independent_contours_v3")) preV3Revision = (await snapshot(db)).revision;
       const sql = readFileSync(resolve(process.cwd(),migration),"utf8");
       hashes.push({path:migration,sha256:createHash("sha256").update(sql).digest("hex")});
       await db.exec(sql);
@@ -190,6 +192,25 @@ async function main() {
       assert.equal(await value(db,"select count(*)::int from public.fields"),22);
     });
     const foreignFingerprint = await fingerprint(db,ids.foreignCompany);
+    await check("pre-v3 preview and state CAS reject after migration with no partial changes",async()=>{
+      assert.ok(preV3Revision);
+      const before=await fingerprint(db);
+      await expectError(()=>confirm(db,{legacy:true,revision:preV3Revision,rows:resolved.slice(0,18)}),/FIELD_MAP_PREVIEW_STALE/);
+      await expectError(()=>state(db,"deactivate",{legacy:true,importId:ids.legacy,revision:preV3Revision}),/FIELD_MAP_STATE_STALE/);
+      assert.equal(await fingerprint(db),before);
+    });
+    await check("old linked-only confirm payload accepts a fresh opaque v3 revision",async()=>{
+      const before=await fingerprint(db);
+      await db.exec("begin");
+      try {
+        const result=await confirm(db,{legacy:true,rows:resolved.slice(0,18)});
+        assert.equal(result.saved_polygons,18); assert.equal(result.skipped_polygons,112);
+        const rows=await query(db,"select source_polygon_id,source_geometry_geojson from public.field_geometries where import_id=$1::uuid and is_active order by source_polygon_id",[ids.imported]);
+        assert.equal(rows.length,18);
+        for(const row of rows) assert.deepEqual(row.source_geometry_geojson,sources.find(item=>item.polygon_id===row.source_polygon_id)?.geometry);
+      } finally { await db.exec("rollback"); }
+      assert.equal(await fingerprint(db),before);
+    });
     await check("SQL permissions keep anonymous/authenticated RPC and direct DML denied",async()=>{
       for(const role of ["anon","authenticated"] as const) {
         for(const table of ["field_geometries","field_map_imports"]) {
@@ -258,6 +279,28 @@ async function main() {
       current=await geometry(db,result.geometry_id);
       assert.equal(current.field_id,null); assert.equal(current.is_active,true); assert.equal(current.deleted_at,null); assert.equal(await activeCount(db),130);
       assert.equal(current.contour_id,sourceIdentity.contour_id);
+    });
+    await check("old UI undo after legacy unlink fails CAS instead of reactivating superseded geometry",async()=>{
+      const before=await fingerprint(db);
+      const originalId=await value<string>(db,"select id from public.field_geometries where contour_id=$1::uuid and contour_version=$2",[current.contour_id,current.contour_version-1]);
+      await expectError(()=>mutate(db,"restore",originalId,{legacy:true,field:id(3,19),target:id(3,19)}),/FIELD_BOUNDARY_CAS_FAILED/);
+      assert.equal(await fingerprint(db),before);
+    });
+    await check("legacy replacement wrapper preserves all source MultiPolygon parts and holes",async()=>{
+      const before=await fingerprint(db);
+      await db.exec("begin");
+      try {
+        const linked=await mutate(db,"relink",current.id,{target:id(3,19)});
+        const replacement=JSON.parse(JSON.stringify(complexGeometry));
+        replacement.coordinates[0][1][1][1]=54.0028;
+        const result=await mutate(db,"replace",linked.geometry_id,{legacy:true,field:id(3,19),geometry:replacement,area:18.5});
+        const row=await geometry(db,result.geometry_id);
+        assert.deepEqual(row.geometry_geojson,replacement); assert.deepEqual(row.source_geometry_geojson,complexGeometry);
+        assert.equal(row.source_polygon_id,sourceIdentity.source_polygon_id);
+        assert.equal(row.source_import_id,sourceIdentity.source_import_id);
+        assert.equal(row.geometry_geojson.coordinates.length,2); assert.equal(row.geometry_geojson.coordinates[0].length,2);
+      } finally { await db.exec("rollback"); }
+      assert.equal(await fingerprint(db),before);
     });
     await check("MultiPolygon replacement keeps immutable original parts, holes and source name",async()=>{
       const replacement=JSON.parse(JSON.stringify(complexGeometry));

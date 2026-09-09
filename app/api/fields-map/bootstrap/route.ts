@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFieldDisplayName } from "@/lib/fields/display";
+import { isMissingContourReadSchema } from "@/lib/fields-map/bootstrap-compatibility";
 import { mapEngineeringObjectRow } from "@/lib/fields-map/engineering-objects";
 import { fieldsMapErrorResponse, resolveFieldsMapContext } from "@/lib/fields-map/server";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
@@ -261,7 +262,23 @@ export async function GET(request: NextRequest) {
       .order("name", { ascending: true });
     // Independent contours include unlinked shapes and latest deletion tombstones.
     // The RPC excludes superseded versions and inactive import snapshots.
-    const geometryPromise = supabase.rpc("get_field_map_contours_v3", { p_company_id: companyId });
+    const geometryPromise = (async () => {
+      const result = await supabase.rpc("get_field_map_contours_v3", { p_company_id: companyId });
+      if (!result.error || !isMissingContourReadSchema(result.error)) {
+        return { ...result, v3: !result.error };
+      }
+      // Read-only compatibility for code deployed before the additive v3 schema.
+      // Do not let write flags determine which contours can be read after migration.
+      const legacy = await supabase.from("field_geometries")
+        .select("id,field_id,import_id,source_file_name,geometry_geojson,area_from_kml_ha,is_active")
+        .eq("company_id", companyId)
+        .eq("is_active", true);
+      return {
+        ...legacy,
+        data: legacy.data?.map((row: any) => ({ ...row, is_active: true })) || null,
+        v3: false,
+      };
+    })();
     const cropPromise = selectedSeasonId
       ? supabase
           .from("crop_structure")
@@ -362,6 +379,7 @@ export async function GET(request: NextRequest) {
       mapEngineeringObjectRow(row, namesByProfileId)
     );
 
+    const fieldNames = new Map((fieldsRes.data || []).map((field: any) => [String(field.id), getFieldDisplayName(field)]));
     const payload: FieldsMapBootstrapPayload = {
       company: { id: String(companyRes.data.id), name: String(companyRes.data.name || "") },
       seasons,
@@ -375,15 +393,17 @@ export async function GET(request: NextRequest) {
         harvestRows,
       }),
       engineering_objects: engineeringObjects,
+      contour_editing_available: geometryRes.v3,
       contours: (geometryRes.data || []).map((row: any) => ({
-        contour_id: String(row.contour_id),
+        // Geometry UUIDs are real, stable read identities; v3 backfills the same IDs.
+        contour_id: String(geometryRes.v3 ? row.contour_id : row.id),
         geometry_id: String(row.id),
-        contour_version: Number(row.contour_version),
+        contour_version: geometryRes.v3 ? Number(row.contour_version) : 1,
         field_id: row.field_id ? String(row.field_id) : null,
-        display_name: String(row.display_name),
-        source_import_id: row.source_import_id ? String(row.source_import_id) : null,
-        source_polygon_id: row.source_polygon_id || null,
-        source_polygon_name: row.source_polygon_name || null,
+        display_name: geometryRes.v3 ? String(row.display_name) : String(fieldNames.get(String(row.field_id)) || `Контур ${String(row.id).slice(0, 8)}`),
+        source_import_id: (geometryRes.v3 ? row.source_import_id : row.import_id) || null,
+        source_polygon_id: geometryRes.v3 ? row.source_polygon_id || null : null,
+        source_polygon_name: geometryRes.v3 ? row.source_polygon_name || null : null,
         source_file_name: row.source_file_name || null,
         geometry: row.geometry_geojson,
         area_ha: row.area_from_kml_ha == null ? null : Number(row.area_from_kml_ha),

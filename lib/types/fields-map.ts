@@ -176,6 +176,8 @@ export interface FieldsMapBootstrapPayload {
   selected_season_id: string | null;
   fields: FieldMapFieldCard[];
   contours: FieldMapContour[];
+  /** v3 read schema was proven; role and write flags remain separate gates. */
+  contour_editing_available: boolean;
   engineering_objects: FieldEngineeringObject[];
 }
 

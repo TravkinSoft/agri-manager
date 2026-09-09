@@ -932,7 +932,6 @@ export function FieldsMapPage() {
   const { profile } = useAuth();
   const router = useRouter();
   const canWriteEngineering = canWriteFieldMap(profile?.role);
-  const canMutateBoundaries = FIELD_BOUNDARY_UI_ENABLED && profile?.role === "global_admin";
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -971,6 +970,8 @@ export function FieldsMapPage() {
 
   const [loading, setLoading] = useState(true);
   const [bootstrap, setBootstrap] = useState<FieldsMapBootstrapPayload | null>(null);
+  const canMutateBoundaries = FIELD_BOUNDARY_UI_ENABLED && profile?.role === "global_admin"
+    && bootstrap?.contour_editing_available === true;
   const [imports, setImports] = useState<FieldMapImportSummary[]>([]);
   const [mapRevision, setMapRevision] = useState<Record<string, unknown> | null>(null);
   const [selectedSeasonId, setSelectedSeasonId] = useState<string>("");
@@ -1965,11 +1966,15 @@ export function FieldsMapPage() {
   }, [engineeringDrawMode]);
 
   useEffect(() => {
-    boundaryEditModeRef.current = Boolean(boundaryEdit);
-  }, [boundaryEdit]);
+    boundaryEditModeRef.current = canMutateBoundaries && Boolean(boundaryEdit);
+    if (!canMutateBoundaries && boundaryEdit) {
+      setBoundaryEdit(null);
+      setBoundaryEditPoints([]);
+    }
+  }, [boundaryEdit, canMutateBoundaries]);
 
   useEffect(() => {
-    if (!boundaryEdit) return;
+    if (!boundaryEdit || !canMutateBoundaries) return;
     const handleBoundaryEditorKeyDown = (event: KeyboardEvent) => {
       if (boundaryBusyRef.current) return;
       if (event.key === "Escape") {
@@ -2002,7 +2007,7 @@ export function FieldsMapPage() {
     };
     window.addEventListener("keydown", handleBoundaryEditorKeyDown);
     return () => window.removeEventListener("keydown", handleBoundaryEditorKeyDown);
-  }, [boundaryEdit]);
+  }, [boundaryEdit, canMutateBoundaries]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
