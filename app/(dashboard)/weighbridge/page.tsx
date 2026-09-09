@@ -558,6 +558,15 @@ const WEIGHBRIDGE_MODES: Array<{
   { type: "impurity_removal", label: "Примеси", description: "Вывоз примесей из принятой партии урожая", steps: ["Склад", "Партия урожая", "Транспорт и вес"] },
 ];
 
+function WorkflowSectionHeading({ title, description }: { title: string; description?: string }) {
+  return (
+    <div className="space-y-0.5">
+      <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-300">{title}</h2>
+      {description ? <p className="text-xs leading-5 text-slate-500">{description}</p> : null}
+    </div>
+  );
+}
+
 const movementGroupForOperation = (operationType: OperationType): MovementGroup =>
   OPERATION_GROUP[operationType] || "warehouse_inbound";
 
@@ -5262,7 +5271,9 @@ export default function WeighbridgeOperationsPage() {
     : `${value.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} %`;
   const activeWeighbridgeMode = WEIGHBRIDGE_MODES.find((mode) => mode.type === form.operationType) || WEIGHBRIDGE_MODES[0];
   const terminalPanelClass = "rounded-xl border-0 bg-[#101724]/90 shadow-[0_18px_55px_rgba(2,6,23,0.22)]";
-  const formSectionClass = "space-y-3 border-t border-slate-800/70 pt-4 first:border-t-0 first:pt-0";
+  const formSectionClass = "space-y-4 border-t border-slate-800/70 pt-4 first:border-t-0 first:pt-0";
+  const formRailClass = "border-l-2 border-slate-700/70 pl-3 sm:pl-4";
+  const formDataStripClass = "grid gap-2 border-y border-slate-800/70 py-3";
   const ticketClosePending = ticketCloseState.phase === "closing" || ticketCloseState.phase === "reconciling";
   const ticketCloseRetry = ticketCloseState.phase === "retry" && ticketCloseState.ticketId === activeTicket?.id;
   const segmentClass = (active: boolean) =>
@@ -5445,7 +5456,11 @@ export default function WeighbridgeOperationsPage() {
             ) : null}
 
             {form.operationType !== "harvest_incoming" ? (
-            <div className={formSectionClass}>
+            <section data-weighbridge-section="route" aria-label="Маршрут операции" className={formSectionClass}>
+            <WorkflowSectionHeading
+              title={form.operationType === "supplier_receipt" ? "1 · Поставка" : isFieldIssue ? "1 · Поле и источник" : "1 · Маршрут"}
+              description={form.operationType === "supplier_receipt" ? "Контрагент, документ и место приёмки" : "Откуда и куда движется продукция или материал"}
+            />
             <div className="grid gap-3 md:grid-cols-2">
               {isFieldIssue ? (
                 <div className="space-y-1">
@@ -5537,7 +5552,7 @@ export default function WeighbridgeOperationsPage() {
               ) : null}
             </div>
             {isTransfer && isProcessingPlace(sourceWarehouse?.placeType) ? (
-              <div className="mt-3 rounded-md border border-slate-800 bg-slate-950/45 p-3">
+              <div className={`${formRailClass} mt-3 py-1`}>
                 {processingCandidates.length === 0 ? (
                   <div className="text-sm text-amber-300">На этом объекте нет активной партии. Сначала должен быть закрыт входной талон.</div>
                 ) : (
@@ -5560,11 +5575,12 @@ export default function WeighbridgeOperationsPage() {
                 )}
               </div>
             ) : null}
-            </div>
+            </section>
             ) : null}
 
             {form.operationType === "harvest_incoming" ? (
-              <div className="space-y-1.5">
+              <section data-weighbridge-section="harvest-context" aria-label="Поле и культура" className={formSectionClass}>
+                <WorkflowSectionHeading title="1 · Поле и культура" description="Физическое поле, участок и место приёмки рейса" />
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                   <div className="min-w-0 space-y-1.5">
                     <Label>Поле *</Label>
@@ -5625,11 +5641,12 @@ export default function WeighbridgeOperationsPage() {
                       : "Место приёмки не настроено. Обратитесь к администратору."}
                   </div>
                 ) : null}
-              </div>
+              </section>
             ) : null}
 
 	            {isImpurityRemoval ? (
-	              <div className={formSectionClass}>
+	              <section data-weighbridge-section="impurity-batch" aria-label="Партия и тип примеси" className={formSectionClass}>
+	                <WorkflowSectionHeading title="2 · Партия и тип примеси" description="Выберите подтверждённую партию и вид отделяемой примеси" />
 	                <div className="space-y-3">
 	                  <div className="min-h-[7.75rem] space-y-1.5">
 	                    <Label>Партия урожая *</Label>
@@ -5656,7 +5673,7 @@ export default function WeighbridgeOperationsPage() {
 	                            : null}
 	                    </div>
 	                    {form.warehouseFromId && (harvestBatchOptionsStatus === "error" || harvestBatchOptionsStatus === "stale") ? (
-	                      <div className="flex flex-wrap items-center gap-2 rounded-md border border-red-500/50 bg-red-950/25 p-2 text-xs text-red-200">
+	                      <div className="flex flex-wrap items-center gap-2 border-l-2 border-red-400/70 bg-red-950/20 px-3 py-2 text-xs text-red-200" role="alert">
 	                        <span className="min-w-0 flex-1">{harvestBatchOptionsError}</span>
 	                        <Button
 	                          type="button"
@@ -5675,14 +5692,14 @@ export default function WeighbridgeOperationsPage() {
 	                    ) : null}
 	                  </div>
                   {selectedHarvestBatch?.detailLevel === "full" ? (
-                    <div className="grid gap-2 rounded-md border border-slate-700 bg-slate-950/55 p-3 text-xs sm:grid-cols-3">
+                    <div className={`${formDataStripClass} text-xs sm:grid-cols-3`}>
                       <div><span className="text-slate-500">Принято</span><div className="mt-1 font-semibold text-slate-100">{selectedHarvestBatch.receivedKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div></div>
                       <div><span className="text-slate-500">Уже вывезено</span><div className="mt-1 font-semibold text-amber-300">{selectedHarvestBatch.removedKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div></div>
                       <div><span className="text-slate-500">Чистая масса</span><div className="mt-1 font-semibold text-emerald-300">{selectedHarvestBatch.cleanMassKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div></div>
                     </div>
 	                  ) : selectedHarvestBatch ? (
 	                    harvestBatchDetailError ? (
-	                      <div className="flex flex-wrap items-center gap-2 rounded-md border border-red-500/50 bg-red-950/25 p-3 text-xs text-red-200">
+	                      <div className="flex flex-wrap items-center gap-2 border-l-2 border-red-400/70 bg-red-950/20 px-3 py-2 text-xs text-red-200" role="alert">
 	                        <span className="min-w-0 flex-1">{harvestBatchDetailError}</span>
 	                        <Button
 	                          type="button"
@@ -5695,7 +5712,7 @@ export default function WeighbridgeOperationsPage() {
 	                        </Button>
 	                      </div>
 	                    ) : (
-	                      <div className="rounded-md border border-slate-700 bg-slate-950/55 p-3 text-xs text-slate-400">
+	                      <div className={`${formRailClass} py-1 text-xs text-slate-400`} role="status" aria-live="polite">
 	                        {harvestBatchDetailLoading ? "Загружаем учёт и происхождение партии..." : "Получаем полные данные партии..."}
 	                      </div>
 	                    )
@@ -5708,12 +5725,13 @@ export default function WeighbridgeOperationsPage() {
                     ))}
                   </div>
                 </div>
-              </div>
+              </section>
             ) : null}
 
             {form.operationType === "supplier_receipt" ? (
-              <div className={formSectionClass}>
-                <div className="mb-2 flex justify-end">
+              <section data-weighbridge-section="supplier-materials" aria-label="Номенклатура поставки" className={formSectionClass}>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <WorkflowSectionHeading title="2 · Номенклатура" description="Способ приёмки и состав документа" />
                   <div className="text-xs text-slate-500">{form.supplierReceiptMode === "weighbridge" ? "Один талон — один товар" : "Один документ — несколько строк"}</div>
                 </div>
                 <div className="grid gap-2 md:grid-cols-2">
@@ -5721,7 +5739,7 @@ export default function WeighbridgeOperationsPage() {
                   <Button type="button" size="sm" variant="outline" className={segmentClass(form.supplierReceiptMode === "direct")} onClick={() => setForm((p) => ({ ...p, supplierReceiptMode: "direct", grossKg: "", warehouseToId: "" }))}>По накладной</Button>
                 </div>
                 {form.supplierReceiptMode === "weighbridge" ? (
-                  <div className="mt-3 space-y-2 rounded-xl border border-slate-800/80 bg-slate-950/45 p-3">
+                  <div className={`${formRailClass} mt-3 space-y-2 py-1`}>
                     <Label>Номенклатура *</Label>
                     <Select value={form.productId} onValueChange={(v) => setForm((p) => ({ ...p, productId: v, quantityKg: "", quantityUom: "kg" }))}>
                       <SelectTrigger className="h-9"><SelectValue placeholder="Выберите взвешиваемый товар" /></SelectTrigger>
@@ -5734,7 +5752,8 @@ export default function WeighbridgeOperationsPage() {
                   </div>
                 ) : (
                   <div className="mt-3 space-y-3">
-                    <div className="grid gap-2 rounded-xl border border-slate-800/80 bg-slate-950/45 p-3 md:grid-cols-[minmax(220px,1.4fr)_130px_100px_minmax(180px,1fr)]">
+                    <div className="grid gap-3 border-b border-slate-800/70 pb-4 md:grid-cols-[minmax(220px,1.4fr)_130px_100px_minmax(180px,1fr)]">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 md:col-span-full">Строка 1</div>
                       <div className="space-y-1 md:col-span-2">
                         <Label>Номенклатура *</Label>
                         <Select value={form.productId} onValueChange={(v) => setForm((p) => ({ ...p, productId: v, quantityUom: String(productById.get(v)?.stockUnit || "") }))}>
@@ -5758,11 +5777,19 @@ export default function WeighbridgeOperationsPage() {
                         </Select>
                       </div>
                     </div>
-                    <Button type="button" variant="ghost" size="sm" className="h-7 px-0 text-xs text-slate-400 hover:text-slate-100" onClick={() => setShowSupplierExtraFields((v) => !v)}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-0 text-xs text-slate-400 hover:text-slate-100"
+                      aria-expanded={showSupplierExtraFields}
+                      aria-controls="supplier-extra-fields"
+                      onClick={() => setShowSupplierExtraFields((v) => !v)}
+                    >
                       {showSupplierExtraFields ? "Скрыть дополнительные данные" : "Показать номер партии / цену"}
                     </Button>
                     {showSupplierExtraFields ? (
-                      <div className="grid gap-2 md:grid-cols-2">
+                      <div id="supplier-extra-fields" className="grid gap-2 md:grid-cols-2">
                         <div className="space-y-1">
                           <Label>Партия / номер партии</Label>
                           <Input className="h-8" value={form.supplierLot} onChange={(e) => setForm((p) => ({ ...p, supplierLot: e.target.value }))} placeholder="необязательно" />
@@ -5773,8 +5800,9 @@ export default function WeighbridgeOperationsPage() {
                         </div>
                       </div>
                     ) : null}
-                    {supplierReceiptLines.map((line) => (
-                      <div key={line.localId} className="grid gap-2 rounded-xl border border-slate-800/80 bg-slate-950/45 p-3 md:grid-cols-[1.2fr_110px_90px_160px_auto]">
+                    {supplierReceiptLines.map((line, lineIndex) => (
+                      <div key={line.localId} className="grid gap-3 border-t border-slate-800/70 pt-4 md:grid-cols-[1.2fr_110px_90px_160px_auto]">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 md:col-span-full">Строка {lineIndex + 2}</div>
                         <div className="space-y-1">
                           <Label>Номенклатура *</Label>
                           <Select
@@ -5813,7 +5841,7 @@ export default function WeighbridgeOperationsPage() {
                           </>
                         ) : null}
                         <div className="flex items-end">
-                          <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setSupplierReceiptLines((prev) => prev.filter((item) => item.localId !== line.localId))}>
+                          <Button type="button" variant="outline" size="sm" className="h-8" aria-label={`Удалить строку ${lineIndex + 2}`} onClick={() => setSupplierReceiptLines((prev) => prev.filter((item) => item.localId !== line.localId))}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
@@ -5827,11 +5855,12 @@ export default function WeighbridgeOperationsPage() {
                     </div>
                   </div>
                 )}
-              </div>
+              </section>
             ) : null}
 
             {isFieldIssue ? (
-              <div className={formSectionClass}>
+              <section data-weighbridge-section="field-issue-material" aria-label="Материал и способ выдачи" className={formSectionClass}>
+                <WorkflowSectionHeading title="2 · Материал и способ выдачи" description="Выберите фактический остаток и способ фиксации количества" />
                 <div className="grid gap-2 md:grid-cols-2">
                   <Button type="button" size="sm" variant="outline" className={segmentClass(form.fieldIssueMode === "weighbridge")} onClick={() => setForm((p) => ({ ...p, fieldIssueMode: "weighbridge", quantityKg: "" }))}>Через весовую</Button>
                   <Button type="button" size="sm" variant="outline" className={segmentClass(form.fieldIssueMode === "direct")} onClick={() => setForm((p) => ({ ...p, fieldIssueMode: "direct", grossKg: "", driverId: "", vehicleId: "" }))}>Ручная выдача</Button>
@@ -5862,14 +5891,18 @@ export default function WeighbridgeOperationsPage() {
                     <Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} placeholder="Количество, кг" />
                   </div>
                 ) : null}
-              </div>
+              </section>
             ) : null}
 
             {isTransfer || isDisposal || isShipment ? (
-              <div className={formSectionClass}>
+              <section data-weighbridge-section="movement-material" aria-label="Состав операции" className={formSectionClass}>
+                <WorkflowSectionHeading
+                  title={isTransfer ? "2 · Партия и способ перемещения" : isShipment ? "2 · Получатель и партия" : "2 · Остаток и причина"}
+                  description={isTransfer ? "Определите маршрут партии и способ учёта" : isShipment ? "Укажите документ, назначение и отгружаемый остаток" : "Выберите списываемый остаток и зафиксируйте основание"}
+                />
                 {isTransfer ? (
                   isProcessingPlace(sourceWarehouse?.placeType) ? (
-                    <div className="rounded-md border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200">Фактический рейс через весовую. Партия и источник определены маршрутом.</div>
+                    <div className="border-l-2 border-emerald-400/60 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200">Фактический рейс через весовую. Партия и источник определены маршрутом.</div>
                   ) : (
                     <div className="grid gap-2 md:grid-cols-2">
                       <Button type="button" size="sm" variant="outline" className={segmentClass(form.transferMode === "weighbridge")} onClick={() => setForm((p) => ({ ...p, transferMode: "weighbridge", quantityKg: "" }))}>Через весовую</Button>
@@ -5947,11 +5980,15 @@ export default function WeighbridgeOperationsPage() {
                   ) : null}
                   {isDisposal ? <Input className="h-8" value={form.disposalReason} onChange={(e) => setForm((p) => ({ ...p, disposalReason: e.target.value }))} placeholder="Причина списания" /> : null}
                 </div>
-              </div>
+              </section>
             ) : null}
 
             {isFieldIssueDirect ? null : (
-              <div className={form.operationType === "harvest_incoming" ? "" : formSectionClass}>
+              <section data-weighbridge-section="transport" aria-label="Транспорт и водитель" className={formSectionClass}>
+              <WorkflowSectionHeading
+                title={form.operationType === "harvest_incoming" ? "2 · Транспорт и водитель" : "3 · Транспорт и водитель"}
+                description={form.operationType === "supplier_receipt" ? "Для поставки транспорт можно не указывать" : "Машина и водитель фактического рейса"}
+              />
               <TransportDriverSelects
                 vehicleId={form.vehicleId}
                 driverId={form.driverId}
@@ -5986,18 +6023,19 @@ export default function WeighbridgeOperationsPage() {
                 </div>
               ) : null}
               {suggestedFieldId && suggestedFieldId !== form.fieldId && form.operationType !== "harvest_incoming" ? (
-                <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200">
+                <div className={`${formRailClass} mt-3 flex items-center justify-between gap-3 py-1 text-sm text-slate-200`}>
                   <span>Последнее поле этой машины: {fields.find((field) => field.id === suggestedFieldId)?.name || "поле"}</span>
                   <Button type="button" size="sm" variant="outline" onClick={() => setForm((prev) => ({ ...prev, fieldId: suggestedFieldId }))}>
                     Выбрать
                   </Button>
                 </div>
               ) : null}
-              </div>
+              </section>
             )}
 
             {isWeighbridgeForm ? (
-              <div className={form.operationType === "harvest_incoming" ? "" : formSectionClass}>
+              <section data-weighbridge-section="weight" aria-label="Вес операции" className={formSectionClass}>
+              <WorkflowSectionHeading title={form.operationType === "harvest_incoming" ? "3 · Вес рейса" : "Вес операции"} description="Введите фактическое показание и при необходимости влажность" />
               {form.operationType === "harvest_incoming" ? (
                 <div className="mb-3">
                   <CompactField label="Комбайнер" required>
@@ -6040,15 +6078,15 @@ export default function WeighbridgeOperationsPage() {
                   ) : null}
                 </div>
               </div>
-              </div>
+              </section>
             ) : null}
 
-            {form.operationType !== "harvest_incoming" ? <div className="space-y-1">
-              <Button type="button" variant="ghost" size="sm" className="h-7 px-0 text-xs" onClick={() => setCommentOpen((v) => !v)}>
+            {form.operationType !== "harvest_incoming" ? <section data-weighbridge-section="comment" aria-label="Дополнительный комментарий" className={formSectionClass}>
+              <Button type="button" variant="ghost" size="sm" className="h-7 px-0 text-xs" aria-expanded={commentOpen} aria-controls="weighbridge-comment" onClick={() => setCommentOpen((v) => !v)}>
                 {commentOpen ? "− Комментарий" : "+ Комментарий"}
               </Button>
-              {commentOpen ? <Textarea value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} rows={2} /> : null}
-            </div> : null}
+              {commentOpen ? <Textarea id="weighbridge-comment" aria-label="Комментарий к талону" value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} rows={2} /> : null}
+            </section> : null}
 
             {canOperate && form.operationType !== "harvest_incoming" ? (
               <PrimaryActionBar
@@ -6099,8 +6137,8 @@ export default function WeighbridgeOperationsPage() {
                 role="status"
                 aria-live="polite"
                 className={ticketCloseRetry
-                  ? "rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2.5"
-                  : "rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5"}
+                  ? "border-l-2 border-amber-400/70 bg-amber-500/10 px-3 py-2.5"
+                  : "border-l-2 border-emerald-400/70 bg-emerald-500/10 px-3 py-2.5"}
               >
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-50">
                   {ticketClosePending ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-emerald-300" /> : <Info className="h-4 w-4 shrink-0 text-amber-300" />}
@@ -6116,7 +6154,7 @@ export default function WeighbridgeOperationsPage() {
               </div>
             ) : null}
             {ticketsLoading ? <div className="text-sm text-slate-400">Загрузка очереди...</div> : visibleActiveTickets.length === 0 ? (
-              <div className="flex min-h-24 items-center justify-center rounded-md bg-slate-950/35 px-3 text-center text-sm text-slate-500">
+              <div className="flex min-h-24 items-center justify-center border-y border-dashed border-slate-800/70 px-3 text-center text-sm text-slate-500">
                 {ticketClosePending ? "Других открытых талонов нет" : "Открытых талонов нет"}
               </div>
             ) : [...visibleActiveTickets].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()).map((t) => {
@@ -6139,7 +6177,7 @@ export default function WeighbridgeOperationsPage() {
               );
               const correctionOriginal = t.correction_of_ticket_id ? ticketById.get(t.correction_of_ticket_id) : null;
               return (
-                <button key={`open-${t.id}`} type="button" disabled={isPending} onClick={() => setActiveTicket(t)} className={isPending ? "w-full cursor-wait rounded-xl border border-yellow-500/25 bg-yellow-500/5 px-3 py-3 text-left" : "w-full rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-3 text-left transition hover:border-yellow-500/50 hover:bg-slate-900"}>
+                <button key={`open-${t.id}`} type="button" disabled={isPending} onClick={() => setActiveTicket(t)} className={isPending ? "w-full cursor-wait border-b border-yellow-500/25 bg-yellow-500/5 px-1 py-3 text-left" : "w-full border-b border-slate-800/70 px-1 py-3 text-left transition-colors hover:bg-slate-950/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/70 motion-reduce:transition-none"}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-bold text-slate-50">{driverName}</div>
@@ -6161,7 +6199,7 @@ export default function WeighbridgeOperationsPage() {
                     )}
                   </div>
                   {correctionOriginal ? (
-                    <div className="mt-2 grid gap-1 rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-2.5 py-2 text-xs">
+                    <div className="mt-2 grid gap-1 border-l-2 border-yellow-400/50 bg-yellow-500/5 px-2.5 py-2 text-xs">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-slate-400">Исходный талон</span>
                         <span className="font-semibold text-slate-100">{ticketQuantitySummary(correctionOriginal)}</span>
@@ -6269,7 +6307,7 @@ export default function WeighbridgeOperationsPage() {
           </CardHeader>
           <CardContent className="space-y-2 px-3 pb-4 pt-1 sm:px-4">
             {ticketsLoading ? <div className="text-sm text-slate-400">Загрузка журнала...</div> : null}
-            {!ticketsLoading && historyTickets.length === 0 ? <div className="rounded-lg bg-slate-950/35 p-6 text-center text-sm text-slate-500">Закрытых талонов пока нет</div> : null}
+            {!ticketsLoading && historyTickets.length === 0 ? <div className="border-y border-dashed border-slate-800/70 p-6 text-center text-sm text-slate-500">Закрытых талонов пока нет</div> : null}
             {!ticketsLoading && historyTickets.map((t) => {
               const vehicleName = vehicles.find((v) => v.id === t.vehicle_id)?.name || "Транспорт";
               const driverName = driverNameForId(t.driver_id) || "Без водителя";
@@ -6277,7 +6315,7 @@ export default function WeighbridgeOperationsPage() {
               const paperDocumentNo = String(t.external_document_no || "").trim();
               const dt = fmt(paperDocumentNo ? t.created_at : (t.finalized_at || t.updated_at || t.created_at), lang);
               return (
-                <div key={t.id} className="rounded-xl border border-slate-800 bg-slate-950/45 px-3 py-2.5 transition hover:border-slate-700">
+                <div key={t.id} className="border-b border-slate-800/70 px-1 py-3 transition-colors hover:bg-slate-950/30 motion-reduce:transition-none">
                   <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                     <div className="min-w-0">
                       <div className="truncate text-base font-semibold leading-tight text-slate-50">{productSummary(t)}</div>
@@ -6317,19 +6355,20 @@ export default function WeighbridgeOperationsPage() {
       </div>
 
       {canVoid && activeTicket ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Admin cleanup зависшего талона</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-2 md:grid-cols-2">
+        <section className={`${terminalPanelClass} px-4 py-4`} aria-labelledby="weighbridge-admin-cleanup-title">
+          <div className="mb-3">
+            <h2 id="weighbridge-admin-cleanup-title" className="text-base font-semibold text-slate-50">Admin cleanup зависшего талона</h2>
+            <p className="mt-1 text-xs text-slate-500">Служебные действия доступны только роли с правом аннулирования.</p>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
             <Button variant="outline" onClick={() => handleAdminCleanup("force_close")}>
               Force close (admin-safe)
             </Button>
             <Button variant="outline" onClick={() => handleAdminCleanup("archive")}>
               Archive stuck ticket
             </Button>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       ) : null}
 
       <Sheet
