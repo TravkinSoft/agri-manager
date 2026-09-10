@@ -28,7 +28,7 @@ const checks: Check[] = [
   },
   {
     name: "party list is a vertical divider hierarchy",
-    run: () => assert.match(dashboard, /rounded-none border-0 border-b border-slate-800 bg-transparent shadow-none/),
+    run: () => assert.match(dashboard, /rounded-none border-0 border-b border-border bg-transparent shadow-none/),
   },
   {
     name: "initial and empty states reserve stable height",
