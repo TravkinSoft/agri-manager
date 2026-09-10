@@ -23,6 +23,19 @@ const masterItem = page.slice(masterItemStart, tableStart);
 const workspace = page.slice(workspaceStart, loadingStart);
 const pageComposition = page.slice(pageReturnStart, fieldDialogStart);
 const fieldDialog = page.slice(fieldDialogStart, saveConfirmationStart);
+const requestCloseStart = page.indexOf("const requestCloseField =");
+const requestOpenStart = page.indexOf("const requestOpenField =", requestCloseStart);
+const confirmDiscardStart = page.indexOf("const confirmDiscardFieldChanges =", requestOpenStart);
+const patchDraftStart = page.indexOf("const patchDraft =", confirmDiscardStart);
+const prepareSaveStart = page.indexOf("const prepareDraftForSave =", patchDraftStart);
+const requestSaveStart = page.indexOf("const requestSave =", prepareSaveStart);
+const confirmSaveStart = page.indexOf("const confirmSave =", requestSaveStart);
+const exportExcelStart = page.indexOf("const exportExcel =", confirmSaveStart);
+const requestCloseController = page.slice(requestCloseStart, requestOpenStart);
+const requestOpenController = page.slice(requestOpenStart, confirmDiscardStart);
+const draftMutationControllers = page.slice(patchDraftStart, prepareSaveStart);
+const requestSaveController = page.slice(requestSaveStart, confirmSaveStart);
+const confirmSaveController = page.slice(confirmSaveStart, exportExcelStart);
 
 let passed = 0;
 const check = (name: string, run: () => void) => {
@@ -56,7 +69,7 @@ check("04 table and map alternatives remain separate", () => {
 });
 
 check("05 desktop selects a first field without writing business data", () => {
-  assert.match(page, /if \(!isDesktopWorkspace \|\| viewMode !== "cards" \|\| selectedFieldId \|\| filteredFields\.length === 0\) return/);
+  assert.match(page, /if \(!isDesktopWorkspace \|\| viewMode !== "cards" \|\| selectedFieldId \|\| saving \|\| filteredFields\.length === 0\) return/);
   assert.match(page, /const fieldId = filteredFields\[0\]\.id;[\s\S]*?setSelectedFieldId\(fieldId\);[\s\S]*?setFieldDialogTab\("dossier"\)/);
   const autoSelectionStart = page.indexOf("if (!isDesktopWorkspace || viewMode !== \"cards\"");
   const autoSelectionEnd = page.indexOf("}, [allocByField, filteredFields", autoSelectionStart);
@@ -79,7 +92,7 @@ check("07 master rows preserve field truth and operation entry", () => {
 });
 
 check("08 dirty drafts block master-list operation shortcuts", () => {
-  assert.match(masterItem, /disabled=\{!FIELD_FIRST_CREATE_ENABLED \|\| hasUnsavedStructureChanges\}/);
+  assert.match(masterItem, /disabled=\{!FIELD_FIRST_CREATE_ENABLED \|\| hasUnsavedStructureChanges \|\| saving\}/);
   assert.match(masterItem, /Сначала сохраните или отмените изменения структуры/);
 });
 
@@ -96,7 +109,7 @@ check("10 confirmed discard can continue to the requested field", () => {
 });
 
 check("11 season switching cannot discard a desktop draft", () => {
-  assert.match(pageComposition, /disabled=\{seasons\.length === 0 \|\| \(isDesktopWorkspace && hasUnsavedStructureChanges\)\}/);
+  assert.match(pageComposition, /disabled=\{seasons\.length === 0 \|\| saving \|\| \(isDesktopWorkspace && hasUnsavedStructureChanges\)\}/);
 });
 
 check("12 selected field workspace reuses the proven dossier and editor", () => {
@@ -174,4 +187,67 @@ check("22 crop lifecycle and C15 live projection remain in shared detail", () =>
   assert.match(page, /validateAndNormalizeCropStructureRows/);
 });
 
-console.log(`TF2 Warm Manor crop master-detail: ${passed}/22 PASS`);
+check("23 in-flight lock wins before close and field-switch decisions", () => {
+  const closeLock = requestCloseController.indexOf("if (saveInFlightRef.current)");
+  const closeDiscard = requestCloseController.indexOf("if (hasUnsavedStructureChanges");
+  const openLock = requestOpenController.indexOf("if (saveInFlightRef.current)");
+  const openDiscard = requestOpenController.indexOf("if (selectedFieldId && hasUnsavedStructureChanges");
+  const openCommit = requestOpenController.lastIndexOf("openField(fieldId, tab)");
+  assert.ok(closeLock >= 0 && closeLock < closeDiscard, "close is locked before dirty-state routing");
+  assert.ok(openLock >= 0 && openLock < openDiscard && openDiscard < openCommit, "switch is locked before discard/open routing");
+});
+
+check("24 save lock is synchronous and precedes every await", () => {
+  const duplicateGuard = confirmSaveController.indexOf("if (saveInFlightRef.current) return");
+  const lock = confirmSaveController.indexOf("saveInFlightRef.current = true");
+  const firstAwait = confirmSaveController.indexOf("await ");
+  assert.ok(duplicateGuard >= 0 && duplicateGuard < lock, "duplicate submit guard precedes lock acquisition");
+  assert.ok(lock > duplicateGuard && lock < firstAwait, "lock is acquired before asynchronous work");
+  assert.match(requestSaveController, /if \(saveInFlightRef\.current\) return/);
+});
+
+check("25 async save uses an immutable field/company/season snapshot", () => {
+  assert.match(confirmSaveController, /const saveFieldId = selectedFieldId;/);
+  assert.match(confirmSaveController, /const saveCompanyId = activeCompanyId;/);
+  assert.match(confirmSaveController, /const saveSeasonId = seasonId;/);
+  assert.match(confirmSaveController, /fetch\(`\/api\/crop-structure\/fields\/\$\{saveFieldId\}`/);
+  assert.match(confirmSaveController, /companyId: saveCompanyId,[\s\S]*?seasonId: saveSeasonId/);
+  assert.match(confirmSaveController, /next\.set\(saveFieldId, savedRows\)/);
+});
+
+check("26 save lock always releases in finally", () => {
+  const finallyStart = confirmSaveController.indexOf("} finally {");
+  const release = confirmSaveController.indexOf("saveInFlightRef.current = false", finallyStart);
+  const renderRelease = confirmSaveController.indexOf("setSaving(false)", finallyStart);
+  assert.ok(finallyStart >= 0 && release > finallyStart && renderRelease > release);
+});
+
+check("27 every editor mutation controller is locked during save", () => {
+  const guards = draftMutationControllers.match(/saveInFlightRef\.current/g) || [];
+  assert.ok(guards.length >= 9, `expected at least 9 mutation guards, found ${guards.length}`);
+  assert.match(page, /<fieldset[\s\S]*?disabled=\{saving\}[\s\S]*?data-testid="crop-structure-editor"/);
+  assert.match(page, /aria-busy=\{saving\}/);
+});
+
+check("28 navigation and action controls communicate the save lock", () => {
+  assert.match(masterItem, /aria-pressed=\{isSelected\}[\s\S]*?disabled=\{saving\}/);
+  assert.match(workspace, /onClick=\{addRow\}[\s\S]*?disabled=\{saving\}/);
+  assert.match(fieldDialog, /onClick=\{requestCloseField\}[\s\S]*?disabled=\{saving\}/);
+  assert.match(pageComposition, /onClick=\{\(\) => changeViewMode\("cards"\)\}[\s\S]*?disabled=\{saving\}/);
+});
+
+check("29 save completion follows the current responsive mode", () => {
+  assert.match(confirmSaveController, /const remainsInline = window\.matchMedia\("\(min-width: 1280px\)"\)\.matches && viewMode === "cards"/);
+  assert.match(confirmSaveController, /if \(remainsInline\) \{[\s\S]*?setPendingSaveRows\(\[\]\)[\s\S]*?\} else \{[\s\S]*?closeField\(\)/);
+  assert.match(page, /\{!isDesktopWorkspace \|\| viewMode !== "cards" \? \(/);
+});
+
+check("30 view changes and automatic selection wait for save completion", () => {
+  const changeViewStart = page.indexOf("const changeViewMode =");
+  const fieldStateStart = page.indexOf("const fieldState =", changeViewStart);
+  const changeViewController = page.slice(changeViewStart, fieldStateStart);
+  assert.match(changeViewController, /if \(saveInFlightRef\.current\) return/);
+  assert.match(page, /selectedFieldId \|\| saving \|\| filteredFields\.length === 0/);
+});
+
+console.log(`TF2 Warm Manor crop master-detail: ${passed}/30 PASS`);

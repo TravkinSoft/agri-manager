@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Edit3, FileText, LayoutGrid, Map as MapIcon, Maximize2, Plus, Search, Table2, X } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
@@ -464,6 +464,7 @@ export default function CropStructurePage() {
   const [pendingSaveRows, setPendingSaveRows] = useState<Allocation[]>([]);
   const [pendingSaveSummary, setPendingSaveSummary] = useState<CropStructureChangeSummary>({ added: 0, updated: 0, deleted: 0 });
   const [editorValidationError, setEditorValidationError] = useState<string | null>(null);
+  const saveInFlightRef = useRef(false);
 
   const fieldMap = useMemo(() => new Map(fields.map((field) => [field.id, field])), [fields]);
   const selectedField = selectedFieldId ? fieldMap.get(selectedFieldId) || null : null;
@@ -772,6 +773,7 @@ export default function CropStructurePage() {
   }, []);
 
   const changeViewMode = (mode: ViewMode) => {
+    if (saveInFlightRef.current) return;
     const nextMode = mode === "map" && !isGlobalAdmin ? "cards" : mode;
     setViewMode(nextMode);
     try {
@@ -1318,6 +1320,10 @@ export default function CropStructurePage() {
   };
 
   const requestCloseField = () => {
+    if (saveInFlightRef.current) {
+      toast({ title: "Сохранение структуры", description: "Дождитесь завершения сохранения перед закрытием поля." });
+      return;
+    }
     setPendingFieldSelection(null);
     if (hasUnsavedStructureChanges && !saving) {
       setDiscardConfirmationOpen(true);
@@ -1328,6 +1334,10 @@ export default function CropStructurePage() {
 
   const requestOpenField = (fieldId: string, tab: FieldWorkspaceTab = "dossier") => {
     if (selectedFieldId === fieldId) return;
+    if (saveInFlightRef.current) {
+      toast({ title: "Сохранение структуры", description: "Дождитесь завершения сохранения перед переходом к другому полю." });
+      return;
+    }
     if (selectedFieldId && hasUnsavedStructureChanges && !saving) {
       setPendingFieldSelection({ fieldId, tab });
       setDiscardConfirmationOpen(true);
@@ -1337,13 +1347,14 @@ export default function CropStructurePage() {
   };
 
   const confirmDiscardFieldChanges = () => {
+    if (saveInFlightRef.current) return;
     const nextSelection = pendingFieldSelection;
     closeField();
     if (nextSelection) openField(nextSelection.fieldId, nextSelection.tab);
   };
 
   useEffect(() => {
-    if (!isDesktopWorkspace || viewMode !== "cards" || selectedFieldId || filteredFields.length === 0) return;
+    if (!isDesktopWorkspace || viewMode !== "cards" || selectedFieldId || saving || filteredFields.length === 0) return;
     const fieldId = filteredFields[0].id;
     setSelectedFieldId(fieldId);
     setFieldDialogTab("dossier");
@@ -1352,9 +1363,10 @@ export default function CropStructurePage() {
       mix_components: item.mix_components.map((component) => ({ ...component })),
     })));
     setEditorValidationError(null);
-  }, [allocByField, filteredFields, isDesktopWorkspace, selectedFieldId, viewMode]);
+  }, [allocByField, filteredFields, isDesktopWorkspace, saving, selectedFieldId, viewMode]);
 
   const patchDraft = (index: number, patch: Partial<Allocation>) => {
+    if (saveInFlightRef.current) return;
     setEditorValidationError(null);
     setDraftRows((prev) => {
       const next = [...prev];
@@ -1389,6 +1401,7 @@ export default function CropStructurePage() {
   };
 
   const patchMixComponent = (rowIndex: number, componentIndex: number, patch: Partial<GrainMixComponent>) => {
+    if (saveInFlightRef.current) return;
     setEditorValidationError(null);
     setDraftRows((current) => current.map((row, index) => {
       if (index !== rowIndex) return row;
@@ -1406,6 +1419,7 @@ export default function CropStructurePage() {
   };
 
   const addMixComponent = (rowIndex: number) => {
+    if (saveInFlightRef.current) return;
     setDraftRows((current) => current.map((row, index) => {
       if (index !== rowIndex || row.mix_components.length >= GRAIN_MIX_MAX_COMPONENTS) return row;
       return {
@@ -1425,6 +1439,7 @@ export default function CropStructurePage() {
   };
 
   const removeMixComponent = (rowIndex: number, componentIndex: number) => {
+    if (saveInFlightRef.current) return;
     setDraftRows((current) => current.map((row, index) => {
       if (index !== rowIndex || row.mix_components.length <= GRAIN_MIX_MIN_COMPONENTS) return row;
       return {
@@ -1437,7 +1452,7 @@ export default function CropStructurePage() {
   };
 
   const addRow = () => {
-    if (!selectedFieldId) return;
+    if (!selectedFieldId || saveInFlightRef.current) return;
     setEditorValidationError(null);
     setDraftRows((prev) => [
       ...prev,
@@ -1458,11 +1473,13 @@ export default function CropStructurePage() {
   };
 
   const removeRow = (index: number) => {
+    if (saveInFlightRef.current) return;
     setEditorValidationError(null);
     setDraftRows((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   };
 
   const requestRemoveRow = (index: number) => {
+    if (saveInFlightRef.current) return;
     const row = draftRows[index];
     if (!row) return;
     const operationsCount = row.id ? operationFactsByAllocation.get(row.id)?.length || 0 : 0;
@@ -1479,13 +1496,13 @@ export default function CropStructurePage() {
   };
 
   const confirmRemoveRow = () => {
-    if (pendingDeleteIndex == null) return;
+    if (pendingDeleteIndex == null || saveInFlightRef.current) return;
     removeRow(pendingDeleteIndex);
     setPendingDeleteIndex(null);
   };
 
   const fillRemainingArea = (index: number) => {
-    if (!selectedField) return;
+    if (!selectedField || saveInFlightRef.current) return;
     setDraftRows((prev) => {
       if (!prev.length) {
         return [
@@ -1563,6 +1580,7 @@ export default function CropStructurePage() {
   };
 
   const requestSave = () => {
+    if (saveInFlightRef.current) return;
     const validatedRows = prepareDraftForSave();
     if (!validatedRows || !selectedFieldId) return;
     const summary = summarizeCropStructureChanges(initialByField.get(selectedFieldId) || [], validatedRows);
@@ -1579,6 +1597,7 @@ export default function CropStructurePage() {
   };
 
   const confirmSave = async () => {
+    if (saveInFlightRef.current) return;
     if (!canEditSelectedSeason || !selectedFieldId || !selectedField || !activeCompanyId || !seasonId) {
       const message = "Контекст поля или сезона изменился. Вернитесь в редактор и повторите сохранение.";
       setSaveConfirmationOpen(false);
@@ -1586,11 +1605,15 @@ export default function CropStructurePage() {
       toast({ title: "Структура не сохранена", description: message, variant: "destructive" });
       return;
     }
+    const saveFieldId = selectedFieldId;
+    const saveCompanyId = activeCompanyId;
+    const saveSeasonId = seasonId;
     const validatedRows = pendingSaveRows;
+    saveInFlightRef.current = true;
+    setSaving(true);
     setSaveConfirmationOpen(false);
     try {
-      setSaving(true);
-      const prev = initialByField.get(selectedFieldId) || [];
+      const prev = initialByField.get(saveFieldId) || [];
       const prevIds = new Set(prev.map((row) => row.id).filter(Boolean) as string[]);
       const curIds = new Set(validatedRows.map((row) => row.id).filter(Boolean) as string[]);
       const delIds = Array.from(prevIds).filter((id) => !curIds.has(id));
@@ -1610,15 +1633,15 @@ export default function CropStructurePage() {
       const token = sessionData.session?.access_token;
       if (sessionError || !token) throw new Error("User is not authenticated");
 
-      const response = await fetch(`/api/crop-structure/fields/${selectedFieldId}`, {
+      const response = await fetch(`/api/crop-structure/fields/${saveFieldId}`, {
         method: "PUT",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          companyId: activeCompanyId,
-          seasonId,
+          companyId: saveCompanyId,
+          seasonId: saveSeasonId,
           rows: validatedRows,
         }),
       });
@@ -1628,27 +1651,35 @@ export default function CropStructurePage() {
       const savedRows = (payload.rows || []).map(allocationFromRow);
       setAllocByField((current) => {
         const next = new Map(current);
-        next.set(selectedFieldId, savedRows);
+        next.set(saveFieldId, savedRows);
         return next;
       });
       setInitialByField((current) => {
         const next = cloneAllocationMap(current);
-        next.set(selectedFieldId, savedRows.map((item) => ({
+        next.set(saveFieldId, savedRows.map((item) => ({
           ...item,
           mix_components: item.mix_components.map((component) => ({ ...component })),
         })));
         return next;
       });
-      setBootstrappedStructureKey(`${activeCompanyId}:${seasonId}`);
+      setBootstrappedStructureKey(`${saveCompanyId}:${saveSeasonId}`);
       setDraftRows(savedRows.map((item) => ({
         ...item,
         mix_components: item.mix_components.map((component) => ({ ...component })),
       })));
       toast({ title: "Сохранено", description: "Структура поля обновлена." });
-      closeField();
+      const remainsInline = window.matchMedia("(min-width: 1280px)").matches && viewMode === "cards";
+      if (remainsInline) {
+        setPendingSaveRows([]);
+        setPendingSaveSummary({ added: 0, updated: 0, deleted: 0 });
+        setEditorValidationError(null);
+      } else {
+        closeField();
+      }
     } catch (error) {
       toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Save failed", variant: "destructive" });
     } finally {
+      saveInFlightRef.current = false;
       setSaving(false);
     }
   };
@@ -1954,9 +1985,10 @@ export default function CropStructurePage() {
       >
         <button
           type="button"
-          className="block min-h-11 w-full px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          className="block min-h-11 w-full px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-wait disabled:opacity-70"
           onClick={() => requestOpenField(field.id)}
           aria-pressed={isSelected}
+          disabled={saving}
         >
           <span className="flex min-w-0 items-start justify-between gap-3">
             <span className="min-w-0">
@@ -2001,7 +2033,7 @@ export default function CropStructurePage() {
             variant="outline"
             className="h-9 w-full"
             onClick={(event) => openPrimaryOperationPlan(field, event)}
-            disabled={!FIELD_FIRST_CREATE_ENABLED || hasUnsavedStructureChanges}
+            disabled={!FIELD_FIRST_CREATE_ENABLED || hasUnsavedStructureChanges || saving}
             title={hasUnsavedStructureChanges ? "Сначала сохраните или отмените изменения структуры" : undefined}
           >
             <Plus className="mr-1.5 h-3.5 w-3.5" />Операция
@@ -2792,7 +2824,13 @@ export default function CropStructurePage() {
       : 0;
 
     return (
-      <section className="space-y-5 text-foreground" aria-labelledby="crop-structure-editor-heading" data-testid="crop-structure-editor">
+      <fieldset
+        disabled={saving}
+        className="m-0 min-w-0 space-y-5 border-0 p-0 text-foreground disabled:cursor-wait"
+        aria-labelledby="crop-structure-editor-heading"
+        aria-busy={saving}
+        data-testid="crop-structure-editor"
+      >
         <div className="space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
@@ -3129,7 +3167,7 @@ export default function CropStructurePage() {
             </div>
           ) : null}
         </div>
-      </section>
+      </fieldset>
     );
   };
 
@@ -3335,6 +3373,7 @@ export default function CropStructurePage() {
                   variant="outline"
                   className="h-11"
                   onClick={addRow}
+                  disabled={saving}
                 >
                   <Plus className="mr-2 h-4 w-4" />Добавить участок
                 </Button>
@@ -3369,7 +3408,7 @@ export default function CropStructurePage() {
               closeField();
               setSeasonId(value);
             }}
-            disabled={seasons.length === 0 || (isDesktopWorkspace && hasUnsavedStructureChanges)}
+            disabled={seasons.length === 0 || saving || (isDesktopWorkspace && hasUnsavedStructureChanges)}
           >
             <SelectTrigger
               className="h-8 min-w-[92px] border-border bg-transparent px-2 text-xs font-medium text-muted-foreground shadow-none hover:border-border hover:text-foreground disabled:cursor-default disabled:opacity-70"
@@ -3442,6 +3481,7 @@ export default function CropStructurePage() {
                   variant={viewMode === "cards" ? "default" : "ghost"}
                   className="h-8 px-2.5 xl:px-2 2xl:px-2.5"
                   onClick={() => changeViewMode("cards")}
+                  disabled={saving}
                   aria-label="Показать карточками"
                   title="Карточки"
                 >
@@ -3454,6 +3494,7 @@ export default function CropStructurePage() {
                   variant={viewMode === "table" ? "default" : "ghost"}
                   className="h-8 px-2.5 xl:px-2 2xl:px-2.5"
                   onClick={() => changeViewMode("table")}
+                  disabled={saving}
                   aria-label="Показать таблицей"
                   title="Таблица"
                 >
@@ -3467,6 +3508,7 @@ export default function CropStructurePage() {
                     variant={viewMode === "map" ? "default" : "ghost"}
                     className="h-8 px-2.5 xl:px-2 2xl:px-2.5"
                     onClick={() => changeViewMode("map")}
+                    disabled={saving}
                     aria-label="Показать на карте"
                     title="Карта"
                   >
@@ -3597,6 +3639,7 @@ export default function CropStructurePage() {
                   size="icon"
                   className="h-11 w-11 text-foreground hover:bg-muted hover:text-foreground"
                   onClick={requestCloseField}
+                  disabled={saving}
                   aria-label="Закрыть карточку поля"
                 >
                   <X className="h-5 w-5" />
@@ -3682,11 +3725,12 @@ export default function CropStructurePage() {
                   variant="outline"
                   className="h-11 border-border bg-transparent text-foreground hover:border-yellow-500/50 hover:bg-muted hover:text-foreground"
                   onClick={addRow}
+                  disabled={saving}
                 >
                   <Plus className="mr-2 h-4 w-4" />Добавить участок
                 </Button>
               ) : null}
-              <Button type="button" className="h-11" variant="outline" onClick={requestCloseField}>Закрыть</Button>
+              <Button type="button" className="h-11" variant="outline" onClick={requestCloseField} disabled={saving}>Закрыть</Button>
               {canEditSelectedSeason && fieldDialogTab === "editor" ? (
                 <Button className="col-span-2 h-11 sm:col-span-1" onClick={requestSave} disabled={saving || !hasUnsavedStructureChanges}>
                   <Edit3 className="mr-2 h-4 w-4" />{saving ? "Сохранение..." : "Сохранить"}

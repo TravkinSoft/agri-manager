@@ -50,7 +50,7 @@ check("03 field actions remain visible", () => {
 
 check("04 sticky bar contains the complete editor workflow", () => {
   assert.match(dialog, /onClick=\{addRow\}[\s\S]*?Добавить участок/);
-  assert.match(dialog, /onClick=\{requestCloseField\}>Закрыть/);
+  assert.match(dialog, /onClick=\{requestCloseField\} disabled=\{saving\}>Закрыть/);
   assert.match(dialog, /onClick=\{requestSave\}[\s\S]*?Сохранить/);
 });
 
@@ -106,7 +106,7 @@ check("12 seasonal truth is a semantic section", () => {
 
 check("13 overview no longer uses four framed KPI cards", () => {
   assert.doesNotMatch(dossier, /rounded-xl border border-slate-800 bg-slate-950\/45 p-3/);
-  assert.match(dossier, /sm:divide-x sm:divide-slate-800/);
+  assert.match(dossier, /sm:divide-x sm:divide-border/);
   assert.doesNotMatch(legal, /bg-white|text-slate-900|text-slate-700/);
   assert.match(legal, /field-legal-contour-heading/);
 });
@@ -130,13 +130,13 @@ check("16 plot detail is a clear labelled section", () => {
 });
 
 check("17 detail tables remain usable on narrow screens", () => {
-  assert.match(dossier, /overflow-x-auto border-y border-slate-800[\s\S]*?min-w-\[640px\]/);
-  assert.match(dossier, /overflow-x-auto border-y border-slate-800[\s\S]*?min-w-\[680px\]/);
+  assert.match(dossier, /overflow-x-auto border-y border-border[\s\S]*?min-w-\[640px\]/);
+  assert.match(dossier, /overflow-x-auto border-y border-border[\s\S]*?min-w-\[680px\]/);
 });
 
 check("18 editor rows are divided sections instead of framed cards", () => {
   assert.match(editor, /aria-labelledby=\{`crop-structure-row-\$\{index\}`\}/);
-  assert.match(editor, /border-t border-slate-700\/80 py-5 first:border-t-0/);
+  assert.match(editor, /border-t border-border py-5 first:border-t-0/);
   assert.doesNotMatch(editor, /overflow-hidden rounded-xl border border-slate-700\/80 bg-\[#101823\]/);
 });
 
