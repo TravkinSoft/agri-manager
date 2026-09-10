@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import {
+  isSameCropStructureUiContext,
+  type CropStructureUiContext,
+} from "../app/(dashboard)/crop-structure/save-context";
 
 const page = readFileSync(
   resolve(process.cwd(), "app/(dashboard)/crop-structure/page.tsx"),
@@ -42,6 +46,41 @@ const check = (name: string, run: () => void) => {
   run();
   passed += 1;
   console.log(`PASS ${name}`);
+};
+
+const checkAsync = async (name: string, run: () => Promise<void>) => {
+  await run();
+  passed += 1;
+  console.log(`PASS ${name}`);
+};
+
+const deferred = () => {
+  let resolvePromise!: () => void;
+  let rejectPromise!: (error: Error) => void;
+  const promise = new Promise<void>((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  return { promise, resolve: resolvePromise, reject: rejectPromise };
+};
+
+const runDelayedSaveCompletionProbe = async (
+  snapshot: CropStructureUiContext,
+  latestContext: () => CropStructureUiContext,
+  transport: Promise<void>,
+) => {
+  const effects: string[] = [];
+  try {
+    await transport;
+    if (!isSameCropStructureUiContext(latestContext(), snapshot)) return effects;
+    effects.push("apply", "success-toast", "close");
+  } catch {
+    if (!isSameCropStructureUiContext(latestContext(), snapshot)) return effects;
+    effects.push("error-toast");
+  } finally {
+    effects.push("unlock");
+  }
+  return effects;
 };
 
 check("01 desktop mode follows the Tailwind xl boundary", () => {
@@ -250,4 +289,92 @@ check("30 view changes and automatic selection wait for save completion", () => 
   assert.match(page, /selectedFieldId \|\| saving \|\| filteredFields\.length === 0/);
 });
 
-console.log(`TF2 Warm Manor crop master-detail: ${passed}/30 PASS`);
+check("31 save context identity rejects every global or local context change", () => {
+  const snapshot: CropStructureUiContext = {
+    companyId: "company-a",
+    seasonId: "season-2026",
+    fieldId: "field-1",
+    profileId: "profile-1",
+    role: "company_admin",
+  };
+  assert.equal(isSameCropStructureUiContext(snapshot, { ...snapshot }), true);
+  assert.equal(isSameCropStructureUiContext(snapshot, { ...snapshot, companyId: "company-b" }), false);
+  assert.equal(isSameCropStructureUiContext(snapshot, { ...snapshot, seasonId: "season-2027" }), false);
+  assert.equal(isSameCropStructureUiContext(snapshot, { ...snapshot, fieldId: "field-2" }), false);
+  assert.equal(isSameCropStructureUiContext(snapshot, { ...snapshot, profileId: "profile-2" }), false);
+  assert.equal(isSameCropStructureUiContext(snapshot, { ...snapshot, role: "agronomist" }), false);
+});
+
+check("32 latest-context ref tracks company season field identity and role", () => {
+  assert.match(page, /const useIsomorphicLayoutEffect = typeof window === "undefined" \? useEffect : useLayoutEffect/);
+  assert.match(page, /const latestSaveContextRef = useRef<CropStructureUiContext>/);
+  assert.match(page, /useIsomorphicLayoutEffect\(\(\) => \{[\s\S]*?latestSaveContextRef\.current = \{[\s\S]*?companyId: activeCompanyId,[\s\S]*?seasonId,[\s\S]*?fieldId: selectedFieldId,[\s\S]*?profileId: activeProfileId,[\s\S]*?role: profile\?\.role \|\| null/);
+  assert.match(page, /return \(\) => \{[\s\S]*?latestSaveContextRef\.current = \{[\s\S]*?companyId: null,[\s\S]*?seasonId: "",[\s\S]*?fieldId: null,[\s\S]*?profileId: null,[\s\S]*?role: null/);
+  assert.match(page, /\}, \[activeCompanyId, activeProfileId, profile\?\.role, seasonId, selectedFieldId\]\);/);
+});
+
+check("33 immutable save snapshot carries identity and authorization context", () => {
+  assert.match(confirmSaveController, /const saveContext: CropStructureUiContext = \{[\s\S]*?companyId: saveCompanyId,[\s\S]*?seasonId: saveSeasonId,[\s\S]*?fieldId: saveFieldId,[\s\S]*?profileId: activeProfileId,[\s\S]*?role: profile\?\.role \|\| null/);
+  assert.match(confirmSaveController, /isSameCropStructureUiContext\(latestSaveContextRef\.current, saveContext\)/);
+});
+
+check("34 context switch before PUT suppresses the stale write", () => {
+  const sessionAwait = confirmSaveController.indexOf("await supabase.auth.getSession()");
+  const preflightFence = confirmSaveController.indexOf("if (!saveContextIsCurrent()) return", sessionAwait);
+  const request = confirmSaveController.indexOf("const response = await fetch", preflightFence);
+  assert.ok(sessionAwait >= 0 && preflightFence > sessionAwait && request > preflightFence);
+});
+
+check("35 context switch after PUT suppresses every stale response effect", () => {
+  const responsePayload = confirmSaveController.indexOf("await response.json()");
+  const responseFence = confirmSaveController.indexOf("if (!saveContextIsCurrent()) return", responsePayload);
+  const responseError = confirmSaveController.indexOf("if (!response.ok)", responseFence);
+  const firstUiApply = confirmSaveController.indexOf("setAllocByField", responseFence);
+  const successToast = confirmSaveController.indexOf('toast({ title: "Сохранено"', responseFence);
+  const close = confirmSaveController.indexOf("closeField()", responseFence);
+  assert.ok(responsePayload >= 0 && responseFence > responsePayload);
+  assert.ok(responseError > responseFence && firstUiApply > responseFence && successToast > responseFence && close > responseFence);
+});
+
+check("36 stale transport failures stay silent but finally releases the lock", () => {
+  const catchStart = confirmSaveController.indexOf("} catch (error) {");
+  const catchFence = confirmSaveController.indexOf("if (!saveContextIsCurrent()) return", catchStart);
+  const errorToast = confirmSaveController.indexOf('toast({ title: "Ошибка"', catchFence);
+  const finallyStart = confirmSaveController.indexOf("} finally {", errorToast);
+  const release = confirmSaveController.indexOf("saveInFlightRef.current = false", finallyStart);
+  assert.ok(catchStart >= 0 && catchFence > catchStart && errorToast > catchFence);
+  assert.ok(finallyStart > errorToast && release > finallyStart);
+});
+
+const runAsyncChecks = async () => {
+  await checkAsync("37 delayed stale resolve and reject produce only unlock", async () => {
+    const snapshot: CropStructureUiContext = {
+      companyId: "company-a",
+      seasonId: "season-2026",
+      fieldId: "field-1",
+      profileId: "profile-1",
+      role: "company_admin",
+    };
+
+    let latestContext = snapshot;
+    const resolvedTransport = deferred();
+    const resolvedCompletion = runDelayedSaveCompletionProbe(snapshot, () => latestContext, resolvedTransport.promise);
+    latestContext = { ...snapshot, companyId: "company-b" };
+    resolvedTransport.resolve();
+    assert.deepEqual(await resolvedCompletion, ["unlock"]);
+
+    latestContext = snapshot;
+    const rejectedTransport = deferred();
+    const rejectedCompletion = runDelayedSaveCompletionProbe(snapshot, () => latestContext, rejectedTransport.promise);
+    latestContext = { ...snapshot, role: "agronomist" };
+    rejectedTransport.reject(new Error("late transport failure"));
+    assert.deepEqual(await rejectedCompletion, ["unlock"]);
+  });
+
+  console.log(`TF2 Warm Manor crop master-detail: ${passed}/37 PASS`);
+};
+
+void runAsyncChecks().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Edit3, FileText, LayoutGrid, Map as MapIcon, Maximize2, Plus, Search, Table2, X } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
@@ -72,6 +72,9 @@ import {
   normalizeIrrigationType,
   type IrrigationType,
 } from "@/lib/operations/operation-engine";
+import { isSameCropStructureUiContext, type CropStructureUiContext } from "./save-context";
+
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 type Field = { id: string; name: string; area: number; notes?: string | null };
 type Season = { id: string; year: number; archived?: boolean | null };
@@ -465,6 +468,32 @@ export default function CropStructurePage() {
   const [pendingSaveSummary, setPendingSaveSummary] = useState<CropStructureChangeSummary>({ added: 0, updated: 0, deleted: 0 });
   const [editorValidationError, setEditorValidationError] = useState<string | null>(null);
   const saveInFlightRef = useRef(false);
+  const latestSaveContextRef = useRef<CropStructureUiContext>({
+    companyId: activeCompanyId,
+    seasonId,
+    fieldId: selectedFieldId,
+    profileId: activeProfileId,
+    role: profile?.role || null,
+  });
+
+  useIsomorphicLayoutEffect(() => {
+    latestSaveContextRef.current = {
+      companyId: activeCompanyId,
+      seasonId,
+      fieldId: selectedFieldId,
+      profileId: activeProfileId,
+      role: profile?.role || null,
+    };
+    return () => {
+      latestSaveContextRef.current = {
+        companyId: null,
+        seasonId: "",
+        fieldId: null,
+        profileId: null,
+        role: null,
+      };
+    };
+  }, [activeCompanyId, activeProfileId, profile?.role, seasonId, selectedFieldId]);
 
   const fieldMap = useMemo(() => new Map(fields.map((field) => [field.id, field])), [fields]);
   const selectedField = selectedFieldId ? fieldMap.get(selectedFieldId) || null : null;
@@ -1608,6 +1637,14 @@ export default function CropStructurePage() {
     const saveFieldId = selectedFieldId;
     const saveCompanyId = activeCompanyId;
     const saveSeasonId = seasonId;
+    const saveContext: CropStructureUiContext = {
+      companyId: saveCompanyId,
+      seasonId: saveSeasonId,
+      fieldId: saveFieldId,
+      profileId: activeProfileId,
+      role: profile?.role || null,
+    };
+    const saveContextIsCurrent = () => isSameCropStructureUiContext(latestSaveContextRef.current, saveContext);
     const validatedRows = pendingSaveRows;
     saveInFlightRef.current = true;
     setSaving(true);
@@ -1630,6 +1667,7 @@ export default function CropStructurePage() {
       }
 
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (!saveContextIsCurrent()) return;
       const token = sessionData.session?.access_token;
       if (sessionError || !token) throw new Error("User is not authenticated");
 
@@ -1646,6 +1684,7 @@ export default function CropStructurePage() {
         }),
       });
       const payload = (await response.json().catch(() => ({}))) as { rows?: unknown[]; error?: string };
+      if (!saveContextIsCurrent()) return;
       if (!response.ok) throw new Error(payload.error || "Failed to save crop structure");
 
       const savedRows = (payload.rows || []).map(allocationFromRow);
@@ -1677,6 +1716,7 @@ export default function CropStructurePage() {
         closeField();
       }
     } catch (error) {
+      if (!saveContextIsCurrent()) return;
       toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Save failed", variant: "destructive" });
     } finally {
       saveInFlightRef.current = false;
