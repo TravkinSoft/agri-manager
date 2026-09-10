@@ -231,7 +231,7 @@ export function NotificationCenter({ userId, companyId, role }: NotificationCent
         <Button
           variant="ghost"
           size="icon"
-          className="relative h-9 w-9 text-foreground hover:bg-muted hover:text-foreground"
+          className="relative h-9 w-9 text-foreground hover:bg-muted hover:text-foreground [.tf-manor-topbar_&]:text-[#F8F0E2] [.tf-manor-topbar_&]:hover:bg-[#F8F0E2]/10 [.tf-manor-topbar_&]:hover:text-white"
           aria-label="Уведомления"
           title="Уведомления"
         >

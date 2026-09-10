@@ -45,7 +45,7 @@ export function SystemHealthBadge({ collapsed }: { collapsed: boolean }) {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <button type="button" title="Состояние системы" className={cn("mx-3 mb-2 flex h-9 items-center rounded-md border px-2 text-xs", collapsed ? "justify-center" : "gap-2", error || payload?.warningCount ? "border-amber-500/35 bg-amber-500/10 text-amber-800" : "border-emerald-500/25 bg-emerald-500/10 text-emerald-800")}>
+        <button type="button" title="Состояние системы" className={cn("mx-3 mb-2 flex h-9 items-center rounded-md border px-2 text-xs", collapsed ? "justify-center" : "gap-2", error || payload?.warningCount ? "border-amber-500/35 bg-amber-500/10 text-amber-800 [.tf-manor-sidebar_&]:text-amber-200" : "border-emerald-500/25 bg-emerald-500/10 text-emerald-800 [.tf-manor-sidebar_&]:text-emerald-200")}>
           <Icon className={cn("h-4 w-4 shrink-0", loading && "animate-spin")} />
           {!collapsed ? <span className="truncate">{loading ? "Проверка системы" : error ? "Health недоступен" : healthy ? "Система · всё работает" : `Требует внимания: ${payload?.warningCount || 0}`}</span> : null}
         </button>

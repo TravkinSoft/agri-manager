@@ -2985,7 +2985,7 @@ export function FieldsMapPage() {
               {mapWorkMode === "agro" ? (
                 <>
                   <Select value={selectedCrop} onValueChange={setSelectedCrop} disabled={Boolean(boundaryEdit)}>
-                    <SelectTrigger aria-label="Фильтр культуры" className="h-11 w-[190px] shrink-0 border-border bg-black/25"><SelectValue /></SelectTrigger>
+                    <SelectTrigger aria-label="Фильтр культуры" className="h-11 w-[190px] shrink-0 border-border bg-background"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Все культуры</SelectItem>
                       {cropOptions.map((crop) => <SelectItem key={crop} value={crop}>{crop}</SelectItem>)}
@@ -3012,7 +3012,7 @@ export function FieldsMapPage() {
             </div>
             <div className="tf2-map-secondary-controls travkin-scrollbar mt-2 flex flex-nowrap items-center gap-2 overflow-x-auto border-t border-border pb-0.5 pt-2">
               <div className="flex min-w-[220px] flex-1 items-center gap-2">
-                <input value={fieldSearch} disabled={Boolean(boundaryEdit)} onChange={(event) => setFieldSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); runFieldSearch(); } }} placeholder="Найти поле..." className="h-11 min-w-0 flex-1 rounded-lg border border-border bg-black/25 px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-1 focus:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50" />
+                <input value={fieldSearch} disabled={Boolean(boundaryEdit)} onChange={(event) => setFieldSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); runFieldSearch(); } }} placeholder="Найти поле..." className="h-11 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-1 focus:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50" />
                 <Button aria-label="Найти поле" className="tf2-control h-11 w-11 shrink-0 p-0" size="sm" variant="outline" disabled={Boolean(boundaryEdit)} onClick={runFieldSearch}><Search className="h-4 w-4" /></Button>
                 <Button aria-label={`${showFieldListMobile ? "Скрыть" : "Показать"} список полей: ${filteredFields.length}`} className="tf2-control h-11 min-w-11 shrink-0 px-2" size="sm" variant="outline" disabled={Boolean(boundaryEdit)} onClick={() => setShowFieldListMobile((prev) => !prev)}>{filteredFields.length}</Button>
               </div>
