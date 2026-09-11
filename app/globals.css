@@ -5,58 +5,59 @@
 @layer base {
   :root,
   [data-theme="estate-register"],
-  [data-theme="warm-manor"] {
-    color-scheme: light;
-    --background: 43 12% 81%;
-    --foreground: 83 9% 14%;
-    --card: 42 17% 85%;
-    --card-foreground: 83 9% 14%;
-    --popover: 42 21% 88%;
-    --popover-foreground: 83 9% 14%;
-    --primary: 83 8% 18%;
-    --primary-foreground: 42 24% 92%;
-    --secondary: 43 12% 77%;
-    --secondary-foreground: 83 9% 14%;
-    --muted: 43 12% 79%;
-    --muted-foreground: 82 5% 30%;
-    --accent: 43 15% 75%;
-    --accent-foreground: 83 9% 14%;
-    --destructive: 5 50% 43%;
+  [data-theme="warm-manor"],
+  [data-theme="estate-graphite"] {
+    color-scheme: dark;
+    --background: 72 10% 8%;
+    --foreground: 45 24% 88%;
+    --card: 70 9% 10%;
+    --card-foreground: 45 24% 88%;
+    --popover: 70 9% 12%;
+    --popover-foreground: 45 24% 90%;
+    --primary: 68 35% 62%;
+    --primary-foreground: 72 12% 8%;
+    --secondary: 70 8% 15%;
+    --secondary-foreground: 45 18% 84%;
+    --muted: 70 7% 14%;
+    --muted-foreground: 56 9% 65%;
+    --accent: 68 10% 18%;
+    --accent-foreground: 45 24% 91%;
+    --destructive: 5 45% 43%;
     --destructive-foreground: 41 100% 97%;
-    --border: 44 10% 62%;
-    --input: 72 5% 43%;
-    --ring: 83 8% 28%;
-    --chart-1: 82 36% 31%;
-    --chart-2: 39 51% 47%;
-    --chart-3: 157 28% 36%;
-    --chart-4: 28 43% 38%;
-    --chart-5: 5 50% 43%;
-    --radius: 0.375rem;
+    --border: 66 7% 24%;
+    --input: 66 7% 31%;
+    --ring: 68 35% 62%;
+    --chart-1: 68 35% 62%;
+    --chart-2: 38 45% 58%;
+    --chart-3: 145 24% 52%;
+    --chart-4: 25 37% 55%;
+    --chart-5: 5 45% 56%;
+    --radius: 0.625rem;
 
-    --font-manor-display: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
-    --font-manor-data: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-manor-display: var(--font-cormorant-garamond), "Iowan Old Style", Georgia, serif;
+    --font-manor-data: var(--font-golos-text), ui-sans-serif, system-ui, sans-serif;
     /* Compatibility names keep existing modules on one shared design contract. */
-    --manor-ivory: #d2cfc5;
-    --manor-paper: #dfdcd2;
-    --manor-paper-raised: #e9e5dc;
-    --manor-paper-recessed: #c9c6bb;
-    --manor-espresso: #292c26;
-    --manor-espresso-soft: #353831;
-    --manor-walnut: #252820;
-    --manor-olive: #41483b;
-    --manor-olive-deep: #30372b;
-    --manor-brass: #9c8964;
-    --manor-brass-soft: #cfc5af;
-    --manor-line: #aaa698;
-    --manor-text-muted: #50534b;
+    --manor-ivory: #14150f;
+    --manor-paper: #191a14;
+    --manor-paper-raised: #1e2019;
+    --manor-paper-recessed: #11120e;
+    --manor-espresso: #11120e;
+    --manor-espresso-soft: #1b1d17;
+    --manor-walnut: #ece7d8;
+    --manor-olive: #a8b878;
+    --manor-olive-deep: #24291d;
+    --manor-brass: #b9a471;
+    --manor-brass-soft: #d6c8a4;
+    --manor-line: #3d4035;
+    --manor-text-muted: #aaa99d;
     --estate-shell-text: #ece9df;
     --estate-shell-muted: #c4c3b8;
-    --estate-shell-line: #66695e;
-    --manor-success: #3f6d42;
-    --manor-warning: #9a681f;
-    --manor-danger: #a34036;
-    --manor-shadow-sm: 0 1px 2px rgba(30, 33, 25, 0.07);
-    --manor-shadow-md: 0 12px 36px rgba(30, 33, 25, 0.18);
+    --estate-shell-line: #34372e;
+    --manor-success: #8eac73;
+    --manor-warning: #c8a969;
+    --manor-danger: #cf7468;
+    --manor-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.22);
+    --manor-shadow-md: 0 18px 48px rgba(0, 0, 0, 0.34);
 
     --travkin-bg: var(--manor-ivory);
     --travkin-bg-secondary: var(--manor-paper-recessed);
@@ -86,7 +87,7 @@
   body {
     @apply bg-background text-foreground antialiased;
     background:
-      repeating-linear-gradient(0deg, rgba(38, 41, 31, 0.012) 0, rgba(38, 41, 31, 0.012) 1px, transparent 1px, transparent 4px),
+      radial-gradient(circle at 75% -10%, rgba(175, 184, 120, 0.055), transparent 34%),
       var(--travkin-bg);
     color: var(--travkin-text);
     overscroll-behavior-x: none;
@@ -137,8 +138,16 @@
   .tf-estate-rail :is(.text-rose-800, .text-rose-700, .text-red-800, .text-red-700) { color: #f0b6ac; }
 
   /* Tailwind's amber-800 falls below AA on the deliberately darker register paper. */
-  :is([data-theme="estate-register"], [data-theme="warm-manor"]) :is(.text-amber-800, .text-amber-700) {
-    color: #66320d;
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) :is(.text-amber-800, .text-amber-700) {
+    color: #d3b56f;
+  }
+
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) :is(.text-emerald-800, .text-emerald-700, .text-green-800, .text-green-700) {
+    color: #a9c48f;
+  }
+
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) :is(.text-rose-800, .text-rose-700, .text-red-800, .text-red-700) {
+    color: #e39488;
   }
 
   /* Dark operational rails retain a lighter semantic warning ink. */
@@ -200,7 +209,7 @@
   }
 
   .tf-manor-control {
-    transition-duration: 160ms;
+    transition-duration: 140ms;
     transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
   }
@@ -215,7 +224,7 @@
   }
 
   .tf-estate-page-enter {
-    animation: tf-estate-page-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    animation: tf-estate-page-enter 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   .tf-manor-heading {
@@ -258,9 +267,15 @@
   }
 
   .tf2-control {
-    transition-duration: 160ms;
+    transition-duration: 140ms;
     transition-property: color, background-color, border-color, opacity, transform;
     transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tf-estate-page-enter { animation: none; }
+    .tf-manor-control,
+    .tf2-control { transition: none; }
   }
 
   .tf2-control:active {

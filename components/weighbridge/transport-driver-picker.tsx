@@ -203,7 +203,6 @@ export function TransportDriverSelects({
           ariaLabel="Водитель"
           disabled={disabled}
         />
-        <p className="text-xs text-muted-foreground">Водитель только для этого талона. Назначение в PTC не меняется.</p>
       </div>
     </div>
   );

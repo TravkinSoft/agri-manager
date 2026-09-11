@@ -572,13 +572,8 @@ const WEIGHBRIDGE_MODES: Array<{
   { type: "impurity_removal", label: "Примеси", description: "Вывоз примесей из принятой партии урожая", steps: ["Склад", "Партия урожая", "Транспорт и вес"] },
 ];
 
-function WorkflowSectionHeading({ title, description }: { title: string; description?: string }) {
-  return (
-    <div className="space-y-0.5">
-      <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-foreground">{title}</h2>
-      {description ? <p className="text-xs leading-5 text-muted-foreground">{description}</p> : null}
-    </div>
-  );
+function WorkflowSectionHeading(_props: { title: string; description?: string }) {
+  return null;
 }
 
 const movementGroupForOperation = (operationType: OperationType): MovementGroup =>
@@ -5464,9 +5459,8 @@ export default function WeighbridgeOperationsPage() {
   const formatMoisture = (value: number | null) => value == null
     ? "—"
     : `${value.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} %`;
-  const activeWeighbridgeMode = WEIGHBRIDGE_MODES.find((mode) => mode.type === form.operationType) || WEIGHBRIDGE_MODES[0];
   const terminalPanelClass = "rounded-md border border-border bg-card shadow-manor-sm";
-  const formSectionClass = "space-y-4 border-t border-border pt-4 first:border-t-0 first:pt-0";
+  const formSectionClass = "space-y-4 py-1";
   const formRailClass = "border-l-2 border-border pl-3 sm:pl-4";
   const formDataStripClass = "grid gap-2 border-y border-border py-3";
   const ticketClosePending = ticketCloseState.phase === "closing" || ticketCloseState.phase === "reconciling";
@@ -5509,17 +5503,7 @@ export default function WeighbridgeOperationsPage() {
           <div className="min-w-0">
             <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
               <h1 className="tf-manor-heading text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Весовая</h1>
-              <p className="text-sm text-muted-foreground">{activeWeighbridgeMode.description}</p>
             </div>
-            <ol className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" aria-label="Этапы текущей операции">
-              {activeWeighbridgeMode.steps.map((step, index) => (
-                <li key={step} className="flex items-center gap-2">
-                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-bold text-foreground">{index + 1}</span>
-                  <span>{step}</span>
-                  {index < activeWeighbridgeMode.steps.length - 1 ? <span className="text-muted-foreground" aria-hidden="true">→</span> : null}
-                </li>
-              ))}
-            </ol>
           </div>
 
           <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -5538,10 +5522,7 @@ export default function WeighbridgeOperationsPage() {
                       className="items-start rounded-md px-3 py-2.5 focus:bg-muted"
                       onSelect={() => void selectOperation(mode.type)}
                     >
-                      <span className="min-w-0">
-                        <span className={active ? "block text-sm font-semibold text-foreground" : "block text-sm font-semibold text-foreground"}>{mode.label}</span>
-                        <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{mode.description}</span>
-                      </span>
+                      <span className="min-w-0 text-sm font-semibold text-foreground">{mode.label}</span>
                       {active ? <span className="ml-auto shrink-0 text-[10px] font-semibold uppercase text-muted-foreground">Сейчас</span> : null}
                     </DropdownMenuItem>
                   );

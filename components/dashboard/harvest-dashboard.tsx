@@ -1,291 +1,312 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CalendarClock, ChevronDown, Clock3, Loader2, Scale, Warehouse } from "lucide-react";
+import { AlertTriangle, Calculator, Clock3, Loader2, Scale, Warehouse } from "lucide-react";
 import { TicketPreviewDialog } from "@/components/weighbridge/ticket-preview-dialog";
 import { PotatoDriverSummary } from "@/components/dashboard/potato-driver-summary";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useAuth } from "@/lib/contexts/auth-context";
-import type { HarvestDashboardFilters, HarvestFilterOptions, HarvestOverview, HarvestParty, HarvestPartyTicket, HarvestPeriodPreset } from "@/lib/dashboard/harvest-summary";
-import { getHarvestBootstrap, getHarvestSummary, type HarvestDashboardQuery } from "@/lib/services/harvest-dashboard";
-import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
 import { TrafficShiftSummary } from "@/components/dashboard/traffic-shift-summary";
+import { Input } from "@/components/ui/input";
+import { useAuth } from "@/lib/contexts/auth-context";
+import { isPotatoLabel, type HarvestFilterOptions, type HarvestOverview, type HarvestParty } from "@/lib/dashboard/harvest-summary";
+import { getHarvestBootstrap, getHarvestSummary } from "@/lib/services/harvest-dashboard";
+import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
+import { getFleetVehicleBrand, type FleetVehicle } from "@/lib/fleet/model";
+import type { TrafficSnapshot, TrafficVehicle } from "@/lib/traffic/model";
+import { trafficRequest } from "@/components/traffic/use-traffic";
 
 type BootstrapPayload = {
   summary: HarvestOverview;
   options: HarvestFilterOptions;
   operationalDayStartHour: number;
 };
+type TrafficPayload = { snapshot: TrafficSnapshot; fleet: FleetVehicle[] };
+type TrafficGroup = "empty" | "loaded" | "unloading" | "repair" | "offline";
 
-const EMPTY_FILTERS: HarvestDashboardFilters = { cropId: null, varietyId: null, reproductionId: null, fieldId: null, warehouseId: null };
-const EMPTY_OPTIONS: HarvestFilterOptions = { crops: [], varieties: [], reproductions: [], fields: [], warehouses: [] };
-const PERIODS: Array<{ value: HarvestPeriodPreset; label: string }> = [
-  { value: "current_day", label: "Текущий операционный день" },
-  { value: "previous_day", label: "Предыдущий операционный день" },
-  { value: "current_shift", label: "Текущая смена" },
-  { value: "last_24_hours", label: "Последние 24 часа" },
-  { value: "season", label: "Весь сезон" },
-  { value: "custom", label: "Свой период" },
+const GROUPS: Array<{ key: TrafficGroup; desktop: string; mobile: string }> = [
+  { key: "empty", desktop: "Пустые", mobile: "Пустые" },
+  { key: "loaded", desktop: "В пути на весовую", mobile: "На весовую" },
+  { key: "unloading", desktop: "На выгрузке", mobile: "Выгрузка" },
+  { key: "repair", desktop: "На ремонте", mobile: "Ремонт" },
+  { key: "offline", desktop: "Не на линии", mobile: "Не на линии" },
 ];
 
-function kg(value: number | null): string {
-  return value == null ? "—" : `${Number(value).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг`;
+function mass(value: number): string {
+  if (!Number.isFinite(value)) return "—";
+  const tonnes = value / 1000;
+  return `${tonnes.toLocaleString("ru-RU", { maximumFractionDigits: tonnes >= 100 ? 1 : 2 })} т`;
 }
-
-function percent(value: number): string {
-  return `${Number(value).toLocaleString("ru-RU", { maximumFractionDigits: 1 })}%`;
-}
-
-function dateTime(value: string): string {
+function clock(value: string): string {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+}
+function age(value: string, now: number): string {
+  const started = Date.parse(value);
+  if (!Number.isFinite(started)) return "—";
+  const minutes = Math.max(0, Math.floor((now - started) / 60_000));
+  if (minutes < 60) return `${minutes} мин`;
+  return `${Math.floor(minutes / 60)} ч ${minutes % 60} мин`;
+}
+function vehicleGroup(vehicle: TrafficVehicle): TrafficGroup {
+  if (vehicle.inRepair) return "repair";
+  if (!vehicle.assigned) return "offline";
+  return vehicle.state;
+}
+function mergeTrafficVehicles(snapshot: TrafficSnapshot | null, fleet: FleetVehicle[]): TrafficVehicle[] {
+  if (!snapshot) return [];
+  const current = new Set(snapshot.vehicles.map((vehicle) => vehicle.vehicle_id));
+  return [
+    ...snapshot.vehicles,
+    ...fleet.filter((vehicle) => !current.has(vehicle.id)).map((vehicle) => ({
+      vehicle_id: vehicle.id,
+      name: vehicle.name,
+      brand: vehicle.brand,
+      plate: vehicle.plate,
+      driver: vehicle.driver,
+      state: vehicle.state || "empty" as const,
+      version: 0,
+      since: vehicle.lastActivity || snapshot.serverTime,
+      cycle: 0,
+      assigned: false,
+      inRepair: vehicle.inRepair,
+      repairVersion: vehicle.repairVersion,
+      repairChangedAt: vehicle.repairChangedAt,
+    })),
+  ];
 }
 
-function time(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+function useDashboardTraffic(enabled: boolean) {
+  const [payload, setPayload] = useState<TrafficPayload | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!enabled) {
+      setPayload(null);
+      setError("");
+      return;
+    }
+    let cancelled = false;
+    let timer: number | undefined;
+    const load = async () => {
+      try {
+        const next = await trafficRequest("/api/traffic", "GET", undefined, true) as TrafficPayload;
+        if (!cancelled) {
+          setPayload(next);
+          setError("");
+        }
+      } catch (reason) {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : "PTC временно недоступен");
+      } finally {
+        if (!cancelled) timer = window.setTimeout(load, 5_000);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [enabled]);
+  return { payload, error };
 }
 
-function pluralRu(value: number, one: string, few: string, many: string): string {
-  const normalized = Math.abs(Math.trunc(value));
-  if (normalized % 100 >= 11 && normalized % 100 <= 14) return many;
-  if (normalized % 10 === 1) return one;
-  if (normalized % 10 >= 2 && normalized % 10 <= 4) return few;
-  return many;
-}
-
-function localInputToIso(value: string): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
-
-function isAbortError(reason: unknown): boolean {
-  return reason instanceof Error && reason.name === "AbortError";
-}
-
-function SectionLoading() {
-  return <div className="flex min-h-[20rem] items-center justify-center text-sm text-muted-foreground" role="status"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка сводки...</div>;
-}
-
-function FilterSelect({ label, value, options, onChange }: { label: string; value?: string | null; options: Array<{ id: string; label: string }>; onChange: (value: string | null) => void }) {
-  return <div className="min-w-0"><label className="mb-1 block text-[11px] uppercase text-muted-foreground">{label}</label><Select value={value || "all"} onValueChange={(next) => onChange(next === "all" ? null : next)}><SelectTrigger className="h-9 min-w-0"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Все</SelectItem>{options.map((option) => <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>)}</SelectContent></Select></div>;
-}
-
-function TicketRow({ ticket, kind, onOpen }: { ticket: HarvestPartyTicket; kind: "open" | "completed"; onOpen: (id: string) => void }) {
+function PotatoIdentity({ party }: { party: HarvestParty }) {
   return (
-    <button type="button" onClick={() => onOpen(ticket.ticketId)} className="grid w-full min-w-0 gap-1 rounded-md border border-border px-3 py-2 text-left hover:border-border sm:grid-cols-[1fr_auto] sm:gap-3">
-      <span className="min-w-0"><span className="block truncate text-sm font-medium text-foreground">{time(ticket.occurredAt)} · {ticket.fieldName} · {ticket.vehicleLabel}</span><span className="block truncate text-xs text-muted-foreground">{ticket.driverName} · {ticket.destinationName}</span></span>
-      <span className="flex flex-wrap items-center gap-x-3 text-xs sm:justify-end"><b className="text-sm text-foreground">{kind === "open" ? `Брутто ${kg(ticket.grossWeightKg)}` : `Нетто ${kg(ticket.netWeightKg)}`}</b>{kind === "open" ? <span className="text-amber-800">Ждёт тару {ticket.waitingTareMinutes} мин.</span> : <span className="text-emerald-800">{ticket.statusLabel}</span>}{ticket.moisturePercent != null ? <span className="text-muted-foreground">Влажность {percent(ticket.moisturePercent)}</span> : null}</span>
-    </button>
+    <div className="min-w-0">
+      <div className="truncate text-base font-semibold text-foreground">{party.varietyName || "Сорт не указан"}</div>
+      <div className="mt-0.5 text-xs text-muted-foreground">{party.reproductionName || "Репродукция не указана"}</div>
+    </div>
   );
 }
 
-function PartyCard({ party, open, onOpenChange, onTicket }: { party: HarvestParty; open: boolean; onOpenChange: (open: boolean) => void; onTicket: (id: string) => void }) {
+function VehicleCard({ vehicle, now }: { vehicle: TrafficVehicle; now: number }) {
+  const brand = getFleetVehicleBrand(vehicle);
   return (
-    <Collapsible open={open} onOpenChange={onOpenChange}>
-      <Card className="overflow-hidden rounded-none border-0 border-b border-border bg-transparent shadow-none">
-        <CollapsibleTrigger asChild>
-          <button type="button" className="grid w-full min-w-0 grid-cols-2 gap-3 p-4 text-left hover:bg-background lg:grid-cols-[minmax(210px,1.15fr)_repeat(4,minmax(110px,0.65fr))_auto] lg:items-center">
-            <span className="col-span-2 min-w-0 lg:col-span-1"><span className="block truncate text-base font-semibold text-foreground">{party.cropName}</span><span className="block truncate text-sm text-muted-foreground">{party.complete ? [party.varietyName, party.reproductionName].filter(Boolean).join(" · ") : "Требуется уточнение"}</span></span>
-            <span><span className="block text-[11px] uppercase text-muted-foreground">На складах сейчас</span><b className="text-base text-foreground">{kg(party.currentStockKg)}</b></span>
-            <span><span className="block text-[11px] uppercase text-muted-foreground">Принято за период</span><b className="text-base text-primary">{kg(party.receivedKg)}</b></span>
-            <span><span className="block text-[11px] uppercase text-muted-foreground">Открыто машин</span><b className="text-base text-foreground">{party.openTicketCount}</b></span>
-            <span><span className="block text-[11px] uppercase text-muted-foreground">Завершено рейсов</span><b className="text-base text-foreground">{party.completedTicketCount}</b></span>
-            <span className="col-span-2 flex items-center justify-between gap-2 text-xs text-muted-foreground lg:col-span-1 lg:justify-end">{party.lastTrip ? `Последний ${time(party.lastTrip.occurredAt)}` : "Рейсов нет"}<ChevronDown className={`h-5 w-5 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} /></span>
-          </button>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <CardContent className="space-y-5 border-t border-border p-4">
-            {party.openTickets.length ? <section><h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground"><Clock3 className="h-4 w-4 text-amber-800" />Открытые талоны</h3><div className="space-y-2">{party.openTickets.map((ticket) => <TicketRow key={ticket.ticketId} ticket={ticket} kind="open" onOpen={onTicket} />)}</div></section> : null}
-            <section><h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground"><Scale className="h-4 w-4 text-primary" />Завершённые талоны за период</h3>{party.completedTickets.length ? <div className="space-y-2">{party.completedTickets.map((ticket) => <TicketRow key={ticket.ticketId} ticket={ticket} kind="completed" onOpen={onTicket} />)}</div> : <p className="text-sm text-muted-foreground">За выбранный период завершённых рейсов нет.</p>}</section>
-            <div className="grid gap-4 lg:grid-cols-2">
-              <section><h3 className="mb-2 text-sm font-semibold text-foreground">Поступление с полей за период</h3>{party.fields.length ? <div className="space-y-2">{party.fields.map((field) => <div key={field.key} className="grid grid-cols-[1fr_auto] gap-3 rounded-md border border-border p-3"><span className="min-w-0"><b className="block truncate text-sm text-foreground">{field.fieldName}</b><span className="block text-xs text-muted-foreground">{field.trips} {pluralRu(field.trips, "завершённый рейс", "завершённых рейса", "завершённых рейсов")}</span><span className="block text-xs text-muted-foreground">Последний: {kg(field.lastTripKg)} · {time(field.lastTripAt)}</span></span><b className="whitespace-nowrap text-sm text-primary">{kg(field.receivedKg)}</b></div>)}</div> : <p className="text-sm text-muted-foreground">Поступления с полей за период нет.</p>}</section>
-              <section><h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground"><Warehouse className="h-4 w-4 text-primary" />Размещение на складах сейчас</h3>{party.warehouses.length ? <div className="space-y-2">{party.warehouses.map((warehouse) => <div key={`${warehouse.warehouseId}:${warehouse.warehouseName}`} className="grid grid-cols-[1fr_auto] gap-3 rounded-md border border-border p-3"><span className="truncate text-sm text-foreground">{warehouse.warehouseName}</span><b className="whitespace-nowrap text-sm text-foreground">{kg(warehouse.currentKg)}</b></div>)}</div> : <p className="text-sm text-muted-foreground">Фактического остатка на складах нет.</p>}</section>
-            </div>
-            {party.moisture ? <section><h3 className="mb-2 text-sm font-semibold text-foreground">Влажность</h3><div className="grid grid-cols-2 gap-2 rounded-md border border-border p-3 text-xs text-muted-foreground sm:grid-cols-4"><span>Последний рейс<br /><b className="text-sm text-foreground">{percent(party.moisture.latestPercent)}</b></span><span>Средняя за период<br /><b className="text-sm text-foreground">{percent(party.moisture.averagePercent)}</b></span><span>Диапазон<br /><b className="text-sm text-foreground">{percent(party.moisture.minimumPercent)}–{percent(party.moisture.maximumPercent)}</b></span><span>Измерено<br /><b className="text-sm text-foreground">{party.moisture.measuredTrips} из {party.moisture.totalTrips}</b></span></div></section> : null}
-            {party.issues.length ? <section><h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-800"><AlertTriangle className="h-4 w-4" />Требует внимания</h3><div className="space-y-2">{party.issues.map((issue) => <button key={issue.key} type="button" disabled={!issue.ticketId} onClick={() => issue.ticketId && onTicket(issue.ticketId)} className="block w-full rounded-md border border-amber-800/40 bg-amber-50 px-3 py-2 text-left disabled:cursor-default"><span className="block text-sm text-foreground">{issue.title}</span><span className="block text-xs text-muted-foreground">{issue.detail}</span></button>)}</div></section> : null}
-          </CardContent>
-        </CollapsibleContent>
-      </Card>
-    </Collapsible>
+    <article className="group grid min-h-[82px] grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-border/70 py-3 last:border-0">
+      <div className="min-w-0">
+        <div className="truncate text-sm font-semibold text-foreground">{vehicle.driver?.trim() || "Водитель не назначен"}</div>
+        <div className="mt-1 truncate text-xs text-muted-foreground">{brand}</div>
+        <div className="mt-0.5 text-[11px] font-medium tracking-wide text-[color:var(--manor-brass-soft)]">{vehicle.plate?.trim() || "Без номера"}</div>
+      </div>
+      <div className="flex items-start gap-1 pt-0.5 text-[11px] tabular-nums text-muted-foreground">
+        <Clock3 className="mt-0.5 h-3 w-3" />{age(vehicle.inRepair ? vehicle.repairChangedAt || vehicle.since : vehicle.since, now)}
+      </div>
+    </article>
   );
 }
 
 export function HarvestDashboard() {
   const { profile } = useAuth();
   const companyId = profile?.company_id || null;
-  const [period, setPeriod] = useState<HarvestPeriodPreset>("current_day");
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
-  const [filters, setFilters] = useState<HarvestDashboardFilters>(EMPTY_FILTERS);
-  const [options, setOptions] = useState<HarvestFilterOptions>(EMPTY_OPTIONS);
+  const canReadTraffic = Boolean(profile && ["agronomist", "company_admin", "global_admin", "fleet_manager"].includes(profile.role));
+  const { payload: traffic, error: trafficError } = useDashboardTraffic(canReadTraffic);
   const [summary, setSummary] = useState<HarvestOverview | null>(null);
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [expandedParties, setExpandedParties] = useState<Record<string, boolean>>({});
   const [error, setError] = useState("");
-  const [ticketId, setTicketId] = useState<string | null>(null);
-  const [initialLoading, setInitialLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<TrafficGroup>("loaded");
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const [harvestedHectares, setHarvestedHectares] = useState("");
+  const [ticketId, setTicketId] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
   const summaryRef = useRef<HarvestOverview | null>(null);
-  const requestAbortRef = useRef<AbortController | null>(null);
-  const requestGenerationRef = useRef(0);
-  const scopeCompanyIdRef = useRef<string | null>(null);
-  const bootstrappedCompanyIdRef = useRef<string | null>(null);
-
-  const query = useMemo<HarvestDashboardQuery>(() => ({ period, start: period === "custom" ? localInputToIso(customStart) : null, end: period === "custom" ? localInputToIso(customEnd) : null, filters }), [customEnd, customStart, filters, period]);
-  const customReady = period !== "custom" || Boolean(query.start && query.end);
-  const activeFilterCount = Object.values(filters).filter(Boolean).length;
+  const abortRef = useRef<AbortController | null>(null);
 
   const loadDashboard = useCallback(async () => {
-    const scopeChanged = scopeCompanyIdRef.current !== companyId;
-    if (scopeChanged) {
-      requestAbortRef.current?.abort();
-      requestGenerationRef.current += 1;
-      scopeCompanyIdRef.current = companyId;
-      bootstrappedCompanyIdRef.current = null;
-      summaryRef.current = null;
-      setSummary(null);
-      setOptions(EMPTY_OPTIONS);
-      setExpandedParties({});
-      setTicketId(null);
-      setError("");
-      setInitialLoading(Boolean(companyId));
-      setRefreshing(false);
-
-      if (Object.values(query.filters || {}).some(Boolean)) {
-        setFilters(EMPTY_FILTERS);
-        return;
-      }
-    }
-
-    if (!companyId || !customReady) {
-      requestAbortRef.current?.abort();
-      setInitialLoading(false);
-      setRefreshing(false);
+    if (!companyId) {
+      setLoading(false);
       return;
     }
-
-    requestAbortRef.current?.abort();
+    abortRef.current?.abort();
     const controller = new AbortController();
-    requestAbortRef.current = controller;
-    const generation = ++requestGenerationRef.current;
-    const shouldBootstrap = bootstrappedCompanyIdRef.current !== companyId;
-    const hasRetainedSummary = summaryRef.current !== null;
-    setInitialLoading(!hasRetainedSummary);
-    setRefreshing(hasRetainedSummary);
+    abortRef.current = controller;
+    setLoading(!summaryRef.current);
+    setRefreshing(Boolean(summaryRef.current));
     setError("");
-
+    const query = { period: "current_day" as const, start: null, end: null, filters: {} };
     try {
-      let nextSummary: HarvestOverview;
-      if (shouldBootstrap) {
-        const payload = await getHarvestBootstrap<BootstrapPayload>(query, { signal: controller.signal });
-        if (generation !== requestGenerationRef.current || controller.signal.aborted || scopeCompanyIdRef.current !== companyId) return;
-        bootstrappedCompanyIdRef.current = companyId;
-        setOptions(payload.options);
-        nextSummary = payload.summary;
-      } else {
-        nextSummary = await getHarvestSummary<HarvestOverview>(query, { signal: controller.signal });
-      }
-
-      if (generation !== requestGenerationRef.current || controller.signal.aborted || scopeCompanyIdRef.current !== companyId) return;
-      summaryRef.current = nextSummary;
-      setSummary(nextSummary);
+      const next = summaryRef.current
+        ? await getHarvestSummary<HarvestOverview>(query, { signal: controller.signal })
+        : (await getHarvestBootstrap<BootstrapPayload>(query, { signal: controller.signal })).summary;
+      if (controller.signal.aborted) return;
+      summaryRef.current = next;
+      setSummary(next);
     } catch (reason) {
-      if (isAbortError(reason) || generation !== requestGenerationRef.current || controller.signal.aborted) return;
+      if (controller.signal.aborted) return;
       setError(reason instanceof Error ? reason.message : "Не удалось загрузить сводку");
     } finally {
-      if (generation === requestGenerationRef.current) {
-        if (requestAbortRef.current === controller) requestAbortRef.current = null;
-        setInitialLoading(false);
+      if (!controller.signal.aborted) {
+        setLoading(false);
         setRefreshing(false);
       }
     }
-  }, [companyId, customReady, query]);
+  }, [companyId]);
 
   useEffect(() => {
+    summaryRef.current = null;
+    setSummary(null);
     void loadDashboard();
-    return () => {
-      requestGenerationRef.current += 1;
-      requestAbortRef.current?.abort();
-    };
-  }, [loadDashboard]);
-  useLiveRefresh({ enabled: Boolean(companyId && customReady), companyId, tables: LIVE_REFRESH_TABLES.weighbridge, intervalMs: 15_000, onRefresh: loadDashboard });
+    return () => abortRef.current?.abort();
+  }, [companyId, loadDashboard]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  useLiveRefresh({ enabled: Boolean(companyId), companyId, tables: LIVE_REFRESH_TABLES.weighbridge, intervalMs: 15_000, onRefresh: loadDashboard });
 
-  const setFilter = (key: keyof HarvestDashboardFilters, value: string | null) => setFilters((current) => ({ ...current, [key]: value }));
+  const potatoParties = useMemo(() => (summary?.parties || []).filter((party) => isPotatoLabel(party.cropName)), [summary]);
+  const receivedKg = potatoParties.reduce((total, party) => total + party.receivedKg, 0);
+  const stockKg = potatoParties.reduce((total, party) => total + party.currentStockKg, 0);
+  const waitingTare = potatoParties.flatMap((party) => party.openTickets).filter((ticket) => (ticket.waitingTareMinutes || 0) > 0);
+  const recentEvents = (summary?.completedEvents || []).filter((event) => isPotatoLabel(event.identityLabel)).slice(0, 5);
+  const fields = potatoParties.flatMap((party) => party.fields.map((field) => ({ ...field, party })));
+  const activeField = traffic?.snapshot.fieldName || fields[0]?.fieldName || "Поле не выбрано";
+  const hectares = Number(harvestedHectares.replace(",", "."));
+  const yieldTonnes = hectares > 0 ? receivedKg / 1000 / hectares : null;
+  const trafficVehicles = useMemo(() => mergeTrafficVehicles(traffic?.snapshot || null, traffic?.fleet || []), [traffic]);
+  const grouped = useMemo(() => Object.fromEntries(GROUPS.map((group) => [group.key, trafficVehicles.filter((vehicle) => vehicleGroup(vehicle) === group.key)])) as Record<TrafficGroup, TrafficVehicle[]>, [trafficVehicles]);
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] space-y-6 overflow-x-hidden">
-      <div className="flex min-w-0 items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="tf-manor-heading truncate text-2xl font-semibold text-foreground sm:text-3xl">Сводка</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Смены, партии урожая, фактические остатки и рейсы</p>
+    <div className="mx-auto w-full max-w-[1500px] space-y-5 overflow-x-hidden">
+      <header className="flex items-center justify-between gap-4 border-b border-border pb-3">
+        <h1 className="tf-manor-heading text-3xl sm:text-4xl">Сводка</h1>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />}
+          Live
         </div>
-        <div className="hidden rounded-md border border-emerald-700/40 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-800 sm:block">Live</div>
-      </div>
+      </header>
+      {error ? <div className="border-l-2 border-rose-400 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
+      {loading && !summary ? <div className="flex min-h-[18rem] items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка...</div> : null}
 
       {profile && ["agronomist", "director"].includes(profile.role) && profile.company_id ? <TrafficShiftSummary key={profile.company_id} companyId={profile.company_id} /> : null}
+      {summary ? (
+        <>
+          <section className="grid grid-cols-3 border-y border-border" aria-label="Главные показатели картофеля">
+            <div className="py-4 pr-3">
+              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Принято</div>
+              <div className="mt-1 text-xl font-semibold tabular-nums text-foreground sm:text-2xl">{mass(receivedKg)}</div>
+            </div>
+            <div className="border-x border-border px-3 py-4">
+              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">На складе</div>
+              <div className="mt-1 text-xl font-semibold tabular-nums text-foreground sm:text-2xl">{mass(stockKg)}</div>
+            </div>
+            <button type="button" onClick={() => setCalculatorOpen((value) => !value)} className="group px-3 py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+              <div className="flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Урожайность <Calculator className="h-3 w-3 transition-transform duration-150 group-hover:-translate-y-0.5" /></div>
+              <div className="mt-1 text-xl font-semibold tabular-nums text-foreground sm:text-2xl">{yieldTonnes == null ? "Рассчитать" : `${yieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div>
+            </button>
+          </section>
 
-      <Card className="rounded-lg" style={{ background: "transparent", border: 0, boxShadow: "none" }}>
-        <CardContent className="space-y-3 p-0">
-          <div className="grid gap-2 lg:grid-cols-[minmax(240px,1fr)_auto] lg:items-end">
+          {calculatorOpen ? (
+            <section className="grid gap-3 border-b border-border pb-4 sm:grid-cols-[minmax(0,1fr)_minmax(180px,.5fr)_minmax(160px,.5fr)] sm:items-end" aria-label="Калькулятор урожайности">
+              <div><div className="text-xs text-muted-foreground">Принятый вес</div><div className="mt-1 text-lg font-semibold tabular-nums">{mass(receivedKg)}</div></div>
+              <label className="text-xs text-muted-foreground">Убрано, га
+                <Input inputMode="decimal" value={harvestedHectares} onChange={(event) => setHarvestedHectares(event.target.value)} placeholder="Например, 2,4" className="mt-1 h-10" />
+              </label>
+              <div><div className="text-xs text-muted-foreground">Урожайность</div><div className="mt-1 text-lg font-semibold tabular-nums text-[color:var(--manor-brass-soft)]">{yieldTonnes == null ? "—" : `${yieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div></div>
+            </section>
+          ) : null}
+
+          {waitingTare.length ? <div className="flex items-start gap-2 border-l-2 border-amber-400 px-3 py-2 text-sm text-amber-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{waitingTare.length} {waitingTare.length === 1 ? "машина ждёт" : "машины ждут"} тары на весовой</div> : null}
+
+          <section className="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,.9fr)]">
             <div>
-              <label className="mb-1 block text-[11px] uppercase text-muted-foreground">Период</label>
-              <Select value={period} onValueChange={(value) => setPeriod(value as HarvestPeriodPreset)}>
-                <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
-                <SelectContent>{PERIODS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
-              </Select>
+              <div className="mb-3 flex items-end justify-between gap-3">
+                <div className="min-w-0"><div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Сейчас убирают</div><h2 className="tf-manor-heading mt-0.5 truncate text-2xl">{activeField}</h2></div>
+                <span className="shrink-0 text-xs text-muted-foreground">Картофель</span>
+              </div>
+              <div className="border-y border-border">
+                {potatoParties.length ? potatoParties.map((party) => (
+                  <div key={party.key} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-border py-3 last:border-0">
+                    <PotatoIdentity party={party} />
+                    <div className="text-right"><div className="text-sm font-semibold tabular-nums">{mass(party.receivedKg)}</div><div className="mt-0.5 text-[11px] text-muted-foreground">принято</div></div>
+                  </div>
+                )) : <div className="py-6 text-sm text-muted-foreground">Сегодня картофель ещё не принимали.</div>}
+              </div>
             </div>
-            <Button type="button" variant="outline" className="h-10 justify-between gap-2" onClick={() => setFiltersOpen((value) => !value)}>
-              Фильтры{activeFilterCount ? ` · ${activeFilterCount}` : ""}
-              <ChevronDown className={`h-4 w-4 transition-transform ${filtersOpen ? "rotate-180" : ""}`} />
-            </Button>
-          </div>
-          {period === "custom" ? (
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Input type="datetime-local" value={customStart} onChange={(event) => setCustomStart(event.target.value)} />
-              <Input type="datetime-local" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} />
+            <div>
+              <div className="mb-3 flex items-center gap-2"><Warehouse className="h-4 w-4 text-muted-foreground" /><h2 className="text-sm font-semibold">Размещение</h2></div>
+              <div className="border-y border-border">
+                {potatoParties.flatMap((party) => party.warehouses.map((warehouse) => ({ ...warehouse, party }))).map((warehouse) => (
+                  <div key={`${warehouse.party.key}:${warehouse.warehouseId}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-border py-3 last:border-0">
+                    <div className="min-w-0"><div className="truncate text-sm font-medium">{warehouse.warehouseName}</div><div className="mt-0.5 truncate text-xs text-muted-foreground">{warehouse.party.varietyName} · {warehouse.party.reproductionName}</div></div>
+                    <div className="text-sm font-semibold tabular-nums">{mass(warehouse.currentKg)}</div>
+                  </div>
+                ))}
+                {!potatoParties.some((party) => party.warehouses.length) ? <div className="py-6 text-sm text-muted-foreground">Размещения пока нет.</div> : null}
+              </div>
             </div>
-          ) : null}
-          <div className="flex min-h-5 items-center gap-2 text-sm text-foreground" aria-live="polite">
-            {summary ? <><CalendarClock className="h-4 w-4 shrink-0 text-primary" /><span>{summary.period.label}</span></> : null}
-            {refreshing ? <span className="ml-auto flex items-center text-xs text-muted-foreground"><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />Обновление...</span> : null}
-          </div>
-          {filtersOpen ? (
-            <div className="grid gap-2 border-t border-border pt-3 sm:grid-cols-2 xl:grid-cols-5">
-              <FilterSelect label="Культура" value={filters.cropId} options={options.crops} onChange={(value) => setFilter("cropId", value)} />
-              <FilterSelect label="Сорт" value={filters.varietyId} options={options.varieties} onChange={(value) => setFilter("varietyId", value)} />
-              <FilterSelect label="Репродукция" value={filters.reproductionId} options={options.reproductions} onChange={(value) => setFilter("reproductionId", value)} />
-              <FilterSelect label="Поле" value={filters.fieldId} options={options.fields} onChange={(value) => setFilter("fieldId", value)} />
-              <FilterSelect label="Склад" value={filters.warehouseId} options={options.warehouses} onChange={(value) => setFilter("warehouseId", value)} />
-              {activeFilterCount ? <Button variant="ghost" className="sm:col-span-2 xl:col-span-5" onClick={() => setFilters(EMPTY_FILTERS)}>Сбросить фильтры</Button> : null}
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+          </section>
 
-      <div className="min-h-0 space-y-2" aria-live="polite">
-        {error ? <div className="border-l-2 border-rose-500 bg-rose-500/10 px-3 py-2 text-sm text-rose-800">{error}</div> : null}
-        {!customReady ? <div className="border-l-2 border-amber-500 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">Укажите начало и конец периода.</div> : null}
-      </div>
+          <section>
+            <div className="mb-3 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold">Последние поступления</h2><Scale className="h-4 w-4 text-muted-foreground" /></div>
+            <div className="border-y border-border">
+              {recentEvents.map((event) => (
+                <button key={event.ticketId} type="button" onClick={() => setTicketId(event.ticketId)} className="grid w-full grid-cols-[42px_minmax(0,1fr)_auto] gap-3 border-b border-border py-3 text-left last:border-0 hover:text-[color:var(--manor-brass-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                  <span className="text-xs tabular-nums text-muted-foreground">{clock(event.occurredAt)}</span>
+                  <span className="min-w-0"><span className="block truncate text-sm font-medium">{event.fieldName}</span><span className="block truncate text-xs text-muted-foreground">{event.identityLabel} → {event.destinationName}</span></span>
+                  <strong className="text-sm tabular-nums">{mass(event.netWeightKg)}</strong>
+                </button>
+              ))}
+              {!recentEvents.length ? <div className="py-6 text-sm text-muted-foreground">Поступлений сегодня нет.</div> : null}
+            </div>
+          </section>
+        </>
+      ) : null}
 
-      <section className="min-h-[24rem] border-t border-border pt-5" aria-busy={initialLoading || refreshing}>
-        <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Партии в уборке</h2>
-            <p className="text-xs text-muted-foreground">Одна партия: сезон, культура, сорт и репродукция</p>
+      {canReadTraffic ? (
+        <section className="pt-2" aria-label="Статусы машин PTC">
+          <div className="mb-3 flex items-end justify-between gap-3"><div><div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">PTC · Live</div><h2 className="tf-manor-heading text-2xl">Машины</h2></div>{traffic?.snapshot.fieldName ? <span className="truncate text-xs text-muted-foreground">{traffic.snapshot.fieldName}</span> : null}</div>
+          {trafficError ? <div className="mb-3 border-l-2 border-amber-400 px-3 py-2 text-sm text-amber-700">{trafficError}</div> : null}
+          <div role="tablist" aria-label="Статусы машин" className="grid grid-cols-5 border-y border-border lg:hidden">
+            {GROUPS.map((group) => <button key={group.key} role="tab" aria-selected={selectedGroup === group.key} onClick={() => setSelectedGroup(group.key)} className={`min-h-[58px] px-1 py-2 text-center ${selectedGroup === group.key ? "bg-accent text-foreground" : "text-muted-foreground"}`}><span className="block text-[9px] leading-3">{group.mobile}</span><strong className="mt-1 block text-lg tabular-nums">{grouped[group.key]?.length || 0}</strong></button>)}
           </div>
-          {summary ? <div className="flex gap-3 text-xs text-muted-foreground"><span>В работе: <b className="text-foreground">{summary.parties.length}</b></span><span>Открыто машин: <b className="text-foreground">{summary.openTicketCount}</b></span></div> : null}
-        </div>
-        {!summary && initialLoading ? <SectionLoading /> : null}
-        {!summary && !initialLoading ? <div className="flex min-h-[20rem] items-center justify-center text-sm text-muted-foreground">Сводка пока недоступна.</div> : null}
-        {summary?.parties.length ? summary.parties.map((party) => <PartyCard key={party.key} party={party} open={Boolean(expandedParties[party.key])} onOpenChange={(open) => setExpandedParties((current) => ({ ...current, [party.key]: open }))} onTicket={setTicketId} />) : null}
-        {summary && !summary.parties.length ? <div className="flex min-h-[20rem] items-center justify-center text-sm text-muted-foreground">По выбранным условиям партий нет.</div> : null}
-      </section>
+          {!traffic ? <div className="flex min-h-28 items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка PTC...</div> : (
+            <>
+              <div className="lg:hidden">{grouped[selectedGroup].map((vehicle) => <VehicleCard key={vehicle.vehicle_id} vehicle={vehicle} now={now} />)}{!grouped[selectedGroup].length ? <div className="py-6 text-sm text-muted-foreground">Машин в этом статусе нет.</div> : null}</div>
+              <div className="hidden grid-cols-5 gap-5 lg:grid">
+                {GROUPS.map((group) => <section key={group.key} className="min-w-0"><header className="flex items-center justify-between gap-2 border-b border-border pb-2"><h3 className="text-xs font-medium text-muted-foreground">{group.desktop}</h3><strong className="text-lg tabular-nums">{grouped[group.key].length}</strong></header>{grouped[group.key].map((vehicle) => <VehicleCard key={vehicle.vehicle_id} vehicle={vehicle} now={now} />)}</section>)}
+              </div>
+            </>
+          )}
+        </section>
+      ) : null}
       {summary ? <PotatoDriverSummary rows={summary.potatoDrivers} /> : null}
       <TicketPreviewDialog ticketId={ticketId} open={Boolean(ticketId)} onOpenChange={(open) => !open && setTicketId(null)} />
     </div>

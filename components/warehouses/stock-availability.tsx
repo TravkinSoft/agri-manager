@@ -63,22 +63,33 @@ export function StockAvailability({ companyId, userId, actorScope, active, place
       {result.anomalies.length ? <Alert variant="destructive"><AlertDescription><div className="font-medium">Есть расхождения — положительные остатки ниже не являются полным итогом.</div><ul className="mt-2 space-y-1">{result.anomalies.map((item, index) => <li key={`${item.key}:${index}`}>{item.message}</li>)}</ul></AlertDescription></Alert> : null}
       {!result.crops.length && !result.anomalies.length ? <p className="py-8 text-sm text-muted-foreground">Продукции в наличии нет.</p> : null}
       {result.crops.map((crop) => (
-        <section key={crop.key} className="border-b border-border pb-3 last:border-0" aria-label={crop.name}>
-          <h2 className="mb-1 text-base font-semibold text-foreground">{crop.name}</h2>
-          {crop.identities.map((identity) => (
-            <details key={identity.key} className="group/identity">
-              <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between gap-3 rounded-md px-2 py-2 text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring marker:hidden">
-                <span className="flex min-w-0 items-center gap-2 text-foreground"><ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open/identity:rotate-180" /><span>{identity.label}</span></span>
-                <strong className="shrink-0 tabular-nums text-emerald-800">{identity.quantity.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} {localizeUnit(identity.unit, language)}</strong>
-              </summary>
-              <div className="ml-3 border-l border-border py-1 pl-3 sm:ml-5">
-                {identity.positions.map((position) => <button key={position.key} type="button" className="flex min-h-[44px] w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => position.batch ? onOpenBatch(position.batch) : position.material && onOpenMaterial(position.material)}>
-                  <span className="text-foreground">{position.warehouseName}</span><span className="shrink-0 tabular-nums text-foreground">{position.quantity.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} {localizeUnit(identity.unit, language)}</span>
-                </button>)}
-              </div>
-            </details>
-          ))}
-        </section>
+        <details key={crop.key} open className="group/crop border-b border-border last:border-0" aria-label={crop.name}>
+          <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between gap-3 py-2 marker:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <h2 className="text-base font-semibold text-foreground">{crop.name}</h2>
+            <span className="flex items-center gap-3"><strong className="tabular-nums text-emerald-800">{crop.identities.reduce((total, identity) => total + identity.quantity, 0).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} {localizeUnit(crop.identities[0]?.unit || "kg", language)}</strong><ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-150 group-open/crop:rotate-180" /></span>
+          </summary>
+          <div className="pb-3">
+            <div className="hidden grid-cols-[minmax(180px,1fr)_90px_130px] gap-3 border-b border-border pb-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground sm:grid"><span>Сорт</span><span>Репр.</span><span className="text-right">В наличии</span></div>
+            {crop.identities.map((identity) => {
+              const [variety = "Сорт не указан", reproduction = "—"] = identity.label.split(" · ");
+              const normalizedReproduction = reproduction.match(/^(?:репродукция\s*)?(\d+)$/i)?.[1] || reproduction;
+              return (
+                <details key={identity.key} className="group/identity border-b border-border/70 last:border-0">
+                  <summary className="grid min-h-[48px] cursor-pointer list-none grid-cols-[minmax(0,1fr)_54px_auto] items-center gap-3 py-2 text-sm transition-colors hover:text-[color:var(--manor-brass-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring marker:hidden sm:grid-cols-[minmax(180px,1fr)_90px_130px]">
+                    <span className="flex min-w-0 items-center gap-2"><ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open/identity:rotate-180" /><span className="truncate">{variety}</span></span>
+                    <span className="text-muted-foreground">{normalizedReproduction}</span>
+                    <strong className="text-right tabular-nums text-emerald-800">{identity.quantity.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} {localizeUnit(identity.unit, language)}</strong>
+                  </summary>
+                  <div className="pb-1 pl-6">
+                    {identity.positions.map((position) => <button key={position.key} type="button" className="flex min-h-[42px] w-full items-center justify-between gap-3 py-2 text-left text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => position.batch ? onOpenBatch(position.batch) : position.material && onOpenMaterial(position.material)}>
+                      <span>{position.warehouseName}</span><span className="shrink-0 tabular-nums">{position.quantity.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} {localizeUnit(identity.unit, language)}</span>
+                    </button>)}
+                  </div>
+                </details>
+              );
+            })}
+          </div>
+        </details>
       ))}
     </section>
   );

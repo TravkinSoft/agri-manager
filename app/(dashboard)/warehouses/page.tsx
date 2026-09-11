@@ -6,7 +6,6 @@ import {
   ArrowDown,
   ArrowRightLeft,
   ArrowUp,
-  Boxes,
   Check,
   ClipboardList,
   GripVertical,
@@ -86,6 +85,12 @@ function formatDate(value?: string | null): string {
 
 function quantity(value: number): string {
   return Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 3 });
+}
+
+function reproductionLabel(value?: string | null): string {
+  const label = String(value || "").trim();
+  const numeric = label.match(/^(?:репродукция\s*)?(\d+)$/i);
+  return numeric ? numeric[1] : label || "—";
 }
 
 function isArchived(warehouse: Warehouse): boolean {
@@ -899,11 +904,12 @@ export default function WarehousesPage() {
     const placeType = normalizeStoragePlaceType(warehouse.place_type);
     const capacity = capacityKg(warehouse);
     const fillPercent = warehouseCapacityPercent(totalWeightKg, capacity);
-    const fillBarPercent = fillPercent == null ? 0 : Math.min(100, fillPercent);
     const capacityExceeded = fillPercent != null && fillPercent > 100;
     const positionLabel = warehousePositionCountLabel(positionCount, harvestLotCount);
     const reorderable = isReorderMode && !isArchived(warehouse);
     const reorderPosition = reorderable ? reorderDraftIds.indexOf(warehouse.id) : -1;
+    const warehouseSummary = summaries.find((row) => row.warehouse.id === warehouse.id);
+    const cultures = Array.from(new Set((warehouseSummary?.batches || []).map((batch) => batch.cropName).filter(Boolean)));
     return (
       <article
         key={warehouse.id}
@@ -920,17 +926,14 @@ export default function WarehousesPage() {
             openWarehouse(warehouse.id);
           }
         }}
-        className={`group relative flex h-full min-h-[148px] min-w-0 flex-col rounded-md border bg-card p-4 transition-[border-color,background-color,transform] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${reorderable ? "cursor-default select-none" : "cursor-pointer hover:border-border hover:bg-accent/60"} ${draggingWarehouseId === warehouse.id ? "z-10 border-primary bg-accent/60 shadow-manor-md will-change-transform" : "border-border"}`}
+        className={`group relative flex h-full min-h-[112px] min-w-0 flex-col rounded-lg bg-card px-4 py-3 shadow-manor-sm transition-[background-color,transform,box-shadow] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${reorderable ? "cursor-default select-none" : "cursor-pointer hover:-translate-y-0.5 hover:bg-accent hover:shadow-manor-md"} ${draggingWarehouseId === warehouse.id ? "z-10 bg-accent shadow-manor-md will-change-transform" : ""}`}
       >
         <div className="flex items-start gap-2.5">
-          <ObjectVisual placeType={placeType} className="h-9 w-9 shrink-0 border-0 bg-transparent" />
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <h2 className="break-words text-sm font-semibold leading-5 text-foreground">{warehouse.name}</h2>
-                <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                  {placeType === "WAREHOUSE" ? warehouseTypeLabel(warehouse.warehouse_type) : storagePlaceTypeLabel(placeType)}
-                </div>
+                <div className="mt-1 truncate text-xs text-muted-foreground">{cultures.length ? cultures.join(", ") : placeType === "WAREHOUSE" ? warehouseTypeLabel(warehouse.warehouse_type) : storagePlaceTypeLabel(placeType)}</div>
               </div>
               {reorderable ? (
                 <div className="flex shrink-0 items-center gap-1" aria-label={`Порядок склада ${warehouse.name}`}>
@@ -993,23 +996,15 @@ export default function WarehousesPage() {
         {!summaryLoaded ? (
           <div className="mt-4 h-14 rounded-md bg-background motion-safe:animate-pulse" aria-label="Загрузка остатка" />
         ) : (
-          <div className="mt-4 flex flex-1 flex-col justify-end gap-3">
+          <div className="mt-3 flex flex-1 flex-col justify-end">
             <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
-              <strong className={`text-xl font-semibold tabular-nums ${invalidStock ? "text-rose-800" : empty ? "text-foreground" : "text-emerald-800"}`}>
+              <strong className={`text-lg font-semibold tabular-nums ${invalidStock ? "text-rose-800" : empty ? "text-foreground" : "text-emerald-800"}`}>
                 {invalidStock ? "Проверить остаток" : empty ? "0 кг" : totalWeightKg === 0 ? "Есть материалы" : formatMass(totalWeightKg)}
               </strong>
               <span className="max-w-[60%] text-right text-xs leading-4 text-muted-foreground">{positionLabel}</span>
             </div>
             {invalidStock ? <div role="alert" className="text-xs text-rose-800">Отрицательный или некорректный остаток: {String(totalWeightKg)} кг</div> : null}
-            {fillPercent != null && !invalidStock && !empty ? (
-              <div>
-                <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span>Вместимость {formatMass(capacity || 0)}</span><span className={capacityExceeded ? "font-semibold text-rose-800" : undefined}>{fillPercent}%</span>
-                </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${capacityExceeded ? "bg-rose-400/80" : "bg-primary/75"}`} style={{ width: `${fillBarPercent}%` }} /></div>
-                {capacityExceeded ? <div className="mt-1 text-[11px] font-medium text-rose-800">Остаток превышает указанную вместимость. Проверьте вместимость объекта.</div> : null}
-              </div>
-            ) : null}
+            {capacityExceeded ? <div className="mt-1 text-[11px] font-medium text-rose-800">Остаток превышает указанную вместимость</div> : null}
           </div>
         )}
       </article>
@@ -1018,7 +1013,7 @@ export default function WarehousesPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Склады" description="Все склады компании, текущие остатки, партии и движения">
+      <PageHeader title="Склады">
         <div className="flex flex-wrap gap-2">
           {isReadOnlyRole ? <Badge variant="outline">Только просмотр</Badge> : null}
           {canManageWarehouses ? (
@@ -1113,7 +1108,7 @@ export default function WarehousesPage() {
           ref={reorderGridRef}
           role={isReorderMode ? "list" : undefined}
           aria-label={isReorderMode ? "Активные склады в изменяемом порядке" : undefined}
-          className="grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"
+          className="grid items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-3"
         >
           {activeSummaries.map(renderWarehouseCard)}
         </div>
@@ -1139,11 +1134,7 @@ export default function WarehousesPage() {
                     <ObjectVisual placeType={selectedSummary.warehouse.place_type} className="h-11 w-12" />
                     <div className="min-w-0">
                     <DialogTitle className="truncate text-xl">{selectedSummary.warehouse.name}</DialogTitle>
-                    <DialogDescription className="mt-1">
-                      {normalizeStoragePlaceType(selectedSummary.warehouse.place_type) === "WAREHOUSE"
-                        ? warehouseTypeLabel(selectedSummary.warehouse.warehouse_type)
-                        : storagePlaceTypeLabel(selectedSummary.warehouse.place_type)} · {warehousePositionCountLabel(selectedSummary.positionCount, selectedSummary.harvestLotCount)} · последнее движение {formatDate(selectedSummary.lastMovementAt)}
-                    </DialogDescription>
+                      <DialogDescription className="mt-1">{warehousePositionCountLabel(selectedSummary.positionCount, selectedSummary.harvestLotCount)}</DialogDescription>
                     </div>
                   </div>
                   {selectedCanReceive ? (
@@ -1177,8 +1168,10 @@ export default function WarehousesPage() {
                   <Alert variant="destructive"><AlertDescription>{detailsError}</AlertDescription></Alert>
                 ) : null}
                 <section className="mt-4">
-                  <h3 className="mb-3 flex items-center gap-2 text-base font-semibold"><Boxes className="h-4 w-4 text-amber-800" />Остатки</h3>
-                  <div className="divide-y divide-border overflow-hidden rounded-md border border-border bg-background">
+                  <div className="hidden grid-cols-[minmax(130px,.8fr)_minmax(170px,1fr)_88px_120px] gap-3 border-b border-border pb-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground sm:grid">
+                    <span>Культура</span><span>Сорт</span><span>Репр.</span><span className="text-right">Остаток</span>
+                  </div>
+                  <div className="divide-y divide-border">
                     {selectedSummary.batches.map((batch) => {
                       const identity = batch.reviewState === "requires_review"
                         ? "Требуется уточнение"
@@ -1188,13 +1181,12 @@ export default function WarehousesPage() {
                           key={`harvest-${batch.id}`}
                           type="button"
                           onClick={() => void openHarvestBatch(batch)}
-                          className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                          className="grid w-full grid-cols-[minmax(0,1fr)_64px_auto] gap-3 py-3 text-left transition-colors hover:text-[color:var(--manor-brass-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:grid-cols-[minmax(130px,.8fr)_minmax(170px,1fr)_88px_120px]"
                         >
-                          <div className="min-w-0">
-                            <div className="truncate font-semibold text-foreground">{batch.cropName}</div>
-                            <div className={`mt-0.5 truncate text-sm ${batch.reviewState === "requires_review" ? "text-amber-800" : "text-muted-foreground"}`}>{identity}</div>
-                          </div>
-                          <div className="shrink-0 font-semibold text-emerald-800">{quantity(batch.cleanMassKg)} кг</div>
+                          <div className="min-w-0 truncate text-sm font-semibold text-foreground">{batch.cropName}</div>
+                          <div className={`min-w-0 truncate text-sm ${batch.reviewState === "requires_review" ? "text-amber-800" : "text-muted-foreground"}`}>{batch.varietyName || identity}</div>
+                          <div className="text-sm text-muted-foreground">{reproductionLabel(batch.reproductionName)}</div>
+                          <div className="col-span-3 text-right text-sm font-semibold tabular-nums text-emerald-800 sm:col-span-1">{quantity(batch.cleanMassKg)} кг</div>
                         </button>
                       );
                     })}

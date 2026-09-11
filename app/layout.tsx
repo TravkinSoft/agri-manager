@@ -1,13 +1,26 @@
 import './globals.css';
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Cormorant_Garamond, Golos_Text } from 'next/font/google';
 import { Toaster } from '@/components/ui/toaster';
 import { PublicAwareProviders } from '@/components/auth/public-aware-providers';
 import { OfflineRuntime } from '@/components/offline/offline-runtime';
 import { getPublicAppUrl } from '@/lib/utils/app-url';
 
-const inter = Inter({ subsets: ['latin', 'cyrillic'] });
+const displayFont = Cormorant_Garamond({
+  subsets: ['latin', 'cyrillic'],
+  weight: ['500', '600', '700'],
+  display: 'swap',
+  variable: '--font-cormorant-garamond',
+  adjustFontFallback: false,
+});
+const dataFont = Golos_Text({
+  subsets: ['latin', 'cyrillic'],
+  weight: ['400', '500', '600', '700'],
+  display: 'swap',
+  variable: '--font-golos-text',
+  adjustFontFallback: false,
+});
 const metadataBase = new URL(getPublicAppUrl());
 
 export const metadata: Metadata = {
@@ -58,8 +71,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ru" data-theme="estate-register">
-      <body className={`${inter.className} tf-manor`}>
+    <html lang="ru" data-theme="estate-graphite">
+      <body className={`${displayFont.variable} ${dataFont.variable} ${dataFont.className} tf-manor`}>
         <PublicAwareProviders>
           {children}
           <OfflineRuntime />
