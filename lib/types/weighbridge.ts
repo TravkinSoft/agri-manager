@@ -2,6 +2,38 @@ export type TicketStatus = "draft" | "active" | "ready_to_close" | "finalized" |
 export type TicketDirection = "incoming" | "outgoing" | "transfer" | "processing";
 export type WeighMethod = "double_weighing" | "preset_tare" | "manual_override_with_reason";
 
+export interface ImpuritySourceReference {
+  harvest_lot_id: string;
+  crop_structure_id: string;
+}
+
+export interface ImpuritySourceScopeInput {
+  allocation_mode: "unresolved_total";
+  sources: ImpuritySourceReference[];
+}
+
+export interface ImpuritySourceScope extends ImpuritySourceScopeInput {
+  source_count?: number;
+  total_net_kg?: number | null;
+  source_total_kg?: number | null;
+  clean_total_kg?: number | null;
+  state?: string | null;
+  member_resolution_status?: string | null;
+  sources: Array<ImpuritySourceReference & {
+    field_id?: string | null;
+    field_name_snapshot?: string | null;
+    crop_name_snapshot?: string | null;
+    variety_name_snapshot?: string | null;
+    reproduction_name_snapshot?: string | null;
+    area_ha_snapshot?: number | null;
+    source_total_kg?: number | null;
+    clean_mass_kg?: number | null;
+    clean_yield_t_ha?: number | null;
+    clean_balance_status?: string | null;
+    yield_status?: string | null;
+  }>;
+}
+
 export interface TicketLineInput {
   product_id: string;
   crop_id?: string | null;
@@ -202,6 +234,7 @@ export interface WeighbridgeTicket {
   notes?: string | null;
   crop_structure_allocation_id?: string | null;
   crop_structure_allocation_label?: string | null;
+  impurity_source_scope?: ImpuritySourceScope | null;
   lines?: Array<{
     id: string;
     product_id: string;
@@ -230,6 +263,20 @@ export interface WeighbridgeTicket {
     notes?: string | null;
     operation_line_id?: string | null;
   }>;
+}
+
+export interface HarvestBatchCropStructureSource {
+  harvestLotId: string;
+  cropStructureId: string;
+  fieldId?: string | null;
+  fieldName?: string | null;
+  cropId?: string | null;
+  cropName?: string | null;
+  varietyId?: string | null;
+  varietyName?: string | null;
+  reproductionId?: string | null;
+  reproductionName?: string | null;
+  areaHa?: number | null;
 }
 
 export interface HarvestBatchSummary {
@@ -298,6 +345,7 @@ export interface HarvestBatchSummary {
     enteredProcessingKg?: number | null;
     tripCount: number;
   }>;
+  cropStructureSources?: HarvestBatchCropStructureSource[];
   tripBatches?: Array<{
     id: string;
     batchCode: string;

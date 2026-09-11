@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { WEIGHBRIDGE_OPERATOR_COOKIE, WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, recordWeighbridgeOperatorActivity, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
-import type { TicketInput, TicketLineInput, WeighingInput } from "@/lib/types/weighbridge";
+import type { ImpuritySourceScopeInput, TicketInput, TicketLineInput, WeighingInput } from "@/lib/types/weighbridge";
 import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
 import type { StockBusinessEvent } from "@/lib/warehouse/stock-unit-contract";
 import { resolveHarvestTicketContext } from "@/lib/server/harvest-ticket-context";
@@ -22,6 +22,7 @@ import {
 import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
 import { enrichTicketCombineOperators, validateActiveCombineOperator } from "@/lib/server/weighbridge-combine-operator";
 import { resolveStockOutQuantityAtCreate } from "@/lib/weighbridge/stock-out-availability";
+import { enrichSharedImpurityScopes } from "@/lib/server/weighbridge-shared-impurity";
 
 function buildTicketNo(companyId: string): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -32,6 +33,71 @@ function buildTicketNo(companyId: string): string {
 const sameNullable = (a: unknown, b: unknown) => String(a || "") === String(b || "");
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PROCESSING_OUTPUT_ROLES = new Set(["GRAIN", "SCREENINGS", "FEED", "WASTE", "TRIER_WASTE", "OTHER"]);
+
+function normalizeSharedImpurityScope(value: unknown): {
+  scope: ImpuritySourceScopeInput | null;
+  error: string | null;
+} {
+  if (value == null) return { scope: null, error: null };
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { scope: null, error: "Некорректный набор источников общей примеси." };
+  }
+  const raw = value as Record<string, unknown>;
+  if (raw.allocation_mode !== "unresolved_total" || !Array.isArray(raw.sources)) {
+    return { scope: null, error: "Для общей примеси разрешён только режим без распределения веса по участкам." };
+  }
+  const sources = raw.sources.map((item) => {
+    const source = item && typeof item === "object" && !Array.isArray(item)
+      ? item as Record<string, unknown>
+      : {};
+    return {
+      harvest_lot_id: String(source.harvest_lot_id || "").trim().toLowerCase(),
+      crop_structure_id: String(source.crop_structure_id || "").trim().toLowerCase(),
+    };
+  });
+  if (sources.length < 2) {
+    return { scope: null, error: "Для общей примеси выберите минимум два участка." };
+  }
+  if (sources.some((source) => !UUID_RE.test(source.harvest_lot_id) || !UUID_RE.test(source.crop_structure_id))) {
+    return { scope: null, error: "Один из источников общей примеси указан некорректно." };
+  }
+  const keys = sources.map((source) => `${source.harvest_lot_id}:${source.crop_structure_id}`);
+  if (new Set(keys).size !== keys.length || new Set(sources.map((source) => source.crop_structure_id)).size !== sources.length) {
+    return { scope: null, error: "Один и тот же участок нельзя выбрать дважды." };
+  }
+  return {
+    scope: {
+      allocation_mode: "unresolved_total",
+      sources: [...sources].sort((left, right) =>
+        left.crop_structure_id.localeCompare(right.crop_structure_id)
+        || left.harvest_lot_id.localeCompare(right.harvest_lot_id)
+      ),
+    },
+    error: null,
+  };
+}
+
+function sharedImpurityRpcErrorResponse(message: unknown) {
+  const raw = String(message || "");
+  const conflict = raw.match(/SHARED_IMPURITY_SOURCE_(?:ALREADY_COMMITTED|COMMITTED_OR_CHANGED)\|[^|\s]+\|([^|\s]+)/i);
+  if (conflict) {
+    const available = Number(conflict[1]);
+    return NextResponse.json({
+      error: Number.isFinite(available)
+        ? `Одна из партий уже зарезервирована или передана в обработку. Доступно без обязательств: ${available.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг.`
+        : "Одна из партий уже зарезервирована или передана в обработку. Обновите список источников.",
+      code: "shared_impurity_source_committed",
+      ...(Number.isFinite(available) ? { available_kg: available } : {}),
+    }, { status: 409 });
+  }
+  if (raw.includes("SHARED_IMPURITY_SOURCE_LEDGER_IDENTITY_AMBIGUOUS")) {
+    return NextResponse.json({
+      error: "Эта партия создана по старым складским данным без точной идентичности. Выберите другой источник.",
+      code: "shared_impurity_source_legacy_ambiguous",
+    }, { status: 409 });
+  }
+  return null;
+}
 
 async function cleanupCreatedHarvestProduct(supabase: SupabaseClient, productId: string | null) {
   if (!productId) return;
@@ -301,7 +367,8 @@ export async function GET(request: NextRequest) {
     const attributedTickets = await enrichTicketOperatorAttribution(supabase, companyId, tickets, {
       includeTechnicalAudit: actor.role === "global_admin",
     });
-    const enrichedTickets = await enrichTicketCombineOperators(supabase, companyId, attributedTickets);
+    const combinedTickets = await enrichTicketCombineOperators(supabase, companyId, attributedTickets);
+    const enrichedTickets = await enrichSharedImpurityScopes(supabase, companyId, combinedTickets);
 
     return NextResponse.json({ tickets: enrichedTickets, historyHasMore });
   } catch (error) {
@@ -337,6 +404,11 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const rawTicket = (body?.ticket || {}) as TicketInput;
+    const normalizedSharedImpurityScope = normalizeSharedImpurityScope(body?.impurity_source_scope);
+    if (normalizedSharedImpurityScope.error) {
+      return NextResponse.json({ error: normalizedSharedImpurityScope.error }, { status: 400 });
+    }
+    const sharedImpurityScope = normalizedSharedImpurityScope.scope;
     const rawPaperBackfill = body?.paperBackfill && typeof body.paperBackfill === "object"
       ? body.paperBackfill as Record<string, unknown>
       : null;
@@ -393,10 +465,15 @@ export async function POST(request: NextRequest) {
     }
     const idempotencyKey = rawIdempotencyKey || null;
     const requestFingerprint = idempotencyKey
-      ? createHash("sha256").update(JSON.stringify({ ticket: rawTicket, lines, weighings })).digest("hex")
+      ? createHash("sha256").update(JSON.stringify({
+          ticket: rawTicket,
+          lines,
+          weighings,
+          impurity_source_scope: sharedImpurityScope,
+        })).digest("hex")
       : null;
 
-    if (idempotencyKey) {
+    if (idempotencyKey && !sharedImpurityScope) {
       const { data: existingTicket, error: existingTicketError } = await measure("idempotency_lookup", () => supabase
         .from("tickets")
         .select("*")
@@ -416,10 +493,15 @@ export async function POST(request: NextRequest) {
           ticket.company_id,
           [existingTicket]
         );
-        const [enrichedExistingTicket] = await enrichTicketCombineOperators(
+        const [combinedExistingTicket] = await enrichTicketCombineOperators(
           supabase,
           ticket.company_id,
           [attributedExistingTicket]
+        );
+        const [enrichedExistingTicket] = await enrichSharedImpurityScopes(
+          supabase,
+          ticket.company_id,
+          [combinedExistingTicket]
         );
         return NextResponse.json({ ticket: enrichedExistingTicket, idempotent_replay: true });
       }
@@ -532,6 +614,12 @@ export async function POST(request: NextRequest) {
     const isImpurityRemoval =
       String(ticket.direction || "") === "outgoing" &&
       String(ticket.op_type || "").toLowerCase() === "weighbridge_impurities";
+    if (sharedImpurityScope && !isImpurityRemoval) {
+      return NextResponse.json(
+        { error: "Несколько источников можно выбрать только для талона «Примеси»." },
+        { status: 400 }
+      );
+    }
     const processingOutputRole = String(ticket.processing_output_role || "").trim().toUpperCase();
     const isProcessingOutput = Boolean(ticket.linked_processing_id || processingOutputRole);
 
@@ -985,8 +1073,14 @@ export async function POST(request: NextRequest) {
     }
     if (isImpurityRemoval) {
       const impurityType = String(ticket.audit_json?.impurity_type || "").trim();
-      if ((!ticket.batch_id && !ticket.harvest_lot_id) || !ticket.warehouse_from_id) {
+      if ((!sharedImpurityScope && !ticket.batch_id && !ticket.harvest_lot_id) || !ticket.warehouse_from_id) {
         return NextResponse.json({ error: "Выберите склад и партию урожая." }, { status: 400 });
+      }
+      if (sharedImpurityScope && (ticket.batch_id || ticket.harvest_lot_id)) {
+        return NextResponse.json(
+          { error: "Общий талон не должен содержать одну главную партию." },
+          { status: 400 }
+        );
       }
       if (!ticket.vehicle_id || !ticket.driver_id) {
         return NextResponse.json({ error: "Выберите водителя и машину." }, { status: 400 });
@@ -1001,7 +1095,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Для вида «Прочее» добавьте комментарий." }, { status: 400 });
       }
       if (lines.length !== 1) {
-        return NextResponse.json({ error: "Вывоз примесей поддерживает одну партию на талон." }, { status: 400 });
+        return NextResponse.json({ error: "Талон примесей должен содержать одну строку общего веса." }, { status: 400 });
       }
 
       const { data: warehouse, error: warehouseError } = await supabase
@@ -1016,7 +1110,14 @@ export async function POST(request: NextRequest) {
 
       const line = lines[0];
       let batch: any = null;
-      if (ticket.harvest_lot_id) {
+      if (sharedImpurityScope) {
+        if (line.batch_id || line.lot_id || line.variety_id || line.reproduction_id || line.operation_line_id) {
+          return NextResponse.json(
+            { error: "В общем талоне нельзя указывать вес или идентичность отдельного участка." },
+            { status: 400 }
+          );
+        }
+      } else if (ticket.harvest_lot_id) {
         try {
           const resolved = await resolveAggregateHarvestLotStock(supabase, {
             companyId,
@@ -1069,11 +1170,13 @@ export async function POST(request: NextRequest) {
       ticket.warehouse_to_id = null;
       ticket.processing_node_id = null;
       ticket.audit_json = { ...(ticket.audit_json || {}), impurity_type: impurityType };
-      line.product_id = String(batch.product_id || "");
-      line.crop_id = batch.crop_id ? String(batch.crop_id) : null;
-      line.variety_id = batch.variety_id ? String(batch.variety_id) : null;
-      line.reproduction_id = batch.reproduction_id ? String(batch.reproduction_id) : null;
-      line.batch_class = String(batch.batch_class || "commodity");
+      if (!sharedImpurityScope) {
+        line.product_id = String(batch.product_id || "");
+        line.crop_id = batch.crop_id ? String(batch.crop_id) : null;
+        line.variety_id = batch.variety_id ? String(batch.variety_id) : null;
+        line.reproduction_id = batch.reproduction_id ? String(batch.reproduction_id) : null;
+        line.batch_class = String(batch.batch_class || "commodity");
+      }
       line.warehouse_from_id = String(warehouse.id);
       line.warehouse_to_id = null;
       line.uom = "kg";
@@ -1766,6 +1869,95 @@ export async function POST(request: NextRequest) {
           trailer_plate_snapshot: selectedTrailer?.id ? String(selectedTrailer.plate_number || "") || null : null,
         },
       };
+    }
+
+    if (sharedImpurityScope) {
+      if (!idempotencyKey) {
+        return NextResponse.json(
+          { error: "Для общего талона требуется ключ безопасного повтора." },
+          { status: 400 }
+        );
+      }
+      const sessionToken = request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || "";
+      const rpcStartedAt = Date.now();
+      const { data: createResult, error: createError } = await supabase.rpc(
+        "create_weighbridge_shared_impurity_pool_ticket_v1",
+        {
+          p_company_id: ticket.company_id,
+          p_source_warehouse_id: ticket.warehouse_from_id,
+          p_sources: sharedImpurityScope.sources,
+          p_vehicle_id: ticket.vehicle_id,
+          p_driver_id: ticket.driver_id,
+          p_gross_weight_kg: ticket.gross_weight_kg,
+          p_impurity_type: String(ticket.audit_json?.impurity_type || ""),
+          p_notes: ticket.notes || null,
+          p_session_token: sessionToken,
+          p_idempotency_key: idempotencyKey,
+        }
+      );
+      timing.rpcMs = Date.now() - rpcStartedAt;
+      if (createError) {
+        const sharedErrorResponse = sharedImpurityRpcErrorResponse(createError.message);
+        if (sharedErrorResponse) return sharedErrorResponse;
+        return NextResponse.json({ error: weighbridgeUserError(createError.message) }, { status: 400 });
+      }
+      const result = (createResult || {}) as Record<string, any>;
+      if (result.code === "shift_expired") {
+        return NextResponse.json(
+          { error: "Введите PIN весовщика, чтобы продолжить смену.", code: result.code },
+          { status: 423 }
+        );
+      }
+      if (!result.ok || !result.ticket_id) {
+        return NextResponse.json(
+          { error: "Не удалось создать общий талон примесей.", code: result.code || "shared_impurity_create_failed" },
+          { status: 409 }
+        );
+      }
+      const { data: createdSharedTicket, error: createdSharedTicketError } = await supabase
+        .from("tickets")
+        .select(WEIGHBRIDGE_TICKET_SELECT)
+        .eq("company_id", companyId)
+        .eq("id", String(result.ticket_id))
+        .single();
+      if (createdSharedTicketError || !createdSharedTicket?.id) {
+        return NextResponse.json(
+          { error: "Общий талон создан, но не удалось обновить его отображение." },
+          { status: 409 }
+        );
+      }
+      try {
+        await recordWeighbridgeOperatorActivity(request, { companyId, supabase }, "ticket_create");
+      } catch (activityError) {
+        console.error("shared_impurity_ticket_committed_activity_failed", {
+          ticketId: String(result.ticket_id),
+          companyId,
+          message: activityError instanceof Error ? activityError.message : "Unknown activity error",
+        });
+      }
+      const [attributedSharedTicket] = await enrichTicketOperatorAttribution(
+        supabase,
+        companyId,
+        [createdSharedTicket]
+      );
+      const [combinedSharedTicket] = await enrichTicketCombineOperators(
+        supabase,
+        companyId,
+        [attributedSharedTicket]
+      );
+      const [enrichedSharedTicket] = await enrichSharedImpurityScopes(
+        supabase,
+        companyId,
+        [combinedSharedTicket]
+      );
+      timing.validationMs = Date.now() - validationStartedAt;
+      timing.totalMs = Date.now() - startedAt;
+      return NextResponse.json({
+        ticket: enrichedSharedTicket,
+        shared_impurity: result,
+        idempotent_replay: Boolean(result.idempotent_replay),
+        debug: timing,
+      });
     }
 
     if (isDirectSupplierReceipt) {

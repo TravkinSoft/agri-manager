@@ -105,6 +105,7 @@
     "qa:p0:weighbridge-gross": "npx --no-install tsx scripts/qa-p0-weighbridge-gross-legacy-schema.ts",
     "qa:p0:weighbridge-form-state": "npx --no-install tsx scripts/qa-p0-weighbridge-form-state.ts",
     "qa:p0:weighbridge-journal-summary": "npx --no-install tsx scripts/qa-p0-weighbridge-journal-summary.ts",
+    "qa:p0:shared-impurity": "npx --no-install tsx scripts/qa-p0-shared-impurity-pglite.ts && npx --no-install tsx scripts/qa-p0-shared-impurity-contract.ts",
     "health:check": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1",
     "health:check:strict": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1 -Strict",
     "qa:assistant:full": "npx tsx scripts/qa-assistant-copilot-full-check.ts",

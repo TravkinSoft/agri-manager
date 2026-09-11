@@ -8,8 +8,10 @@ import {
   resolveWeighbridgeSession,
   weighbridgeUserError,
 } from "@/app/api/weighbridge/_auth";
+import { loadSharedImpurityTicketIds } from "@/lib/server/weighbridge-shared-impurity";
 
 const CORRECTION_LOT_ERROR = "Не удалось завершить исправление талона. Связь партии не прошла проверку. Исходный талон не изменён.";
+const SHARED_IMPURITY_CORRECTION_ERROR = "Общий талон примесей нельзя исправить копированием. Аннулируйте его и создайте новый талон.";
 
 function isCorrectionLotError(message: string) {
   return /aggregate (harvest )?lot|batch identity|batch lineage|physical batch|line identity|warehouse-local batch|company stock/i.test(message);
@@ -37,12 +39,27 @@ export async function POST(
     });
     const { data: ticket, error: ticketError } = await supabase
       .from("tickets")
-      .select("id,company_id")
+      .select("id,company_id,correction_of_ticket_id")
       .eq("id", id)
       .eq("company_id", companyId)
       .maybeSingle();
     if (ticketError || !ticket?.id) {
       return NextResponse.json({ error: ticketError?.message || "Ticket not found" }, { status: 404 });
+    }
+
+    const sharedTicketIds = await loadSharedImpurityTicketIds(
+      supabase,
+      companyId,
+      [id, String(ticket.correction_of_ticket_id || "")]
+    );
+    if (sharedTicketIds.has(id) || (
+      ticket.correction_of_ticket_id
+      && sharedTicketIds.has(String(ticket.correction_of_ticket_id))
+    )) {
+      return NextResponse.json(
+        { error: SHARED_IMPURITY_CORRECTION_ERROR, code: "shared_impurity_correction_requires_void" },
+        { status: 409 }
+      );
     }
 
     const operatorSession = actor.role === "weighman"
@@ -85,6 +102,12 @@ export async function POST(
     if (!resultId) {
       const { data: rpcResultId, error: rpcError } = await supabase.rpc(rpc, args);
       if (rpcError) {
+        if (rpcError.message.includes("SHARED_IMPURITY_CORRECTION_REQUIRES_VOID_NEW")) {
+          return NextResponse.json(
+            { error: SHARED_IMPURITY_CORRECTION_ERROR, code: "shared_impurity_correction_requires_void" },
+            { status: 409 }
+          );
+        }
         if (action === "start") {
           const message = weighbridgeUserError(rpcError.message);
           if (message.includes("последующих движениях")) {

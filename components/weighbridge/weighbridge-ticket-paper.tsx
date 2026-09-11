@@ -110,6 +110,26 @@ const percent = (value: unknown) => {
   return `${formatWeightNumber(value)} %`;
 };
 
+const sourceCountLabel = (count: number) => {
+  const normalized = Math.abs(Math.trunc(count));
+  const mod100 = normalized % 100;
+  const mod10 = normalized % 10;
+  const noun = mod100 >= 11 && mod100 <= 14
+    ? "источников"
+    : mod10 === 1
+      ? "источник"
+      : mod10 >= 2 && mod10 <= 4
+        ? "источника"
+        : "источников";
+  return `${normalized} ${noun}`;
+};
+
+const optionalWeight = (value: unknown) => (
+  value == null || value === "" || !Number.isFinite(Number(value))
+    ? ""
+    : formatWeightKg(Number(value))
+);
+
 function PaperSection({
   title,
   children,
@@ -186,6 +206,17 @@ export function WeighbridgeTicketPaper({
   const displayedNetKg = weightEditor
     ? weightEditor.physicalNetKg
     : ticket.physical_net_kg ?? ticket.net_weight_kg;
+  const sharedImpurityScope = ticket.impurity_source_scope?.allocation_mode === "unresolved_total"
+    ? ticket.impurity_source_scope
+    : null;
+  const sharedImpuritySources = sharedImpurityScope?.sources || [];
+  const rawSharedSourceCount = Number(sharedImpurityScope?.source_count ?? sharedImpuritySources.length);
+  const sharedSourceCount = Number.isFinite(rawSharedSourceCount) && rawSharedSourceCount > 0
+    ? Math.trunc(rawSharedSourceCount)
+    : sharedImpuritySources.length;
+  const sharedTotalNet = optionalWeight(sharedImpurityScope?.total_net_kg ?? displayedNetKg);
+  const sharedSourceTotal = optionalWeight(sharedImpurityScope?.source_total_kg);
+  const sharedCleanTotal = optionalWeight(sharedImpurityScope?.clean_total_kg);
   const showHarvestMoisture = isHarvest && !isPotato(crop);
   const showMoisture = !isHarvest || showHarvestMoisture;
   const showMoistureEditor = Boolean(weightEditor) && showMoisture;
@@ -243,6 +274,40 @@ export function WeighbridgeTicketPaper({
           </div>
         </PaperSection>
       )}
+
+      {sharedImpurityScope && sharedSourceCount > 1 ? (
+        <PaperSection title={`Общая примесь · ${sourceCountLabel(sharedSourceCount)}`}>
+          <div className="mb-2 rounded border border-amber-700/35 bg-amber-100/60 px-2 py-1.5 text-xs font-bold text-amber-950">
+            Вес по участкам не распределён. В талоне фиксируется только общий вес примеси.
+          </div>
+          <ol className="space-y-1.5 text-xs">
+            {sharedImpuritySources.map((source, index) => {
+              const area = source.area_ha_snapshot != null && Number.isFinite(Number(source.area_ha_snapshot)) && Number(source.area_ha_snapshot) > 0
+                ? `${Number(source.area_ha_snapshot).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`
+                : "Не указана";
+              return (
+                <li key={`${source.harvest_lot_id}:${source.crop_structure_id}:${index}`} className="rounded border border-[#c7b797] bg-white/35 px-2 py-1.5">
+                  <div className="font-bold">{index + 1}. Поле: {first(source.field_name_snapshot, "Не указано")}</div>
+                  <div className="mt-0.5 grid gap-x-3 gap-y-0.5 sm:grid-cols-2">
+                    <div><span className="text-[#5d4f3d]">Культура:</span> <span className="font-semibold">{first(source.crop_name_snapshot, "Не указана")}</span></div>
+                    <div><span className="text-[#5d4f3d]">Сорт:</span> <span className="font-semibold">{first(source.variety_name_snapshot, "Не указан")}</span></div>
+                    <div><span className="text-[#5d4f3d]">Репродукция:</span> <span className="font-semibold">{first(source.reproduction_name_snapshot, "Не указана")}</span></div>
+                    <div><span className="text-[#5d4f3d]">Площадь:</span> <span className="font-semibold">{area}</span></div>
+                  </div>
+                  <div className="mt-1 font-semibold text-amber-900">Вес источника: не распределён</div>
+                </li>
+              );
+            })}
+          </ol>
+          {(sharedTotalNet || sharedSourceTotal || sharedCleanTotal) ? (
+            <div className="mt-2 grid gap-x-3 gap-y-1 border-t border-[#c7b797] pt-2 sm:grid-cols-2">
+              <Fact label="Вес примеси, всего" value={sharedTotalNet} strong />
+              <Fact label="Исходная масса, всего" value={sharedSourceTotal} />
+              <Fact label="Чистая масса, всего" value={sharedCleanTotal} />
+            </div>
+          ) : null}
+        </PaperSection>
+      ) : null}
 
       {(vehicleDisplay || trailer || driver) ? (
         <PaperSection title="ТРАНСПОРТ">
