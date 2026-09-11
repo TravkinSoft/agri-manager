@@ -610,4 +610,42 @@
     padding-bottom: calc(env(safe-area-inset-bottom) + 5rem) !important;
     padding-left: max(0.75rem, env(safe-area-inset-left)) !important;
   }
+
+  .tf-crop-dialog {
+    max-height: calc(100dvh - 0.5rem) !important;
+  }
+
+  .tf-crop-dialog-header {
+    gap: 0.5rem !important;
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+  }
+
+  .tf-crop-dialog-body {
+    padding-top: 0.75rem !important;
+    padding-bottom: 0.75rem !important;
+  }
+
+  .tf-crop-dialog-footer {
+    gap: 0.5rem !important;
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+  }
+
+}
+
+@media (min-width: 812px) and (max-width: 1023px) and (max-height: 600px) and (orientation: landscape) {
+  .tf-crop-filter-grid {
+    grid-template-columns:
+      minmax(145px, 1fr)
+      minmax(116px, 0.85fr)
+      minmax(108px, 0.75fr)
+      minmax(122px, 0.85fr)
+      auto !important;
+  }
+
+  .tf-crop-filter-actions {
+    grid-column: span 1 / span 1 !important;
+    flex-wrap: nowrap !important;
+  }
 }

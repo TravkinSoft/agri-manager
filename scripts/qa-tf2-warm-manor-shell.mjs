@@ -42,6 +42,10 @@ const platformLayout = read("components/layout/platform-layout.tsx");
 const logo = read("components/layout/travkin-logo.tsx");
 const glass = read("components/ui/glass.tsx");
 const tailwind = read("tailwind.config.ts");
+const landingPage = read("app/page.tsx");
+const knowledgeIntake = read("app/(platform)/platform/knowledge/intake/page.tsx");
+const operationDialog = read("components/operations/operation-form-dialog.tsx");
+const cropStructure = read("app/(dashboard)/crop-structure/page.tsx");
 const manifest = JSON.parse(read("public/manifest.webmanifest"));
 
 check("deterministic estate-register root theme with legacy component aliases", () => {
@@ -160,6 +164,27 @@ check("motion and touch contracts are bounded", () => {
   assert.match(globals, /\.tf-manor :where\(button, \[role="button"\], input, select, \[role="combobox"\]\)/);
   assert.match(globals, /min-height: 44px/);
   assert.match(mobileNav, /min-h-12/);
+});
+
+check("remaining route surfaces use the estate register contract", () => {
+  assert.doesNotMatch(landingPage, /rounded-\[28px\]|radial-gradient\(circle/);
+  assert.match(landingPage, /bg-manor-paper/);
+  assert.match(landingPage, /shadow-manor-md/);
+  assert.doesNotMatch(knowledgeIntake, /(?:!|hover:)?bg-white/);
+  assert.match(knowledgeIntake, /\[&_input\]:!bg-card/);
+  assert.match(knowledgeIntake, /draftSubCard: "[^"]*bg-background/);
+  assert.doesNotMatch(operationDialog, /rounded-\[10px\]/);
+  assert.match(operationDialog, /items-center rounded-md border/);
+});
+
+check("crop structure keeps dense short-screen layout and 44px controls", () => {
+  assert.match(cropStructure, /tf-crop-filter-grid[^"]*xl:grid-cols-\[minmax\(145px,1fr\)/);
+  assert.doesNotMatch(cropStructure, /min-\[820px\]:grid-cols/);
+  assert.match(cropStructure, /min-\[800px\]:hidden 2xl:inline/);
+  assert.match(cropStructure, /className="h-11 min-w-\[44px\]/);
+  assert.match(cropStructure, /className="tf-crop-dialog/);
+  assert.match(globals, /@media \(min-width: 812px\) and \(max-width: 1023px\) and \(max-height: 600px\) and \(orientation: landscape\)[\s\S]*?\.tf-crop-filter-grid[\s\S]*?grid-template-columns/);
+  assert.match(globals, /@media \(min-width: 812px\)[\s\S]*?\.tf-crop-filter-actions[\s\S]*?flex-wrap: nowrap !important/);
 });
 
 check("notched screens and short landscape retain the mobile shell", () => {

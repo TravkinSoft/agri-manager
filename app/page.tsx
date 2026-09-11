@@ -49,7 +49,7 @@ function ProductLogo() {
 
 function ProductMockup() {
   return (
-    <div className="mx-auto w-full max-w-6xl overflow-hidden rounded-[28px] border border-border bg-card shadow-2xl shadow-black/40">
+    <div className="mx-auto w-full max-w-6xl overflow-hidden rounded-md border border-border bg-card shadow-manor-md">
       <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
         <div className="flex items-center gap-2">
           <span className="h-2.5 w-2.5 rounded-full bg-red-400" />
@@ -141,15 +141,7 @@ export default function Home() {
         </div>
       </nav>
 
-      <section className="relative overflow-hidden px-4 pb-16 pt-14 sm:px-6 lg:px-8">
-        <div
-          className="absolute inset-0 opacity-40"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle at 20% 20%, rgba(250,204,21,0.22), transparent 28%), radial-gradient(circle at 80% 10%, rgba(16,185,129,0.18), transparent 30%), linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)",
-            backgroundSize: "auto, auto, 44px 44px, 44px 44px",
-          }}
-        />
+      <section className="relative overflow-hidden bg-manor-paper px-4 pb-16 pt-14 sm:px-6 lg:px-8">
         <div className="relative mx-auto max-w-7xl">
           <div className="mx-auto max-w-4xl text-center">
             <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-800">

@@ -1014,7 +1014,7 @@ function OperationWorkSelector(props: {
                     data-operation-radio-value={option.id}
                     onKeyDownCapture={(event) => handleRadioOptionKeyDown(event, onWorkChange)}
                     className={cn(
-                      "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-medium leading-5 transition-colors",
+                      "flex min-h-12 w-full cursor-pointer items-center rounded-md border px-3.5 py-3 text-left text-sm font-medium leading-5 transition-colors",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
                       checked
                         ? "border-transparent bg-primary font-semibold text-primary-foreground"

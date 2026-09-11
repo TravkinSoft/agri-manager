@@ -81,7 +81,7 @@ const pageSource = readFileSync(resolve("app/(dashboard)/crop-structure/page.tsx
 const routeSource = readFileSync(resolve("app/api/crop-structure/fields/[id]/route.ts"), "utf8");
 const migrationSource = readFileSync(resolve("supabase/migrations/20260817215725_crop_structure_optional_seed_identity.sql"), "utf8");
 const ordinaryEditorSource = pageSource.slice(
-  pageSource.indexOf("{row.crop_id && vars.length > 0 ? ("),
+  pageSource.indexOf('<div className="col-span-12 grid grid-cols-2 items-end gap-2 sm:gap-3">'),
   pageSource.indexOf("{isCropMixRow ? ("),
 );
 
@@ -92,7 +92,10 @@ checks.push(
     assert.doesNotMatch(ordinaryEditorSource, />Сорт \*<\/Label>/);
     assert.doesNotMatch(ordinaryEditorSource, />Репродукция \/ поколение \*<\/Label>/);
   }],
-  ["ordinary variety field is hidden when no options exist", () => assert.match(pageSource, /row\.crop_id && vars\.length > 0/)],
+  ["ordinary seed identity fields stay visible and disable unavailable catalogs", () => {
+    assert.match(ordinaryEditorSource, /disabled=\{!row\.crop_id \|\| vars\.length === 0\}/);
+    assert.match(ordinaryEditorSource, /disabled=\{!row\.crop_id \|\| globalReproductions\.length === 0\}/);
+  }],
   ["linked row delete explains the lock instead of becoming inert", () => {
     assert.match(pageSource, /aria-label=\{isDeleteLocked \? "Показать причину запрета удаления участка" : "Удалить участок"\}/);
     assert.doesNotMatch(pageSource, /onClick=\{\(\) => requestRemoveRow\(index\)\}\s+disabled=\{isDeleteLocked\}/);

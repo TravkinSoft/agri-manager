@@ -136,7 +136,7 @@ check("17 detail tables remain usable on narrow screens", () => {
 
 check("18 editor rows are divided sections instead of framed cards", () => {
   assert.match(editor, /aria-labelledby=\{`crop-structure-row-\$\{index\}`\}/);
-  assert.match(editor, /border-t border-border py-4 first:border-t-0/);
+  assert.match(editor, /border-t border-border py-3 first:border-t-0 first:pt-0 sm:py-4/);
   assert.doesNotMatch(editor, /overflow-hidden rounded-xl border border-slate-700\/80 bg-\[#101823\]/);
 });
 
@@ -145,8 +145,15 @@ check("19 editor prioritizes identity and area with optional agronomy collapsed"
   assert.match(editor, />Состав зерносмеси<\/h5>/);
   assert.match(editor, /<details[\s\S]*?<summary[\s\S]*?Дополнительные параметры/);
   assert.ok(editor.indexOf("Площадь, га *") < editor.indexOf("Культура *"));
-  assert.ok(editor.indexOf("Репродукция / поколение") < editor.indexOf("<details"));
-  assert.ok(editor.indexOf("Орошение") > editor.indexOf("<details"));
+  const optionalAgronomyStart = editor.indexOf('<details className="tf-estate-details');
+  assert.ok(editor.indexOf("Сорт") < optionalAgronomyStart);
+  assert.ok(editor.indexOf("Репродукция / поколение") < optionalAgronomyStart);
+  assert.ok(editor.indexOf("Орошение") > optionalAgronomyStart);
+  assert.match(editor, /col-span-5 min-w-0 sm:col-span-6 md:col-span-4/);
+  assert.match(editor, /col-span-7 min-w-0 sm:col-span-6 md:col-span-3/);
+  assert.match(editor, /col-span-12 min-w-0 sm:col-span-6 md:col-span-5/);
+  assert.match(editor, /col-span-12 grid grid-cols-2 items-end gap-2 sm:gap-3/);
+  assert.doesNotMatch(editor, /<details[\s\S]{0,300}?Посевной материал/);
 });
 
 check("20 area completion is visible and screen-reader friendly", () => {

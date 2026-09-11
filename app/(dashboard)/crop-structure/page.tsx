@@ -1965,10 +1965,10 @@ export default function CropStructurePage() {
     return (
       <Card
         key={field.id}
-        className="h-[202px] cursor-pointer overflow-hidden border-border transition hover:border-emerald-300 hover:shadow-sm"
+        className="min-h-[202px] cursor-pointer overflow-hidden border-border transition hover:border-emerald-300 hover:shadow-sm"
         onClick={() => requestOpenField(field.id)}
       >
-        <CardContent className="grid h-full grid-rows-[auto_minmax(0,1fr)_auto] gap-2 p-3">
+        <CardContent className="grid min-h-[202px] grid-rows-[auto_minmax(0,1fr)_auto] gap-2 p-3">
           <div className="flex min-w-0 items-start justify-between gap-3">
             <div className="min-w-0 truncate text-[20px] font-bold leading-tight text-primary">
               {fieldDisplayName(field)}
@@ -1996,7 +1996,7 @@ export default function CropStructurePage() {
 
           <Button
             type="button"
-            className="h-8 w-full text-[12px]"
+            className="h-11 w-full text-[12px]"
             onClick={(event) => openPrimaryOperationPlan(field, event)}
             disabled={!FIELD_FIRST_CREATE_ENABLED}
           >
@@ -2852,7 +2852,7 @@ export default function CropStructurePage() {
 
   const renderEditor = () => {
     if (!selectedField) return null;
-    const editorLabelClass = "mb-1.5 block text-xs font-medium leading-snug text-foreground";
+    const editorLabelClass = "mb-1 block text-xs font-medium leading-snug text-foreground sm:mb-1.5";
     const editorControlClass =
       "h-11 w-full min-w-0 border-input bg-card text-sm text-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0";
     const editorNumberControlClass = `${editorControlClass} [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
@@ -2867,12 +2867,12 @@ export default function CropStructurePage() {
     return (
       <fieldset
         disabled={saving}
-        className="tf-estate-editor m-0 min-w-0 space-y-4 border-0 p-0 text-foreground disabled:cursor-wait"
+        className="tf-estate-editor m-0 min-w-0 space-y-3 border-0 p-0 text-foreground disabled:cursor-wait sm:space-y-4"
         aria-labelledby="crop-structure-editor-heading"
         aria-busy={saving}
         data-testid="crop-structure-editor"
       >
-        <div className="space-y-3">
+        <div className="space-y-2 sm:space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <h3 id="crop-structure-editor-heading" className="font-display text-xl font-semibold text-foreground">Участки поля</h3>
@@ -2924,7 +2924,7 @@ export default function CropStructurePage() {
             return (
               <section
                 key={`${row.id || "new"}-${index}`}
-                className="tf-estate-plot border-t border-border py-4 first:border-t-0 first:pt-0"
+                className="tf-estate-plot border-t border-border py-3 first:border-t-0 first:pt-0 sm:py-4"
                 aria-labelledby={`crop-structure-row-${index}`}
               >
                 <div className="flex items-center justify-between gap-3">
@@ -2947,8 +2947,8 @@ export default function CropStructurePage() {
                     </Button>
                   </div>
                 </div>
-                <div className="grid grid-cols-12 items-end gap-3 pt-2">
-                <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-4">
+                <div className="grid grid-cols-12 items-end gap-2 pt-2 sm:gap-3">
+                <div className="col-span-5 min-w-0 sm:col-span-6 md:col-span-4">
                   <Label htmlFor={`plot-use-${index}`} className={editorLabelClass}>Использование *</Label>
                   <Select
                     value={row.land_use_type}
@@ -2962,7 +2962,7 @@ export default function CropStructurePage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
+                <div className="col-span-7 min-w-0 sm:col-span-6 md:col-span-3">
                   <Label htmlFor={`plot-area-${index}`} className={editorLabelClass}>Площадь, га *</Label>
                   <div className="flex gap-1.5">
                     <Input id={`plot-area-${index}`} className={editorNumberControlClass} type="text" inputMode="decimal" value={row.area == null ? "" : String(row.area)} onChange={(event) => patchDraft(index, { area: parseNum(event.target.value) })} placeholder="га" />
@@ -2980,57 +2980,55 @@ export default function CropStructurePage() {
                 </div>
                 {!isFallowRow && !isCropMixRow ? (
                   <>
-                    <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-5">
+                    <div className="col-span-12 min-w-0 sm:col-span-6 md:col-span-5">
                       <Label htmlFor={`plot-crop-${index}`} className={editorLabelClass}>Культура *</Label>
                       <Select value={rowCropId || "none"} onValueChange={(value) => patchDraft(index, { crop_id: value === "none" ? null : value })}>
                         <SelectTrigger id={`plot-crop-${index}`} className={editorControlClass}><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
                         <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{cropSelectOptions(rowCropId).map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
-                    {row.crop_id && vars.length > 0 ? (
-                    <div className="col-span-12 min-w-0 sm:col-span-6">
-                      <Label htmlFor={`plot-variety-${index}`} className={editorLabelClass}>Сорт</Label>
-                      <CatalogIdentityCombobox
-                        id={`plot-variety-${index}`}
-                        ariaLabel={`Сорт участка ${index + 1}`}
-                        value={row.variety_id}
-                        options={vars.map((variety) => ({
-                          id: variety.id,
-                          label: localizedName(variety as never, language, ["name"]) || variety.name,
-                          searchValue: catalogIdentitySearchValue(variety),
-                          legacy: variety.archived === true || variety.is_active === false,
-                        }))}
-                        placeholder="Выберите сорт"
-                        searchPlaceholder="Поиск сорта..."
-                        emptyMessage={row.crop_id ? "Для выбранной культуры пока нет глобальных сортов." : "Сначала выберите культуру"}
-                        className={editorControlClass}
-                        disabled={!row.crop_id}
-                        onChange={(value) => patchDraft(index, { variety_id: value })}
-                      />
+                    <div className="col-span-12 grid grid-cols-2 items-end gap-2 sm:gap-3">
+                      <div className="min-w-0">
+                        <Label htmlFor={`plot-variety-${index}`} className={editorLabelClass}>Сорт</Label>
+                        <CatalogIdentityCombobox
+                          id={`plot-variety-${index}`}
+                          ariaLabel={`Сорт участка ${index + 1}`}
+                          value={row.variety_id}
+                          options={vars.map((variety) => ({
+                            id: variety.id,
+                            label: localizedName(variety as never, language, ["name"]) || variety.name,
+                            searchValue: catalogIdentitySearchValue(variety),
+                            legacy: variety.archived === true || variety.is_active === false,
+                          }))}
+                          placeholder="Выберите сорт"
+                          searchPlaceholder="Поиск сорта..."
+                          emptyMessage={row.crop_id ? "Для выбранной культуры пока нет глобальных сортов." : "Сначала выберите культуру"}
+                          className={editorControlClass}
+                          disabled={!row.crop_id || vars.length === 0}
+                          onChange={(value) => patchDraft(index, { variety_id: value })}
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <Label htmlFor={`plot-reproduction-${index}`} className={editorLabelClass}>Репродукция / поколение</Label>
+                        <CatalogIdentityCombobox
+                          id={`plot-reproduction-${index}`}
+                          ariaLabel={`Репродукция участка ${index + 1}`}
+                          value={row.reproduction_id}
+                          options={globalReproductions.map((item) => ({
+                            id: item.id,
+                            label: standardReproductionLabel(item),
+                            searchValue: catalogIdentitySearchValue(item),
+                            legacy: item.archived === true || item.is_active === false,
+                          }))}
+                          placeholder="Выберите репродукцию"
+                          searchPlaceholder="Поиск репродукции..."
+                          emptyMessage="Доступные репродукции не найдены"
+                          className={editorControlClass}
+                          disabled={!row.crop_id || globalReproductions.length === 0}
+                          onChange={(value) => patchDraft(index, { reproduction_id: value })}
+                        />
+                      </div>
                     </div>
-                    ) : null}
-                    {row.crop_id && globalReproductions.length > 0 ? (
-                    <div className="col-span-12 min-w-0 sm:col-span-6">
-                      <Label htmlFor={`plot-reproduction-${index}`} className={editorLabelClass}>Репродукция / поколение</Label>
-                      <CatalogIdentityCombobox
-                        id={`plot-reproduction-${index}`}
-                        ariaLabel={`Репродукция участка ${index + 1}`}
-                        value={row.reproduction_id}
-                        options={globalReproductions.map((item) => ({
-                          id: item.id,
-                          label: standardReproductionLabel(item),
-                          searchValue: catalogIdentitySearchValue(item),
-                          legacy: item.archived === true || item.is_active === false,
-                        }))}
-                        placeholder="Выберите репродукцию"
-                        searchPlaceholder="Поиск репродукции..."
-                        emptyMessage="Доступные репродукции не найдены"
-                        className={editorControlClass}
-                        disabled={globalReproductions.length === 0}
-                        onChange={(value) => patchDraft(index, { reproduction_id: value })}
-                      />
-                    </div>
-                    ) : null}
                   </>
                 ) : null}
                 {isCropMixRow ? (
@@ -3458,7 +3456,7 @@ export default function CropStructurePage() {
             disabled={seasons.length === 0 || saving || (isDesktopWorkspace && hasUnsavedStructureChanges)}
           >
             <SelectTrigger
-              className="h-8 min-w-[132px] border-border bg-transparent px-2 text-xs font-medium text-muted-foreground shadow-none hover:border-border hover:text-foreground disabled:cursor-default disabled:opacity-70"
+              className="h-11 min-w-[132px] border-border bg-transparent px-2 text-xs font-medium text-muted-foreground shadow-none hover:border-border hover:text-foreground disabled:cursor-default disabled:opacity-70"
               aria-label="Сезон структуры посевов"
             >
               <SelectValue placeholder="Сезон не создан" />
@@ -3482,17 +3480,17 @@ export default function CropStructurePage() {
 
       <Card>
         <CardContent className="p-3">
-          <div className="grid items-center gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(180px,1fr)_minmax(140px,170px)_minmax(130px,150px)_minmax(135px,155px)_auto]">
+          <div className="tf-crop-filter-grid grid items-center gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(145px,1fr)_minmax(116px,0.85fr)_minmax(108px,0.75fr)_minmax(122px,0.85fr)_auto]">
             <div className="relative min-w-0">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input className="h-9 w-full pl-8" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск поля..." />
+              <Search className="absolute left-2.5 top-3.5 h-4 w-4 text-muted-foreground" />
+              <Input className="h-11 w-full pl-8" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск поля..." />
             </div>
             <Select value={cropFilter} onValueChange={setCropFilter}>
-              <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-11 w-full"><SelectValue /></SelectTrigger>
               <SelectContent><SelectItem value="all">Все культуры</SelectItem>{globalCrops.map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
             </Select>
             <Select value={statusFilter} onValueChange={(value: "all" | FieldState) => setStatusFilter(value)}>
-              <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-11 w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все статусы</SelectItem>
                 <SelectItem value="empty">Пусто</SelectItem>
@@ -3502,7 +3500,7 @@ export default function CropStructurePage() {
               </SelectContent>
             </Select>
             <Select value={sortBy} onValueChange={(value: "field" | "area" | "main_crop" | "state") => setSortBy(value)}>
-              <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-11 w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="field">Сорт: поле</SelectItem>
                 <SelectItem value="area">Сорт: площадь</SelectItem>
@@ -3510,15 +3508,18 @@ export default function CropStructurePage() {
                 <SelectItem value="state">Сорт: статус</SelectItem>
               </SelectContent>
             </Select>
-            <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:col-span-2 xl:col-span-1">
+            <div className="tf-crop-filter-actions flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:col-span-2 xl:col-span-1 xl:flex-nowrap">
               {canManageFields ? (
                 <Button
                   type="button"
                   size="sm"
-                  className="h-9 w-full whitespace-nowrap px-3 sm:w-auto"
+                  className="h-11 w-full whitespace-nowrap px-3 sm:w-auto min-[800px]:w-11 min-[800px]:px-0 2xl:w-auto 2xl:px-3"
                   onClick={() => setFieldCreateOpen(true)}
+                  aria-label="Добавить поле"
+                  title="Добавить поле"
                 >
-                  <Plus className="mr-2 h-4 w-4" />Добавить поле
+                  <Plus className="h-4 w-4 sm:mr-2 min-[800px]:mr-0 2xl:mr-2" />
+                  <span className="sm:inline min-[800px]:hidden 2xl:inline">Добавить поле</span>
                 </Button>
               ) : null}
               <div className="flex shrink-0 rounded-md border border-border bg-card p-0.5">
@@ -3526,54 +3527,54 @@ export default function CropStructurePage() {
                   type="button"
                   size="sm"
                   variant={viewMode === "cards" ? "default" : "ghost"}
-                  className="h-8 px-2.5 xl:px-2 2xl:px-2.5"
+                  className="h-11 min-w-[44px] px-2.5"
                   onClick={() => changeViewMode("cards")}
                   disabled={saving}
                   aria-label="Показать карточками"
                   title="Карточки"
                 >
-                  <LayoutGrid className="h-4 w-4 sm:mr-1.5 xl:mr-0 2xl:mr-1.5" />
-                  <span className="hidden sm:inline xl:hidden 2xl:inline">Карточки</span>
+                  <LayoutGrid className="h-4 w-4 sm:mr-1.5 min-[800px]:mr-0 2xl:mr-1.5" />
+                  <span className="hidden sm:inline min-[800px]:hidden 2xl:inline">Карточки</span>
                 </Button>
                 <Button
                   type="button"
                   size="sm"
                   variant={viewMode === "table" ? "default" : "ghost"}
-                  className="h-8 px-2.5 xl:px-2 2xl:px-2.5"
+                  className="h-11 min-w-[44px] px-2.5"
                   onClick={() => changeViewMode("table")}
                   disabled={saving}
                   aria-label="Показать таблицей"
                   title="Таблица"
                 >
-                  <Table2 className="h-4 w-4 sm:mr-1.5 xl:mr-0 2xl:mr-1.5" />
-                  <span className="hidden sm:inline xl:hidden 2xl:inline">Таблица</span>
+                  <Table2 className="h-4 w-4 sm:mr-1.5 min-[800px]:mr-0 2xl:mr-1.5" />
+                  <span className="hidden sm:inline min-[800px]:hidden 2xl:inline">Таблица</span>
                 </Button>
                 {isGlobalAdmin ? (
                   <Button
                     type="button"
                     size="sm"
                     variant={viewMode === "map" ? "default" : "ghost"}
-                    className="h-8 px-2.5 xl:px-2 2xl:px-2.5"
+                    className="h-11 min-w-[44px] px-2.5"
                     onClick={() => changeViewMode("map")}
                     disabled={saving}
                     aria-label="Показать на карте"
                     title="Карта"
                   >
-                    <MapIcon className="h-4 w-4 sm:mr-1.5 xl:mr-0 2xl:mr-1.5" />
-                    <span className="hidden sm:inline xl:hidden 2xl:inline">Карта</span>
+                    <MapIcon className="h-4 w-4 sm:mr-1.5 min-[800px]:mr-0 2xl:mr-1.5" />
+                    <span className="hidden sm:inline min-[800px]:hidden 2xl:inline">Карта</span>
                   </Button>
                 ) : null}
               </div>
               <Button
                 size="sm"
-                className="h-9 whitespace-nowrap px-3 xl:px-2.5 2xl:px-3"
+                className="h-11 min-w-[44px] whitespace-nowrap px-3"
                 variant="outline"
                 onClick={exportExcel}
                 aria-label="Экспортировать в Excel"
                 title="Excel"
               >
-                <Download className="h-4 w-4 sm:mr-1.5 xl:mr-0 2xl:mr-1.5" />
-                <span className="hidden sm:inline xl:hidden 2xl:inline">Excel</span>
+                <Download className="h-4 w-4 sm:mr-1.5 min-[800px]:mr-0 2xl:mr-1.5" />
+                <span className="hidden sm:inline min-[800px]:hidden 2xl:inline">Excel</span>
               </Button>
             </div>
           </div>
@@ -3659,9 +3660,9 @@ export default function CropStructurePage() {
           hideCloseButton
           data-testid="field-dialog-content"
           overlayClassName="motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none motion-reduce:duration-0"
-          className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-none flex-col gap-0 !overflow-hidden rounded-md border-border bg-card p-0 text-foreground shadow-manor-md motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none motion-reduce:duration-0 sm:max-h-[92vh] sm:w-[94vw] sm:max-w-[1180px]"
+          className="tf-crop-dialog flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-none flex-col gap-0 !overflow-hidden rounded-md border-border bg-card p-0 text-foreground shadow-manor-md motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none motion-reduce:duration-0 sm:max-h-[92vh] sm:w-[94vw] sm:max-w-[1180px]"
         >
-          <DialogHeader className="shrink-0 gap-3 space-y-0 border-b border-border px-4 py-4 pr-4 text-left sm:px-6">
+          <DialogHeader className="tf-crop-dialog-header shrink-0 gap-2 space-y-0 border-b border-border px-4 py-3 pr-4 text-left sm:gap-3 sm:px-6 sm:py-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 pt-1">
                 <DialogTitle className="truncate text-lg leading-tight sm:text-xl">
@@ -3751,14 +3752,14 @@ export default function CropStructurePage() {
             id="field-dialog-panel"
             role="tabpanel"
             aria-labelledby={`field-tab-${fieldDialogTab}`}
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 [scrollbar-width:thin] [scrollbar-color:var(--manor-line)_transparent] sm:px-6 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent"
+            className="tf-crop-dialog-body min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 [scrollbar-width:thin] [scrollbar-color:var(--manor-line)_transparent] sm:px-6 sm:py-5 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent"
           >
             {fieldDialogTab === "dossier" ? renderFieldDossier() : null}
             {fieldDialogTab === "editor" ? renderEditor() : null}
             {fieldDialogTab === "legal" ? renderLegalContour() : null}
           </div>
           <div
-            className="sticky bottom-0 z-20 flex shrink-0 flex-col gap-2 border-t border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+            className="tf-crop-dialog-footer sticky bottom-0 z-20 flex shrink-0 flex-col gap-1.5 border-t border-border bg-card px-4 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-6 sm:py-3"
             data-testid="field-dialog-action-bar"
           >
             <div className="min-h-5 text-xs text-muted-foreground" aria-live="polite">

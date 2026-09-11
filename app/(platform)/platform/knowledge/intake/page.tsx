@@ -768,14 +768,14 @@ const consoleNotice = {
   sourceCard: "rounded-none border border-border bg-card px-3 py-3 text-foreground",
   sourceSummary: "mt-2 rounded-none border border-border bg-card px-3 py-2 text-xs leading-5 text-foreground",
   draftPanel: "mt-4 rounded-none border border-border bg-card p-4 text-foreground",
-  draftSubCard: "rounded-none border border-border bg-white px-3 py-2 text-foreground",
+  draftSubCard: "rounded-none border border-border bg-background px-3 py-2 text-foreground",
   disabledAction: "mt-4 rounded-none border-border bg-card text-muted-foreground opacity-100 disabled:opacity-100",
 };
 
 const consoleReadableStat =
   "rounded-none border border-border !bg-card text-foreground shadow-none [&_*]:!text-foreground";
 const consoleReadableCard =
-  "rounded-none border-border !bg-white text-foreground shadow-none [&_.text-foreground]:!text-foreground [&_.text-foreground]:!text-foreground [&_.text-muted-foreground]:!text-muted-foreground";
+  "rounded-none border-border !bg-card text-foreground shadow-none [&_.text-foreground]:!text-foreground [&_.text-foreground]:!text-foreground [&_.text-muted-foreground]:!text-muted-foreground";
 const consoleReadablePill =
   "rounded-none";
 
@@ -1101,7 +1101,7 @@ export default function KnowledgeIntakePage() {
   }
 
   return (
-    <div className="space-y-3 [&_input]:!rounded-none [&_input]:!border-border [&_input]:!bg-white [&_input]:!text-foreground [&_select]:!rounded-none [&_select]:!border-border [&_select]:!bg-white [&_select]:!text-foreground [&_textarea]:!rounded-none [&_textarea]:!border-border [&_textarea]:!bg-white [&_textarea]:!text-foreground">
+    <div className="space-y-3 [&_input]:!rounded-none [&_input]:!border-border [&_input]:!bg-card [&_input]:!text-foreground [&_select]:!rounded-none [&_select]:!border-border [&_select]:!bg-card [&_select]:!text-foreground [&_textarea]:!rounded-none [&_textarea]:!border-border [&_textarea]:!bg-card [&_textarea]:!text-foreground">
       <GlassToolbar className="rounded-none border-border bg-muted px-4 py-3 text-foreground shadow-[1px_1px_0_rgba(255,255,255,0.12)_inset]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-2">
@@ -1122,7 +1122,7 @@ export default function KnowledgeIntakePage() {
       </GlassToolbar>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.4fr)]">
-        <GlassPanel className="rounded-none border-border bg-white p-3 text-foreground shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+        <GlassPanel className="rounded-none border-border bg-card p-3 text-foreground shadow-manor-sm">
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
               <Label htmlFor="intake-input-type" className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
@@ -1195,7 +1195,7 @@ export default function KnowledgeIntakePage() {
           </div>
         </GlassPanel>
 
-        <GlassPanel className="rounded-none border-border bg-white p-3 text-foreground shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+        <GlassPanel className="rounded-none border-border bg-card p-3 text-foreground shadow-manor-sm">
           {!result ? (
             <EmptyState className="flex min-h-[360px] flex-col items-center justify-center text-center">
               <Sparkles className="mb-3 h-8 w-8 text-primary" />
@@ -1285,7 +1285,7 @@ export default function KnowledgeIntakePage() {
                         className={`border px-3 py-2 text-left transition ${
                           active
                             ? "border-border bg-card text-foreground"
-                            : "border-border bg-card text-muted-foreground hover:bg-white"
+                            : "border-border bg-card text-muted-foreground hover:bg-muted"
                         }`}
                       >
                         <div className="flex items-center gap-2 text-sm font-semibold">
@@ -1465,7 +1465,7 @@ export default function KnowledgeIntakePage() {
                                 size="sm"
                                 disabled={fetchingSourceId !== null}
                                 onClick={() => handleFetchSourceText(source)}
-                                className="gap-2 rounded-none border-border bg-card text-foreground hover:bg-white disabled:opacity-70"
+                                className="gap-2 rounded-none border-border bg-card text-foreground hover:bg-muted disabled:opacity-70"
                               >
                                 {fetchingSourceId === source.id ? (
                                   <Loader2 className="h-4 w-4 animate-spin" />
