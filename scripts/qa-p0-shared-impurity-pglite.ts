@@ -1344,9 +1344,13 @@ async function main() {
         select id::text, current_quantity::text
         from public.inventory_batches
         where id in ($1::uuid,$2::uuid,$3::uuid)
-        order by id
       `, [ID.batchA, ID.batchB, finalized.pool_inventory_batch_id]);
-      assert.deepEqual(restored.map((row) => Number(row.current_quantity)), [120, 80, 0]);
+      const restoredById = new Map(
+        restored.map((row) => [String(row.id), Number(row.current_quantity)]),
+      );
+      assert.equal(restoredById.get(ID.batchA), 120);
+      assert.equal(restoredById.get(ID.batchB), 80);
+      assert.equal(restoredById.get(String(finalized.pool_inventory_batch_id)), 0);
     });
 
     console.log(`P0 SHARED IMPURITY PGLITE ${passed}/${passed} PASS`);
