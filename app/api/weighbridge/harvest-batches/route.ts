@@ -541,14 +541,14 @@ async function loadAggregateHarvestLots(
   const ledgerProcessingIds = ids(documentLedgerEntries
     .filter((entry: any) => String(entry.reason_type || "").toLowerCase().includes("processing_input"))
     .map((entry: any) => entry.processing_id || entry.reason_ref_id));
-  const [movementTicketsResult, transformationsResult] = await Promise.all([
+  const [movementTickets, transformationsResult] = await Promise.all([
     movementTicketIds.length
-      ? supabase
+      ? loadInChunks<any>(movementTicketIds, (chunk) => supabase
           .from("tickets")
           .select("id,ticket_no,ticket_type,op_type,status,created_at,finalized_at,created_by,created_by_person_id,finalized_by_person_id,vehicle_id,driver_id,warehouse_from_id,warehouse_to_id,gross_weight_kg,tare_weight_kg,net_weight_kg,notes,audit_json,disposal_category,is_voided,void_reason,correction_of_ticket_id,replacement_ticket_id")
           .eq("company_id", companyId)
-          .in("id", movementTicketIds)
-      : Promise.resolve({ data: [], error: null }),
+          .in("id", chunk))
+      : Promise.resolve([]),
     lotIds.length
       ? supabase
           .from("batch_transformations")
@@ -557,10 +557,10 @@ async function loadAggregateHarvestLots(
           .in("harvest_lot_id", lotIds)
       : Promise.resolve({ data: [], error: null }),
   ]);
-  if (movementTicketsResult.error || transformationsResult.error) {
-    throw movementTicketsResult.error || transformationsResult.error;
+  if (transformationsResult.error) {
+    throw transformationsResult.error;
   }
-  const movementTicketRows = (movementTicketsResult.data || []) as any[];
+  const movementTicketRows = movementTickets as any[];
   const transformationRows = (transformationsResult.data || []) as any[];
   const processingIds = ids([
     ...ledgerProcessingIds,

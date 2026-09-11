@@ -34,6 +34,15 @@ function aggregateSummarySource() {
   return routeSource.slice(start, end);
 }
 
+function aggregateDetailSource() {
+  const marker = "async function loadAggregateHarvestLots(";
+  const start = routeSource.indexOf(marker);
+  assert.notEqual(start, -1, "aggregate harvest detail loader must exist");
+  const end = routeSource.indexOf("\nexport async function GET", start + marker.length);
+  assert.notEqual(end, -1, "aggregate harvest detail loader boundary must exist");
+  return routeSource.slice(start, end);
+}
+
 async function main() {
   const loadInChunks = loadChunkHelper();
   const input = Array.from({ length: 648 }, (_, index) => `batch-${String(index).padStart(4, "0")}`);
@@ -54,6 +63,18 @@ async function main() {
   assert.ok(calls.every((call) => call.from === 0 && call.to === 999));
   assert.deepEqual(calls.flatMap((call) => call.ids), input);
 
+  calls.length = 0;
+  const movementInput = Array.from({ length: 814 }, (_, index) => `ticket-${String(index).padStart(4, "0")}`);
+  const movementRows = await loadInChunks<{ id: string }>(movementInput, (chunk) => ({
+    range: async (from: number, to: number) => {
+      calls.push({ ids: [...chunk], from, to });
+      return { data: chunk.map((id) => ({ id })), error: null };
+    },
+  }));
+  assert.equal(movementRows.length, 814, "all movement ticket rows must be preserved");
+  assert.deepEqual(calls.map((call) => call.ids.length), [200, 200, 200, 200, 14]);
+  assert.deepEqual(calls.flatMap((call) => call.ids), movementInput);
+
   const aggregateSource = aggregateSummarySource();
   assert.match(
     aggregateSource,
@@ -64,6 +85,18 @@ async function main() {
     aggregateSource,
     /\.from\("inventory_batches"\)[\s\S]*?\.in\("id", batchIds\)/,
     "aggregate summaries must not put every inventory batch ID into one PostgREST URL",
+  );
+
+  const detailSource = aggregateDetailSource();
+  assert.match(
+    detailSource,
+    /loadInChunks<any>\(movementTicketIds,\s*\(chunk\)\s*=>\s*supabase\s*\.from\("tickets"\)[\s\S]*?\.in\("id", chunk\)\)/,
+    "aggregate details must chunk movement ticket IDs",
+  );
+  assert.doesNotMatch(
+    detailSource,
+    /\.from\("tickets"\)[\s\S]*?\.in\("id", movementTicketIds\)/,
+    "aggregate details must not put every movement ticket ID into one PostgREST URL",
   );
 
   console.log("P0 harvest summary query chunking regression: PASS");
