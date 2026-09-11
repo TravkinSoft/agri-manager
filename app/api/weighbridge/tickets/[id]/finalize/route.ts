@@ -4,8 +4,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { WEIGHBRIDGE_OPERATOR_COOKIE, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, recordWeighbridgeOperatorActivity, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUnexpectedUserError, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
 import { getServiceClient } from "@/lib/supabase/service";
+import { enrichSharedImpurityScopes, loadSharedImpurityTicketIds } from "@/lib/server/weighbridge-shared-impurity";
 
 const CORRECTION_LOT_ERROR = "Не удалось завершить исправление талона. Связь партии не прошла проверку. Исходный талон не изменён.";
+const SHARED_IMPURITY_CORRECTION_ERROR = "Общий талон примесей нельзя исправить копированием. Аннулируйте его и создайте новый талон.";
 
 function correctionLotErrorResponse(message: string) {
   const traceId = randomUUID();
@@ -43,6 +45,19 @@ function transferStockErrorResponse(message: string) {
     }, { status: 409 });
   }
   return null;
+}
+
+function sharedImpurityStockErrorResponse(message: string) {
+  const conflict = message.match(/SHARED_IMPURITY_SOURCE_(?:ALREADY_COMMITTED|COMMITTED_OR_CHANGED)\|[^|\s]+\|([^|\s]+)/i);
+  if (!conflict) return null;
+  const available = Number(conflict[1]);
+  return NextResponse.json({
+    error: Number.isFinite(available)
+      ? `Одна из партий после создания талона была зарезервирована или передана в обработку. Доступно без обязательств: ${available.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг.`
+      : "Одна из партий после создания талона стала недоступна. Обновите данные и повторите операцию.",
+    code: "shared_impurity_source_committed",
+    ...(Number.isFinite(available) ? { available_kg: available } : {}),
+  }, { status: 409 });
 }
 
 async function loadHarvestClosureState(supabase: SupabaseClient, companyId: string, ticketId: string) {
@@ -188,9 +203,106 @@ export async function POST(
       return NextResponse.json({ error: ticketBeforeError?.message || "Ticket not found" }, { status: 404 });
     }
     const isCorrectionFinalize = Boolean(ticketBefore.correction_of_ticket_id);
+    const correctionSourceTicketId = String(ticketBefore.correction_of_ticket_id || "");
+    const sharedImpurityTicketIds = ticketBefore.op_type === "weighbridge_impurities" || correctionSourceTicketId
+      ? await loadSharedImpurityTicketIds(supabase, companyId, [id, correctionSourceTicketId])
+      : new Set<string>();
+    const isSharedImpurityFinalize = sharedImpurityTicketIds.has(id);
+    const isSharedImpurityCorrection = Boolean(
+      correctionSourceTicketId && sharedImpurityTicketIds.has(correctionSourceTicketId)
+    );
+    if (isSharedImpurityCorrection) {
+      return NextResponse.json(
+        { error: SHARED_IMPURITY_CORRECTION_ERROR, code: "shared_impurity_correction_requires_void" },
+        { status: 409 }
+      );
+    }
     const operatorSession = ticketBefore.weigh_method === "manual_override_with_reason"
       ? null
       : await requireWeighbridgeOperatorSession(request, { companyId, supabase });
+
+    if (isSharedImpurityFinalize) {
+      if (isCorrectionFinalize) {
+        return NextResponse.json(
+          { error: SHARED_IMPURITY_CORRECTION_ERROR, code: "shared_impurity_correction_requires_void" },
+          { status: 409 }
+        );
+      }
+      const tare = Number(body?.tare_weight_kg);
+      if (!Number.isFinite(tare) || tare < 0) {
+        return NextResponse.json({ error: "Тара должна быть неотрицательным числом." }, { status: 400 });
+      }
+      const idempotencyKey = String(
+        request.headers.get("idempotency-key") || body?.idempotency_key || ""
+      ).trim();
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
+        return NextResponse.json({ error: "Для закрытия общего талона требуется ключ безопасного повтора." }, { status: 400 });
+      }
+      const sessionToken = request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || "";
+      const rpcStartedAt = Date.now();
+      const { data: finalizeResult, error: finalizeError } = await supabase.rpc(
+        "finalize_weighbridge_shared_impurity_pool_ticket_v1",
+        {
+          p_ticket_id: id,
+          p_session_token: sessionToken,
+          p_tare_weight_kg: tare,
+          p_tare_variance_confirmed: Boolean(body?.confirm_tare_variance),
+          p_idempotency_key: idempotencyKey,
+        }
+      );
+      timing.rpcMs = Date.now() - rpcStartedAt;
+      if (finalizeError) {
+        const stockErrorResponse = sharedImpurityStockErrorResponse(finalizeError.message);
+        if (stockErrorResponse) return stockErrorResponse;
+        return NextResponse.json({ error: weighbridgeUserError(finalizeError.message) }, { status: 400 });
+      }
+      const result = (finalizeResult || {}) as Record<string, any>;
+      if (result.code === "shift_expired") {
+        return NextResponse.json(
+          { error: "Введите PIN весовщика, чтобы продолжить смену.", code: result.code },
+          { status: 423 }
+        );
+      }
+      if (result.requires_confirmation) {
+        return NextResponse.json({ error: "Проверьте тару.", ...result }, { status: 409 });
+      }
+      if (!result.ok) {
+        return NextResponse.json(
+          { error: "Не удалось завершить общий талон примесей.", code: result.code || "shared_impurity_finalize_failed" },
+          { status: 409 }
+        );
+      }
+      const { data: updated, error: updatedError } = await supabase
+        .from("tickets")
+        .select("*, lines:ticket_lines(*)")
+        .eq("id", id)
+        .eq("company_id", companyId)
+        .single();
+      if (updatedError || !updated?.id) {
+        return NextResponse.json(
+          { error: "Талон завершён, но не удалось обновить его отображение." },
+          { status: 409 }
+        );
+      }
+      try {
+        await recordWeighbridgeOperatorActivity(request, { companyId, supabase }, "tare_finalize");
+      } catch (activityError) {
+        console.error("shared_impurity_finalize_committed_activity_failed", {
+          ticketId: id,
+          companyId,
+          message: activityError instanceof Error ? activityError.message : "Unknown activity error",
+        });
+      }
+      const [attributedTicket] = await enrichTicketOperatorAttribution(supabase, companyId, [updated]);
+      const [enrichedTicket] = await enrichSharedImpurityScopes(supabase, companyId, [attributedTicket]);
+      timing.totalMs = Date.now() - startedAt;
+      return NextResponse.json({
+        ticket: enrichedTicket,
+        finalize: result,
+        idempotent_replay: Boolean(result.idempotent_replay),
+        debug: timing,
+      });
+    }
 
     if (ticketBefore.op_type === "harvest_incoming" && !ticketBefore.correction_of_ticket_id) {
       const tare = Number(body?.tare_weight_kg);

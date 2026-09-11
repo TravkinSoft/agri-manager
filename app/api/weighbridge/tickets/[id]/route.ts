@@ -5,6 +5,7 @@ import { validateHarvestWeights } from "@/lib/weighbridge/harvest-contract";
 import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
 import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
 import { enrichTicketCombineOperators } from "@/lib/server/weighbridge-combine-operator";
+import { enrichSharedImpurityScopes } from "@/lib/server/weighbridge-shared-impurity";
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 
 export async function GET(
@@ -203,7 +204,8 @@ export async function GET(
         correction_audit: correctionAuditResult.data || [],
         lines: enrichedLines,
       }], { includeTechnicalAudit: actor.role === "global_admin" });
-    const [enrichedTicket] = await enrichTicketCombineOperators(supabase, companyId, [attributedTicket]);
+    const [combinedTicket] = await enrichTicketCombineOperators(supabase, companyId, [attributedTicket]);
+    const [enrichedTicket] = await enrichSharedImpurityScopes(supabase, companyId, [combinedTicket]);
 
     return NextResponse.json({
       ticket: enrichedTicket,

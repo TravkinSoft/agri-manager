@@ -1,4 +1,4 @@
-import type { ActiveHarvestRoute, HarvestBatchSummary, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket, WeighingInput } from "@/lib/types/weighbridge";
+import type { ActiveHarvestRoute, HarvestBatchSummary, ImpuritySourceScopeInput, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket, WeighingInput } from "@/lib/types/weighbridge";
 import { buildClientAuthHeaders, fetchWithClientAuth } from "@/lib/supabase/client-auth";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import {
@@ -380,14 +380,21 @@ export async function createTicket(
     day_end: string;
     tare_weight_kg: number;
     moisture_percent?: number | null;
-  }
+  },
+  impuritySourceScope?: ImpuritySourceScopeInput
 ) {
   const headers: Record<string, string> = {};
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   const response = await fetchWithClientAuth("/api/weighbridge/tickets", {
     method: "POST",
     headers,
-    body: JSON.stringify({ ticket: input, lines, weighings, paperBackfill }),
+    body: JSON.stringify({
+      ticket: input,
+      lines,
+      weighings,
+      paperBackfill,
+      ...(impuritySourceScope ? { impurity_source_scope: impuritySourceScope } : {}),
+    }),
   }, "json");
   return parseJsonOrThrow(response);
 }

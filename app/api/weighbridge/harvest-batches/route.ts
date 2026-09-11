@@ -147,7 +147,7 @@ async function loadAggregateHarvestLotSummaries(
       .in("id", lotIds),
     supabase
       .from("harvest_lot_batches")
-      .select("harvest_lot_id,inventory_batch_id,source_ticket_id")
+      .select("harvest_lot_id,inventory_batch_id,source_ticket_id,crop_structure_id")
       .eq("company_id", companyId)
       .in("harvest_lot_id", lotIds),
   ]);
@@ -159,10 +159,14 @@ async function loadAggregateHarvestLotSummaries(
   const varietyIds = ids(lots.map((row) => row.variety_id));
   const reproductionIds = ids(lots.map((row) => row.reproduction_id));
   const warehouseIds = ids(stockRows.map((row) => row.warehouse_id));
-  const [batchesResult, cropsResult, varietiesResult, reproductionsResult, warehousesResult, fieldsResult] = await Promise.all([
+  const [batches, cropsResult, varietiesResult, reproductionsResult, warehousesResult, fieldsResult] = await Promise.all([
     batchIds.length
-      ? supabase.from("inventory_batches").select("id,product_id,display_name,source_ticket_id,source_field_id").eq("company_id", companyId).in("id", batchIds)
-      : Promise.resolve({ data: [], error: null }),
+      ? loadInChunks<any>(batchIds, (chunk) => supabase
+          .from("inventory_batches")
+          .select("id,product_id,display_name,source_ticket_id,source_field_id,crop_structure_id,warehouse_id,current_quantity,current_weight_kg,mass_kg,uom,batch_class,physical_state,origin_type")
+          .eq("company_id", companyId)
+          .in("id", chunk))
+      : Promise.resolve([]),
     cropIds.length
       ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug,category_id,category,crop_category,subcategory,crop_subcategory").in("id", cropIds)
       : Promise.resolve({ data: [], error: null }),
@@ -177,15 +181,19 @@ async function loadAggregateHarvestLotSummaries(
       : Promise.resolve({ data: [], error: null }),
     supabase.from("fields").select("id,name").eq("company_id", companyId),
   ]);
-  const firstError = [batchesResult, cropsResult, varietiesResult, reproductionsResult, warehousesResult]
+  const firstError = [cropsResult, varietiesResult, reproductionsResult, warehousesResult]
     .map((result: any) => result.error).find(Boolean);
   if (firstError) throw firstError;
   const sourceTicketIds = ids([
     ...links.map((row) => row.source_ticket_id),
-    ...(batchesResult.data || []).map((row: any) => row.source_ticket_id),
+    ...batches.map((row: any) => row.source_ticket_id),
+  ]);
+  const cropStructureIds = ids([
+    ...links.map((row) => row.crop_structure_id),
+    ...batches.map((row: any) => row.crop_structure_id),
   ]);
   const categoryIds = ids((cropsResult.data || []).map((crop: any) => crop.category_id));
-  const [categoriesResult, sourceTickets] = await Promise.all([
+  const [categoriesResult, sourceTickets, cropStructuresResult] = await Promise.all([
     categoryIds.length
       ? supabase.from("crop_categories").select("id,slug,name_ru").in("id", categoryIds)
       : Promise.resolve({ data: [], error: null }),
@@ -196,18 +204,168 @@ async function loadAggregateHarvestLotSummaries(
           .eq("company_id", companyId)
           .in("id", chunk)).catch(() => [])
       : Promise.resolve([]),
+    cropStructureIds.length
+      ? supabase
+          .from("crop_structure")
+          .select("id,field_id,crop_id,variety_id,reproduction_id,area")
+          .eq("company_id", companyId)
+          .in("id", cropStructureIds)
+      : Promise.resolve({ data: [], error: null }),
   ]);
-  if (categoriesResult.error) throw categoriesResult.error;
+  if (categoriesResult.error || cropStructuresResult.error) {
+    throw categoriesResult.error || cropStructuresResult.error;
+  }
+
+  // Lot-level identity can be intentionally broader than a member
+  // crop_structure. Load every structure-specific reference as well so source
+  // labels never disappear for mixed varieties/reproductions.
+  const cropStructures = (cropStructuresResult.data || []) as any[];
+  const structureCropIds = ids(cropStructures.map((row) => row.crop_id));
+  const structureVarietyIds = ids(cropStructures.map((row) => row.variety_id));
+  const structureReproductionIds = ids(cropStructures.map((row) => row.reproduction_id));
+  const missingCropIds = structureCropIds.filter((id) => !cropIds.includes(id));
+  const missingVarietyIds = structureVarietyIds.filter((id) => !varietyIds.includes(id));
+  const missingReproductionIds = structureReproductionIds.filter((id) => !reproductionIds.includes(id));
+  const [structureCropsResult, structureVarietiesResult, structureReproductionsResult] = await Promise.all([
+    missingCropIds.length
+      ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug,category_id,category,crop_category,subcategory,crop_subcategory").in("id", missingCropIds)
+      : Promise.resolve({ data: [], error: null }),
+    missingVarietyIds.length
+      ? supabase.from("varieties").select("id,name").in("id", missingVarietyIds)
+      : Promise.resolve({ data: [], error: null }),
+    missingReproductionIds.length
+      ? supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code").in("id", missingReproductionIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  const structureReferenceError = [structureCropsResult, structureVarietiesResult, structureReproductionsResult]
+    .map((result: any) => result.error).find(Boolean);
+  if (structureReferenceError) throw structureReferenceError;
+
+  // Shared impurity V1 may consume only directly identified kg-ledger mass.
+  // Legacy ticket-only ledger rows remain visible in the historical aggregate,
+  // but are deliberately not selectable because attributing them to a batch
+  // would be ambiguous. Existing reservations/processing allocations also
+  // remove the complete source pair from the picker.
+  const ledgerSelect = "id,inventory_batch_id,batch_id_text,batch_id,ticket_id,warehouse_id,delta_qty_signed,uom";
+  const [ledgerByInventory, ledgerByText, ledgerByLegacyBatch, legacyTicketLedger, reservationRows, allocationRows] = await Promise.all([
+    batchIds.length
+      ? loadInChunks<any>(batchIds, (chunk) => harvestStockSupabase
+          .from("stock_ledger_entries")
+          .select(ledgerSelect)
+          .eq("company_id", companyId)
+          .in("inventory_batch_id", chunk)
+          .order("id", { ascending: true }))
+      : Promise.resolve([]),
+    batchIds.length
+      ? loadInChunks<any>(batchIds, (chunk) => harvestStockSupabase
+          .from("stock_ledger_entries")
+          .select(ledgerSelect)
+          .eq("company_id", companyId)
+          .in("batch_id_text", chunk)
+          .order("id", { ascending: true }))
+      : Promise.resolve([]),
+    batchIds.length
+      ? loadInChunks<any>(batchIds, (chunk) => harvestStockSupabase
+          .from("stock_ledger_entries")
+          .select(ledgerSelect)
+          .eq("company_id", companyId)
+          .in("batch_id", chunk)
+          .order("id", { ascending: true }))
+      : Promise.resolve([]),
+    sourceTicketIds.length
+      ? loadInChunks<any>(sourceTicketIds, (chunk) => harvestStockSupabase
+          .from("stock_ledger_entries")
+          .select("id,ticket_id,inventory_batch_id,batch_id_text,batch_id")
+          .eq("company_id", companyId)
+          .is("inventory_batch_id", null)
+          .in("ticket_id", chunk)
+          .order("id", { ascending: true }))
+      : Promise.resolve([]),
+    batchIds.length
+      ? loadInChunks<any>(batchIds, (chunk) => harvestStockSupabase
+          .from("v_weighbridge_open_ticket_reservations_v1")
+          .select("ticket_id,warehouse_id,batch_id,reserved_kg")
+          .eq("company_id", companyId)
+          .in("batch_id", chunk)
+          .order("batch_id", { ascending: true })
+          .order("ticket_id", { ascending: true }))
+      : Promise.resolve([]),
+    batchIds.length
+      ? loadInChunks<any>(batchIds, (chunk) => harvestStockSupabase
+          .from("v_processing_active_allocations_v1")
+          .select("transformation_id,warehouse_id,batch_id,allocated_kg")
+          .eq("company_id", companyId)
+          .in("batch_id", chunk)
+          .order("batch_id", { ascending: true })
+          .order("transformation_id", { ascending: true }))
+      : Promise.resolve([]),
+  ]);
+
+  const explicitLedgerById = new Map<string, any>();
+  for (const row of [...ledgerByInventory, ...ledgerByText, ...ledgerByLegacyBatch]) {
+    explicitLedgerById.set(String(row.id), row);
+  }
+  const eligibilityBatchById = new Map(batches.map((row: any) => [String(row.id), row]));
+  const exactBalanceByBatchId = new Map<string, number>();
+  const invalidUomBatchIds = new Set<string>();
+  const candidateBatchIds = new Set(batchIds);
+  for (const row of Array.from(explicitLedgerById.values())) {
+    const exactBatchId = String(row.inventory_batch_id || row.batch_id_text || row.batch_id || "").trim();
+    if (!candidateBatchIds.has(exactBatchId)) continue;
+    const batch = eligibilityBatchById.get(exactBatchId);
+    if (!batch || String(batch.warehouse_id || "") !== String(row.warehouse_id || "")) continue;
+    exactBalanceByBatchId.set(
+      exactBatchId,
+      (exactBalanceByBatchId.get(exactBatchId) || 0) + Number(row.delta_qty_signed || 0)
+    );
+    if (!["kg", "кг", "g", "г", "gr"].includes(String(row.uom || "").trim().toLowerCase())) {
+      invalidUomBatchIds.add(exactBatchId);
+    }
+  }
+  const committedBatchIds = new Set<string>();
+  for (const row of [...reservationRows, ...allocationRows]) {
+    const committedKg = Number(row.reserved_kg ?? row.allocated_kg ?? 0);
+    if (committedKg > 0.001) committedBatchIds.add(String(row.batch_id || ""));
+  }
+  const legacyRowsByTicketId = new Map<string, any[]>();
+  for (const row of legacyTicketLedger) {
+    const key = String(row.ticket_id || "");
+    legacyRowsByTicketId.set(key, [...(legacyRowsByTicketId.get(key) || []), row]);
+  }
+
+  const batchHasAmbiguousLegacyLedger = (batchId: string, sourceTicketId: string) => (
+    (legacyRowsByTicketId.get(sourceTicketId) || []).some((row) => {
+      const explicitBatchId = String(row.batch_id_text || row.batch_id || "").trim();
+      return explicitBatchId !== batchId;
+    })
+  );
+  const batchIsSharedImpuritySelectable = (batch: any, sourceTicketId: string) => {
+    const batchId = String(batch?.id || "");
+    const exactBalance = exactBalanceByBatchId.get(batchId) || 0;
+    const projections = [batch?.current_quantity, batch?.current_weight_kg, batch?.mass_kg]
+      .filter((value) => value != null)
+      .map(Number);
+    return exactBalance > 0.0001
+      && !batchHasAmbiguousLegacyLedger(batchId, sourceTicketId)
+      && !committedBatchIds.has(batchId)
+      && !invalidUomBatchIds.has(batchId)
+      && String(batch?.batch_class || "commodity") === "commodity"
+      && String(batch?.physical_state || "SOURCE") === "SOURCE"
+      && ["harvest", "transfer"].includes(String(batch?.origin_type || ""))
+      && ["kg", "кг", "g", "г", "gr"].includes(String(batch?.uom || "").trim().toLowerCase())
+      && projections.every((value) => Number.isFinite(value) && Math.abs(value - exactBalance) <= 0.001);
+  };
 
   const byId = (rows: any[]) => new Map(rows.map((row) => [String(row.id), row]));
-  const batchesById = byId(batchesResult.data || []);
-  const cropsById = byId(cropsResult.data || []);
-  const varietiesById = byId(varietiesResult.data || []);
-  const reproductionsById = byId(reproductionsResult.data || []);
+  const batchesById = byId(batches);
+  const cropsById = byId([...(cropsResult.data || []), ...(structureCropsResult.data || [])]);
+  const varietiesById = byId([...(varietiesResult.data || []), ...(structureVarietiesResult.data || [])]);
+  const reproductionsById = byId([...(reproductionsResult.data || []), ...(structureReproductionsResult.data || [])]);
   const warehousesById = byId(warehousesResult.data || []);
   const categoriesById = byId(categoriesResult.data || []);
   const fieldsById = byId(fieldsResult.error ? [] : fieldsResult.data || []);
   const sourceTicketsById = byId(sourceTickets);
+  const cropStructuresById = byId(cropStructures);
 
   return lots.flatMap((lot) => {
     const memberLinks = links.filter((link) => String(link.harvest_lot_id) === String(lot.id));
@@ -254,6 +412,63 @@ async function loadAggregateHarvestLotSummaries(
       .map(([warehouseId, stock]) => {
         const warehouse = warehousesById.get(warehouseId);
         const productIds = ids(memberBatches.map((batch) => batch.product_id));
+        const cropStructureSources = memberLinks
+          .map((link) => {
+            const batch = batchesById.get(String(link.inventory_batch_id));
+            if (!batch || String(batch.warehouse_id || "") !== warehouseId) return null;
+            const cropStructureId = String(link.crop_structure_id || batch.crop_structure_id || "");
+            const structure = cropStructuresById.get(cropStructureId);
+            if (!cropStructureId || !structure) return null;
+            const sourceTicketId = String(batch.source_ticket_id || link.source_ticket_id || "");
+            if (!batchIsSharedImpuritySelectable(batch, sourceTicketId)) return null;
+            const potentialPairBatches = memberLinks
+              .filter((candidateLink) => {
+                const candidateBatch = batchesById.get(String(candidateLink.inventory_batch_id));
+                if (!candidateBatch || String(candidateBatch.warehouse_id || "") !== warehouseId) return false;
+                const candidateStructureId = String(candidateLink.crop_structure_id || candidateBatch.crop_structure_id || "");
+                if (candidateStructureId !== cropStructureId) return false;
+                const candidateBatchId = String(candidateBatch.id || "");
+                const candidateSourceTicketId = String(candidateBatch.source_ticket_id || candidateLink.source_ticket_id || "");
+                return (exactBalanceByBatchId.get(candidateBatchId) || 0) > 0.0001
+                  || Number(candidateBatch.current_weight_kg || 0) > 0.0001
+                  || batchHasAmbiguousLegacyLedger(candidateBatchId, candidateSourceTicketId);
+              })
+              .map((candidateLink) => ({
+                batch: batchesById.get(String(candidateLink.inventory_batch_id)),
+                sourceTicketId: String(
+                  batchesById.get(String(candidateLink.inventory_batch_id))?.source_ticket_id
+                    || candidateLink.source_ticket_id
+                    || ""
+                ),
+              }));
+            if (
+              !potentialPairBatches.length
+              || potentialPairBatches.some((candidate) => (
+                !batchIsSharedImpuritySelectable(candidate.batch, candidate.sourceTicketId)
+              ))
+            ) return null;
+            const sourceCrop = cropsById.get(String(structure.crop_id || lot.crop_id || ""));
+            const sourceVariety = varietiesById.get(String(structure.variety_id || lot.variety_id || ""));
+            const sourceReproduction = reproductionsById.get(String(structure.reproduction_id || lot.reproduction_id || ""));
+            const fieldId = String(structure.field_id || batch.source_field_id || "") || null;
+            return {
+              harvestLotId: String(lot.id),
+              cropStructureId,
+              fieldId,
+              fieldName: fieldId ? localizedName(fieldsById.get(fieldId), "ru", ["name"]) || null : null,
+              cropId: structure.crop_id ? String(structure.crop_id) : lot.crop_id ? String(lot.crop_id) : null,
+              cropName: localizedName(sourceCrop, "ru") || cropName,
+              varietyId: structure.variety_id ? String(structure.variety_id) : null,
+              varietyName: brandName(sourceVariety) || "",
+              reproductionId: structure.reproduction_id ? String(structure.reproduction_id) : null,
+              reproductionName: localizedName(sourceReproduction, "ru", ["name", "code"]) || "",
+              areaHa: Number(structure.area || 0) || null,
+            };
+          })
+          .filter(Boolean)
+          .filter((source: any, index: number, list: any[]) =>
+            list.findIndex((candidate) => candidate.cropStructureId === source.cropStructureId) === index
+          );
         return {
           id: String(lot.id),
           batchCode: String(lot.lot_code || "Партия"),
@@ -293,6 +508,7 @@ async function loadAggregateHarvestLotSummaries(
           reviewState: lot.review_state,
           reviewReasons: Array.isArray(lot.review_reasons) ? lot.review_reasons : [],
           fieldSummaries: [],
+          cropStructureSources,
           tripBatches: [],
           outgoingDocuments: [],
         };
@@ -537,14 +753,14 @@ async function loadAggregateHarvestLots(
   const ledgerProcessingIds = ids(documentLedgerEntries
     .filter((entry: any) => String(entry.reason_type || "").toLowerCase().includes("processing_input"))
     .map((entry: any) => entry.processing_id || entry.reason_ref_id));
-  const [movementTicketsResult, transformationsResult] = await Promise.all([
+  const [movementTickets, transformationsResult] = await Promise.all([
     movementTicketIds.length
-      ? supabase
+      ? loadInChunks<any>(movementTicketIds, (chunk) => supabase
           .from("tickets")
           .select("id,ticket_no,ticket_type,op_type,status,created_at,finalized_at,created_by,created_by_person_id,finalized_by_person_id,vehicle_id,driver_id,warehouse_from_id,warehouse_to_id,gross_weight_kg,tare_weight_kg,net_weight_kg,notes,audit_json,disposal_category,is_voided,void_reason,correction_of_ticket_id,replacement_ticket_id")
           .eq("company_id", companyId)
-          .in("id", movementTicketIds)
-      : Promise.resolve({ data: [], error: null }),
+          .in("id", chunk))
+      : Promise.resolve([]),
     lotIds.length
       ? supabase
           .from("batch_transformations")
@@ -553,10 +769,10 @@ async function loadAggregateHarvestLots(
           .in("harvest_lot_id", lotIds)
       : Promise.resolve({ data: [], error: null }),
   ]);
-  if (movementTicketsResult.error || transformationsResult.error) {
-    throw movementTicketsResult.error || transformationsResult.error;
+  if (transformationsResult.error) {
+    throw transformationsResult.error;
   }
-  const movementTicketRows = (movementTicketsResult.data || []) as any[];
+  const movementTicketRows = movementTickets as any[];
   const transformationRows = (transformationsResult.data || []) as any[];
   const processingIds = ids([
     ...ledgerProcessingIds,

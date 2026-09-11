@@ -23,7 +23,7 @@ import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import { adminTicketAction, changeActiveHarvestRouteContext, closeShift, createActiveHarvestRoute, createTicket, downloadTicketPdf, finalizeTicket, getTicketDetails, getWeighbridgeBootstrap, getWeighbridgeOperatorState, getWeighbridgeResources, getWeighbridgeTransportPickerData, handoverWeighbridgeOperator, listActiveHarvestRoutes, listHarvestBatchSummaries, listWeighbridgeWorkspaceTickets, lockWeighbridgeOperator, patchTicket, startTicketCorrection, unlockWeighbridgeOperator, updateActiveHarvestRoute, voidTicket, type ActiveHarvestRouteList } from "@/lib/services/weighbridge";
-import type { ActiveHarvestRoute, HarvestBatchSummary, TicketDirection, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket } from "@/lib/types/weighbridge";
+import type { ActiveHarvestRoute, HarvestBatchSummary, ImpuritySourceScopeInput, TicketDirection, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket } from "@/lib/types/weighbridge";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import {
   isHarvestDestinationPlace,
@@ -65,6 +65,7 @@ import {
 } from "@/lib/weighbridge/transport-pairing";
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { buildHarvestLotOptionLabel } from "@/lib/weighbridge/harvest-lot-option-label";
+import { ImpuritySourcePicker, type ImpuritySourcePickerOption } from "@/components/weighbridge/impurity-source-picker";
 import {
   UNIVERSAL_WORKSPACE_MAX_TABS,
   UNIVERSAL_WORKSPACE_SCHEMA_VERSION,
@@ -228,6 +229,17 @@ type FieldIssueMode = "weighbridge" | "direct";
 type FieldMaterialCategory = "seed_planting_material" | "fertilizer" | "organic" | "other";
 type DisposalCategory = "utilization" | "spoilage" | "shortage" | "waste" | "other_removal";
 type ImpurityType = "soil_and_trash" | "nonconforming_crop" | "plant_residues" | "other";
+type ImpuritySourceFormSelection = {
+  batchId: string;
+  harvestLotId: string | null;
+  cropStructureId: string | null;
+};
+type ImpuritySourceOption = ImpuritySourcePickerOption & ImpuritySourceFormSelection & {
+  warehouseId: string;
+  productId: string;
+  cropId: string | null;
+  cleanMassKg: number;
+};
 type ProcessingOutputContext = {
   transformationId: string;
   warehouseId: string;
@@ -338,6 +350,7 @@ type FormState = {
   productId: string;
   stockIdentityKey: string;
   sourceBatchId: string;
+  impuritySourceSelections: ImpuritySourceFormSelection[];
   impurityType: ImpurityType;
   processingOutputRole: ProcessingOutputRole | "";
   processingTransformationId: string;
@@ -389,6 +402,7 @@ const INITIAL_FORM: FormState = {
   productId: "",
   stockIdentityKey: "",
   sourceBatchId: "",
+  impuritySourceSelections: [],
   impurityType: "soil_and_trash",
   processingOutputRole: "",
   processingTransformationId: "",
@@ -618,6 +632,20 @@ const impurityTypeLabels: Record<ImpurityType, string> = {
   nonconforming_crop: "Некондиционный урожай",
   plant_residues: "Растительные остатки",
   other: "Прочее",
+};
+
+const sourceCountLabel = (count: number) => {
+  const normalized = Math.abs(Math.trunc(count));
+  const mod100 = normalized % 100;
+  const mod10 = normalized % 10;
+  const noun = mod100 >= 11 && mod100 <= 14
+    ? "источников"
+    : mod10 === 1
+      ? "источник"
+      : mod10 >= 2 && mod10 <= 4
+        ? "источника"
+        : "источников";
+  return `${normalized} ${noun}`;
 };
 
 type ProcessingOutputRole = "GRAIN" | "SCREENINGS" | "FEED" | "WASTE" | "TRIER_WASTE" | "OTHER";
@@ -1712,7 +1740,12 @@ export default function WeighbridgeOperationsPage() {
     setHarvestBatchOptionsError("");
     setHarvestBatchDetailLoading(false);
     setHarvestBatchDetailError("");
-    setForm((previous) => ({ ...previous, warehouseFromId, sourceBatchId: "" }));
+    setForm((previous) => ({
+      ...previous,
+      warehouseFromId,
+      sourceBatchId: "",
+      impuritySourceSelections: [],
+    }));
   };
 
   const refreshBootstrap = async (includeSummary = false, signal?: AbortSignal) => {
@@ -3682,6 +3715,116 @@ export default function WeighbridgeOperationsPage() {
     () => harvestBatches.filter((batch) => !form.warehouseFromId || batch.warehouseId === form.warehouseFromId),
     [harvestBatches, form.warehouseFromId]
   );
+  const persistedImpuritySourceSelections = useMemo<ImpuritySourceFormSelection[]>(() => {
+    if (!Array.isArray(form.impuritySourceSelections)) return [];
+    return form.impuritySourceSelections
+      .map((source) => ({
+        batchId: String(source?.batchId || "").trim(),
+        harvestLotId: String(source?.harvestLotId || "").trim() || null,
+        cropStructureId: String(source?.cropStructureId || "").trim() || null,
+      }))
+      .filter((source) => Boolean(source.batchId));
+  }, [form.impuritySourceSelections]);
+  const impuritySourceOptions = useMemo<ImpuritySourceOption[]>(() => {
+    const options: ImpuritySourceOption[] = [];
+    const seen = new Set<string>();
+
+    const pushOption = (option: ImpuritySourceOption) => {
+      if (seen.has(option.key)) return;
+      seen.add(option.key);
+      options.push(option);
+    };
+
+    availableHarvestBatches.forEach((batch) => {
+      const sources = Array.isArray(batch.cropStructureSources) ? batch.cropStructureSources : [];
+      pushOption({
+        key: `legacy:${batch.id}`,
+        label: `Вся партия · ${buildHarvestLotOptionLabel(batch)}`,
+        description: `Одиночный режим · доступно в партии: ${formatWeightKg(batch.cleanMassKg)}`,
+        groupLabel: "Партия целиком",
+        supportsSharedSelection: false,
+        batchId: batch.id,
+        harvestLotId: batch.aggregateLotId || null,
+        cropStructureId: null,
+        warehouseId: batch.warehouseId,
+        productId: batch.productId,
+        cropId: batch.cropId || null,
+        cleanMassKg: Number(batch.cleanMassKg || 0),
+      });
+
+      sources.forEach((source) => {
+        const harvestLotId = String(source.harvestLotId || batch.aggregateLotId || "").trim();
+        const cropStructureId = String(source.cropStructureId || "").trim();
+        if (!harvestLotId || !cropStructureId) return;
+        const fieldName = String(source.fieldName || batch.fieldName || "Поле не указано").trim();
+        const cropName = String(source.cropName || batch.cropName || batch.productName || "").trim();
+        const varietyName = String(source.varietyName || batch.varietyName || "").trim();
+        const reproductionName = String(source.reproductionName || batch.reproductionName || "").trim();
+        const areaHa = Number(source.areaHa);
+        const identityParts = [
+          fieldName,
+          cropName,
+          varietyName && varietyName !== cropName ? varietyName : "",
+          reproductionName,
+          Number.isFinite(areaHa) && areaHa > 0 ? `${areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га` : "",
+        ].filter(Boolean);
+        pushOption({
+          key: `${harvestLotId}:${cropStructureId}`,
+          label: identityParts.join(" · "),
+          description: "Источник общей примеси · остаток показан по партии, не по участку",
+          groupLabel: fieldName,
+          supportsSharedSelection: true,
+          batchId: batch.id,
+          harvestLotId,
+          cropStructureId,
+          warehouseId: batch.warehouseId,
+          productId: batch.productId,
+          cropId: source.cropId || batch.cropId || null,
+          cleanMassKg: Number(batch.cleanMassKg || 0),
+        });
+      });
+    });
+
+    return options;
+  }, [availableHarvestBatches]);
+  const impuritySourceSelectionKeys = useMemo(
+    () => persistedImpuritySourceSelections.length > 0
+      ? persistedImpuritySourceSelections.map((source) => source.harvestLotId && source.cropStructureId
+          ? `${source.harvestLotId}:${source.cropStructureId}`
+          : `legacy:${source.batchId}`
+        )
+      : form.sourceBatchId ? [`legacy:${form.sourceBatchId}`] : [],
+    [form.sourceBatchId, persistedImpuritySourceSelections]
+  );
+  const impuritySourceOptionByKey = useMemo(
+    () => new Map(impuritySourceOptions.map((option) => [option.key, option])),
+    [impuritySourceOptions]
+  );
+  const selectedImpuritySourceOptions = useMemo(
+    () => impuritySourceSelectionKeys
+      .map((key) => impuritySourceOptionByKey.get(key))
+      .filter((option): option is ImpuritySourceOption => Boolean(option)),
+    [impuritySourceOptionByKey, impuritySourceSelectionKeys]
+  );
+  const hasSharedImpuritySources = impuritySourceSelectionKeys.length > 1;
+  const hasIncompleteSharedImpuritySelection = selectedImpuritySourceOptions.length === 1
+    && selectedImpuritySourceOptions[0].supportsSharedSelection;
+  const hasDuplicateImpurityCropStructureSources = selectedImpuritySourceOptions.length > 1
+    && new Set(selectedImpuritySourceOptions.map((source) => source.cropStructureId)).size !== selectedImpuritySourceOptions.length;
+  const changeImpuritySources = (keys: string[]) => {
+    const nextSources = keys
+      .map((key) => impuritySourceOptionByKey.get(key))
+      .filter((option): option is ImpuritySourceOption => Boolean(option));
+    setForm((previous) => ({
+      ...previous,
+      sourceBatchId: nextSources[0]?.batchId || "",
+      impuritySourceSelections: nextSources.map((source) => ({
+        batchId: source.batchId,
+        harvestLotId: source.harvestLotId,
+        cropStructureId: source.cropStructureId,
+      })),
+    }));
+  };
   const selectedHarvestBatch = useMemo(
     () => harvestBatches.find((batch) =>
       batch.id === form.sourceBatchId
@@ -3694,6 +3837,7 @@ export default function WeighbridgeOperationsPage() {
     if (
       form.operationType !== "impurity_removal"
       || !profile?.company_id
+      || hasSharedImpuritySources
       || !selectedHarvestBatch?.aggregateLotId
 	      || selectedHarvestBatch.detailLevel === "full"
 	    ) {
@@ -3724,7 +3868,12 @@ export default function WeighbridgeOperationsPage() {
       );
       if (!detail) throw new Error("Полная карточка партии не найдена");
       setHarvestBatches((current) => current.map((row) =>
-        row.id === detail.id && row.warehouseId === detail.warehouseId ? detail : row
+        row.id === detail.id && row.warehouseId === detail.warehouseId
+          ? {
+              ...detail,
+              cropStructureSources: detail.cropStructureSources || row.cropStructureSources,
+            }
+          : row
       ));
 	    }).catch((error: any) => {
 	      if ((controller.signal.aborted || error?.name === "AbortError") && !requestTimedOut) return;
@@ -3748,6 +3897,7 @@ export default function WeighbridgeOperationsPage() {
 	    };
   }, [
     form.operationType,
+    hasSharedImpuritySources,
     profile?.company_id,
     selectedHarvestBatch?.id,
     selectedHarvestBatch?.warehouseId,
@@ -4090,12 +4240,38 @@ export default function WeighbridgeOperationsPage() {
 	      ? "Повторите обновление партий: сохранённый список устарел"
 	      : "Дождитесь актуальных остатков партий";
 	  }
-      if (!form.sourceBatchId || !selectedHarvestBatch) return "Выберите партию урожая";
-      if (selectedHarvestBatch.warehouseId !== form.warehouseFromId) return "Партия не принадлежит выбранному складу";
-      if (selectedHarvestBatch.detailLevel !== "full") {
-        return harvestBatchDetailLoading ? "Данные партии ещё загружаются" : "Не удалось загрузить полные данные партии";
+      if (impuritySourceSelectionKeys.length === 0) return "Выберите участок или партию урожая";
+      if (selectedImpuritySourceOptions.length !== impuritySourceSelectionKeys.length) {
+        return "Список источников изменился. Откройте выбор участков и подтвердите его заново";
       }
-      if (selectedHarvestBatch.cleanMassKg <= 0) return "В партии не осталось чистой массы";
+      if (selectedImpuritySourceOptions.some((source) => source.warehouseId !== form.warehouseFromId)) {
+        return "Один из источников не принадлежит выбранному складу";
+      }
+      if (hasIncompleteSharedImpuritySelection) {
+        return "Для одного источника выберите партию целиком или добавьте второй участок";
+      }
+      if (hasSharedImpuritySources) {
+        if (selectedImpuritySourceOptions.some((source) => !source.harvestLotId || !source.cropStructureId)) {
+          return "Совместный выбор доступен только для партий, связанных со структурой посевов";
+        }
+        if (hasDuplicateImpurityCropStructureSources) {
+          return "Один и тот же участок выбран несколько раз";
+        }
+        const firstSource = selectedImpuritySourceOptions[0];
+        if (selectedImpuritySourceOptions.some((source) => source.productId !== firstSource.productId || source.cropId !== firstSource.cropId)) {
+          return "Для одного талона выберите участки одной культуры и номенклатуры";
+        }
+        if (selectedImpuritySourceOptions.some((source) => source.cleanMassKg <= 0)) {
+          return "В одном из выбранных источников не осталось чистой массы";
+        }
+      } else {
+        if (!form.sourceBatchId || !selectedHarvestBatch) return "Выберите партию урожая";
+        if (selectedHarvestBatch.warehouseId !== form.warehouseFromId) return "Партия не принадлежит выбранному складу";
+        if (selectedHarvestBatch.detailLevel !== "full") {
+          return harvestBatchDetailLoading ? "Данные партии ещё загружаются" : "Не удалось загрузить полные данные партии";
+        }
+        if (selectedHarvestBatch.cleanMassKg <= 0) return "В партии не осталось чистой массы";
+      }
       if (!form.impurityType) return "Выберите вид примесей";
       if (form.impurityType === "other" && !form.notes.trim()) return "Для вида «Прочее» добавьте комментарий";
       if (!form.driverId) return "Выберите водителя";
@@ -4167,7 +4343,13 @@ export default function WeighbridgeOperationsPage() {
         actionLabel: "Добавить",
       }))
     ) return;
-    if (!(await siteConfirm({ title: "Создать талон", description: "Проверьте данные и подтвердите создание талона.", actionLabel: "Создать" }))) return;
+    if (!(await siteConfirm({
+      title: "Создать талон",
+      description: hasSharedImpuritySources
+        ? `Будет создан один физический талон для ${sourceCountLabel(impuritySourceSelectionKeys.length)}. Общий вес по участкам не распределяется.`
+        : "Проверьте данные и подтвердите создание талона.",
+      actionLabel: "Создать",
+    }))) return;
     if (!profile?.company_id || !profile?.id) return;
 
     const meta = opMeta(form.operationType);
@@ -4175,6 +4357,16 @@ export default function WeighbridgeOperationsPage() {
     const isShipment = form.operationType === "shipment_outbound";
     const isDisposal = form.operationType === "disposal_writeoff";
     const isImpurityRemoval = form.operationType === "impurity_removal";
+    const usesSharedImpurityScope = isImpurityRemoval && selectedImpuritySourceOptions.length > 1;
+    const impuritySourceScope: ImpuritySourceScopeInput | undefined = usesSharedImpurityScope
+      ? {
+          allocation_mode: "unresolved_total",
+          sources: selectedImpuritySourceOptions.map((source) => ({
+            harvest_lot_id: source.harvestLotId!,
+            crop_structure_id: source.cropStructureId!,
+          })),
+        }
+      : undefined;
     const isTransfer = form.operationType === "transfer_between_warehouses";
     const isProcessingOutput = isTransfer && Boolean(processingOutputContext);
     const productId =
@@ -4183,7 +4375,7 @@ export default function WeighbridgeOperationsPage() {
         : isProcessingOutput
           ? processingOutputContext?.productId
         : isImpurityRemoval
-          ? selectedHarvestBatch?.productId
+          ? selectedImpuritySourceOptions[0]?.productId || selectedHarvestBatch?.productId
         : isTransfer || isFieldIssue || isShipment || isDisposal
           ? selectedTransferStock?.product_id
         : form.productId;
@@ -4228,11 +4420,11 @@ export default function WeighbridgeOperationsPage() {
     const ticketMeta = meta;
     const ticket: TicketInput = {
       company_id: profile.company_id,
-      batch_id: isImpurityRemoval && !selectedHarvestBatch?.aggregateLot ? form.sourceBatchId : null,
+      batch_id: isImpurityRemoval && !usesSharedImpurityScope && !selectedHarvestBatch?.aggregateLot ? form.sourceBatchId : null,
       harvest_lot_id: isProcessingOutput
         ? processingOutputContext?.harvestLotId || null
         : isImpurityRemoval
-        ? selectedHarvestBatch?.aggregateLotId || null
+        ? usesSharedImpurityScope ? null : selectedHarvestBatch?.aggregateLotId || null
         : selectedTransferStock?.harvest_lot_id || null,
       linked_processing_id: isProcessingOutput ? processingOutputContext?.transformationId || null : null,
       processing_output_role: isProcessingOutput ? form.processingOutputRole || null : null,
@@ -4308,7 +4500,7 @@ export default function WeighbridgeOperationsPage() {
       crop_id: isProcessingOutput
         ? processingOutputContext?.cropId || null
         : isImpurityRemoval
-        ? selectedHarvestBatch?.cropId || null
+        ? selectedImpuritySourceOptions[0]?.cropId || selectedHarvestBatch?.cropId || null
         : form.operationType === "harvest_incoming" || (isFieldIssue && selectedTransferStock && isSeedIssueOperation(inferFieldMaterialCategory(selectedTransferStock)))
           ? form.cropId
           : selectedTransferStock?.crop_id || null,
@@ -4333,7 +4525,7 @@ export default function WeighbridgeOperationsPage() {
       lot_id: isProcessingOutput
         ? processingOutputContext?.harvestLotId || null
         : isImpurityRemoval
-        ? selectedHarvestBatch?.aggregateLotId || selectedHarvestBatch?.batchCode || null
+        ? usesSharedImpurityScope ? null : selectedHarvestBatch?.aggregateLotId || selectedHarvestBatch?.batchCode || null
         : form.operationType === "supplier_receipt"
           ? form.supplierLot.trim() || null
           : (form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal)
@@ -4343,7 +4535,7 @@ export default function WeighbridgeOperationsPage() {
       batch_id: isProcessingOutput
         ? null
         : isImpurityRemoval
-        ? selectedHarvestBatch?.aggregateLot ? null : selectedHarvestBatch?.id || null
+        ? usesSharedImpurityScope ? null : selectedHarvestBatch?.aggregateLot ? null : selectedHarvestBatch?.id || null
         : (form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal) && isUuidLike(selectedTransferStock?.batch_id)
           ? selectedTransferStock?.batch_id || null
           : null,
@@ -4352,9 +4544,9 @@ export default function WeighbridgeOperationsPage() {
         : isImpurityRemoval
         ? "commodity"
         : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.batch_class || null : null,
-      variety_id: isProcessingOutput ? processingOutputContext?.varietyId || null : isImpurityRemoval ? selectedHarvestBatch?.varietyId || null : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.variety_id || null : form.operationType === "harvest_incoming" ? form.varietyId || null : null,
-      reproduction_id: isProcessingOutput ? processingOutputContext?.reproductionId || null : isImpurityRemoval ? selectedHarvestBatch?.reproductionId || null : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.reproduction_id || null : form.operationType === "harvest_incoming" ? form.reproductionId || null : null,
-      operation_line_id: isImpurityRemoval ? selectedHarvestBatch?.operationLineId || null : isFieldIssue ? form.linkedOperationLineId || null : null,
+      variety_id: isProcessingOutput ? processingOutputContext?.varietyId || null : isImpurityRemoval ? usesSharedImpurityScope ? null : selectedHarvestBatch?.varietyId || null : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.variety_id || null : form.operationType === "harvest_incoming" ? form.varietyId || null : null,
+      reproduction_id: isProcessingOutput ? processingOutputContext?.reproductionId || null : isImpurityRemoval ? usesSharedImpurityScope ? null : selectedHarvestBatch?.reproductionId || null : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.reproduction_id || null : form.operationType === "harvest_incoming" ? form.reproductionId || null : null,
+      operation_line_id: isImpurityRemoval ? usesSharedImpurityScope ? null : selectedHarvestBatch?.operationLineId || null : isFieldIssue ? form.linkedOperationLineId || null : null,
       composition_hash: processingOutputContext?.compositionHash || selectedTransferStock?.composition_hash || null,
       composition_snapshot: processingOutputContext?.compositionSnapshot || selectedTransferStock?.composition_snapshot || [],
       is_mixed_harvest: processingOutputContext?.isMixedHarvest || Boolean(selectedTransferStock?.is_mixed_harvest),
@@ -4478,7 +4670,8 @@ export default function WeighbridgeOperationsPage() {
               tare_weight_kg: Number(form.paperTareKg),
               moisture_percent: form.harvestMoisture.trim() ? Number(form.harvestMoisture.replace(",", ".")) : null,
             }
-          : undefined
+          : undefined,
+        impuritySourceScope
       );
       createTicketIdempotencyRef.current = null;
       if (idempotencyPersistKey) localStorage.removeItem(idempotencyPersistKey);
@@ -4564,6 +4757,7 @@ export default function WeighbridgeOperationsPage() {
           productId: prev.productId,
           stockIdentityKey: prev.stockIdentityKey,
           sourceBatchId: prev.operationType === "impurity_removal" ? prev.sourceBatchId : "",
+          impuritySourceSelections: prev.operationType === "impurity_removal" ? prev.impuritySourceSelections : [],
           impurityType: prev.impurityType,
           processingOutputRole: prev.processingOutputRole,
           processingTransformationId: prev.processingTransformationId,
@@ -5185,6 +5379,12 @@ export default function WeighbridgeOperationsPage() {
     const shown = names.slice(0, limit).join(", ");
     return names.length > limit ? `${shown} + ещё ${names.length - limit}` : shown;
   };
+  const sharedImpuritySourceCount = (ticket: WeighbridgeTicket | null | undefined) => {
+    const scope = ticket?.impurity_source_scope;
+    if (!scope || scope.allocation_mode !== "unresolved_total") return 0;
+    const rawCount = Number(scope.source_count ?? scope.sources?.length ?? 0);
+    return Number.isFinite(rawCount) && rawCount > 0 ? Math.trunc(rawCount) : 0;
+  };
   const ticketQuantitySummary = (ticket: any, limit = 3) => {
     // The header net is the canonical physical weight of one weighbridge
     // ticket. Lines may be split by FIFO across internal inventory batches.
@@ -5211,6 +5411,10 @@ export default function WeighbridgeOperationsPage() {
     if (ticket.op_type === "shipment_outbound") return `${warehouseName(ticket.warehouse_from_id)} → ${buyerName(ticket)}`;
     if (ticket.op_type === "issue_to_field") return `${warehouseName(ticket.warehouse_from_id)} → ${fields.find((f) => f.id === ticket.field_id)?.name || "Поле"}`;
     if (ticket.op_type === "weighbridge_impurities") {
+      const sourceCount = sharedImpuritySourceCount(ticket);
+      if (sourceCount > 1) {
+        return `${warehouseName(ticket.warehouse_from_id)} → Общая примесь · ${sourceCountLabel(sourceCount)}`;
+      }
       const batch = harvestBatches.find((item) => item.id === ticket.batch_id);
       return `${warehouseName(ticket.warehouse_from_id)} → ${batch ? `${batch.cropName} / ${batch.varietyName}` : "вывоз примесей"}`;
     }
@@ -5498,7 +5702,7 @@ export default function WeighbridgeOperationsPage() {
                       ariaLabel="Склад-источник примесей"
                     />
                   ) : (
-                    <Select value={form.warehouseFromId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseFromId: v, sourceBatchId: "", stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "", processingTransformationId: "", processingOutputRole: "" }))}>
+                    <Select value={form.warehouseFromId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseFromId: v, sourceBatchId: "", impuritySourceSelections: [], stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "", processingTransformationId: "", processingOutputRole: "" }))}>
                       <SelectTrigger className="h-9"><SelectValue placeholder="Выберите место отправления" /></SelectTrigger>
                       <SelectContent>{warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent>
                     </Select>
@@ -5651,24 +5855,24 @@ export default function WeighbridgeOperationsPage() {
             ) : null}
 
 	            {isImpurityRemoval ? (
-	              <section data-weighbridge-section="impurity-batch" aria-label="Партия и тип примеси" className={formSectionClass}>
-	                <WorkflowSectionHeading title="2 · Партия и тип примеси" description="Выберите подтверждённую партию и вид отделяемой примеси" />
+	              <section data-weighbridge-section="impurity-batch" aria-label="Источники и тип примеси" className={formSectionClass}>
+	                <WorkflowSectionHeading title="2 · Источники и тип примеси" description="Выберите один или несколько участков и вид отделяемой примеси" />
 	                <div className="space-y-3">
 	                  <div className="min-h-[7.75rem] space-y-1.5">
-	                    <Label>Партия урожая *</Label>
-	                    <Select value={form.sourceBatchId} onValueChange={(v) => setForm((p) => ({ ...p, sourceBatchId: v }))} disabled={!form.warehouseFromId || harvestBatchOptionsStatus === "loading" || harvestBatchOptionsStatus === "error"}>
-	                      <SelectTrigger className="h-11"><SelectValue placeholder={!form.warehouseFromId ? "Сначала выберите склад" : harvestBatchOptionsStatus === "loading" ? "Загружаем партии..." : "Выберите партию урожая"} /></SelectTrigger>
-	                      <SelectContent>
-	                        {harvestBatchOptionsStatus === "loading" || harvestBatchOptionsStatus === "idle" ? <SelectItem value="__loading" disabled>Загружаем партии урожая...</SelectItem> : null}
-	                        {harvestBatchOptionsStatus === "error" ? <SelectItem value="__error" disabled>Не удалось загрузить партии урожая</SelectItem> : null}
-	                        {harvestBatchOptionsStatus === "ready" && availableHarvestBatches.length === 0 ? <SelectItem value="__empty" disabled>На складе нет партий с положительным остатком</SelectItem> : null}
-                        {availableHarvestBatches.map((batch) => (
-                          <SelectItem key={`${batch.id}:${batch.warehouseId}`} value={batch.id}>
-                            {buildHarvestLotOptionLabel(batch)}
-                          </SelectItem>
-	                        ))}
-	                      </SelectContent>
-	                    </Select>
+	                    <Label>Участки / партии урожая *</Label>
+                      <ImpuritySourcePicker
+                        options={impuritySourceOptions}
+                        value={impuritySourceSelectionKeys}
+                        onChange={changeImpuritySources}
+                        disabled={!form.warehouseFromId || submitting || harvestBatchOptionsStatus === "idle" || harvestBatchOptionsStatus === "loading" || harvestBatchOptionsStatus === "error"}
+                        placeholder={!form.warehouseFromId
+                          ? "Сначала выберите склад"
+                          : harvestBatchOptionsStatus === "loading" || harvestBatchOptionsStatus === "idle"
+                            ? "Загружаем источники..."
+                            : harvestBatchOptionsStatus === "error"
+                              ? "Не удалось загрузить источники"
+                              : "Выберите участки или партии урожая"}
+                      />
 	                    <div className="min-h-5 text-xs text-muted-foreground" aria-live="polite">
 	                      {form.warehouseFromId && harvestBatchOptionsStatus === "loading"
 	                        ? "Читаем актуальные остатки партий этого склада..."
@@ -5697,7 +5901,27 @@ export default function WeighbridgeOperationsPage() {
 	                      </div>
 	                    ) : null}
 	                  </div>
-                  {selectedHarvestBatch?.detailLevel === "full" ? (
+                  {hasIncompleteSharedImpuritySelection ? (
+                    <div className="border-l-4 border-amber-400 bg-amber-50 px-3 py-3 text-sm font-medium text-amber-950" role="alert">
+                      Для одного источника выберите партию целиком или добавьте второй участок
+                    </div>
+                  ) : hasDuplicateImpurityCropStructureSources ? (
+                    <div className="border-l-4 border-red-400 bg-red-50 px-3 py-3 text-sm font-medium text-red-900" role="alert">
+                      Один и тот же участок выбран несколько раз. Оставьте только один источник этого участка.
+                    </div>
+                  ) : hasSharedImpuritySources ? (
+                    <div className="border-l-4 border-amber-400 bg-amber-50 px-3 py-3 text-sm text-amber-950" role="status" aria-live="polite">
+                      <div className="font-semibold">
+                        Один физический талон связан с {sourceCountLabel(impuritySourceSelectionKeys.length)}.
+                      </div>
+                      <div className="mt-1">Вес по участкам не распределяется — фиксируется только общий вес примеси.</div>
+                      {selectedImpuritySourceOptions.length ? (
+                        <div className="mt-2 text-xs">
+                          {selectedImpuritySourceOptions.map((source) => source.label).join("; ")}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : selectedHarvestBatch?.detailLevel === "full" ? (
                     <div className={`${formDataStripClass} text-xs sm:grid-cols-3`}>
                       <div><span className="text-muted-foreground">Принято</span><div className="mt-1 font-semibold text-foreground">{selectedHarvestBatch.receivedKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div></div>
                       <div><span className="text-muted-foreground">Уже вывезено</span><div className="mt-1 font-semibold text-amber-800">{selectedHarvestBatch.removedKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div></div>
@@ -6191,6 +6415,9 @@ export default function WeighbridgeOperationsPage() {
                       <>
                         <div className="truncate text-xs font-semibold text-amber-800">{ticketRouteSummary(t)}</div>
                         <div className="truncate text-xs text-foreground">{productSummary(t)}</div>
+                        {sharedImpuritySourceCount(t) > 1 ? (
+                          <div className="text-[11px] font-medium text-amber-800">Вес по участкам не распределён</div>
+                        ) : null}
                       </>
                     )}
                   </div>
@@ -6316,6 +6543,9 @@ export default function WeighbridgeOperationsPage() {
                     <div className="min-w-0">
                       <div className="truncate text-base font-semibold leading-tight text-foreground">{productSummary(t)}</div>
                       <div className="mt-0.5 truncate text-sm text-foreground">{ticketRouteSummary(t)}</div>
+                      {sharedImpuritySourceCount(t) > 1 ? (
+                        <div className="mt-1 text-xs font-medium text-amber-800">Вес по участкам не распределён</div>
+                      ) : null}
                       <div className="mt-1 truncate text-xs text-muted-foreground">
                         {meta} • {t.ticket_no}{paperDocumentNo ? ` • Бумажный № ${paperDocumentNo}` : ""}
                       </div>
