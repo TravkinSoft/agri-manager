@@ -243,6 +243,7 @@ async function main() {
     blockedMutations: [],
     wrongSupabaseHosts: [],
     externalReadOrigins: [],
+    externalPageErrors: [],
     summary: null,
   };
   const save = () => fs.writeFileSync(path.join(output, "report.json"), JSON.stringify(report, null, 2));
@@ -285,6 +286,12 @@ async function main() {
             const request = route.request();
             const url = new URL(request.url());
             const method = request.method().toUpperCase();
+            if (url.origin === "https://vercel.live") {
+              // The preview feedback toolbar is external to TravkinFlow and
+              // keeps Playwright WebKit contexts alive after the app is done.
+              externalOrigins.add(url.origin);
+              return route.abort("blockedbyclient");
+            }
             if (url.hostname.endsWith(".supabase.co") && url.hostname !== `${QA_REF}.supabase.co`) {
               wrongSupabaseHosts.push(url.hostname);
               return route.abort("blockedbyclient");
@@ -345,14 +352,34 @@ async function main() {
           const consoleErrors = [];
           const requestFailures = [];
           const requestRouteTokens = new WeakMap();
+          const routeTokensByPath = new Map();
           let activeRouteToken = null;
           const httpErrors = [];
           const httpErrorCaptures = [];
-          page.on("pageerror", (error) => pageErrors.push({ message: cleanText(error.message), stack: cleanText(error.stack, 1600) }));
+          page.on("pageerror", (error) => {
+            const item = { message: cleanText(error.message), stack: cleanText(error.stack, 1600) };
+            // The protected-preview toolbar is injected by Vercel and is not
+            // application code. Playwright WebKit lacks navigator.storage,
+            // which can make that external feedback iframe reject a promise.
+            if (item.stack.includes("https://vercel.live/_next-live/feedback/")) {
+              report.externalPageErrors.push(item);
+              return;
+            }
+            pageErrors.push(item);
+          });
           page.on("console", (message) => {
             if (message.type() === "error") consoleErrors.push({ text: cleanText(message.text()), location: safeUrl(message.location().url || target.origin) });
           });
-          page.on("request", (request) => requestRouteTokens.set(request, activeRouteToken));
+          page.on("request", (request) => {
+            let routeToken = activeRouteToken;
+            try {
+              const framePath = new URL(request.frame().url()).pathname;
+              routeToken = routeTokensByPath.get(framePath) || routeToken;
+            } catch {
+              // Navigation requests can begin while the frame is still about:blank.
+            }
+            requestRouteTokens.set(request, routeToken);
+          });
           page.on("requestfailed", (request) => requestFailures.push({
             routeToken: requestRouteTokens.get(request) || null,
             method: request.method(),
@@ -374,6 +401,7 @@ async function main() {
             for (const routePath of routes) {
               const routeToken = `${engineName}:${viewport.width}x${viewport.height}:${routePath}:${Date.now()}`;
               activeRouteToken = routeToken;
+              routeTokensByPath.set(new URL(routePath, target).pathname, routeToken);
               const indexes = {
                 pageErrors: pageErrors.length,
                 consoleErrors: consoleErrors.length,
