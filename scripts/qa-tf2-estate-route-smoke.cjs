@@ -244,6 +244,7 @@ async function main() {
     wrongSupabaseHosts: [],
     externalReadOrigins: [],
     externalPageErrors: [],
+    externalConsoleErrors: [],
     summary: null,
   };
   const save = () => fs.writeFileSync(path.join(output, "report.json"), JSON.stringify(report, null, 2));
@@ -368,7 +369,13 @@ async function main() {
             pageErrors.push(item);
           });
           page.on("console", (message) => {
-            if (message.type() === "error") consoleErrors.push({ text: cleanText(message.text()), location: safeUrl(message.location().url || target.origin) });
+            if (message.type() !== "error") return;
+            const item = { text: cleanText(message.text()), location: safeUrl(message.location().url || target.origin) };
+            if (item.location.startsWith("https://vercel.live/")) {
+              report.externalConsoleErrors.push(item);
+              return;
+            }
+            consoleErrors.push(item);
           });
           page.on("request", (request) => {
             let routeToken = activeRouteToken;
