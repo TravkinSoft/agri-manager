@@ -159,10 +159,14 @@ async function loadAggregateHarvestLotSummaries(
   const varietyIds = ids(lots.map((row) => row.variety_id));
   const reproductionIds = ids(lots.map((row) => row.reproduction_id));
   const warehouseIds = ids(stockRows.map((row) => row.warehouse_id));
-  const [batchesResult, cropsResult, varietiesResult, reproductionsResult, warehousesResult, fieldsResult] = await Promise.all([
+  const [batches, cropsResult, varietiesResult, reproductionsResult, warehousesResult, fieldsResult] = await Promise.all([
     batchIds.length
-      ? supabase.from("inventory_batches").select("id,product_id,display_name,source_ticket_id,source_field_id").eq("company_id", companyId).in("id", batchIds)
-      : Promise.resolve({ data: [], error: null }),
+      ? loadInChunks<any>(batchIds, (chunk) => supabase
+          .from("inventory_batches")
+          .select("id,product_id,display_name,source_ticket_id,source_field_id")
+          .eq("company_id", companyId)
+          .in("id", chunk))
+      : Promise.resolve([]),
     cropIds.length
       ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug,category_id,category,crop_category,subcategory,crop_subcategory").in("id", cropIds)
       : Promise.resolve({ data: [], error: null }),
@@ -177,12 +181,12 @@ async function loadAggregateHarvestLotSummaries(
       : Promise.resolve({ data: [], error: null }),
     supabase.from("fields").select("id,name").eq("company_id", companyId),
   ]);
-  const firstError = [batchesResult, cropsResult, varietiesResult, reproductionsResult, warehousesResult]
+  const firstError = [cropsResult, varietiesResult, reproductionsResult, warehousesResult]
     .map((result: any) => result.error).find(Boolean);
   if (firstError) throw firstError;
   const sourceTicketIds = ids([
     ...links.map((row) => row.source_ticket_id),
-    ...(batchesResult.data || []).map((row: any) => row.source_ticket_id),
+    ...batches.map((row: any) => row.source_ticket_id),
   ]);
   const categoryIds = ids((cropsResult.data || []).map((crop: any) => crop.category_id));
   const [categoriesResult, sourceTickets] = await Promise.all([
@@ -200,7 +204,7 @@ async function loadAggregateHarvestLotSummaries(
   if (categoriesResult.error) throw categoriesResult.error;
 
   const byId = (rows: any[]) => new Map(rows.map((row) => [String(row.id), row]));
-  const batchesById = byId(batchesResult.data || []);
+  const batchesById = byId(batches);
   const cropsById = byId(cropsResult.data || []);
   const varietiesById = byId(varietiesResult.data || []);
   const reproductionsById = byId(reproductionsResult.data || []);
