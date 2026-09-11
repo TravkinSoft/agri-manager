@@ -60,17 +60,17 @@ check("crop-structure UUID fragments stay out of visible picker labels", () => {
   assert.doesNotMatch(page, /код \{selectedHarvestAllocation\.allocationCode\}/);
 });
 
-check("weighbridge vehicle bootstrap reads only active vehicle-fleet rows", () => {
+check("weighbridge vehicle bootstrap reads active fleet and machine rows", () => {
   assert.match(resourcesRoute, /from\("reference_vehicles"\)[\s\S]*?eq\("is_active", true\)[\s\S]*?eq\("archived", false\)/);
-  assert.doesNotMatch(resourcesRoute, /from\("reference_machines"\)/);
-  assert.doesNotMatch(ticketsRoute, /from\("reference_machines"\)/);
-  assert.match(resourcesRoute, /const vehicles = vehicleRows\.filter\(\(row\) => isCargoVehicle\(row\)\)/);
+  assert.match(resourcesRoute, /from\("reference_machines"\)[\s\S]*?eq\("is_active", true\)[\s\S]*?eq\("archived", false\)/);
+  assert.match(ticketsRoute, /from\("reference_machines"\)/);
+  assert.match(resourcesRoute, /const vehicles = \[\.\.\.vehicleRows\.filter\(\(row\) => !isTrailerTransport\(row\)\), \.\.\.machineRows\]/);
   assert.match(resourcesRoute, /const trailers = vehicleRows\.filter\(\(row\) => isTrailerTransport\(row\)\)/);
 });
 
-check("cached picker rows cannot restore agricultural-machine sources", () => {
-  assert.match(page, /cached\.vehicles[\s\S]*?vehicle\.source === "reference_vehicles"/);
-  assert.doesNotMatch(page, /row\.source === "reference_machines"/);
+check("cached picker restores only supported transport sources", () => {
+  assert.match(page, /cached\.vehicles[\s\S]*?vehicle\.source === "reference_vehicles" \|\| vehicle\.source === "reference_machines"/);
+  assert.match(page, /row\.source === "reference_machines" \? "reference_machines" as const : "reference_vehicles" as const/);
   assert.match(page, /!form\.vehicleId \|\| vehicles\.some\(\(vehicle\) => vehicle\.id === form\.vehicleId\)/);
   assert.match(page, /Выберите машину из действующего автопарка/);
 });

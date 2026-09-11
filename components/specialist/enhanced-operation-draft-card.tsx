@@ -113,7 +113,7 @@ export function EnhancedOperationDraftCard({
                 ? "bg-emerald-100 text-emerald-800 border-emerald-300"
                 : isCancelled
                   ? "bg-muted text-muted-foreground border-border"
-                  : "bg-white"
+                  : "bg-card"
             }
           >
             {isConfirmed
@@ -147,7 +147,7 @@ export function EnhancedOperationDraftCard({
           </div>
         )}
 
-        <div className="rounded-md bg-white p-3 space-y-2">
+        <div className="space-y-2 rounded-md bg-card p-3">
           <div className="text-xs uppercase tracking-wide text-muted-foreground">
             {t("Кратко", "Қысқаша", "Summary")}
           </div>
@@ -183,7 +183,7 @@ export function EnhancedOperationDraftCard({
 
         {(!isConfirmed && !isCancelled) || showDetails ? (
           <>
-            <div className="rounded-md bg-white p-3 space-y-2">
+            <div className="space-y-2 rounded-md bg-card p-3">
               <div className="text-xs uppercase tracking-wide text-muted-foreground">
                 {t("Препараты и смесь", "Препараттар мен қоспа", "Chemicals and mixture")}
               </div>
@@ -230,7 +230,7 @@ export function EnhancedOperationDraftCard({
               </div>
             </div>
 
-            <div className="rounded-md bg-white p-3 space-y-2">
+            <div className="space-y-2 rounded-md bg-card p-3">
               <div className="text-xs uppercase tracking-wide text-muted-foreground">
                 {t("Исполнение", "Орындау", "Execution")}
               </div>
@@ -249,7 +249,7 @@ export function EnhancedOperationDraftCard({
       </CardContent>
 
       {!isConfirmed && !isCancelled && (
-        <CardFooter className="flex gap-2 bg-white border-t">
+        <CardFooter className="flex gap-2 border-t bg-card">
           <Button variant="outline" size="sm" onClick={onCancel} className="flex-1">
             <X className="h-3.5 w-3.5 mr-1" />
             {t("Отмена", "Болдырмау", "Cancel")}

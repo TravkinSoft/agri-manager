@@ -174,27 +174,8 @@ export function Header() {
   };
 
   const getRoleBadgeColor = (role: string) => {
-    switch (role) {
-      case "global_admin":
-        return "bg-amber-200 text-amber-900 hover:bg-amber-200";
-      case "company_admin":
-        return "bg-sky-200 text-sky-900 hover:bg-sky-200";
-      case "agronomist":
-        return "bg-emerald-200 text-emerald-900 hover:bg-emerald-200";
-      case "director":
-        return "bg-cyan-200 text-cyan-900 hover:bg-cyan-200";
-      case "specialist":
-        return "bg-blue-200 text-blue-900 hover:bg-blue-200";
-      case "warehouse":
-      case "warehouse_operator":
-        return "bg-orange-200 text-orange-900 hover:bg-orange-200";
-      case "weighman":
-        return "bg-violet-200 text-violet-900 hover:bg-violet-200";
-      case "fuel_operator":
-        return "bg-slate-300 text-slate-900 hover:bg-slate-300";
-      default:
-        return "bg-slate-200 text-slate-900 hover:bg-slate-200";
-    }
+    void role;
+    return "border border-border bg-accent text-foreground hover:bg-accent";
   };
 
   const getRoleLabel = (role?: string | null) => {
@@ -296,20 +277,20 @@ export function Header() {
   };
 
   return (
-    <header className="tf-manor-topbar sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b px-3 shadow-[0_8px_26px_rgba(43,29,19,0.14)] md:h-16 md:px-6">
+    <header className="tf-manor-topbar tf-manor-header sticky top-0 z-30 flex h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 items-center justify-between border-b pb-0 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pt-[env(safe-area-inset-top)] shadow-manor-sm md:h-[calc(4rem+env(safe-area-inset-top))] md:pl-[max(1.5rem,env(safe-area-inset-left))] md:pr-[max(1.5rem,env(safe-area-inset-right))]">
       <Button
         variant="ghost"
         size="icon"
         onClick={toggleSidebar}
-        className="tf-manor-control hidden text-[#F8F0E2] hover:bg-[#F8F0E2]/10 hover:text-white md:inline-flex"
+        className="tf-manor-control tf-desktop-sidebar-toggle hidden text-[var(--estate-shell-text)] hover:bg-white/10 hover:text-white md:inline-flex"
         aria-label={t("mobile_more")}
       >
         <Menu className="h-5 w-5" />
       </Button>
 
-      <div className="flex min-w-0 flex-col gap-0.5 md:hidden">
+      <div className="tf-mobile-header-brand flex min-w-0 flex-col gap-0.5 md:hidden">
         <TravkinLogo size="mobile" />
-        <div className="max-w-[166px] truncate text-[10px] leading-none text-[#D8C8AC]">
+        <div className="max-w-[166px] truncate text-[10px] leading-none text-[var(--estate-shell-muted)]">
           {activeCompanyName || (isGlobal ? t("platform_mode") : getRoleLabel(profile?.role))}
         </div>
       </div>
@@ -317,11 +298,11 @@ export function Header() {
       <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-2 md:gap-4">
         {isGlobal ? (
           <div className="hidden min-w-[340px] items-center gap-2 md:flex">
-            <span className="text-xs font-medium text-[#D8C8AC]">
+            <span className="text-xs font-medium text-[var(--estate-shell-muted)]">
               {activeCompanyId ? t("company_context") : t("platform_mode")}
             </span>
             <Select value={selectedCompanyId} onValueChange={handleSwitchCompany} disabled={switchingCompany}>
-              <SelectTrigger className="tf-manor-control h-9 border-[#B98939]/45 bg-[#3A281B]/80 text-[#F8F0E2] focus:ring-[#D2A852]">
+              <SelectTrigger className="tf-manor-control h-9 border-[color:var(--estate-shell-line)] bg-[var(--manor-espresso-soft)] text-[var(--estate-shell-text)] focus:ring-[var(--manor-brass-soft)]">
                 <SelectValue placeholder={t("select_company")} />
               </SelectTrigger>
               <SelectContent>
@@ -338,14 +319,14 @@ export function Header() {
 
         {canUseUserSwitcher && activeUserCompanyId ? (
           <div className="hidden min-w-[280px] items-center gap-2 lg:flex">
-            <span className="text-xs font-medium text-[#D8C8AC]">Вы как</span>
+            <span className="text-xs font-medium text-[var(--estate-shell-muted)]">Вы как</span>
             <Select
               key={`${activeUserCompanyId}:${activeUserValue}`}
               value={activeUserValue}
               onValueChange={handleSwitchUser}
               disabled={switchingUser || loadingCompanyUsers}
             >
-              <SelectTrigger className="tf-manor-control h-9 border-[#B98939]/45 bg-[#3A281B]/80 text-[#F8F0E2] focus:ring-[#D2A852]">
+              <SelectTrigger className="tf-manor-control h-9 border-[color:var(--estate-shell-line)] bg-[var(--manor-espresso-soft)] text-[var(--estate-shell-text)] focus:ring-[var(--manor-brass-soft)]">
                 <SelectValue placeholder="Выберите пользователя" />
               </SelectTrigger>
               <SelectContent>
@@ -383,7 +364,7 @@ export function Header() {
             type="button"
             size="sm"
             variant="outline"
-            className="tf-manor-control h-9 max-w-[210px] shrink-0 border-[#D2A852]/55 bg-[#D2A852]/10 px-2 text-[#F8E7BC] hover:border-[#E1BC69] hover:bg-[#D2A852]/18 hover:text-white"
+            className="tf-manor-control h-9 max-w-[210px] shrink-0 border-[color:var(--estate-shell-line)] bg-white/5 px-2 text-[var(--estate-shell-text)] hover:bg-white/10 hover:text-white"
             onClick={() => void handleSwitchUser("__admin__")}
             disabled={switchingUser}
             aria-label={`${t("impersonation_as")} ${profile?.full_name || profile?.email || profile?.id}. ${t("return_to_global_admin")}`}
@@ -399,7 +380,7 @@ export function Header() {
         {profile ? (
           <Badge
             variant="outline"
-            className="hidden h-8 max-w-[150px] items-center truncate border-[#B98939]/35 bg-[#3A281B]/72 px-2.5 text-xs font-medium text-[#E8DCC9] hover:bg-[#3A281B]/90 sm:inline-flex"
+            className="hidden h-8 max-w-[150px] items-center truncate border-[color:var(--manor-line)]/35 bg-[var(--manor-espresso-soft)] px-2.5 text-xs font-medium text-[#E8DCC9] hover:bg-[var(--manor-espresso)] sm:inline-flex"
             title={user?.email || getRoleLabel(profile.role)}
           >
             {getRoleLabel(profile.role)}
@@ -418,7 +399,7 @@ export function Header() {
             <Button
               variant="ghost"
               size="icon"
-              className="tf-manor-control h-9 w-9 rounded-full p-0 text-[#F8F0E2] hover:bg-[#F8F0E2]/10 hover:text-white"
+              className="tf-manor-control h-9 w-9 rounded-full p-0 text-[var(--estate-shell-text)] hover:bg-white/10 hover:text-white"
               aria-label={t("profile_menu")}
               title={t("profile_menu")}
             >
@@ -431,7 +412,57 @@ export function Header() {
               />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56 border-[color:var(--manor-line)] bg-[var(--manor-paper-raised)] text-[color:var(--manor-walnut)] shadow-manor-md">
+          <DropdownMenuContent align="end" className="max-h-[min(78dvh,38rem)] w-64 overflow-y-auto border-[color:var(--manor-line)] bg-[var(--manor-paper-raised)] text-[color:var(--manor-walnut)] shadow-manor-md">
+            {isGlobal ? (
+              <>
+                <DropdownMenuLabel className="md:hidden">Компания</DropdownMenuLabel>
+                <DropdownMenuItem
+                  disabled={switchingCompany}
+                  onSelect={() => void handleSwitchCompany("__none__")}
+                  className="min-h-[48px] cursor-pointer justify-between md:hidden"
+                >
+                  <span>Глобальная платформа</span>
+                  {selectedCompanyId === "__none__" ? <Check aria-hidden className="h-4 w-4" /> : null}
+                </DropdownMenuItem>
+                {companies.map((company) => (
+                  <DropdownMenuItem
+                    key={`mobile-company-${company.id}`}
+                    disabled={switchingCompany}
+                    onSelect={() => void handleSwitchCompany(company.id)}
+                    className="min-h-[48px] cursor-pointer justify-between md:hidden"
+                  >
+                    <span className="truncate">{company.name}</span>
+                    {selectedCompanyId === company.id ? <Check aria-hidden className="h-4 w-4" /> : null}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator className="bg-[var(--manor-line)] md:hidden" />
+              </>
+            ) : null}
+            {canUseUserSwitcher && activeUserCompanyId ? (
+              <>
+                <DropdownMenuLabel className="lg:hidden">Работать как</DropdownMenuLabel>
+                <DropdownMenuItem
+                  disabled={switchingUser}
+                  onSelect={() => void handleSwitchUser("__admin__")}
+                  className="min-h-[48px] cursor-pointer justify-between lg:hidden"
+                >
+                  <span>Global Admin</span>
+                  {activeUserValue === "__admin__" ? <Check aria-hidden className="h-4 w-4" /> : null}
+                </DropdownMenuItem>
+                {companyUsers.map((companyUser) => (
+                  <DropdownMenuItem
+                    key={`mobile-user-${companyUser.id}`}
+                    disabled={switchingUser}
+                    onSelect={() => void handleSwitchUser(companyUser.id)}
+                    className="min-h-[48px] cursor-pointer justify-between lg:hidden"
+                  >
+                    <span className="truncate">{companyUser.name || companyUser.email || companyUser.id}</span>
+                    {activeUserValue === companyUser.id ? <Check aria-hidden className="h-4 w-4" /> : null}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator className="bg-[var(--manor-line)] lg:hidden" />
+              </>
+            ) : null}
             <DropdownMenuLabel className="md:hidden">Язык</DropdownMenuLabel>
             {profile?.role !== "fleet_manager" && MOBILE_LANGUAGES.map((item) => (
               <DropdownMenuItem

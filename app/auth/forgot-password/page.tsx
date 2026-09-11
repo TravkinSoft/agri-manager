@@ -34,7 +34,7 @@ export default function ForgotPasswordPage() {
 
   if (success) {
     return (
-      <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-6">
+      <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-background px-4 py-6">
         <Card className="w-full max-w-md shadow-xl">
           <CardHeader className="space-y-1">
             <div className="flex justify-center mb-4">
@@ -49,7 +49,7 @@ export default function ForgotPasswordPage() {
           <CardContent className="space-y-4">
             <Alert>
               <AlertDescription>
-                Click the link in the email to reset your password. If you don't see it, check your spam folder.
+                Click the link in the email to reset your password. If you don&apos;t see it, check your spam folder.
               </AlertDescription>
             </Alert>
           </CardContent>
@@ -67,12 +67,12 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-6">
+    <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-background px-4 py-6">
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">Reset Password</CardTitle>
           <CardDescription className="text-center">
-            Enter your email address and we'll send you a reset link
+            Enter your email address and we&apos;ll send you a reset link
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>

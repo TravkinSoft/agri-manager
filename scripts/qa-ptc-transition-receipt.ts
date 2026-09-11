@@ -122,6 +122,7 @@ function setup(options: Options = {}) {
     },
     "@/lib/auth/server-acl": {},
     "./model": load("lib/traffic/model.ts", {}),
+    "./analytics": { calculateTrafficAnalytics: () => ({}) },
   });
   const api = load("app/api/traffic/operator/route.ts", {
     "next/server": next, "@/lib/supabase/service": service,
@@ -218,7 +219,7 @@ async function main() {
   response = await h.api.POST(h.request({ ...input, target: "unloading" }));
   check(response.status, 200); check((await response.json()).vehicle.state, "unloading");
   h = setup({ role: "weighman", people: [] }); response = await h.api.GET(h.request());
-  check(response.status, 200); check((await response.json()).args, [companyId, "weighman", "Весовщик 1"]);
+  check(response.status, 200); check((await response.json()).args, [companyId, "weighman", "Весовщик 1", false, actorId]);
   for (const [rpcError, status] of [
     [{ code: "23505", message: "duplicate" }, 409],
     [{ message: "PTC_VERSION_CONFLICT" }, 409], [{ message: "PTC_KEY_CONFLICT" }, 409],
@@ -243,7 +244,7 @@ async function main() {
   }
   h = setup(); response = await h.api.GET(h.request());
   check(response.status, 200); check(h.snapshotCount(), 1);
-  check((await response.json()).args, [companyId, "harvester", "Local test person"]);
+  check((await response.json()).args, [companyId, "harvester", "Local test person", false, actorId]);
   console.log(`PTC transition receipt PASS: ${checks} checks (real route + operator helper with injected DB/auth; no network or hosted writes)`);
 }
 void main().catch(error => { console.error(error); process.exitCode = 1; });

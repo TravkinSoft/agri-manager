@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { Language, translations, TranslationKey } from '@/lib/i18n/translations';
 import { supabase } from '@/lib/supabase/client';
 
@@ -16,6 +16,7 @@ export function LanguageProvider({ children, forcedLanguage }: { children: React
   const [savedLanguage, setLanguageState] = useState<Language>('ru');
   const language = forcedLanguage ?? savedLanguage;
   const [initialized, setInitialized] = useState(false);
+  const persistedLanguageRef = useRef<Language | null>(null);
 
   const isLanguage = (value: unknown): value is Language =>
     value === 'ru' || value === 'en' || value === 'kz';
@@ -45,6 +46,7 @@ export function LanguageProvider({ children, forcedLanguage }: { children: React
           .maybeSingle();
         const preferred = profile?.preferred_language;
         if (isLanguage(preferred)) {
+          persistedLanguageRef.current = preferred;
           setLanguageState(preferred);
           localStorage.setItem('language', preferred);
           document.cookie = `language=${preferred}; path=/; max-age=31536000; samesite=lax`;
@@ -69,14 +71,16 @@ export function LanguageProvider({ children, forcedLanguage }: { children: React
 
   useEffect(() => {
     if (!initialized || forcedLanguage) return;
+    if (persistedLanguageRef.current === language) return;
     const sync = async () => {
       const { data: authData } = await supabase.auth.getUser();
       const userId = authData?.user?.id;
       if (!userId) return;
-      await supabase
+      const { error } = await supabase
         .from('profiles')
         .update({ preferred_language: language })
         .eq('id', userId);
+      if (!error) persistedLanguageRef.current = language;
     };
     sync();
   }, [language, initialized, forcedLanguage]);

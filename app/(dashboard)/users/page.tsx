@@ -68,20 +68,20 @@ const INVITE_ROLES = [
 ] as const;
 
 const ROLE_BADGE_CLASS: Record<string, string> = {
-  global_admin: "bg-purple-100 text-purple-800 border-purple-200",
-  company_admin: "bg-rose-100 text-rose-800 border-rose-200",
-  agronomist: "bg-green-100 text-green-800 border-green-200",
-  director: "bg-indigo-100 text-indigo-800 border-indigo-200",
-  legal_operator: "bg-amber-100 text-amber-800 border-amber-200",
-  specialist: "bg-blue-100 text-blue-800 border-blue-200",
-  warehouse: "bg-orange-100 text-orange-800 border-orange-200",
-  warehouse_operator: "bg-orange-100 text-orange-800 border-orange-200",
-  weighman: "bg-violet-100 text-violet-800 border-violet-200",
-  fuel_operator: "bg-cyan-100 text-cyan-800 border-cyan-200",
-  brigadier: "bg-emerald-100 text-emerald-800 border-emerald-200",
-  mechanic_operator: "bg-green-100 text-green-800 border-green-200",
-  vegetable_brigadier: "bg-amber-100 text-amber-800 border-amber-200",
-  fleet_manager: "bg-sky-100 text-sky-800 border-sky-200",
+  global_admin: "bg-accent text-foreground border-border",
+  company_admin: "bg-accent text-foreground border-border",
+  agronomist: "bg-accent text-foreground border-border",
+  director: "bg-accent text-foreground border-border",
+  legal_operator: "bg-accent text-foreground border-border",
+  specialist: "bg-accent text-foreground border-border",
+  warehouse: "bg-accent text-foreground border-border",
+  warehouse_operator: "bg-accent text-foreground border-border",
+  weighman: "bg-accent text-foreground border-border",
+  fuel_operator: "bg-accent text-foreground border-border",
+  brigadier: "bg-accent text-foreground border-border",
+  mechanic_operator: "bg-accent text-foreground border-border",
+  vegetable_brigadier: "bg-accent text-foreground border-border",
+  fleet_manager: "bg-accent text-foreground border-border",
 };
 
 function normalizeStatus(status: string | null | undefined) {

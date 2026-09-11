@@ -796,7 +796,7 @@ export function ChatInterface({
           >
             {visibleMessages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center p-8">
-                <Bot className="h-16 w-16 text-green-600 mb-4" />
+                <Bot className="mb-4 h-16 w-16 text-primary" />
                 <h3 className="text-xl font-semibold mb-2">{t("ai_specialist")}</h3>
                 <p className="text-muted-foreground mb-6">{t("chat_placeholder")}</p>
                 <div className="flex flex-wrap gap-2 justify-center max-w-2xl">
@@ -824,8 +824,8 @@ export function ChatInterface({
                   >
                     {message.role === "assistant" && (
                       <div className="flex-shrink-0">
-                        <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                          <Bot className="h-5 w-5 text-green-600" />
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent">
+                          <Bot className="h-5 w-5 text-primary" />
                         </div>
                       </div>
                     )}
@@ -835,7 +835,7 @@ export function ChatInterface({
                           {message.attachments.map((attachment) => (
                             <div
                               key={attachment.id}
-                              className="rounded-lg border bg-white p-2 text-sm"
+                              className="rounded-md border bg-card p-2 text-sm"
                             >
                               {attachment.kind === "image" && attachment.imageDataUrl ? (
                                 <img
@@ -858,7 +858,7 @@ export function ChatInterface({
                         <div
                           className={`rounded-lg px-4 py-2 ${
                             message.role === "user"
-                              ? "bg-green-600 text-white"
+                              ? "bg-primary text-primary-foreground"
                               : "bg-muted"
                           }`}
                         >
@@ -885,7 +885,7 @@ export function ChatInterface({
                     </div>
                     {message.role === "user" && (
                       <div className="flex-shrink-0">
-                        <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary">
                           <User className="h-5 w-5 text-foreground" />
                         </div>
                       </div>
@@ -895,8 +895,8 @@ export function ChatInterface({
                 {isLoading && (
                   <div className="flex gap-3 justify-start">
                     <div className="flex-shrink-0">
-                      <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                        <Bot className="h-5 w-5 text-green-600" />
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent">
+                        <Bot className="h-5 w-5 text-primary" />
                       </div>
                     </div>
                     <div className="rounded-lg px-4 py-2 bg-muted">
@@ -915,7 +915,7 @@ export function ChatInterface({
                 <div className="mb-1 text-xs text-muted-foreground">Вложения ({attachments.length})</div>
                 <div className="flex flex-wrap gap-2">
                   {attachments.map((attachment) => (
-                    <div key={attachment.id} className="relative rounded border bg-white p-2 pr-7 text-xs max-w-[220px]">
+                    <div key={attachment.id} className="relative max-w-[220px] rounded border bg-card p-2 pr-7 text-xs">
                       <button
                         type="button"
                         className="absolute right-1 top-1 text-muted-foreground hover:text-red-600"
@@ -935,7 +935,7 @@ export function ChatInterface({
             )}
 
             <div className="flex items-end gap-2">
-              <div className="flex-1 rounded-xl border bg-white px-2 py-2">
+              <div className="flex-1 rounded-md border bg-card px-2 py-2">
                 <Textarea
                   ref={textareaRef}
                   value={input}
@@ -1046,7 +1046,7 @@ export function ChatInterface({
               <Button
                 type="submit"
                 size="icon"
-                className="h-11 w-11 rounded-xl"
+                className="h-11 w-11 rounded-md"
                 disabled={isComposerDisabled || (!input.trim() && attachments.length === 0)}
               >
                 {isLoading ? (

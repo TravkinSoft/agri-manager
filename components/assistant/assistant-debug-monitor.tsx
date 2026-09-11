@@ -43,7 +43,7 @@ export function AssistantDebugMonitor() {
 
   return (
     <div className="pointer-events-none fixed right-4 top-20 z-[70] w-[360px] max-w-[calc(100vw-1rem)]">
-      <div className="pointer-events-auto overflow-hidden rounded-xl border border-border bg-white shadow-2xl">
+      <div className="pointer-events-auto overflow-hidden rounded-md border border-border bg-card shadow-manor-md">
         <div className="flex items-center justify-between border-b bg-muted px-3 py-2">
           <div>
             <div className="text-sm font-semibold text-muted-foreground">Assistant Debug</div>

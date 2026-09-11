@@ -4,54 +4,59 @@
 
 @layer base {
   :root,
+  [data-theme="estate-register"],
   [data-theme="warm-manor"] {
     color-scheme: light;
-    --background: 39 43% 94%;
-    --foreground: 25 28% 15%;
-    --card: 40 50% 96%;
-    --card-foreground: 25 28% 15%;
-    --popover: 40 60% 98%;
-    --popover-foreground: 25 28% 15%;
-    --primary: 82 36% 31%;
-    --primary-foreground: 41 100% 97%;
-    --secondary: 38 34% 89%;
-    --secondary-foreground: 25 28% 19%;
-    --muted: 38 31% 90%;
-    --muted-foreground: 29 16% 39%;
-    --accent: 41 51% 80%;
-    --accent-foreground: 26 32% 17%;
+    --background: 43 12% 81%;
+    --foreground: 83 9% 14%;
+    --card: 42 17% 85%;
+    --card-foreground: 83 9% 14%;
+    --popover: 42 21% 88%;
+    --popover-foreground: 83 9% 14%;
+    --primary: 83 8% 18%;
+    --primary-foreground: 42 24% 92%;
+    --secondary: 43 12% 77%;
+    --secondary-foreground: 83 9% 14%;
+    --muted: 43 12% 79%;
+    --muted-foreground: 82 5% 30%;
+    --accent: 43 15% 75%;
+    --accent-foreground: 83 9% 14%;
     --destructive: 5 50% 43%;
     --destructive-foreground: 41 100% 97%;
-    --border: 36 30% 76%;
-    --input: 36 22% 51%;
-    --ring: 82 36% 31%;
+    --border: 44 10% 62%;
+    --input: 72 5% 43%;
+    --ring: 83 8% 28%;
     --chart-1: 82 36% 31%;
     --chart-2: 39 51% 47%;
     --chart-3: 157 28% 36%;
     --chart-4: 28 43% 38%;
     --chart-5: 5 50% 43%;
-    --radius: 0.625rem;
+    --radius: 0.375rem;
 
     --font-manor-display: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
     --font-manor-data: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    --manor-ivory: #f7f1e7;
-    --manor-paper: #fbf8f1;
-    --manor-paper-raised: #fffdf8;
-    --manor-paper-recessed: #ede4d4;
-    --manor-espresso: #2b1d13;
-    --manor-espresso-soft: #3a281b;
-    --manor-walnut: #31251c;
-    --manor-olive: #536b32;
-    --manor-olive-deep: #3f5524;
-    --manor-brass: #b98939;
-    --manor-brass-soft: #e8d6ae;
-    --manor-line: #d8c8ac;
-    --manor-text-muted: #736353;
+    /* Compatibility names keep existing modules on one shared design contract. */
+    --manor-ivory: #d2cfc5;
+    --manor-paper: #dfdcd2;
+    --manor-paper-raised: #e9e5dc;
+    --manor-paper-recessed: #c9c6bb;
+    --manor-espresso: #292c26;
+    --manor-espresso-soft: #353831;
+    --manor-walnut: #252820;
+    --manor-olive: #41483b;
+    --manor-olive-deep: #30372b;
+    --manor-brass: #9c8964;
+    --manor-brass-soft: #cfc5af;
+    --manor-line: #aaa698;
+    --manor-text-muted: #50534b;
+    --estate-shell-text: #ece9df;
+    --estate-shell-muted: #c4c3b8;
+    --estate-shell-line: #66695e;
     --manor-success: #3f6d42;
     --manor-warning: #9a681f;
     --manor-danger: #a34036;
-    --manor-shadow-sm: 0 1px 2px rgba(62, 43, 27, 0.08), 0 8px 24px rgba(62, 43, 27, 0.05);
-    --manor-shadow-md: 0 18px 48px rgba(62, 43, 27, 0.12);
+    --manor-shadow-sm: 0 1px 2px rgba(30, 33, 25, 0.07);
+    --manor-shadow-md: 0 12px 36px rgba(30, 33, 25, 0.18);
 
     --travkin-bg: var(--manor-ivory);
     --travkin-bg-secondary: var(--manor-paper-recessed);
@@ -81,9 +86,7 @@
   body {
     @apply bg-background text-foreground antialiased;
     background:
-      radial-gradient(1100px 620px at 12% -7%, rgba(185, 137, 57, 0.12), transparent 58%),
-      radial-gradient(900px 520px at 102% 2%, rgba(83, 107, 50, 0.08), transparent 62%),
-      repeating-linear-gradient(0deg, rgba(70, 48, 29, 0.014) 0, rgba(70, 48, 29, 0.014) 1px, transparent 1px, transparent 4px),
+      repeating-linear-gradient(0deg, rgba(38, 41, 31, 0.012) 0, rgba(38, 41, 31, 0.012) 1px, transparent 1px, transparent 4px),
       var(--travkin-bg);
     color: var(--travkin-text);
     overscroll-behavior-x: none;
@@ -100,29 +103,99 @@
 }
 
 @layer components {
+  .tf-estate-document {
+    position: relative;
+    background: var(--manor-paper);
+    outline: 1px solid var(--manor-line);
+    outline-offset: -6px;
+    padding: 0.5rem;
+  }
+
+  .tf-estate-rail {
+    --background: 83 8% 18%;
+    --card: 83 8% 18%;
+    --foreground: 42 24% 92%;
+    --card-foreground: 42 24% 92%;
+    --muted: 83 7% 25%;
+    --muted-foreground: 68 8% 76%;
+    --border: 76 7% 40%;
+    --input: 68 8% 57%;
+    --primary: 43 24% 75%;
+    --primary-foreground: 83 9% 14%;
+    --secondary: 83 7% 25%;
+    --secondary-foreground: 42 24% 92%;
+    --accent: 83 7% 28%;
+    --accent-foreground: 42 24% 92%;
+    --ring: 43 24% 75%;
+    color-scheme: dark;
+    background: var(--manor-espresso);
+    color: var(--estate-shell-text);
+  }
+
+  .tf-estate-rail :is(.text-amber-800, .text-amber-700) { color: #e1c994; }
+  .tf-estate-rail :is(.text-emerald-800, .text-emerald-700, .text-green-800, .text-green-700) { color: #c1d5b3; }
+  .tf-estate-rail :is(.text-rose-800, .text-rose-700, .text-red-800, .text-red-700) { color: #f0b6ac; }
+
+  /* Tailwind's amber-800 falls below AA on the deliberately darker register paper. */
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) :is(.text-amber-800, .text-amber-700) {
+    color: #66320d;
+  }
+
+  /* Dark operational rails retain a lighter semantic warning ink. */
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .tf-estate-rail :is(.text-amber-800, .text-amber-700) {
+    color: #e1c994;
+  }
+
+  .tf-estate-editor .tf-estate-plot {
+    scroll-margin-block: 5rem;
+  }
+
+  .tf-estate-details > summary::marker { color: var(--manor-text-muted); }
+
+  .tf-manor :where(h1, h2, [role="dialog"] h3) {
+    font-family: var(--font-manor-display);
+    text-wrap: balance;
+  }
+
+  .tf-manor :where(table, input[inputmode="decimal"], input[type="number"]) {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tf-manor :where([role="dialog"], [role="alertdialog"]) {
+    border-color: var(--manor-line);
+    box-shadow: var(--manor-shadow-md);
+  }
+
+  /* Final compatibility net: legacy modules keep their structure, but not the old pill/card language. */
+  .tf-manor :is(.rounded-xl, .rounded-2xl, .rounded-3xl) {
+    border-radius: var(--radius);
+  }
+
+  .tf-manor :is(.shadow-xl, .shadow-2xl) {
+    box-shadow: var(--manor-shadow-md);
+  }
+
   .tf-manor-shell {
     background: var(--manor-ivory);
     color: var(--manor-walnut);
   }
 
   .tf-manor-workspace {
-    background:
-      linear-gradient(135deg, rgba(255, 253, 248, 0.62), transparent 38%),
-      transparent;
+    background: transparent;
   }
 
   .tf-manor-sidebar,
   .tf-manor-topbar {
-    color: #f8f0e2;
+    color: var(--estate-shell-text);
     background:
-      linear-gradient(115deg, rgba(185, 137, 57, 0.08), transparent 44%),
+      linear-gradient(115deg, rgba(218, 213, 194, 0.035), transparent 44%),
       var(--manor-espresso);
-    border-color: rgba(185, 137, 57, 0.28);
+    border-color: var(--estate-shell-line);
   }
 
   .tf-manor-panel {
     border: 1px solid var(--manor-line);
-    background: rgba(251, 248, 241, 0.92);
+    background: var(--manor-paper);
     box-shadow: var(--manor-shadow-sm);
   }
 
@@ -134,6 +207,15 @@
 
   .tf-manor-control:active {
     transform: translateY(1px);
+  }
+
+  @keyframes tf-estate-page-enter {
+    from { opacity: 0.84; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .tf-estate-page-enter {
+    animation: tf-estate-page-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   .tf-manor-heading {
@@ -149,34 +231,30 @@
   }
 
   .tf-manor-brass-rule {
-    border-color: rgba(185, 137, 57, 0.42);
+    border-color: var(--manor-line);
   }
 
   .tf2-shell,
   .tf2-portal-panel {
-    --tf2-surface: rgba(251, 248, 241, 0.9);
-    --tf2-surface-strong: rgba(255, 253, 248, 0.96);
-    --tf2-line: rgba(122, 91, 50, 0.2);
-    --tf2-line-strong: rgba(185, 137, 57, 0.48);
+    --tf2-surface: var(--manor-paper);
+    --tf2-surface-strong: var(--manor-paper-raised);
+    --tf2-line: var(--manor-line);
+    --tf2-line-strong: var(--input);
     --tf2-shadow: var(--manor-shadow-md);
   }
 
   .tf2-dock {
     border: 1px solid var(--tf2-line);
-    background:
-      linear-gradient(135deg, rgba(185, 137, 57, 0.09), transparent 42%),
-      var(--tf2-surface);
+    background: var(--tf2-surface);
     box-shadow: var(--tf2-shadow);
-    backdrop-filter: blur(18px) saturate(1.08);
+    backdrop-filter: none;
   }
 
   .tf2-panel {
     border: 1px solid var(--tf2-line);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.42), transparent 34%),
-      var(--tf2-surface-strong);
+    background: var(--tf2-surface-strong);
     box-shadow: var(--tf2-shadow);
-    backdrop-filter: blur(14px) saturate(1.02);
+    backdrop-filter: none;
   }
 
   .tf2-control {
@@ -232,14 +310,14 @@
 
   .tf2-map-viewport .maplibregl-ctrl-attrib,
   .tf2-map-viewport .maplibregl-ctrl-attrib.maplibregl-compact {
-    border: 1px solid rgba(185, 137, 57, 0.38);
-    background-color: rgba(43, 29, 19, 0.96);
-    color: #f8f0e2;
-    box-shadow: 0 8px 24px rgba(43, 29, 19, 0.24);
+    border: 1px solid var(--estate-shell-line);
+    background-color: rgba(41, 44, 38, 0.96);
+    color: var(--estate-shell-text);
+    box-shadow: 0 8px 24px rgba(30, 33, 25, 0.2);
   }
 
   .tf2-map-viewport .maplibregl-ctrl-attrib a {
-    color: #f0d493;
+    color: var(--estate-shell-text);
     text-decoration: underline;
     text-underline-offset: 2px;
   }
@@ -251,7 +329,7 @@
   }
 
   .tf2-map-viewport .maplibregl-ctrl-attrib-button:focus-visible {
-    outline: 2px solid var(--manor-brass);
+    outline: 2px solid var(--manor-brass-soft);
     outline-offset: 2px;
   }
 
@@ -304,10 +382,7 @@
   }
 
   .tf2-traffic-shell {
-    background:
-      radial-gradient(900px 520px at 12% -8%, rgba(185, 137, 57, 0.12), transparent 56%),
-      radial-gradient(760px 460px at 102% 8%, rgba(83, 107, 50, 0.08), transparent 58%),
-      var(--manor-ivory);
+    background: var(--manor-ivory);
   }
 
   .tf2-traffic-lanes {
@@ -358,68 +433,68 @@
     color: var(--travkin-text-muted);
   }
 
-  [data-theme="warm-manor"] .travkin-shell .bg-white,
-  [data-theme="warm-manor"] .travkin-shell .bg-slate-50,
-  [data-theme="warm-manor"] .travkin-shell .bg-slate-100 {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .bg-white,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .bg-slate-50,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .bg-slate-100 {
     background-color: var(--manor-paper) !important;
   }
 
-  [data-theme="warm-manor"] .travkin-shell .text-slate-900,
-  [data-theme="warm-manor"] .travkin-shell .text-slate-800,
-  [data-theme="warm-manor"] .travkin-shell .text-slate-700 {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .text-slate-900,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .text-slate-800,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .text-slate-700 {
     color: var(--manor-walnut) !important;
   }
 
-  [data-theme="warm-manor"] .travkin-shell .text-slate-600,
-  [data-theme="warm-manor"] .travkin-shell .text-slate-500,
-  [data-theme="warm-manor"] .travkin-shell .text-slate-400 {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .text-slate-600,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .text-slate-500,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .text-slate-400 {
     color: var(--manor-text-muted) !important;
   }
 
-  [data-theme="warm-manor"] .travkin-shell .border-slate-100,
-  [data-theme="warm-manor"] .travkin-shell .border-slate-200,
-  [data-theme="warm-manor"] .travkin-shell .border-slate-300 {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .border-slate-100,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .border-slate-200,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .border-slate-300 {
     border-color: var(--manor-line) !important;
   }
 
-  [data-theme="warm-manor"] .travkin-shell .hover\:bg-slate-100:hover,
-  [data-theme="warm-manor"] .travkin-shell .hover\:bg-slate-50:hover {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .hover\:bg-slate-100:hover,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .hover\:bg-slate-50:hover {
     background-color: var(--manor-paper-recessed) !important;
   }
 
-  [data-theme="warm-manor"] .assistant-surface .bg-white,
-  [data-theme="warm-manor"] .assistant-surface .bg-slate-50,
-  [data-theme="warm-manor"] .assistant-surface .bg-slate-100 {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .bg-white,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .bg-slate-50,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .bg-slate-100 {
     background-color: var(--manor-paper) !important;
   }
 
-  [data-theme="warm-manor"] .assistant-surface .text-slate-900,
-  [data-theme="warm-manor"] .assistant-surface .text-slate-800,
-  [data-theme="warm-manor"] .assistant-surface .text-slate-700 {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .text-slate-900,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .text-slate-800,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .text-slate-700 {
     color: var(--manor-walnut) !important;
   }
 
-  [data-theme="warm-manor"] .assistant-surface .text-slate-600,
-  [data-theme="warm-manor"] .assistant-surface .text-slate-500 {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .text-slate-600,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .text-slate-500 {
     color: var(--manor-text-muted) !important;
   }
 
-  [data-theme="warm-manor"] .assistant-surface .border-slate-100,
-  [data-theme="warm-manor"] .assistant-surface .border-slate-200,
-  [data-theme="warm-manor"] .assistant-surface .border-slate-300 {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .border-slate-100,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .border-slate-200,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .border-slate-300 {
     border-color: var(--manor-line) !important;
   }
 
-  [data-theme="warm-manor"] .assistant-surface .bg-green-600 {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .bg-green-600 {
     background-color: var(--manor-olive) !important;
     color: #fff9ee !important;
   }
 
-  [data-theme="warm-manor"] .assistant-surface .bg-green-100 {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .bg-green-100 {
     background-color: #e5eddd !important;
   }
 
-  [data-theme="warm-manor"] .assistant-surface .text-green-700 {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .text-green-700 {
     color: var(--manor-olive-deep) !important;
   }
 
@@ -494,11 +569,45 @@
   }
 
   .travkin-scrollbar::-webkit-scrollbar-thumb {
-    background: #c6b596;
+    background: var(--manor-line);
     border-radius: 9999px;
   }
 
   .travkin-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #a99472;
+    background: var(--manor-text-muted);
+  }
+}
+
+/* A phone in landscape can cross Tailwind's width-only md breakpoint. Keep
+   the touch shell until there is enough vertical room for the desktop rail. */
+@media (max-width: 1023px) and (max-height: 600px) and (orientation: landscape) {
+  .tf-desktop-sidebar,
+  .tf-desktop-sidebar-toggle,
+  .tf-desktop-footer,
+  .tf-desktop-assistant-launcher {
+    display: none !important;
+  }
+
+  .tf-mobile-header-brand {
+    display: flex !important;
+  }
+
+  .tf-mobile-bottom-nav {
+    display: block !important;
+  }
+
+  .tf-mobile-assistant-launcher {
+    display: flex !important;
+  }
+
+  .tf-manor-header {
+    height: calc(3.5rem + env(safe-area-inset-top)) !important;
+  }
+
+  .tf-manor-workspace {
+    padding-top: 0.75rem !important;
+    padding-right: max(0.75rem, env(safe-area-inset-right)) !important;
+    padding-bottom: calc(env(safe-area-inset-bottom) + 5rem) !important;
+    padding-left: max(0.75rem, env(safe-area-inset-left)) !important;
   }
 }

@@ -159,11 +159,11 @@ export function VehicleDriverAssignment({ vehicleId, companyId, driverName, vehi
           <Input aria-label="Найти водителя" placeholder="Найти водителя" value={search}
             onChange={event => setSearch(event.target.value)} className="min-h-[48px] shrink-0 text-base" />
           <div role="radiogroup" aria-label="Водитель машины" data-testid="driver-scroll-list"
-            className="min-h-0 max-h-[45dvh] flex-1 touch-pan-y overflow-y-auto overscroll-contain rounded-xl border border-border">
+            className="min-h-0 max-h-[45dvh] flex-1 touch-pan-y overflow-y-auto overscroll-contain rounded-md border border-border">
             {options.filter(option => option.label.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())).map(option => (
               <button key={option.value} type="button" role="radio" aria-checked={selected === option.value}
                 disabled={saving || disabled || !data.canEdit} onClick={() => setSelected(option.value)}
-                className={cn("flex min-h-[48px] w-full items-center justify-between gap-3 border-b border-border px-3 py-3 text-left text-sm last:border-0", selected === option.value && "bg-amber-300/10 text-amber-800")}>
+                className={cn("flex min-h-[48px] w-full items-center justify-between gap-3 border-b border-border px-3 py-3 text-left text-sm last:border-0", selected === option.value && "bg-accent text-foreground")}>
                 <span className="break-words">{option.label}</span>
                 {selected === option.value ? <Check size={18} className="shrink-0" aria-hidden /> : null}
               </button>

@@ -1121,7 +1121,7 @@ export default function CareSystemsPage() {
                 Создать схему
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto border-border bg-card/95 text-foreground shadow-2xl backdrop-blur-xl">
+            <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto rounded-md border-border bg-card text-foreground shadow-manor-md">
               <DialogHeader>
                 <DialogTitle>Новая схема ухода</DialogTitle>
                 <DialogDescription>Схема сохраняется как черновик. Операции создаются только после активации.</DialogDescription>
@@ -1250,7 +1250,7 @@ export default function CareSystemsPage() {
                   key={scheme.id}
                   onClick={() => setSelectedSchemeId(scheme.id)}
                   className={cn(
-                    selectedScheme?.id === scheme.id && "border-primary/60 bg-primary/10 shadow-[0_0_0_1px_rgba(224,177,0,0.25)]"
+                    selectedScheme?.id === scheme.id && "border-[color:var(--manor-olive)] bg-accent shadow-manor-sm"
                   )}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -1332,7 +1332,7 @@ export default function CareSystemsPage() {
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-56 border-border bg-card text-foreground backdrop-blur-xl">
+                      <DropdownMenuContent align="end" className="w-56 border-border bg-popover text-popover-foreground shadow-manor-sm">
                         <DropdownMenuItem onSelect={openEditScheme}><Pencil className="mr-2 h-4 w-4" />Редактировать</DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => showNotReady("Дублирование схемы")}><Copy className="mr-2 h-4 w-4" />Дублировать</DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => showNotReady("Экспорт PDF")}><Download className="mr-2 h-4 w-4" />Экспортировать PDF</DropdownMenuItem>
@@ -1676,7 +1676,7 @@ export default function CareSystemsPage() {
       </div>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-2xl border-border bg-card/95 text-foreground shadow-2xl backdrop-blur-xl">
+        <DialogContent className="max-w-2xl rounded-md border-border bg-card text-foreground shadow-manor-md">
           <DialogHeader>
             <DialogTitle>Редактировать схему</DialogTitle>
             <DialogDescription>

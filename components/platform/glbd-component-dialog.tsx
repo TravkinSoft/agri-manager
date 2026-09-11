@@ -57,7 +57,7 @@ export function GlbdComponentDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto rounded-none border-border bg-white !text-foreground">
+      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto rounded-md border-border bg-card !text-foreground">
         <DialogHeader>
           <DialogTitle className="pr-8 text-xl text-foreground">
             {component?.displayName || "Карточка компонента"}

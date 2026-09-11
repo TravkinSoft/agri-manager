@@ -157,14 +157,21 @@ function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+const FORMULATION_NORMALIZERS = Object.entries(FORMULATION_EQUIVALENTS).map(
+  ([source, target]) => ({
+    pattern: new RegExp(`(^|\\s)${escapeRegex(source)}(?=\\s|$)`, "giu"),
+    target,
+  })
+);
+
 function compactSpaces(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
 function normalizeFormulations(value: string) {
   let next = value;
-  for (const [source, target] of Object.entries(FORMULATION_EQUIVALENTS)) {
-    next = next.replace(new RegExp(`(^|\\s)${escapeRegex(source)}(?=\\s|$)`, "giu"), `$1${target}`);
+  for (const { pattern, target } of FORMULATION_NORMALIZERS) {
+    next = next.replace(pattern, `$1${target}`);
   }
   return next;
 }
@@ -219,9 +226,36 @@ function manufacturerDisplay(value: string | null | undefined) {
   return MANUFACTURER_DISPLAY[key] || raw;
 }
 
+let aliasPairByNormalizedName: Map<string, AliasPair> | null = null;
+let canonicalAliasByNormalizedName: Map<string, string> | null = null;
+
+function getAliasLookups() {
+  if (aliasPairByNormalizedName && canonicalAliasByNormalizedName) {
+    return {
+      pairByName: aliasPairByNormalizedName,
+      canonicalByName: canonicalAliasByNormalizedName,
+    };
+  }
+
+  const pairByName = new Map<string, AliasPair>();
+  const canonicalByName = new Map<string, string>();
+  for (const pair of RU_EN_ALIAS_PAIRS) {
+    const canonical = normalizeCatalogName(pair.canonical);
+    for (const alias of pair.aliases) {
+      const normalized = normalizeCatalogName(alias);
+      if (!pairByName.has(normalized)) pairByName.set(normalized, pair);
+      if (!canonicalByName.has(normalized)) canonicalByName.set(normalized, canonical);
+    }
+  }
+
+  aliasPairByNormalizedName = pairByName;
+  canonicalAliasByNormalizedName = canonicalByName;
+  return { pairByName, canonicalByName };
+}
+
 function aliasesForName(name: string | null | undefined) {
   const normalized = normalizeCatalogName(name);
-  const pair = RU_EN_ALIAS_PAIRS.find((item) => item.aliases.some((alias) => normalizeCatalogName(alias) === normalized));
+  const pair = getAliasLookups().pairByName.get(normalized);
   return pair ? itemAliases(pair) : [];
 }
 
@@ -231,18 +265,44 @@ function itemAliases(pair: AliasPair) {
 
 function canonicalAliasName(name: string | null | undefined) {
   const normalized = normalizeCatalogName(name);
-  const pair = RU_EN_ALIAS_PAIRS.find((item) => item.aliases.some((alias) => normalizeCatalogName(alias) === normalized));
-  return pair ? normalizeCatalogName(pair.canonical) : normalized;
+  return getAliasLookups().canonicalByName.get(normalized) || normalized;
+}
+
+let verifiedIdentityByCanonicalName: Map<string, VerifiedProductIdentity> | null = null;
+
+function getVerifiedIdentityLookup() {
+  if (verifiedIdentityByCanonicalName) return verifiedIdentityByCanonicalName;
+
+  const lookup = new Map<string, VerifiedProductIdentity>();
+  for (const identity of VERIFIED_PRODUCT_IDENTITIES) {
+    for (const alias of [identity.canonicalTradeName, ...identity.aliases]) {
+      const normalized = canonicalAliasName(alias);
+      if (!lookup.has(normalized)) lookup.set(normalized, identity);
+    }
+  }
+  verifiedIdentityByCanonicalName = lookup;
+  return lookup;
 }
 
 function verifiedIdentityForName(name: string | null | undefined): VerifiedProductIdentity | null {
   const normalized = canonicalAliasName(name);
-  return (
-    VERIFIED_PRODUCT_IDENTITIES.find((identity) => {
-      const candidates = [identity.canonicalTradeName, ...identity.aliases].map((alias) => canonicalAliasName(alias));
-      return candidates.includes(normalized);
-    }) || null
-  );
+  return getVerifiedIdentityLookup().get(normalized) || null;
+}
+
+type ManufacturerPrefixCandidate = {
+  text: string;
+  normalized: string;
+};
+
+let knownManufacturerPrefixCandidates: ManufacturerPrefixCandidate[] | null = null;
+
+function getKnownManufacturerPrefixCandidates() {
+  if (knownManufacturerPrefixCandidates) return knownManufacturerPrefixCandidates;
+  knownManufacturerPrefixCandidates = KNOWN_MANUFACTURER_PREFIXES.map((maker) => ({
+    text: compactSpaces(maker),
+    normalized: normalizeCatalogName(maker),
+  }));
+  return knownManufacturerPrefixCandidates;
 }
 
 export function getVerifiedProductIdentity(productOrName: CatalogProductLike | string | null | undefined): VerifiedProductIdentity | null {
@@ -253,13 +313,19 @@ export function getVerifiedProductIdentity(productOrName: CatalogProductLike | s
 export function stripManufacturerPrefixCandidate(productOrName: CatalogProductLike | string | null | undefined) {
   const name = typeof productOrName === "string" || productOrName == null ? String(productOrName || "") : productName(productOrName);
   const manufacturer = typeof productOrName === "string" || productOrName == null ? "" : productOrName.manufacturer || "";
-  let current = compactSpaces(name);
-  const candidates = [manufacturer, ...KNOWN_MANUFACTURER_PREFIXES].filter(Boolean);
+  const current = compactSpaces(name);
+  const currentNorm = normalizeCatalogName(current);
+  const manufacturerText = compactSpaces(String(manufacturer));
+  const candidates: ManufacturerPrefixCandidate[] = [
+    ...(manufacturerText
+      ? [{ text: manufacturerText, normalized: normalizeCatalogName(manufacturerText) }]
+      : []),
+    ...getKnownManufacturerPrefixCandidates(),
+  ];
   for (const maker of candidates) {
-    const makerText = compactSpaces(String(maker));
+    const makerText = maker.text;
     if (!makerText) continue;
-    const currentNorm = normalizeCatalogName(current);
-    const makerNorm = normalizeCatalogName(makerText);
+    const makerNorm = maker.normalized;
     if (currentNorm.startsWith(makerNorm) && currentNorm.length > makerNorm.length + 2) {
       const stripped = compactSpaces(current.replace(new RegExp(`^${escapeRegex(makerText)}\\s+`, "iu"), ""));
       if (stripped && stripped !== current) {
@@ -373,9 +439,11 @@ function preferProduct(current: CatalogProductLike, candidate: CatalogProductLik
 export function dedupeProductsForSelect<T extends CatalogProductLike>(products: T[]) {
   const preferTypedProduct = (current: T, candidate: T) => preferProduct(current, candidate) as T;
   const baseGroups = new Map<string, T[]>();
+  const normalizedManufacturers = new Map<T, string>();
   for (const product of products) {
     const key = buildCatalogIdentityKey(product, { includeManufacturer: false });
     if (!key.replace(/\|/g, "")) continue;
+    normalizedManufacturers.set(product, normalizeManufacturer(product.manufacturer));
     if (!baseGroups.has(key)) baseGroups.set(key, []);
     baseGroups.get(key)!.push(product);
   }
@@ -386,7 +454,7 @@ export function dedupeProductsForSelect<T extends CatalogProductLike>(products: 
     if (companyProducts.length) {
       const manufacturerBuckets = new Map<string, T[]>();
       for (const product of group) {
-        const manufacturer = normalizeManufacturer(product.manufacturer);
+        const manufacturer = normalizedManufacturers.get(product) || "";
         const key = manufacturer || "unknown";
         if (!manufacturerBuckets.has(key)) manufacturerBuckets.set(key, []);
         manufacturerBuckets.get(key)!.push(product);
@@ -394,12 +462,12 @@ export function dedupeProductsForSelect<T extends CatalogProductLike>(products: 
 
       for (const bucket of Array.from(manufacturerBuckets.values())) {
         const companyInBucket = bucket.filter((product: T) => product.company_id);
-        const bucketManufacturer = normalizeManufacturer(bucket[0]?.manufacturer);
+        const bucketManufacturer = normalizedManufacturers.get(bucket[0]) || "";
         if (companyInBucket.length) {
           selected.push(companyInBucket.reduce(preferTypedProduct));
         } else if (!bucketManufacturer) {
           continue;
-        } else if (!companyProducts.some((companyProduct: T) => !normalizeManufacturer(companyProduct.manufacturer))) {
+        } else if (!companyProducts.some((companyProduct: T) => !normalizedManufacturers.get(companyProduct))) {
           selected.push(bucket.reduce(preferTypedProduct));
         }
       }
@@ -415,7 +483,10 @@ export function dedupeProductsForSelect<T extends CatalogProductLike>(products: 
     for (const bucket of Array.from(exactBuckets.values())) selected.push(bucket.reduce(preferTypedProduct));
   }
 
-  return selected.sort((left, right) => buildProductDisplayLabel(left).localeCompare(buildProductDisplayLabel(right), "ru"));
+  return selected
+    .map((product, index) => ({ product, index, label: buildProductDisplayLabel(product) }))
+    .sort((left, right) => left.label.localeCompare(right.label, "ru") || left.index - right.index)
+    .map(({ product }) => product);
 }
 
 export function buildProductSearchText(product: CatalogProductLike) {

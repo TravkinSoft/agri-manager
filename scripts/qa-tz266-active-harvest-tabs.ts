@@ -78,7 +78,7 @@ check("transport and driver are separate searchable fields", () => {
   assert.match(transportSelects, /ariaLabel="Транспорт"/);
   assert.match(transportSelects, /<Label>Водитель/);
   assert.match(transportSelects, /ariaLabel="Водитель"/);
-  assert.doesNotMatch(page + transportSelects, /Машина и водитель/);
+  assert.doesNotMatch(page + transportSelects, /<Label>Машина и водитель<\/Label>|ariaLabel="Машина и водитель"/);
 });
 
 check("vehicle search covers name model and plate", () => {
@@ -210,7 +210,8 @@ check("harvest ticket appears immediately while the server saves", () => {
   assert.match(page, /setPendingOpenTicket\(\{[\s\S]*id: `pending-\$\{idempotencyKey\}`/);
   assert.match(page, /visibleActiveTickets[\s\S]*pendingOpenTicket/);
   assert.match(page, /isPending \? "Сохраняется" : correctionOriginal \? "Исправляется" : ticketStageLabel\(t\)/);
-  assert.match(page, /disabled=\{isPending\}/);
+  assert.match(page, /const ticketRowDisabled = isPending \|\| ticketCloseLocked/);
+  assert.match(page, /disabled=\{ticketRowDisabled\}/);
 });
 
 check("optimistic harvest title uses crop identity without material flicker", () => {

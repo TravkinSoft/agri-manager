@@ -919,7 +919,7 @@ export default function WarehousesPage() {
             openWarehouse(warehouse.id);
           }
         }}
-        className={`group relative flex h-full min-h-[148px] min-w-0 flex-col rounded-xl border bg-card p-4 transition-[border-color,background-color,transform] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${reorderable ? "cursor-default select-none" : "cursor-pointer hover:border-border hover:bg-accent/60"} ${draggingWarehouseId === warehouse.id ? "z-10 border-yellow-400/80 bg-accent/60 shadow-lg will-change-transform" : "border-border"}`}
+        className={`group relative flex h-full min-h-[148px] min-w-0 flex-col rounded-md border bg-card p-4 transition-[border-color,background-color,transform] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${reorderable ? "cursor-default select-none" : "cursor-pointer hover:border-border hover:bg-accent/60"} ${draggingWarehouseId === warehouse.id ? "z-10 border-primary bg-accent/60 shadow-manor-md will-change-transform" : "border-border"}`}
       >
         <div className="flex items-start gap-2.5">
           <ObjectVisual placeType={placeType} className="h-9 w-9 shrink-0 border-0 bg-transparent" />
@@ -1005,7 +1005,7 @@ export default function WarehousesPage() {
                 <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
                   <span>Вместимость {formatMass(capacity || 0)}</span><span className={capacityExceeded ? "font-semibold text-rose-800" : undefined}>{fillPercent}%</span>
                 </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${capacityExceeded ? "bg-rose-400/80" : "bg-yellow-400/75"}`} style={{ width: `${fillBarPercent}%` }} /></div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${capacityExceeded ? "bg-rose-400/80" : "bg-primary/75"}`} style={{ width: `${fillBarPercent}%` }} /></div>
                 {capacityExceeded ? <div className="mt-1 text-[11px] font-medium text-rose-800">Остаток превышает указанную вместимость. Проверьте вместимость объекта.</div> : null}
               </div>
             ) : null}
@@ -1060,7 +1060,7 @@ export default function WarehousesPage() {
               const next: WarehouseView = event.key === "Home" ? "availability" : event.key === "End" ? "warehouses" : selectedView === "availability" ? "warehouses" : "availability";
               selectView(next);
               document.getElementById(`warehouse-tab-${next}`)?.focus();
-            }} className={`min-h-[44px] border-b-2 px-4 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selectedView === tab.value ? "border-yellow-400 text-amber-800" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{tab.label}</button>
+            }} className={`min-h-[44px] border-b-2 px-4 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selectedView === tab.value ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{tab.label}</button>
           ))}
         </div>
       ) : null}
@@ -1071,7 +1071,7 @@ export default function WarehousesPage() {
       ) : null}
       <div id="warehouse-view" hidden={isAgronomist && selectedView !== "warehouses"} role={isAgronomist ? "tabpanel" : undefined} aria-labelledby={isAgronomist ? "warehouse-tab-warehouses" : undefined} className="space-y-3">
       {isReorderMode ? (
-        <section className="flex flex-col gap-3 rounded-xl border border-yellow-400/25 bg-yellow-400/[0.04] p-4 sm:flex-row sm:items-center sm:justify-between" aria-label="Изменение порядка складов">
+        <section className="flex flex-col gap-3 rounded-md border border-border bg-accent/35 p-4 sm:flex-row sm:items-center sm:justify-between" aria-label="Изменение порядка складов">
           <div>
             <div className="text-sm font-semibold text-foreground">Изменение порядка</div>
             <p id="warehouse-reorder-instructions" className="mt-1 text-xs leading-5 text-muted-foreground">

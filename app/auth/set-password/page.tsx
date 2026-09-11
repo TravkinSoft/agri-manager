@@ -142,7 +142,7 @@ export default function SetPasswordPage() {
 
   if (!authLoading && !sessionResolving && !effectiveUser) {
     return (
-      <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-6">
+      <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-background px-4 py-6">
         <Card className="w-full max-w-md shadow-xl">
           <CardHeader>
             <CardTitle className="text-2xl font-bold text-center">Нужна ссылка приглашения</CardTitle>
@@ -161,7 +161,7 @@ export default function SetPasswordPage() {
   }
 
   return (
-    <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-6">
+    <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-background px-4 py-6">
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">Завершить регистрацию</CardTitle>

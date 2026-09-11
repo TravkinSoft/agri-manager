@@ -162,7 +162,7 @@ export function MobileBottomNav() {
   if (items.length === 0) return null;
 
   return (
-    <nav className="tf-manor-topbar fixed inset-x-3 bottom-3 z-40 rounded-[22px] border px-2 py-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] shadow-[0_18px_42px_rgba(43,29,19,0.3)] md:hidden">
+    <nav className="tf-manor-topbar tf-mobile-bottom-nav fixed inset-x-0 bottom-0 z-40 border-x-0 border-b-0 py-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] shadow-manor-md md:hidden">
       <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
         {items.map((item) => {
           const Icon = item.icon;
@@ -177,10 +177,10 @@ export function MobileBottomNav() {
                 onClick={() => setMoreOpen(true)}
                 aria-label={label}
                 className={cn(
-                  "tf-manor-control relative flex min-h-12 flex-col items-center justify-center rounded-2xl px-1 py-1 text-[10px] font-medium",
+                  "tf-manor-control relative flex min-h-12 flex-col items-center justify-center rounded-md px-1 py-1 text-[10px] font-medium",
                   moreOpen
-                    ? "bg-[#F2D48A] text-[#2B1D13]"
-                    : "text-[#D8C8AC] hover:bg-[#F8F0E2]/10 hover:text-white"
+                    ? "bg-[var(--manor-brass-soft)] text-[var(--manor-walnut)]"
+                    : "text-[var(--estate-shell-muted)] hover:bg-white/10 hover:text-white"
                 )}
               >
                 <Icon className="mb-1 h-4 w-4" />
@@ -195,13 +195,13 @@ export function MobileBottomNav() {
               href={item.href || "/dashboard"}
               aria-label={label}
               className={cn(
-                "tf-manor-control relative flex min-h-12 flex-col items-center justify-center rounded-2xl px-1 py-1 text-[10px] font-medium",
+                "tf-manor-control relative flex min-h-12 flex-col items-center justify-center rounded-md px-1 py-1 text-[10px] font-medium",
                 active
-                  ? "bg-[#F2D48A] text-[#2B1D13]"
-                  : "text-[#D8C8AC] hover:bg-[#F8F0E2]/10 hover:text-white"
+                  ? "bg-[var(--manor-brass-soft)] text-[var(--manor-walnut)]"
+                  : "text-[var(--estate-shell-muted)] hover:bg-white/10 hover:text-white"
               )}
             >
-              {active ? <span className="absolute top-1 h-1 w-4 rounded-full bg-[#536B32]" /> : null}
+              {active ? <span className="absolute top-1 h-1 w-4 rounded-full bg-[var(--manor-brass-soft)]" /> : null}
               <Icon className="mb-1 h-4 w-4" />
               <span className="line-clamp-2 max-w-full text-center leading-3">{label}</span>
             </Link>
@@ -209,7 +209,7 @@ export function MobileBottomNav() {
         })}
       </div>
       <Dialog open={moreOpen} onOpenChange={setMoreOpen}>
-        <DialogContent className="!bottom-0 !left-0 !top-auto !w-full !max-w-none !translate-x-0 !translate-y-0 rounded-t-2xl border-[color:var(--manor-line)] bg-[var(--manor-paper-raised)] px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] pt-5 text-[color:var(--manor-walnut)] shadow-manor-md md:hidden">
+        <DialogContent className="!bottom-0 !left-0 !top-auto !w-full !max-w-none !translate-x-0 !translate-y-0 rounded-t-md border-[color:var(--manor-line)] bg-[var(--manor-paper-raised)] px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] pt-5 text-[color:var(--manor-walnut)] shadow-manor-md md:hidden">
           <DialogHeader>
             <DialogTitle className="tf-manor-heading text-left text-xl">{t("mobile_more")}</DialogTitle>
           </DialogHeader>
@@ -225,7 +225,7 @@ export function MobileBottomNav() {
                   className={cn(
                     "tf-manor-control flex min-h-14 items-center gap-3 rounded-lg border px-3 py-2 text-sm font-medium",
                     isActivePath(pathname, item.href)
-                      ? "border-[#B98939]/65 bg-[#E8D6AE] text-[#3A281B]"
+                      ? "border-[color:var(--manor-line)]/65 bg-accent text-foreground"
                       : "border-[color:var(--manor-line)] bg-[var(--manor-paper)] text-[color:var(--manor-walnut)] hover:bg-[var(--manor-paper-recessed)]"
                   )}
                 >

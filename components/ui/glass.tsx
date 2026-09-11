@@ -27,7 +27,7 @@ const statusToneClasses = {
   success: "border-emerald-700/25 bg-emerald-50 text-emerald-900",
   warning: "border-amber-700/25 bg-amber-50 text-amber-900",
   danger: "border-red-700/25 bg-red-50 text-red-900",
-  accent: "border-[#B98939]/40 bg-[#E8D6AE]/65 text-[#3A281B]",
+  accent: "border-border bg-accent/65 text-foreground",
   muted: "border-border bg-secondary text-muted-foreground",
 } as const;
 
@@ -76,7 +76,7 @@ function EntityListItem({ className, ...props }: React.ButtonHTMLAttributes<HTML
   return (
     <button
       className={cn(
-        "tf-manor-control w-full rounded-lg border border-border bg-card px-3 py-3 text-left text-foreground shadow-manor-sm hover:border-[#B98939]/50 hover:bg-accent/45",
+        "tf-manor-control w-full rounded-lg border border-border bg-card px-3 py-3 text-left text-foreground shadow-manor-sm hover:border-input hover:bg-accent/45",
         className
       )}
       {...props}

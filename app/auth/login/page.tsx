@@ -46,7 +46,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-6">
+    <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-background px-4 py-6">
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="space-y-1">
           <TravkinLogo size="large" className="mx-auto mb-4" />
@@ -92,7 +92,7 @@ export default function LoginPage() {
               />
             </div>
             <div className="flex justify-end">
-              <Link href="/auth/forgot-password" className="text-sm text-blue-600 hover:underline">
+              <Link href="/auth/forgot-password" className="text-sm text-foreground underline-offset-4 hover:underline">
                 Забыли пароль?
               </Link>
             </div>
@@ -104,7 +104,7 @@ export default function LoginPage() {
             </Button>
             <div className="text-center text-sm text-muted-foreground">
               Нет аккаунта?{" "}
-              <Link href="/auth/register" className="font-medium text-blue-600 hover:underline">
+              <Link href="/auth/register" className="font-medium text-foreground underline-offset-4 hover:underline">
                 Зарегистрироваться
               </Link>
             </div>

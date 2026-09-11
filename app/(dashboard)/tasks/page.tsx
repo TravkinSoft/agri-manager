@@ -1115,15 +1115,15 @@ export default function TasksPage() {
         type="button"
         onClick={() => openOperationDetails(operation)}
         className={[
-          'w-full rounded-lg border p-3 text-left transition-colors',
+          'w-full rounded-md border p-3 text-left transition-colors',
           selected
-            ? 'border-yellow-400/80 bg-yellow-400/10'
+            ? 'border-primary bg-accent'
             : 'border-border bg-background hover:border-border hover:bg-background',
         ].join(' ')}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="truncate text-[13px] font-semibold uppercase text-amber-800">
+            <div className="truncate text-[13px] font-semibold uppercase text-muted-foreground">
               {operation.operation_number
                 ? `${operation.operation_number} · ${presentation.workTitle}`
                 : presentation.workTitle}

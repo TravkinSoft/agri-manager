@@ -34,6 +34,9 @@ const dashboardLayout = read("components/layout/dashboard-layout.tsx");
 const header = read("components/layout/header.tsx");
 const sidebar = read("components/layout/sidebar.tsx");
 const mobileNav = read("components/layout/mobile-bottom-nav.tsx");
+const assistantLauncher = read("components/assistant/assistant-launcher.tsx");
+const assistantPanel = read("components/assistant/assistant-panel.tsx");
+const trafficOperator = read("app/traffic-operator/page.tsx");
 const pageHeader = read("components/layout/page-header.tsx");
 const platformLayout = read("components/layout/platform-layout.tsx");
 const logo = read("components/layout/travkin-logo.tsx");
@@ -41,16 +44,16 @@ const glass = read("components/ui/glass.tsx");
 const tailwind = read("tailwind.config.ts");
 const manifest = JSON.parse(read("public/manifest.webmanifest"));
 
-check("deterministic warm-manor root theme", () => {
-  assert.match(rootLayout, /<html lang="ru" data-theme="warm-manor">/);
+check("deterministic estate-register root theme with legacy component aliases", () => {
+  assert.match(rootLayout, /<html lang="ru" data-theme="estate-register">/);
   assert.match(rootLayout, /tf-manor/);
   assert.doesNotMatch(rootLayout, /ThemeProvider|suppressHydrationWarning/);
 });
 
-check("global PWA chrome is ivory", () => {
-  assert.match(rootLayout, /themeColor: '#f7f1e7'/);
-  assert.equal(manifest.background_color, "#f7f1e7");
-  assert.equal(manifest.theme_color, "#f7f1e7");
+check("global PWA chrome follows the approved muted paper and charcoal", () => {
+  assert.match(rootLayout, /themeColor: '#292c26'/);
+  assert.equal(manifest.background_color, "#d2cfc5");
+  assert.equal(manifest.theme_color, "#292c26");
 });
 
 check("semantic palette and legacy aliases are complete", () => {
@@ -81,12 +84,19 @@ check("semantic palette and legacy aliases are complete", () => {
 });
 
 check("core text and actions meet WCAG AA contrast", () => {
-  assert.ok(contrast("#31251C", "#F7F1E7") >= 4.5);
-  assert.ok(contrast("#736353", "#F7F1E7") >= 4.5);
-  assert.ok(contrast("#FFF9EE", "#536B32") >= 4.5);
-  assert.ok(contrast("#F8F0E2", "#2B1D13") >= 4.5);
-  assert.match(globals, /--input: 36 22% 51%/);
-  assert.ok(contrast("#9e8867", "#fbf8f1") >= 3, "input boundary is visible on warm paper");
+  const token = (name) => {
+    const match = globals.match(new RegExp(`--${name}:\\s*(#[0-9a-f]{6})`, "i"));
+    assert.ok(match, `real CSS token ${name}`);
+    return match[1];
+  };
+  for (const background of ["manor-ivory", "manor-paper", "manor-paper-raised"]) {
+    assert.ok(contrast(token("manor-walnut"), token(background)) >= 4.5);
+    assert.ok(contrast(token("manor-text-muted"), token(background)) >= 4.5);
+  }
+  assert.ok(contrast(token("estate-shell-text"), token("manor-espresso")) >= 4.5);
+  assert.ok(contrast(token("estate-shell-muted"), token("manor-espresso-soft")) >= 4.5);
+  assert.match(globals, /--input: 72 5% 43%/);
+  assert.ok(contrast("#717368", token("manor-paper")) >= 3, "input boundary is visible on muted paper");
   assert.doesNotMatch(globals, /\.assistant-surface \.border\s*,/, "generic border override must not erase semantic status borders");
 });
 
@@ -119,19 +129,19 @@ check("status tones remain distinct from decorative brass", () => {
   assert.match(glass, /success: "border-emerald/);
   assert.match(glass, /warning: "border-amber/);
   assert.match(glass, /danger: "border-red/);
-  assert.match(glass, /accent: "border-\[#B98939\]/);
+  assert.match(glass, /accent: "border-border/);
 });
 
 check("portalled primitives resolve root semantic surfaces", () => {
   const portalContracts = {
-    "components/ui/dialog.tsx": /bg-background/,
+    "components/ui/dialog.tsx": /bg-(?:card|background)/,
     "components/ui/select.tsx": /bg-popover/,
     "components/ui/dropdown-menu.tsx": /bg-popover/,
     "components/ui/popover.tsx": /bg-popover/,
-    "components/ui/sheet.tsx": /bg-background/,
+    "components/ui/sheet.tsx": /bg-(?:card|background)/,
     "components/ui/drawer.tsx": /bg-background/,
-    "components/ui/alert-dialog.tsx": /bg-background/,
-    "components/ui/toast.tsx": /bg-background/,
+    "components/ui/alert-dialog.tsx": /bg-(?:card|background)/,
+    "components/ui/toast.tsx": /bg-(?:card|background)/,
   };
   for (const [file, pattern] of Object.entries(portalContracts)) {
     assert.match(read(file), pattern, file);
@@ -139,7 +149,7 @@ check("portalled primitives resolve root semantic surfaces", () => {
 });
 
 check("legacy neutral shim is scoped and state colors are not globally overridden", () => {
-  assert.match(globals, /\[data-theme="warm-manor"\] \.travkin-shell \.bg-white/);
+  assert.ok(globals.includes(':is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .bg-white'));
   assert.doesNotMatch(globals, /\[data-theme="warm-manor"\]\s+\.travkin-shell\s+\*/);
   assert.doesNotMatch(globals, /\.travkin-shell .*\.(?:bg|text)-(?:red|amber|emerald|green|yellow|blue)-/);
 });
@@ -150,6 +160,20 @@ check("motion and touch contracts are bounded", () => {
   assert.match(globals, /\.tf-manor :where\(button, \[role="button"\], input, select, \[role="combobox"\]\)/);
   assert.match(globals, /min-height: 44px/);
   assert.match(mobileNav, /min-h-12/);
+});
+
+check("notched screens and short landscape retain the mobile shell", () => {
+  assert.match(globals, /max-width: 1023px\) and \(max-height: 600px\) and \(orientation: landscape\)/);
+  assert.match(globals, /\.tf-desktop-sidebar[\s\S]*display: none !important/);
+  assert.match(globals, /\.tf-mobile-bottom-nav[\s\S]*display: block !important/);
+  assert.match(header, /safe-area-inset-top/);
+  assert.match(header, /safe-area-inset-left/);
+  assert.match(dashboardLayout, /safe-area-inset-right/);
+  assert.match(mobileNav, /safe-area-inset-left/);
+  assert.match(assistantLauncher, /safe-area-inset-right/);
+  assert.match(assistantPanel, /Закрыть Travkin Copilot/);
+  assert.match(trafficOperator, /safe-area-inset-left/);
+  assert.match(trafficOperator, /safe-area-inset-right/);
 });
 
 check("desktop nested routes retain active navigation state", () => {

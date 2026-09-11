@@ -179,6 +179,7 @@ export function TransportDriverSelects({
       <div className="min-w-0 space-y-1.5">
         <Label>Транспорт{optional ? "" : " *"}</Label>
         <SearchableCombobox
+          inlineSearch
           value={vehicleId}
           options={vehicleOptions}
           onValueChange={chooseVehicle}
@@ -192,6 +193,7 @@ export function TransportDriverSelects({
       <div className="min-w-0 space-y-1.5">
         <Label>Водитель{optional ? "" : " *"}</Label>
         <SearchableCombobox
+          inlineSearch
           value={driverId}
           options={driverOptions}
           onValueChange={chooseDriver}

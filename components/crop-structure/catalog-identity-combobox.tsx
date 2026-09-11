@@ -29,6 +29,8 @@ export function CatalogIdentityCombobox({
   emptyMessage,
   className,
   disabled,
+  id,
+  ariaLabel,
   onChange,
 }: {
   value: string | null;
@@ -38,6 +40,8 @@ export function CatalogIdentityCombobox({
   emptyMessage: string;
   className?: string;
   disabled?: boolean;
+  id?: string;
+  ariaLabel?: string;
   onChange: (value: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -50,6 +54,8 @@ export function CatalogIdentityCombobox({
           type="button"
           variant="outline"
           role="combobox"
+          id={id}
+          aria-label={ariaLabel || placeholder}
           aria-expanded={open}
           disabled={disabled}
           className={cn("justify-between px-3 font-normal", className)}

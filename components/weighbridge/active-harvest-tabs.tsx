@@ -218,7 +218,7 @@ export function HarvestIntakeTabs({ tabs, selectedId, onSelect, onAdd, onRemove 
             <div
               key={tab.id}
               className={selected
-                ? "flex h-10 min-w-0 items-center rounded-md border border-yellow-400/70 bg-yellow-400/10 text-foreground"
+                ? "flex h-10 min-w-0 items-center rounded-md border border-primary bg-accent text-foreground"
                 : "flex h-10 min-w-0 items-center rounded-md border border-border bg-background text-foreground hover:border-border"}
               title={tab.fullLabel}
             >
@@ -240,7 +240,7 @@ export function HarvestIntakeTabs({ tabs, selectedId, onSelect, onAdd, onRemove 
                 type="button"
                 variant="ghost"
                 size="icon"
-                className={selected ? "h-8 w-7 shrink-0 text-amber-800 hover:bg-yellow-400/10 hover:text-amber-800" : "h-8 w-7 shrink-0 text-muted-foreground hover:bg-muted"}
+                className={selected ? "h-8 w-7 shrink-0 text-foreground hover:bg-muted hover:text-foreground" : "h-8 w-7 shrink-0 text-muted-foreground hover:bg-muted"}
                 aria-label={`Закрыть Приёмку ${tab.ordinal}`}
                 title={`Закрыть Приёмку ${tab.ordinal}`}
                 onClick={() => onRemove(tab.id)}

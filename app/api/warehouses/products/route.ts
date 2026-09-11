@@ -42,6 +42,10 @@ const ACCOUNTING_MODES = new Set([
   "package_count",
 ]);
 
+// Supabase/PostgREST serializes `.in(...)` values into the request URL.
+const PRODUCT_ALIAS_QUERY_CHUNK_SIZE = 100;
+const PRODUCT_ALIAS_QUERY_CONCURRENCY = 4;
+
 function toNullableText(value: unknown): string | null {
   const text = String(value || "").trim();
   return text || null;
@@ -100,15 +104,40 @@ export async function GET(request: NextRequest) {
         )
       : deduped;
     const products = dedupeProductsForSelect(scopedProducts);
-    const productIds = products.map((row: any) => String(row.id));
-    const { data: aliases } = productIds.length
-      ? await supabase
-          .from("global_product_aliases")
-          .select("product_id,alias")
-          .in("product_id", productIds)
-      : { data: [] as any[] };
+    const productIds = Array.from(
+      new Set(products.map((row: any) => String(row.id || "")).filter(Boolean))
+    );
+    const productIdChunks: string[][] = [];
+    for (let offset = 0; offset < productIds.length; offset += PRODUCT_ALIAS_QUERY_CHUNK_SIZE) {
+      productIdChunks.push(productIds.slice(offset, offset + PRODUCT_ALIAS_QUERY_CHUNK_SIZE));
+    }
+
+    const aliases: any[] = [];
+    for (let offset = 0; offset < productIdChunks.length; offset += PRODUCT_ALIAS_QUERY_CONCURRENCY) {
+      const aliasResults = await Promise.all(
+        productIdChunks
+          .slice(offset, offset + PRODUCT_ALIAS_QUERY_CONCURRENCY)
+          .map((productIdChunk) =>
+            supabase
+              .from("global_product_aliases")
+              .select("product_id,alias")
+              .in("product_id", productIdChunk)
+          )
+      );
+      for (const result of aliasResults) {
+        // Alias enrichment is optional. Preserve the historical fail-soft contract:
+        // products must remain selectable even if one alias chunk cannot be read.
+        if (result.error) {
+          console.warn("[warehouses/products] alias enrichment skipped", {
+            message: result.error.message,
+          });
+          continue;
+        }
+        aliases.push(...(result.data || []));
+      }
+    }
     const aliasesByProduct = new Map<string, string[]>();
-    for (const row of aliases || []) {
+    for (const row of aliases) {
       const key = String((row as any).product_id || "");
       aliasesByProduct.set(key, [
         ...(aliasesByProduct.get(key) || []),

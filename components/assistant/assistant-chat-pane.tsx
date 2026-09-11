@@ -2033,7 +2033,7 @@ export function AssistantChatPane({
     }
 
     return (
-      <div key={card.id} className="overflow-hidden rounded-xl border border-border bg-card shadow-[0_12px_28px_rgba(0,0,0,0.22)]">
+      <div key={card.id} className="overflow-hidden rounded-md border border-border bg-card shadow-manor-sm">
         <div className="flex items-start justify-between gap-3 border-b border-border bg-card px-3 py-2.5">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wide text-primary">{card.title}</div>
@@ -2161,7 +2161,7 @@ export function AssistantChatPane({
     }
 
     return (
-      <div key={card.id} className="overflow-hidden rounded-xl border border-border bg-card shadow-[0_12px_28px_rgba(0,0,0,0.22)]">
+      <div key={card.id} className="overflow-hidden rounded-md border border-border bg-card shadow-manor-sm">
         <div className="flex items-start justify-between gap-3 border-b border-border bg-card px-3 py-2.5">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wide text-primary">{card.title}</div>
@@ -2433,7 +2433,7 @@ export function AssistantChatPane({
         className="flex min-h-0 flex-1 flex-col"
       >
         <div className="border-b border-border bg-card px-1 pb-2">
-          <TabsList className="inline-flex h-8 w-auto rounded-xl border border-border bg-card p-0.5">
+          <TabsList className="inline-flex h-8 w-auto rounded-md border border-border bg-card p-0.5">
             <TabsTrigger
               value="chat"
               className="h-7 rounded-lg px-3 text-xs text-foreground data-[state=active]:bg-muted data-[state=active]:text-foreground"
@@ -2531,7 +2531,7 @@ export function AssistantChatPane({
                     <div
                       className={`whitespace-pre-wrap text-sm leading-relaxed ${
                         message.role === "user"
-                          ? "rounded-2xl bg-muted px-3 py-2 text-foreground"
+                          ? "rounded-md bg-muted px-3 py-2 text-foreground"
                           : "px-0 py-0 text-foreground"
                       }`}
                     >
@@ -2605,7 +2605,7 @@ export function AssistantChatPane({
               aria-label="Перейти к последнему сообщению"
               title="Перейти к последнему сообщению"
               onClick={() => scrollToBottom("smooth")}
-              className="absolute bottom-[92px] left-1/2 z-20 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-border bg-card/95 text-primary shadow-[0_10px_28px_rgba(0,0,0,0.38)] backdrop-blur transition hover:-translate-y-0.5 hover:border-primary/70 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+              className="absolute bottom-[92px] left-1/2 z-20 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-border bg-card text-primary shadow-manor-sm transition hover:-translate-y-0.5 hover:border-primary/70 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
             >
               <ArrowDown className="h-4 w-4" />
             </button>
@@ -2638,7 +2638,7 @@ export function AssistantChatPane({
             {voiceError ? <div className="mb-2 text-xs text-red-800">{voiceError}</div> : null}
 
             <form
-              className="flex items-end gap-2 rounded-2xl border border-border bg-card p-2 shadow-[0_12px_28px_rgba(0,0,0,0.18)] transition focus-within:border-primary/60"
+              className="flex items-end gap-2 rounded-md border border-border bg-card p-2 shadow-manor-sm transition focus-within:border-primary/60"
               onSubmit={(event) => {
                 event.preventDefault();
                 void sendMessage();
@@ -2666,7 +2666,7 @@ export function AssistantChatPane({
                 size="icon"
                 variant="outline"
                 disabled={loading || !!disabledReason || voiceState === "transcribing"}
-                className="h-9 w-9 shrink-0 rounded-xl border-0 bg-transparent text-foreground hover:bg-card hover:text-foreground"
+                className="h-9 w-9 shrink-0 rounded-md border-0 bg-transparent text-foreground hover:bg-card hover:text-foreground"
                 data-testid="assistant-voice-button"
                 aria-label={voiceState === "recording" ? "Остановить запись" : "Голосовой ввод"}
                 aria-pressed={voiceState === "recording"}
@@ -2692,7 +2692,7 @@ export function AssistantChatPane({
                 size="icon"
                 disabled={!canSend}
                 aria-label={loading ? "Ответ формируется" : "Отправить"}
-                className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
+                className="h-9 w-9 shrink-0 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
               >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </Button>

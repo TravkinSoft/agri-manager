@@ -66,10 +66,10 @@ type CategoryCount = { key: string; label: string; count: number };
 
 const CONSOLE_LABEL_CLASS = "font-mono text-[11px] uppercase tracking-[0.12em] !text-muted-foreground";
 const CONSOLE_CONTROL_CLASS =
-  "rounded-none border-border bg-white !text-foreground placeholder:!text-muted-foreground focus-visible:ring-ring";
+  "rounded-none border-border bg-card !text-foreground placeholder:!text-muted-foreground focus-visible:ring-ring";
 const CONSOLE_SELECT_TRIGGER_CLASS =
-  "rounded-none border-border bg-white !text-foreground data-[placeholder]:!text-muted-foreground";
-const CONSOLE_MENU_CLASS = "rounded-none border-border bg-white !text-foreground";
+  "rounded-none border-border bg-card !text-foreground data-[placeholder]:!text-muted-foreground";
+const CONSOLE_MENU_CLASS = "rounded-none border-border bg-popover !text-popover-foreground";
 const CONSOLE_TABLE_CELL_CLASS = "border-border px-4 py-3 !text-foreground";
 
 function optionLabel(entity: GlobalCatalogEntity, row: RowRecord): string {
@@ -778,7 +778,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
         <Label className={CONSOLE_LABEL_CLASS}>{label}</Label>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="w-full justify-between rounded-none border-border bg-white font-normal !text-foreground hover:bg-card">
+            <Button variant="outline" className="w-full justify-between rounded-none border-border bg-card font-normal !text-foreground hover:bg-accent">
               <span className="truncate">{triggerLabel}</span>
               <ChevronDown className="h-4 w-4 opacity-70" />
             </Button>
@@ -1007,7 +1007,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
 
   return (
     <div className="w-full space-y-3 text-foreground">
-      <Card className="w-full rounded-none border-border bg-white !text-foreground shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+      <Card className="w-full rounded-none border-border bg-card !text-foreground shadow-manor-sm">
         <CardHeader className="gap-3 border-b border-border bg-muted">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -1049,7 +1049,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
 
       <div className={isCanonicalPesticideList ? "grid min-w-0 gap-3 lg:grid-cols-[220px_minmax(0,1fr)]" : "block"}>
         {isCanonicalPesticideList ? (
-          <aside className="h-fit border border-border bg-white" aria-label="Категории пестицидов">
+          <aside className="h-fit border border-border bg-card" aria-label="Категории пестицидов">
             <div className="border-b border-border bg-muted px-3 py-2 font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
               Категории
             </div>
@@ -1077,7 +1077,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
           </aside>
         ) : null}
 
-      <Card className="min-w-0 w-full rounded-none border-border bg-white !text-foreground shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+      <Card className="min-w-0 w-full rounded-none border-border bg-card !text-foreground shadow-manor-sm">
         <CardContent className="p-0">
           {isCanonicalPesticideList ? (
             <div className="flex min-h-10 items-center justify-between border-b border-border bg-card px-3 py-2 text-sm text-muted-foreground">
@@ -1121,7 +1121,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                         openPesticideCard(row.id);
                       }
                     } : undefined}
-                    className={`border-border bg-white hover:bg-card ${isCanonicalPesticideList ? "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" : ""}`}
+                    className={`border-border bg-card hover:bg-accent ${isCanonicalPesticideList ? "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" : ""}`}
                   >
                     {config.columns.map((column) => (
                       <TableCell key={`${row.id}-${column.key}`} className={CONSOLE_TABLE_CELL_CLASS}>
@@ -1130,10 +1130,10 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                     ))}
                     <TableCell className={CONSOLE_TABLE_CELL_CLASS}>
                       <div className="flex items-center justify-end gap-2">
-                        <Button variant="outline" size="icon" onKeyDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void openEdit(row); }} className="rounded-none border-border bg-white !text-foreground hover:bg-card">
+                        <Button variant="outline" size="icon" onKeyDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void openEdit(row); }} className="rounded-none border-border bg-card !text-foreground hover:bg-accent">
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button variant="outline" size="icon" onKeyDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void archiveRow(row.id); }} disabled={saving} className="rounded-none border-border bg-white !text-[#9f1239] hover:bg-[#fff1f2]">
+                        <Button variant="outline" size="icon" onKeyDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void archiveRow(row.id); }} disabled={saving} className="rounded-none border-border bg-card !text-destructive hover:bg-destructive/10">
                           <Trash2 className="h-4 w-4 text-rose-600" />
                         </Button>
                       </div>
@@ -1151,7 +1151,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                 size="sm"
                 onClick={goToPreviousPage}
                 disabled={!cursorHistory.length || loading}
-                className="rounded-none border-border bg-white text-foreground"
+                className="rounded-none border-border bg-card text-foreground"
               >
                 <ChevronLeft className="mr-1 h-4 w-4" />
                 Назад
@@ -1162,7 +1162,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                 size="sm"
                 onClick={goToNextPage}
                 disabled={!nextCursor || loading}
-                className="rounded-none border-border bg-white text-foreground"
+                className="rounded-none border-border bg-card text-foreground"
               >
                 Далее
                 <ChevronRight className="ml-1 h-4 w-4" />

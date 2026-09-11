@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import { getProducts } from "@/lib/services/warehouses";
@@ -15,7 +16,7 @@ import { createContainerRecord, getContainerRegistry, updateContainerStatus } fr
 const STATUSES = ["in_stock", "issued", "awaiting_return", "returned", "to_disposal", "disposed"];
 
 export default function ContainersPage() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<any[]>([]);
@@ -28,7 +29,13 @@ export default function ContainersPage() {
   const [notes, setNotes] = useState("");
 
   const loadData = async () => {
-    if (!profile?.company_id) return;
+    if (authLoading) return;
+    if (!profile?.company_id) {
+      setRows([]);
+      setProducts([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const [containers, prods] = await Promise.all([
@@ -50,7 +57,7 @@ export default function ContainersPage() {
 
   useEffect(() => {
     loadData();
-  }, [profile?.company_id]);
+  }, [authLoading, profile?.company_id]);
 
   const handleCreate = async () => {
     if (!profile?.company_id) return;
@@ -145,7 +152,7 @@ export default function ContainersPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="text-sm text-muted-foreground">Загрузка...</div>
+            <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite"><Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />Загружаем реестр тары…</div>
           ) : rows.length === 0 ? (
             <div className="text-sm text-muted-foreground">Записей пока нет.</div>
           ) : (

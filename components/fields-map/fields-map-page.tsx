@@ -11,6 +11,7 @@ import {
   FileUp,
   Filter,
   Layers,
+  Loader2,
   LocateFixed,
   MapPinned,
   MapPin,
@@ -969,6 +970,7 @@ export function FieldsMapPage() {
   }, []);
 
   const [loading, setLoading] = useState(true);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [bootstrap, setBootstrap] = useState<FieldsMapBootstrapPayload | null>(null);
   const canMutateBoundaries = FIELD_BOUNDARY_UI_ENABLED && profile?.role === "global_admin"
     && bootstrap?.contour_editing_available === true;
@@ -1352,12 +1354,17 @@ export function FieldsMapPage() {
 
   const refreshAll = useCallback(async (seasonId?: string) => {
     setLoading(true);
+    setBootstrapError(null);
     try {
       await Promise.all([loadBootstrap(seasonId), loadImports()]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось загрузить карту полей";
+      setBootstrapError(message);
+      toast({ title: "Ошибка", description: message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
-  }, [loadBootstrap, loadImports]);
+  }, [loadBootstrap, loadImports, toast]);
 
   useEffect(() => {
     void refreshAll();
@@ -2907,7 +2914,11 @@ export function FieldsMapPage() {
   };
 
   if (loading) {
-    return <PageHeader title="Карта полей" description="Загрузка..." />;
+    return <div className="space-y-4"><PageHeader title="Карта полей" description="Контуры и инженерные объекты" /><div className="tf-estate-document flex min-h-40 items-center justify-center gap-2 p-6 text-sm text-muted-foreground" role="status" aria-live="polite"><Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />Загружаем карту полей…</div></div>;
+  }
+
+  if (bootstrapError) {
+    return <div className="space-y-4"><PageHeader title="Карта полей" description="Контуры и инженерные объекты" /><div className="tf-estate-document border-destructive/40 p-5" role="alert"><p className="text-sm text-destructive">{bootstrapError}</p><Button type="button" variant="outline" className="mt-4" onClick={() => void refreshAll()}><RotateCcw className="mr-2 h-4 w-4" aria-hidden="true" />Повторить загрузку</Button></div></div>;
   }
 
   const selectedFieldStructures = selectedField?.crop_structure || [];
@@ -2952,12 +2963,12 @@ export function FieldsMapPage() {
       <section
         data-testid="fields-map-viewport"
         data-has-open-inspector={hasOpenInspector ? "true" : "false"}
-        className="tf2-map-viewport relative h-[calc(100dvh_-_9.75rem_-_env(safe-area-inset-bottom))] min-h-0 overflow-hidden rounded-[18px] border border-border bg-card shadow-2xl md:h-[calc(100vh-86px)]"
+        className="tf2-map-viewport relative h-[calc(100dvh_-_9.75rem_-_env(safe-area-inset-bottom))] min-h-0 overflow-hidden rounded-md border border-border bg-card shadow-manor-sm md:h-[calc(100vh-86px)]"
       >
         <div className="absolute inset-0">
           <div
             ref={bindMapContainerRef}
-            className="h-full w-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#E0B100]"
+            className="h-full w-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring"
             tabIndex={0}
             role="application"
             aria-label={boundaryEdit
@@ -2973,7 +2984,7 @@ export function FieldsMapPage() {
               : "xl:w-[min(860px,calc(100%-88px))]"
           }`}
         >
-          <div data-testid="fields-map-top-dock" className="tf2-dock pointer-events-auto rounded-2xl p-2.5">
+          <div data-testid="fields-map-top-dock" className="tf2-dock pointer-events-auto rounded-md p-2.5">
             <div className="travkin-scrollbar flex flex-nowrap items-center gap-2 overflow-x-auto pb-0.5">
               <div className="shrink-0 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Режим</div>
               <Button className="tf2-control min-h-11 shrink-0" size="sm" variant={mapWorkMode === "agro" ? "default" : "outline"} onClick={() => { setMapWorkMode("agro"); setEngineeringDrawMode("none"); setSelectedEngineeringObjectId(null); }}>
@@ -3041,7 +3052,7 @@ export function FieldsMapPage() {
         </div>
 
         <div className="tf2-map-measure-dock pointer-events-none absolute bottom-4 left-1/2 z-10 w-[min(980px,calc(100%-24px))] -translate-x-1/2">
-          <div data-testid="fields-map-measure-dock" className="tf2-dock travkin-scrollbar pointer-events-auto overflow-x-auto rounded-2xl p-2">
+          <div data-testid="fields-map-measure-dock" className="tf2-dock travkin-scrollbar pointer-events-auto overflow-x-auto rounded-md p-2">
             <div className="flex min-w-max flex-nowrap items-center justify-start gap-2 sm:min-w-full sm:justify-center">
               <Button className="tf2-control min-h-11 shrink-0" size="sm" disabled={Boolean(boundaryEdit)} variant={measurementMode === "distance" ? "default" : "outline"} onClick={() => handleMeasurementMode("distance")}><Route className="mr-2 h-4 w-4" />Расстояние</Button>
               <Button className="tf2-control min-h-11 shrink-0" size="sm" disabled={Boolean(boundaryEdit)} variant={measurementMode === "area" ? "default" : "outline"} onClick={() => handleMeasurementMode("area")}><Ruler className="mr-2 h-4 w-4" />Площадь</Button>
@@ -3061,7 +3072,7 @@ export function FieldsMapPage() {
         </div>
 
         {mapWorkMode === "agro" && (selectedField || selectedContour) ? (
-          <aside data-testid="fields-map-inspector" className="tf2-map-inspector tf2-panel travkin-scrollbar pointer-events-auto absolute inset-x-3 bottom-28 top-[10.5rem] z-10 max-h-none overflow-y-auto rounded-2xl p-4 xl:inset-x-auto xl:bottom-auto xl:right-3 xl:top-3 xl:max-h-[calc(100%-112px)] xl:w-[430px]">
+          <aside data-testid="fields-map-inspector" className="tf2-map-inspector tf2-panel travkin-scrollbar pointer-events-auto absolute inset-x-3 bottom-28 top-[10.5rem] z-10 max-h-none overflow-y-auto rounded-md p-4 xl:inset-x-auto xl:bottom-auto xl:right-3 xl:top-3 xl:max-h-[calc(100%-112px)] xl:w-[430px]">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
                 <div className="text-xs uppercase tracking-[0.24em] text-primary">{selectedField ? "Структура посевов" : "Независимый контур"}</div>
@@ -3105,7 +3116,7 @@ export function FieldsMapPage() {
         ) : null}
 
         {mapWorkMode === "engineering" ? (
-          <aside data-testid="fields-map-inspector" className="tf2-map-inspector tf2-panel travkin-scrollbar pointer-events-auto absolute inset-x-3 bottom-28 top-[10.5rem] z-10 max-h-none overflow-y-auto rounded-2xl p-4 xl:inset-x-auto xl:bottom-auto xl:right-3 xl:top-3 xl:max-h-[calc(100%-112px)] xl:w-[420px]">
+          <aside data-testid="fields-map-inspector" className="tf2-map-inspector tf2-panel travkin-scrollbar pointer-events-auto absolute inset-x-3 bottom-28 top-[10.5rem] z-10 max-h-none overflow-y-auto rounded-md p-4 xl:inset-x-auto xl:bottom-auto xl:right-3 xl:top-3 xl:max-h-[calc(100%-112px)] xl:w-[420px]">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
                 <div className="text-xs uppercase tracking-[0.24em] text-cyan-800">Инженерия капельного</div>
@@ -3173,11 +3184,11 @@ export function FieldsMapPage() {
           </aside>
         ) : null}
 
-        {!mapReady ? <div className="absolute inset-0 z-20 grid place-items-center bg-card/70 text-sm text-foreground backdrop-blur-sm">Инициализация карты...</div> : null}
+        {!mapReady ? <div className="absolute inset-0 z-20 grid place-items-center bg-card/90 text-sm text-foreground">Инициализация карты...</div> : null}
       </section>
 
       {canMutateBoundaries && (uploadState || previewState) ? (
-        <div className="rounded-xl border border-border bg-card p-3">
+        <div className="rounded-md border border-border bg-card p-3">
           <div className="flex flex-wrap items-center gap-2 text-sm text-foreground">
             {uploadState ? <span className="min-w-0 truncate">{uploadState.fileName} • {uploadState.polygons.length} контуров</span> : null}
             {previewState ? (

@@ -5261,7 +5261,7 @@ export default function WeighbridgeOperationsPage() {
     ? "—"
     : `${value.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} %`;
   const activeWeighbridgeMode = WEIGHBRIDGE_MODES.find((mode) => mode.type === form.operationType) || WEIGHBRIDGE_MODES[0];
-  const terminalPanelClass = "rounded-xl border-0 bg-card shadow-sm";
+  const terminalPanelClass = "rounded-md border border-border bg-card shadow-manor-sm";
   const formSectionClass = "space-y-4 border-t border-border pt-4 first:border-t-0 first:pt-0";
   const formRailClass = "border-l-2 border-border pl-3 sm:pl-4";
   const formDataStripClass = "grid gap-2 border-y border-border py-3";
@@ -5270,7 +5270,7 @@ export default function WeighbridgeOperationsPage() {
   const ticketCloseRetry = ticketCloseState.phase === "retry" && ticketCloseState.ticketId === activeTicket?.id;
   const segmentClass = (active: boolean) =>
     active
-      ? "h-9 border-yellow-500/70 bg-yellow-500/15 text-amber-800 hover:bg-yellow-500/20"
+      ? "h-9 border-primary bg-primary text-primary-foreground hover:bg-primary/90"
       : "h-9 border-border bg-background text-foreground hover:border-border hover:bg-background hover:text-foreground";
   const loadMoreHistory = async () => {
     if (historyLoadingMore) return;
@@ -5298,16 +5298,13 @@ export default function WeighbridgeOperationsPage() {
       ref={workspaceRef}
       {...(operatorGateBlocked ? ({ inert: "" } as any) : {})}
       aria-hidden={operatorGateBlocked ? true : undefined}
-      className={`mx-auto max-w-[1680px] space-y-2 px-2 pb-4 sm:px-3 ${operatorGateBlocked ? "pointer-events-none select-none blur-sm opacity-35" : ""}`}
+      className={`tf-estate-weighbridge mx-auto max-w-[1680px] space-y-3 px-2 pb-4 sm:px-3 ${operatorGateBlocked ? "pointer-events-none select-none blur-sm opacity-35" : ""}`}
     >
-      <header aria-label="Режим весовой" className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+      <header aria-label="Режим весовой" className="border-b border-border px-1 pb-3 pt-1">
         <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-800">
-              <Scale className="h-3.5 w-3.5" />Весовая
-            </div>
             <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h1 className="tf-manor-heading text-xl font-bold tracking-tight text-foreground">{activeWeighbridgeMode.label}</h1>
+              <h1 className="tf-manor-heading text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Весовая</h1>
               <p className="text-sm text-muted-foreground">{activeWeighbridgeMode.description}</p>
             </div>
             <ol className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" aria-label="Этапы текущей операции">
@@ -5338,10 +5335,10 @@ export default function WeighbridgeOperationsPage() {
                       onSelect={() => void selectOperation(mode.type)}
                     >
                       <span className="min-w-0">
-                        <span className={active ? "block text-sm font-semibold text-amber-800" : "block text-sm font-semibold text-foreground"}>{mode.label}</span>
+                        <span className={active ? "block text-sm font-semibold text-foreground" : "block text-sm font-semibold text-foreground"}>{mode.label}</span>
                         <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{mode.description}</span>
                       </span>
-                      {active ? <span className="ml-auto shrink-0 text-[10px] font-semibold uppercase text-amber-800">Сейчас</span> : null}
+                      {active ? <span className="ml-auto shrink-0 text-[10px] font-semibold uppercase text-muted-foreground">Сейчас</span> : null}
                     </DropdownMenuItem>
                   );
                 })}
@@ -5395,6 +5392,23 @@ export default function WeighbridgeOperationsPage() {
         </div>
       </header>
 
+      <div className="relative">
+        <nav aria-label="Операции весовой" className="travkin-scrollbar flex gap-1 overflow-x-auto border-b border-border pr-8 lg:pr-0">
+          {WEIGHBRIDGE_MODES.map((mode) => (
+            <button
+              key={mode.type}
+              type="button"
+              aria-pressed={mode.type === form.operationType}
+              disabled={!workspaceReady}
+              onClick={() => void selectOperation(mode.type)}
+              className={`tf-manor-control min-h-11 shrink-0 border-b-2 px-3 py-2 text-sm disabled:opacity-50 ${mode.type === form.operationType ? "border-primary font-semibold text-foreground" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
+            >{mode.label}</button>
+          ))}
+        </nav>
+        <span aria-hidden="true" className="pointer-events-none absolute inset-y-px right-0 w-9 bg-gradient-to-l from-background to-transparent lg:hidden" />
+        <span className="sr-only">Список операций прокручивается по горизонтали</span>
+      </div>
+
       <UniversalWorkspaceTabs
         tabs={workspaceTabs}
         selectedId={selectedWorkspaceId}
@@ -5410,12 +5424,12 @@ export default function WeighbridgeOperationsPage() {
           id="weighbridge-workspace-panel"
           role="tabpanel"
           aria-labelledby={`weighbridge-workspace-tab-${selectedWorkspaceId}`}
-          className={`${terminalPanelClass} overflow-hidden xl:col-start-1`}
+          className={`${terminalPanelClass} tf-estate-document overflow-hidden xl:col-start-1`}
         >
           <CardHeader className="px-4 pb-2 pt-4">
-            <CardTitle className="flex flex-col gap-3 text-base text-foreground md:flex-row md:items-center md:justify-between">
+            <CardTitle className="flex flex-col gap-3 text-2xl text-foreground md:flex-row md:items-center md:justify-between">
               <span className="flex items-center gap-2">
-                <Scale className="h-4 w-4 text-amber-800" />
+                <Scale className="h-5 w-5 text-muted-foreground" />
                 Новый талон
               </span>
               <span className="flex items-center justify-between gap-4 rounded-md bg-background px-3 py-2 md:min-w-[260px]">
@@ -6102,7 +6116,7 @@ export default function WeighbridgeOperationsPage() {
           </CardContent>
         </Card>
 
-        <aside className="space-y-3 xl:sticky xl:top-16 xl:col-start-2 xl:row-start-1 xl:self-start" aria-label="Открытые талоны и партии на объектах">
+        <aside className="tf-estate-rail space-y-3 rounded-md p-2 xl:sticky xl:top-16 xl:col-start-2 xl:row-start-1 xl:self-start" aria-label="Открытые талоны и партии на объектах">
         <Card className={terminalPanelClass}>
           <CardHeader className="px-4 pb-2 pt-4">
             <CardTitle className="flex items-center justify-between gap-2 text-base text-foreground">
@@ -6425,7 +6439,7 @@ export default function WeighbridgeOperationsPage() {
                     <label className="flex w-full max-w-sm cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground">
                       <input
                         type="checkbox"
-                        className="h-4 w-4 accent-yellow-500"
+                        className="h-4 w-4 accent-[hsl(var(--primary))]"
                         checked={closingLastMainOutput}
                         onChange={(event) => setClosingLastMainOutput(event.target.checked)}
                         disabled={finalizing || ticketClosePending || ticketCloseRetry}

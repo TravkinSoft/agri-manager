@@ -47,14 +47,14 @@ export function OperationDraftCard({
   };
 
   return (
-    <Card className="border-green-200 bg-green-50/50">
+    <Card className="border-border bg-card">
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <FileText className="h-4 w-4 text-green-600" />
+            <FileText className="h-4 w-4 text-primary" />
             {t('operation_draft')}
           </CardTitle>
-          <Badge variant="outline" className="bg-white">
+          <Badge variant="outline" className="bg-card">
             {t('review_and_confirm')}
           </Badge>
         </div>
@@ -95,7 +95,7 @@ export function OperationDraftCard({
           </div>
         )}
       </CardContent>
-      <CardFooter className="flex gap-2 bg-white border-t">
+      <CardFooter className="flex gap-2 border-t bg-card">
         <Button
           variant="outline"
           size="sm"

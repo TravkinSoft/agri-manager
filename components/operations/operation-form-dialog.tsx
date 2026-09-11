@@ -966,10 +966,10 @@ function OperationWorkSelector(props: {
                 data-operation-radio-value={group.id}
                 onKeyDownCapture={(event) => handleRadioOptionKeyDown(event, onCategoryChange)}
                 className={cn(
-                  "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-semibold leading-5 transition-colors sm:min-h-[52px]",
+                  "flex min-h-12 w-full cursor-pointer items-center rounded-md border px-3.5 py-3 text-left text-sm font-semibold leading-5 transition-colors sm:min-h-[52px]",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
                   checked
-                    ? "border-yellow-400 bg-yellow-400/10 text-amber-800"
+                    ? "border-primary bg-accent text-foreground"
                     : "border-border bg-background text-foreground hover:border-border hover:bg-muted",
                   disabled && "cursor-not-allowed opacity-55"
                 )}
@@ -2840,7 +2840,7 @@ export function OperationFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="top-2 flex h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] translate-y-0 flex-col overflow-hidden border-border bg-card p-0 text-foreground shadow-2xl shadow-black/60 sm:top-4 sm:h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-2rem)] sm:max-w-[1120px]">
+      <DialogContent className="top-2 flex h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] translate-y-0 flex-col !overflow-hidden rounded-md border-border bg-card p-0 text-foreground shadow-manor-md sm:top-4 sm:h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-2rem)] sm:max-w-[1120px]">
         <DialogHeader className="border-b border-border px-5 py-4">
           <DialogTitle>{isEdit ? "Редактировать операцию" : "Создать план работы"}</DialogTitle>
           <DialogDescription>
@@ -2851,7 +2851,7 @@ export function OperationFormDialog({
         <Form {...form}>
           <form onSubmit={form.handleSubmit(submit, handleInvalidSubmit)} className="flex min-h-0 flex-1 flex-col">
             <div className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[320px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
-              <aside className="min-h-0 max-h-[38vh] space-y-4 overflow-y-auto overscroll-contain border-b border-border bg-card p-4 [scrollbar-color:#334155_transparent] [scrollbar-width:thin] lg:max-h-none lg:border-b-0 lg:border-r [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
+              <aside className="min-h-0 max-h-[38vh] space-y-4 overflow-y-auto overscroll-contain border-b border-border bg-card p-4 [scrollbar-color:var(--manor-line)_transparent] [scrollbar-width:thin] lg:max-h-none lg:border-b-0 lg:border-r [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
             {showField && !supportsMultiTarget ? (
               <div className="space-y-3">
                 <FormField
@@ -2974,7 +2974,7 @@ export function OperationFormDialog({
 
             {supportsMultiTarget ? (
               <div
-                className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm"
+                className="rounded-md border border-border bg-accent/45 p-3 text-sm"
                 data-testid="operation-target-list"
               >
                 <div className="flex items-start justify-between gap-3">
@@ -2984,7 +2984,7 @@ export function OperationFormDialog({
                       Одна операция, один раствор, несколько полей или участков.
                     </div>
                   </div>
-                  <div className="shrink-0 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-right text-xs font-semibold text-emerald-800">
+                  <div className="shrink-0 rounded-md border border-border bg-card px-2 py-1 text-right text-xs font-semibold text-foreground">
                     <div>Полей: {targetFieldCount}</div>
                     <div>Участков: {targetCount}</div>
                     <div>{formatOperationNumber(totalTargetArea)} га</div>
@@ -3070,7 +3070,7 @@ export function OperationFormDialog({
                   type="button"
                   size="sm"
                   variant="outline"
-                  className="mt-3 w-full border-emerald-400/30 bg-emerald-400/10 text-emerald-800 hover:bg-emerald-400/15"
+                  className="mt-3 w-full border-border bg-card text-foreground hover:bg-accent"
                   onClick={addOperationTarget}
                 >
                   <Plus className="mr-1 h-4 w-4" />
@@ -3080,7 +3080,7 @@ export function OperationFormDialog({
             ) : null}
               </aside>
 
-              <main className="min-h-0 space-y-4 overflow-y-auto p-5 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
+              <main className="min-h-0 space-y-4 overflow-y-auto p-5 [scrollbar-width:thin] [scrollbar-color:var(--manor-line)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
 
             <section className="py-2">
               <OperationWorkSelector
@@ -3110,7 +3110,7 @@ export function OperationFormDialog({
                           className={cn(
                             "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
                             active
-                              ? "border-emerald-400 bg-emerald-400/15 text-emerald-800"
+                              ? "border-[color:var(--manor-olive)] bg-accent text-foreground"
                               : "border-border bg-background text-foreground hover:border-border"
                           )}
                           onClick={() => togglePurpose(purpose.slug, !active)}
@@ -3125,7 +3125,7 @@ export function OperationFormDialog({
             </section>
 
             {selectedCropStructure && categorySlug === "planting" && selectedIsCropMix ? (
-              <section className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+              <section className="rounded-md border border-border bg-accent/45 p-4">
                 <div className="mb-3">
                   <div className="text-sm font-semibold text-foreground">Зерносмесь из структуры посевов</div>
                   <div className="text-xs text-muted-foreground">Одна операция и одна заявка. Склад выдаёт каждый компонент отдельной строкой.</div>
@@ -3145,7 +3145,7 @@ export function OperationFormDialog({
                 </div>
               </section>
             ) : selectedCropStructure && categorySlug === "planting" ? (
-              <section className="rounded-2xl border border-border bg-card p-4">
+              <section className="rounded-md border border-border bg-card p-4">
                 <div className="mb-3">
                   <div className="text-sm font-semibold text-foreground">Культура из структуры посевов</div>
                   <div className="text-xs text-muted-foreground">Культура и сорт подставляются автоматически и не меняют план участка.</div>
@@ -3168,9 +3168,9 @@ export function OperationFormDialog({
             ) : null}
 
             {selectedCropStructure && isSeedWork && !selectedIsCropMix ? (
-              <section className="rounded-2xl border border-emerald-500/35 bg-emerald-500/5 p-4">
+              <section className="rounded-md border border-border bg-accent/45 p-4">
                 <div className="mb-3">
-                  <div className="text-sm font-semibold text-emerald-800">
+                  <div className="text-sm font-semibold text-foreground">
                     {operationIsPotato ? "Посадочный материал" : "Семенной материал"}
                   </div>
                   <div className="text-xs text-muted-foreground">
@@ -3297,7 +3297,7 @@ export function OperationFormDialog({
             </div>
 
             {isTopRemoval ? (
-              <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="rounded-md border border-border bg-card p-4">
                 <div className="mb-2 text-sm font-semibold text-foreground">Способ удаления ботвы</div>
                 <Select
                   value={String(operationParams.top_removal_method || "none")}
@@ -3575,7 +3575,7 @@ export function OperationFormDialog({
             ) : null}
 
             {showMaterials ? (
-              <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="rounded-md border border-border bg-card p-4">
                 <div className="mb-3">
                   <div className="text-sm font-semibold">
                     {usesChemistryMix ? "Баковая смесь" : isSeedWork && !selectedIsCropMix ? "Дополнительные материалы" : "Основные материалы"}

@@ -75,7 +75,7 @@ export function ChatSidebar({
 
   return (
     <div className="flex flex-col h-full border-r bg-muted">
-      <div className="p-3 border-b bg-white space-y-2">
+      <div className="space-y-2 border-b bg-card p-3">
         <Button onClick={onCreateProject} className="w-full" variant="outline" disabled={loading}>
           <Folder className="h-4 w-4 mr-2" />
           Новый проект
@@ -116,8 +116,8 @@ export function ChatSidebar({
                       className={cn(
                         'group rounded-lg px-2 py-2 transition-colors',
                         isActiveProject
-                          ? 'bg-white border border-green-200'
-                          : 'hover:bg-white'
+                          ? 'border border-border bg-accent'
+                          : 'hover:bg-card'
                       )}
                     >
                       <div className="flex items-start gap-1">
@@ -144,7 +144,7 @@ export function ChatSidebar({
                           }}
                         >
                           {isExpanded || isActiveProject ? (
-                            <FolderOpen className="h-4 w-4 mt-0.5 text-green-600 flex-shrink-0" />
+                            <FolderOpen className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
                           ) : (
                             <Folder className="h-4 w-4 mt-0.5 text-muted-foreground flex-shrink-0" />
                           )}
@@ -194,8 +194,8 @@ export function ChatSidebar({
                               className={cn(
                                 'w-full text-left px-2 py-2 rounded-md transition-colors',
                                 activeChatId === chat.id
-                                  ? 'bg-white border border-green-200 shadow-sm'
-                                  : 'hover:bg-white'
+                                  ? 'border border-border bg-accent shadow-sm'
+                                  : 'hover:bg-card'
                               )}
                             >
                               <div className="flex items-start gap-2">

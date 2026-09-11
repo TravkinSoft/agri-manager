@@ -849,7 +849,7 @@ export default function WarehouseRequestsPage() {
               {tabCounts[tab.key]}
             </span>
             {activeTab === tab.key ? (
-              <span className="absolute inset-x-2 bottom-0 h-0.5 bg-yellow-400" />
+              <span className="absolute inset-x-2 bottom-0 h-0.5 bg-primary" />
             ) : null}
           </button>
         ))}
@@ -889,9 +889,9 @@ export default function WarehouseRequestsPage() {
                       setMobileDetailOpen(true);
                     }}
                     className={[
-                      "w-full rounded-lg border p-4 text-left transition-colors",
+                      "w-full rounded-md border p-4 text-left transition-colors",
                       selected
-                        ? "border-yellow-400/80 bg-yellow-400/10"
+                        ? "border-primary bg-accent"
                         : "border-border bg-background hover:border-border hover:bg-background",
                     ].join(" ")}
                   >
@@ -900,7 +900,7 @@ export default function WarehouseRequestsPage() {
                         <div className="truncate text-base font-bold text-foreground">
                           {row.request_number}
                         </div>
-                        <div className="mt-2 truncate text-[12px] font-semibold uppercase text-amber-800">
+                        <div className="mt-2 truncate text-[12px] font-semibold uppercase text-muted-foreground">
                           {row.operation_type || "Полевая работа"}
                         </div>
                       </div>

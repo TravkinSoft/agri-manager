@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   description: 'Operational AI-native platform for fields, operations, weighbridge, warehouses, ledger and harvest flow',
   metadataBase,
   manifest: '/manifest.webmanifest',
-  themeColor: '#f7f1e7',
+  themeColor: '#292c26',
   appleWebApp: {
     capable: true,
     title: 'TravkinFlow',
@@ -58,7 +58,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ru" data-theme="warm-manor">
+    <html lang="ru" data-theme="estate-register">
       <body className={`${inter.className} tf-manor`}>
         <PublicAwareProviders>
           {children}

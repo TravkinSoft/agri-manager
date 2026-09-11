@@ -85,6 +85,9 @@ async function main() {
   const bellInk = shellColor("tf-manor-topbar", "text-\\[\\#F8F0E2\\]");
   const warningInk = shellColor("tf-manor-sidebar", "text-amber-200");
   const successInk = shellColor("tf-manor-sidebar", "text-emerald-200");
+  const lightWarningMatch = globals.match(/\]\) :is\(\.text-amber-800, \.text-amber-700\) \{\s*color:\s*(#[0-9a-f]{6})/iu);
+  assert.ok(lightWarningMatch, "estate light-surface warning override");
+  const lightWarningInk = hex(lightWarningMatch[1]);
   check("bell scoped palette compiles and exceeds 4.5:1 across espresso gradient", () => {
     for (const bg of shellBackgrounds) assert.ok(contrast(bellInk, bg) >= 4.5);
     assert.ok(bellClass.includes("text-foreground hover:bg-muted hover:text-foreground"), "light-surface base retained");
@@ -97,7 +100,7 @@ async function main() {
       assert.ok(contrast(successInk, blend(hex(colors.emerald[500]), bg, 0.1)) >= 4.5);
     }
     const paper = hslVariable("background");
-    assert.ok(contrast(hex(colors.amber[800]), blend(hex(colors.amber[500]), paper, 0.1)) >= 4.5);
+    assert.ok(contrast(lightWarningInk, blend(hex(colors.amber[500]), paper, 0.1)) >= 4.5);
     assert.ok(contrast(hex(colors.emerald[800]), blend(hex(colors.emerald[500]), paper, 0.1)) >= 4.5);
   });
   check("health status branches and collapsed state retain their original semantics", () => {

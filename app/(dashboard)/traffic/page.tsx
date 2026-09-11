@@ -45,7 +45,10 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
     <div className={PTC_BOARD_V2
       ? "tf2-shell mx-auto w-full min-w-0 max-w-[1500px] touch-pan-y pt-1 lg:px-6 lg:pb-10 lg:pt-5"
       : "mx-auto w-full min-w-0 max-w-6xl touch-pan-y pt-1 lg:px-6 lg:pb-28 lg:pt-5"}>
-      <h1 className="sr-only lg:hidden">Оборот машин</h1>
+      <div className="mb-2 px-3 pt-1 lg:hidden">
+        <h1 className="tf-manor-heading text-xl font-semibold tracking-tight text-foreground">Оборот машин</h1>
+        <p className="text-xs text-muted-foreground">Живая линия · загрузка, весовая и приёмка</p>
+      </div>
       {PTC_BOARD_V2 ? (
         <header className="mb-5 hidden items-end justify-between gap-4 border-b border-border pb-4 lg:flex">
           <div className="flex min-w-0 items-center gap-3">
@@ -192,7 +195,7 @@ function TrafficManager({ live }: { live: ReturnType<typeof useTraffic> }) {
       >
         <DialogContent
           hideCloseButton
-          className={`${PTC_BOARD_V2 ? "tf2-portal-panel tf2-panel " : ""}max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl p-4 sm:p-6`}
+          className={`${PTC_BOARD_V2 ? "tf2-portal-panel tf2-panel " : ""}max-h-[calc(100dvh-2rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-md p-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] sm:p-6 sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))]`}
         >
           <DialogHeader>
             <DialogTitle>Последние 50 изменений</DialogTitle>

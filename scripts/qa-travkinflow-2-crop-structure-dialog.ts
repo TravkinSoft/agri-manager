@@ -136,14 +136,17 @@ check("17 detail tables remain usable on narrow screens", () => {
 
 check("18 editor rows are divided sections instead of framed cards", () => {
   assert.match(editor, /aria-labelledby=\{`crop-structure-row-\$\{index\}`\}/);
-  assert.match(editor, /border-t border-border py-5 first:border-t-0/);
+  assert.match(editor, /border-t border-border py-4 first:border-t-0/);
   assert.doesNotMatch(editor, /overflow-hidden rounded-xl border border-slate-700\/80 bg-\[#101823\]/);
 });
 
-check("19 editor exposes three plain-language groups", () => {
-  assert.match(editor, />Посев и использование<\/div>/);
+check("19 editor prioritizes identity and area with optional agronomy collapsed", () => {
+  assert.match(editor, /Участки поля/);
   assert.match(editor, />Состав зерносмеси<\/h5>/);
-  assert.match(editor, />Площадь и параметры<\/div>/);
+  assert.match(editor, /<details[\s\S]*?<summary[\s\S]*?Дополнительные параметры/);
+  assert.ok(editor.indexOf("Площадь, га *") < editor.indexOf("Культура *"));
+  assert.ok(editor.indexOf("Репродукция / поколение") < editor.indexOf("<details"));
+  assert.ok(editor.indexOf("Орошение") > editor.indexOf("<details"));
 });
 
 check("20 area completion is visible and screen-reader friendly", () => {
@@ -165,7 +168,7 @@ check("22 crop, fallow and crop-mix choices are preserved", () => {
 });
 
 check("23 seed identity and agronomy inputs are preserved", () => {
-  for (const label of ["Культура *", "Сорт", "Репродукция / поколение", "Площадь, га *", "Орошение", "Междурядье, м", "Межсемянное расстояние, см", "Комментарий"]) {
+  for (const label of ["Культура *", "Сорт", "Репродукция / поколение", "Площадь, га *", "Орошение", "Междурядье, м", "Расстояние между семенами, см", "Комментарий"]) {
     assert.ok(editor.includes(label), `missing editor field: ${label}`);
   }
 });

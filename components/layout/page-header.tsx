@@ -17,7 +17,7 @@ export function PageHeader({ title, description, action, children }: PageHeaderP
   const ActionIcon = action?.icon;
 
   return (
-    <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
+    <div className="mb-4 flex flex-col gap-3 border-b border-border pb-4 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <h1 className="tf-manor-heading text-3xl sm:text-4xl">{title}</h1>
         {description && (
@@ -28,7 +28,7 @@ export function PageHeader({ title, description, action, children }: PageHeaderP
         (action && (
           <Button
             onClick={action.onClick}
-            className="tf-manor-control h-11 w-full bg-primary text-primary-foreground shadow-manor-sm hover:bg-[#3F5524] sm:h-10 sm:w-auto"
+            className="tf-manor-control h-11 w-full bg-primary text-primary-foreground shadow-manor-sm hover:bg-primary/90 sm:h-10 sm:w-auto"
           >
             {ActionIcon && <ActionIcon className="mr-2 h-4 w-4" />}
             {action.label}

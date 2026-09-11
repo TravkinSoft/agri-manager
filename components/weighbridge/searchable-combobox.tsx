@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { InlineSearchCombobox } from "@/components/ui/inline-search-combobox";
 
 export type SearchableComboboxOption = {
   value: string;
@@ -38,6 +39,7 @@ type SearchableComboboxProps = {
   ariaLabel: string;
   disabled?: boolean;
   mobile?: boolean;
+  inlineSearch?: boolean;
 };
 
 export function SearchableCombobox({
@@ -50,6 +52,7 @@ export function SearchableCombobox({
   ariaLabel,
   disabled = false,
   mobile = false,
+  inlineSearch = false,
 }: SearchableComboboxProps) {
   const [open, setOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
@@ -62,6 +65,8 @@ export function SearchableCombobox({
     });
     return Array.from(map.entries());
   }, [options]);
+
+  if (inlineSearch) return <InlineSearchCombobox {...{ value, options, onValueChange, placeholder, searchPlaceholder, emptyLabel, ariaLabel, disabled, mobile }} />;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

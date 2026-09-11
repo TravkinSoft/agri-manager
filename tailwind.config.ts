@@ -18,7 +18,7 @@ const config: Config = {
         'gradient-conic':
           'conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))',
         'manor-paper':
-          'radial-gradient(900px 520px at 12% -8%, rgba(185, 137, 57, 0.11), transparent 58%), linear-gradient(135deg, rgba(255, 253, 248, 0.72), transparent 42%)',
+          'repeating-linear-gradient(0deg, rgba(38, 41, 31, 0.012) 0, rgba(38, 41, 31, 0.012) 1px, transparent 1px, transparent 4px)',
       },
       boxShadow: {
         'manor-sm': 'var(--manor-shadow-sm)',

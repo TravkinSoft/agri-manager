@@ -104,7 +104,7 @@ export function UniversalWorkspaceTabs({
             <div
               key={tab.id}
               className={selected
-                ? "flex h-11 min-w-[11rem] max-w-[18rem] shrink-0 items-center rounded-md bg-muted text-foreground shadow-[inset_0_-2px_0_rgba(250,204,21,0.9)] transition-colors duration-150 motion-reduce:transition-none"
+                ? "flex h-11 min-w-[11rem] max-w-[18rem] shrink-0 items-center rounded-md border border-[color:var(--manor-line-strong)] bg-card text-foreground shadow-manor-sm transition-colors duration-150 motion-reduce:transition-none"
                 : "flex h-11 min-w-[11rem] max-w-[18rem] shrink-0 items-center rounded-md bg-transparent text-foreground transition-colors duration-150 hover:bg-background hover:text-foreground motion-reduce:transition-none"}
               title={tab.fullLabel}
             >

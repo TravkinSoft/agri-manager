@@ -926,11 +926,11 @@ export default function ReferencesPage() {
 
       <Tabs value={domainTab} onValueChange={(value) => setDomainTab(value as DomainTab)}>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <TabsList className="w-full justify-start overflow-auto md:w-auto">
-            <TabsTrigger value="agronomy"><TabLabel label="Агрономия" count={agronomyCountText} /></TabsTrigger>
-            <TabsTrigger value="agrochemistry"><TabLabel label="Агрохимия" count={countText(companyMaterials.length)} /></TabsTrigger>
-            <TabsTrigger value="machine-yard"><TabLabel label="Машины и техника" count={countText(machines.length + equipment.length + vehicles.length)} /></TabsTrigger>
-            <TabsTrigger value="personnel"><TabLabel label="Персонал" count={countText(workers.length)} /></TabsTrigger>
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 xl:flex xl:w-auto xl:max-w-full xl:justify-start xl:overflow-x-auto">
+            <TabsTrigger className="min-w-0 whitespace-normal px-2 text-center xl:shrink-0 xl:whitespace-nowrap xl:px-3" value="agronomy"><TabLabel label="Агрономия" count={agronomyCountText} /></TabsTrigger>
+            <TabsTrigger className="min-w-0 whitespace-normal px-2 text-center xl:shrink-0 xl:whitespace-nowrap xl:px-3" value="agrochemistry"><TabLabel label="Агрохимия" count={countText(companyMaterials.length)} /></TabsTrigger>
+            <TabsTrigger className="min-w-0 whitespace-normal px-2 text-center xl:shrink-0 xl:whitespace-nowrap xl:px-3" value="machine-yard"><TabLabel label="Машины и техника" count={countText(machines.length + equipment.length + vehicles.length)} /></TabsTrigger>
+            <TabsTrigger className="min-w-0 whitespace-normal px-2 text-center xl:shrink-0 xl:whitespace-nowrap xl:px-3" value="personnel"><TabLabel label="Персонал" count={countText(workers.length)} /></TabsTrigger>
           </TabsList>
           {currentAction ? (
             <Button onClick={() => openModal(currentAction.modal)} disabled={saving}>

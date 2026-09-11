@@ -744,7 +744,7 @@ export function AssistantPlatformSettingsForm() {
           </div>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
+          <label className="flex items-center justify-between gap-3 rounded-md border bg-card p-3">
             <span>
               <span className="block text-sm font-medium text-muted-foreground">Ассистент включён</span>
               <span className="block text-xs text-muted-foreground">Показывать Copilot пользователям разрешённых ролей.</span>
@@ -755,7 +755,7 @@ export function AssistantPlatformSettingsForm() {
               disabled={loading || saving}
             />
           </label>
-          <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
+          <label className="flex items-center justify-between gap-3 rounded-md border bg-card p-3">
             <span>
               <span className="block text-sm font-medium text-muted-foreground">Черновик перед действием</span>
               <span className="block text-xs text-muted-foreground">Операции, талоны и движения только после подтверждения.</span>
@@ -771,7 +771,7 @@ export function AssistantPlatformSettingsForm() {
               disabled={loading || saving}
             />
           </label>
-          <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
+          <label className="flex items-center justify-between gap-3 rounded-md border bg-card p-3">
             <span>
               <span className="block text-sm font-medium text-muted-foreground">Память пользователя</span>
               <span className="block text-xs text-muted-foreground">Запоминать явные предпочтения внутри текущего пользователя.</span>
@@ -784,7 +784,7 @@ export function AssistantPlatformSettingsForm() {
               disabled={loading || saving}
             />
           </label>
-          <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
+          <label className="flex items-center justify-between gap-3 rounded-md border bg-card p-3">
             <span>
               <span className="block text-sm font-medium text-muted-foreground">Библиотека компании первая</span>
               <span className="block text-xs text-muted-foreground">Для знаний и инструкций сначала читать внутренние документы.</span>
@@ -797,7 +797,7 @@ export function AssistantPlatformSettingsForm() {
               disabled={loading || saving}
             />
           </label>
-          <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
+          <label className="flex items-center justify-between gap-3 rounded-md border bg-card p-3">
             <span>
               <span className="block text-sm font-medium text-muted-foreground">Навигация по сайту</span>
               <span className="block text-xs text-muted-foreground">Ассист может готовить переходы и открывать модули.</span>
@@ -810,7 +810,7 @@ export function AssistantPlatformSettingsForm() {
               disabled={loading || saving}
             />
           </label>
-          <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
+          <label className="flex items-center justify-between gap-3 rounded-md border bg-card p-3">
             <span>
               <span className="block text-sm font-medium text-muted-foreground">Публичный интернет</span>
               <span className="block text-xs text-muted-foreground">По умолчанию выключен: источником служит ERP и библиотека.</span>
@@ -917,7 +917,7 @@ export function AssistantPlatformSettingsForm() {
                 {knowledgeLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 Обновить
               </Button>
-              <label className="inline-flex cursor-pointer items-center rounded-md border border-border bg-white px-3 py-2 text-sm font-medium text-muted-foreground shadow-sm transition hover:bg-muted">
+              <label className="inline-flex cursor-pointer items-center rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-muted-foreground shadow-manor-sm transition hover:bg-muted">
                 {knowledgeUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
                 Загрузить
                 <input
@@ -952,7 +952,7 @@ export function AssistantPlatformSettingsForm() {
           </div>
 
           <div className="grid gap-3 lg:grid-cols-3">
-            <div className="rounded-lg border bg-white p-4">
+            <div className="rounded-md border bg-card p-4">
               <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
                 <BookOpen className="h-4 w-4 text-amber-700" />
                 Порядок источников
@@ -965,7 +965,7 @@ export function AssistantPlatformSettingsForm() {
               </ol>
             </div>
 
-            <div className="space-y-3 rounded-lg border bg-white p-4 lg:col-span-2">
+            <div className="space-y-3 rounded-md border bg-card p-4 lg:col-span-2">
               <label className="flex items-center justify-between gap-3">
                 <span>
                   <span className="block text-sm font-medium text-muted-foreground">Сначала внутренняя библиотека</span>
@@ -1228,7 +1228,7 @@ export function AssistantPlatformSettingsForm() {
               {TOOL_OPTIONS.map((tool) => {
                 const checked = (settings.allowedTools || []).includes(tool);
                 return (
-                  <label key={tool} className="flex cursor-pointer items-center gap-2 rounded border bg-white p-2 text-sm">
+                  <label key={tool} className="flex cursor-pointer items-center gap-2 rounded border bg-card p-2 text-sm">
                     <Checkbox checked={checked} onCheckedChange={(next) => toggleAllowedTool(tool, !!next)} disabled={loading || saving} />
                     <span>{tool}</span>
                   </label>
@@ -1554,7 +1554,7 @@ export function AssistantPlatformSettingsForm() {
                   <div
                     key={item.id}
                     className={`rounded p-2 text-sm ${
-                      item.role === "user" ? "bg-amber-100 text-amber-950" : "bg-white text-muted-foreground"
+                      item.role === "user" ? "bg-accent text-foreground" : "bg-card text-muted-foreground"
                     }`}
                   >
                     <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">

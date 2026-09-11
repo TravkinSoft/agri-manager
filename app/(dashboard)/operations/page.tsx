@@ -865,13 +865,13 @@ export default function OperationsPage() {
                                   </div>
                                   <div>
                                     <div className="text-muted-foreground">Растений / га</div>
-                                    <div className="h-7 rounded border bg-white px-2 py-1 text-xs font-medium">
+                                    <div className="h-7 rounded border border-border bg-muted/60 px-2 py-1 text-xs font-medium text-foreground">
                                       {plantsPerHa > 0 ? plantsPerHa.toFixed(0) : "—"}
                                     </div>
                                   </div>
                                   <div>
                                     <div className="text-muted-foreground">Растений всего</div>
-                                    <div className="h-7 rounded border bg-white px-2 py-1 text-xs font-medium">
+                                    <div className="h-7 rounded border border-border bg-muted/60 px-2 py-1 text-xs font-medium text-foreground">
                                       {totalPlants > 0 ? totalPlants.toFixed(0) : "—"}
                                     </div>
                                   </div>

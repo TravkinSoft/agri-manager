@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Download, Edit3, FileText, LayoutGrid, Map as MapIcon, Maximize2, Plus, Search, Table2, X } from "lucide-react";
+import { Download, Edit3, FileText, LayoutGrid, Loader2, Map as MapIcon, Maximize2, Plus, RefreshCw, Search, Table2, X } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { FieldFormDialog } from "@/components/fields/field-form-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -426,6 +426,7 @@ export default function CropStructurePage() {
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
   const [saving, setSaving] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [fields, setFields] = useState<Field[]>([]);
@@ -986,7 +987,7 @@ export default function CropStructurePage() {
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [authLoading, activeCompanyId, toast]);
+  }, [authLoading, activeCompanyId, toast, reloadToken]);
 
   useEffect(() => {
     if (!activeCompanyId || !seasonId) {
@@ -2321,7 +2322,7 @@ export default function CropStructurePage() {
     const fieldConsumptions = consumptionsByField.get(selectedField.id) || [];
     return (
       <div className="space-y-3 text-foreground">
-        <div className="rounded-2xl border border-border bg-card p-4">
+        <div className="rounded-md border border-border bg-card p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-800">Сезонный контур поля</div>
@@ -2364,7 +2365,7 @@ export default function CropStructurePage() {
               const hasMaterials = materialRows.length > 0;
 
               return (
-                <div key={`detail-${allocation.id || allocation.crop_id}`} className="rounded-2xl border border-border bg-card p-3 shadow-sm">
+                <div key={`detail-${allocation.id || allocation.crop_id}`} className="rounded-md border border-border bg-card p-3 shadow-manor-sm">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-base font-semibold text-foreground">{allocationIdentityLabel(allocation)}</div>
@@ -2400,7 +2401,7 @@ export default function CropStructurePage() {
                       </div>
 
                       {hasMaterials ? (
-                        <div className="mt-2 max-h-48 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
+                        <div className="mt-2 max-h-48 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:var(--manor-line)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
                           <table className="w-full text-left text-xs">
                             <tbody>
                               {materialRows.map((item) => (
@@ -2445,7 +2446,7 @@ export default function CropStructurePage() {
                       ) : null}
 
                       {operationsForAllocation.length ? (
-                        <div className="mt-2 max-h-52 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
+                        <div className="mt-2 max-h-52 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:var(--manor-line)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
                           {operationsForAllocation.map(renderOperationCard)}
                         </div>
                       ) : (
@@ -2472,7 +2473,7 @@ export default function CropStructurePage() {
       <button
         key={operation.id}
         type="button"
-        className="w-full rounded-lg border border-border bg-card px-3 py-2 text-left transition hover:border-yellow-400/50 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="w-full rounded-lg border border-border bg-card px-3 py-2 text-left transition hover:border-primary/50 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={() => setSelectedOperationDetail(operation)}
         aria-label={`Открыть операцию ${operation.operation_type}`}
       >
@@ -2489,7 +2490,7 @@ export default function CropStructurePage() {
         <div className="mt-2 flex items-center gap-2" aria-label={`Прогресс ${progress.toFixed(0)} процентов`}>
           <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full rounded-full bg-yellow-400 transition-[width]"
+              className="h-full rounded-full bg-primary transition-[width]"
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -2589,7 +2590,7 @@ export default function CropStructurePage() {
                 </div>
                 <Badge className="border-border bg-background text-foreground hover:bg-background">{rowItems.length}</Badge>
               </div>
-              <div className="flex min-h-0 gap-2 overflow-x-auto pb-2 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] lg:block lg:space-y-1 lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
+              <div className="flex min-h-0 gap-2 overflow-x-auto pb-2 [scrollbar-width:thin] [scrollbar-color:var(--manor-line)_transparent] lg:block lg:space-y-1 lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
                 {rowItems.map((item) => {
                   const isSelected = item.key === selectedItem.key;
                   return (
@@ -2598,7 +2599,7 @@ export default function CropStructurePage() {
                       type="button"
                       className={`flex min-h-16 min-w-[220px] items-center justify-between gap-3 rounded-lg border-l-2 px-3 py-2 text-left transition-colors motion-reduce:transition-none lg:min-w-0 ${
                         isSelected
-                          ? "border-yellow-400 bg-yellow-400/10"
+                          ? "border-primary bg-primary/10"
                           : "border-transparent bg-transparent hover:border-border hover:bg-background"
                       }`}
                       onClick={() => {
@@ -2665,7 +2666,7 @@ export default function CropStructurePage() {
                       onKeyDown={moveTabFocus}
                       className={`min-h-11 whitespace-nowrap border-b-2 px-3 py-2 text-xs font-semibold transition-colors motion-reduce:transition-none ${
                         dossierDetailTab === tab.key
-                          ? "border-yellow-400 text-amber-800"
+                          ? "border-primary text-foreground"
                           : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
                       }`}
                       onClick={() => setDossierDetailTab(tab.key as "overview" | "operations" | "materials")}
@@ -2680,7 +2681,7 @@ export default function CropStructurePage() {
                 id="allocation-detail-panel"
                 role="tabpanel"
                 aria-labelledby={`allocation-tab-${dossierDetailTab}`}
-                className="min-h-0 flex-1 overflow-y-auto pt-4 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent"
+                className="min-h-0 flex-1 overflow-y-auto pt-4 [scrollbar-width:thin] [scrollbar-color:var(--manor-line)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent"
               >
                 {dossierDetailTab === "overview" ? (
                   <div className="space-y-4">
@@ -2851,9 +2852,9 @@ export default function CropStructurePage() {
 
   const renderEditor = () => {
     if (!selectedField) return null;
-    const editorLabelClass = "mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground";
+    const editorLabelClass = "mb-1.5 block text-xs font-medium leading-snug text-foreground";
     const editorControlClass =
-      "h-11 w-full min-w-0 border-border bg-card text-foreground shadow-inner shadow-black/20 placeholder:text-muted-foreground focus-visible:border-yellow-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0";
+      "h-11 w-full min-w-0 border-input bg-card text-sm text-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0";
     const editorNumberControlClass = `${editorControlClass} [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
     const editorSelectContentClass = "border-border bg-card text-foreground shadow-xl";
     const plannedArea = sumArea(draftRows);
@@ -2866,7 +2867,7 @@ export default function CropStructurePage() {
     return (
       <fieldset
         disabled={saving}
-        className="m-0 min-w-0 space-y-5 border-0 p-0 text-foreground disabled:cursor-wait"
+        className="tf-estate-editor m-0 min-w-0 space-y-4 border-0 p-0 text-foreground disabled:cursor-wait"
         aria-labelledby="crop-structure-editor-heading"
         aria-busy={saving}
         data-testid="crop-structure-editor"
@@ -2874,7 +2875,7 @@ export default function CropStructurePage() {
         <div className="space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <h3 id="crop-structure-editor-heading" className="text-sm font-semibold text-foreground">Площадь структуры</h3>
+              <h3 id="crop-structure-editor-heading" className="font-display text-xl font-semibold text-foreground">Участки поля</h3>
               <p className={`mt-1 text-xs ${areaIsOver ? "font-semibold text-rose-800" : "text-muted-foreground"}`}>
                 План: {fmtHa(plannedArea)} / {fmtHa(selectedField.area)} · {areaIsOver ? "Превышение" : "Остаток"}: {fmtHa(Math.abs(remainingArea))}
               </p>
@@ -2894,13 +2895,13 @@ export default function CropStructurePage() {
             aria-valuenow={Math.round(plannedPercent)}
           >
             <div
-              className={`h-full rounded-full transition-[width] motion-reduce:transition-none ${areaIsOver ? "bg-rose-400" : "bg-yellow-400"}`}
+              className={`h-full rounded-full transition-[width] duration-150 motion-reduce:transition-none ${areaIsOver ? "bg-destructive" : "bg-primary"}`}
               style={{ width: `${plannedPercent}%` }}
             />
           </div>
           {!seasonId ? (
             <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-800">
-              У этой компании нет активного сезона. Структуру нельзя сохранить; войдите в основную QA-компанию или сначала откройте сезон.
+              У этой компании нет активного сезона. Структуру нельзя сохранить; выберите компанию с активным сезоном или сначала откройте сезон.
             </div>
           ) : null}
           {editorValidationError ? (
@@ -2923,16 +2924,16 @@ export default function CropStructurePage() {
             return (
               <section
                 key={`${row.id || "new"}-${index}`}
-                className="border-t border-border py-5 first:border-t-0 first:pt-0"
+                className="tf-estate-plot border-t border-border py-4 first:border-t-0 first:pt-0"
                 aria-labelledby={`crop-structure-row-${index}`}
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-yellow-500 text-[11px] font-bold text-foreground">{index + 1}</span>
-                    <h4 id={`crop-structure-row-${index}`} className="text-sm font-semibold text-foreground">Участок структуры</h4>
+                    <span aria-hidden="true" className="flex h-6 w-6 items-center justify-center border border-border bg-secondary text-xs font-semibold text-foreground">{String(index + 1).padStart(2, "0")}</span>
+                    <h4 id={`crop-structure-row-${index}`} className="font-display text-lg font-semibold text-foreground">{isFallowRow ? "Пар" : isCropMixRow ? "Зерносмесь" : "Посев"}</h4>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">{fmtHa(Number(row.area || 0))}</span>
+                    <span className="text-xs tabular-nums text-muted-foreground">{fmtHa(Number(row.area || 0))} · {pct}% поля</span>
                     <Button
                       type="button"
                       className="h-11 w-11 border border-transparent text-muted-foreground hover:border-rose-500/40 hover:bg-rose-500/15 hover:text-rose-800 disabled:cursor-not-allowed disabled:opacity-40"
@@ -2946,15 +2947,14 @@ export default function CropStructurePage() {
                     </Button>
                   </div>
                 </div>
-                <div className="grid grid-cols-12 items-end gap-3 pt-4">
-                <div className="col-span-12 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Посев и использование</div>
-                <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
-                  <Label className={editorLabelClass}>Использование участка *</Label>
+                <div className="grid grid-cols-12 items-end gap-3 pt-2">
+                <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-4">
+                  <Label htmlFor={`plot-use-${index}`} className={editorLabelClass}>Использование *</Label>
                   <Select
                     value={row.land_use_type}
                     onValueChange={(value) => patchDraft(index, { land_use_type: value as "crop" | "crop_mix" | "fallow" })}
                   >
-                    <SelectTrigger className={editorControlClass}><SelectValue /></SelectTrigger>
+                    <SelectTrigger id={`plot-use-${index}`} className={editorControlClass}><SelectValue /></SelectTrigger>
                     <SelectContent className={editorSelectContentClass}>
                       <SelectItem value="crop">Культура</SelectItem>
                       <SelectItem value="crop_mix">Зерносмесь</SelectItem>
@@ -2962,19 +2962,37 @@ export default function CropStructurePage() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
+                  <Label htmlFor={`plot-area-${index}`} className={editorLabelClass}>Площадь, га *</Label>
+                  <div className="flex gap-1.5">
+                    <Input id={`plot-area-${index}`} className={editorNumberControlClass} type="text" inputMode="decimal" value={row.area == null ? "" : String(row.area)} onChange={(event) => patchDraft(index, { area: parseNum(event.target.value) })} placeholder="га" />
+                    <Button
+                      type="button"
+                      title="Заполнить остатком площади"
+                      aria-label="Заполнить остатком площади"
+                      className="h-11 w-11 shrink-0 border-input p-0 text-foreground hover:bg-accent"
+                      variant="outline"
+                      onClick={() => fillRemainingArea(index)}
+                    >
+                      <Maximize2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
                 {!isFallowRow && !isCropMixRow ? (
                   <>
-                    <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
-                      <Label className={editorLabelClass}>Культура *</Label>
+                    <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-5">
+                      <Label htmlFor={`plot-crop-${index}`} className={editorLabelClass}>Культура *</Label>
                       <Select value={rowCropId || "none"} onValueChange={(value) => patchDraft(index, { crop_id: value === "none" ? null : value })}>
-                        <SelectTrigger className={editorControlClass}><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
+                        <SelectTrigger id={`plot-crop-${index}`} className={editorControlClass}><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
                         <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{cropSelectOptions(rowCropId).map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
                     {row.crop_id && vars.length > 0 ? (
-                    <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
-                      <Label className={editorLabelClass}>Сорт</Label>
+                    <div className="col-span-12 min-w-0 sm:col-span-6">
+                      <Label htmlFor={`plot-variety-${index}`} className={editorLabelClass}>Сорт</Label>
                       <CatalogIdentityCombobox
+                        id={`plot-variety-${index}`}
+                        ariaLabel={`Сорт участка ${index + 1}`}
                         value={row.variety_id}
                         options={vars.map((variety) => ({
                           id: variety.id,
@@ -2992,9 +3010,11 @@ export default function CropStructurePage() {
                     </div>
                     ) : null}
                     {row.crop_id && globalReproductions.length > 0 ? (
-                    <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
-                      <Label className={editorLabelClass}>Репродукция / поколение</Label>
+                    <div className="col-span-12 min-w-0 sm:col-span-6">
+                      <Label htmlFor={`plot-reproduction-${index}`} className={editorLabelClass}>Репродукция / поколение</Label>
                       <CatalogIdentityCombobox
+                        id={`plot-reproduction-${index}`}
+                        ariaLabel={`Репродукция участка ${index + 1}`}
                         value={row.reproduction_id}
                         options={globalReproductions.map((item) => ({
                           id: item.id,
@@ -3124,35 +3144,18 @@ export default function CropStructurePage() {
                     </Button>
                   </section>
                 ) : null}
-                <div className="col-span-12 mt-1 border-t border-border pt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Площадь и параметры</div>
-                <div className="col-span-12 min-w-0 sm:col-span-7 xl:col-span-4">
-                  <Label className={editorLabelClass}>Площадь, га *</Label>
-                  <div className="flex gap-1.5">
-                    <Input className={editorNumberControlClass} type="text" inputMode="decimal" value={row.area == null ? "" : String(row.area)} onChange={(event) => patchDraft(index, { area: parseNum(event.target.value) })} placeholder="га" />
-                    <Button
-                      type="button"
-                      title="Заполнить остатком площади"
-                      aria-label="Заполнить остатком площади"
-                      className="h-11 w-11 shrink-0 border border-border bg-card p-0 text-muted-foreground hover:border-yellow-500/50 hover:bg-card hover:text-amber-800"
-                      variant="outline"
-                      onClick={() => fillRemainingArea(index)}
-                    >
-                      <Maximize2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </div>
-                <div className="col-span-8 min-w-0 sm:col-span-3 xl:col-span-2">
-                  <Label className={editorLabelClass}>%</Label>
-                  <div className="flex h-11 items-center border-b border-border px-1 text-sm font-semibold text-foreground">{pct}</div>
-                </div>
-                <div className={`col-span-12 grid grid-cols-1 gap-3 ${isFallowRow || isCropMixRow ? "" : "md:grid-cols-3"}`}>
+                <details className="tf-estate-details col-span-12 min-w-0 border-t border-border pt-2">
+                  <summary className="cursor-pointer py-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    Дополнительные параметры <span className="font-normal text-muted-foreground">· орошение, посадка, комментарий{row.notes ? " · есть заметка" : ""}</span>
+                  </summary>
+                <div className={`grid grid-cols-1 gap-3 pt-2 ${isFallowRow || isCropMixRow ? "" : "md:grid-cols-3"}`}>
                   <div>
-                    <Label className={editorLabelClass}>Орошение</Label>
+                    <Label htmlFor={`plot-irrigation-${index}`} className={editorLabelClass}>Орошение</Label>
                     <Select
                       value={normalizeIrrigationType(row.irrigation_type)}
                       onValueChange={(value) => patchDraft(index, { irrigation_type: normalizeIrrigationType(value) })}
                     >
-                      <SelectTrigger className={editorControlClass}><SelectValue /></SelectTrigger>
+                      <SelectTrigger id={`plot-irrigation-${index}`} className={editorControlClass}><SelectValue /></SelectTrigger>
                       <SelectContent className={editorSelectContentClass}>
                         <SelectItem value="unknown">Не указано</SelectItem>
                         <SelectItem value="drip">Капельное</SelectItem>
@@ -3164,8 +3167,9 @@ export default function CropStructurePage() {
                   {!isFallowRow && !isCropMixRow ? (
                     <>
                       <div>
-                        <Label className={editorLabelClass}>Междурядье, м</Label>
+                        <Label htmlFor={`plot-row-spacing-${index}`} className={editorLabelClass}>Междурядье, м</Label>
                         <Input
+                          id={`plot-row-spacing-${index}`}
                           className={editorNumberControlClass}
                           type="text"
                           inputMode="decimal"
@@ -3175,8 +3179,9 @@ export default function CropStructurePage() {
                         />
                       </div>
                       <div>
-                        <Label className={editorLabelClass}>Межсемянное расстояние, см</Label>
+                        <Label htmlFor={`plot-seed-spacing-${index}`} className={editorLabelClass}>Расстояние между семенами, см</Label>
                         <Input
+                          id={`plot-seed-spacing-${index}`}
                           className={editorNumberControlClass}
                           type="text"
                           inputMode="decimal"
@@ -3188,15 +3193,17 @@ export default function CropStructurePage() {
                     </>
                   ) : null}
                 </div>
-                <div className="col-span-12">
-                  <Label className={editorLabelClass}>Комментарий</Label>
+                <div className="pt-3">
+                  <Label htmlFor={`plot-notes-${index}`} className={editorLabelClass}>Комментарий</Label>
                   <Input
+                    id={`plot-notes-${index}`}
                     className={editorControlClass}
                     value={row.notes}
                     onChange={(event) => patchDraft(index, { notes: event.target.value })}
                     placeholder={isFallowRow ? "Например: чистый пар, подготовка под посев" : "Необязательный комментарий"}
                   />
                 </div>
+                </details>
                 </div>
               </section>
             );
@@ -3431,7 +3438,7 @@ export default function CropStructurePage() {
   };
 
   if (loading) {
-    return <PageHeader title="Структура посевов" description="Загрузка..." />;
+    return <div className="space-y-4"><PageHeader title="Структура посевов" description="Поля, культуры и работы" /><div className="tf-estate-document flex min-h-40 items-center justify-center gap-2 p-6 text-sm text-muted-foreground" role="status" aria-live="polite"><Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />Загружаем структуру посевов…</div></div>;
   }
 
   const hasFields = fields.length > 0;
@@ -3451,7 +3458,7 @@ export default function CropStructurePage() {
             disabled={seasons.length === 0 || saving || (isDesktopWorkspace && hasUnsavedStructureChanges)}
           >
             <SelectTrigger
-              className="h-8 min-w-[92px] border-border bg-transparent px-2 text-xs font-medium text-muted-foreground shadow-none hover:border-border hover:text-foreground disabled:cursor-default disabled:opacity-70"
+              className="h-8 min-w-[132px] border-border bg-transparent px-2 text-xs font-medium text-muted-foreground shadow-none hover:border-border hover:text-foreground disabled:cursor-default disabled:opacity-70"
               aria-label="Сезон структуры посевов"
             >
               <SelectValue placeholder="Сезон не создан" />
@@ -3503,18 +3510,18 @@ export default function CropStructurePage() {
                 <SelectItem value="state">Сорт: статус</SelectItem>
               </SelectContent>
             </Select>
-            <div className="flex min-w-0 items-center justify-end gap-1.5 sm:col-span-2 xl:col-span-1">
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:col-span-2 xl:col-span-1">
               {canManageFields ? (
                 <Button
                   type="button"
                   size="sm"
-                  className="h-9 whitespace-nowrap px-3"
+                  className="h-9 w-full whitespace-nowrap px-3 sm:w-auto"
                   onClick={() => setFieldCreateOpen(true)}
                 >
                   <Plus className="mr-2 h-4 w-4" />Добавить поле
                 </Button>
               ) : null}
-              <div className="flex shrink-0 rounded-md border border-border bg-white p-0.5">
+              <div className="flex shrink-0 rounded-md border border-border bg-card p-0.5">
                 <Button
                   type="button"
                   size="sm"
@@ -3525,8 +3532,8 @@ export default function CropStructurePage() {
                   aria-label="Показать карточками"
                   title="Карточки"
                 >
-                  <LayoutGrid className="mr-1.5 h-4 w-4 xl:mr-0 2xl:mr-1.5" />
-                  <span className="xl:hidden 2xl:inline">Карточки</span>
+                  <LayoutGrid className="h-4 w-4 sm:mr-1.5 xl:mr-0 2xl:mr-1.5" />
+                  <span className="hidden sm:inline xl:hidden 2xl:inline">Карточки</span>
                 </Button>
                 <Button
                   type="button"
@@ -3538,8 +3545,8 @@ export default function CropStructurePage() {
                   aria-label="Показать таблицей"
                   title="Таблица"
                 >
-                  <Table2 className="mr-1.5 h-4 w-4 xl:mr-0 2xl:mr-1.5" />
-                  <span className="xl:hidden 2xl:inline">Таблица</span>
+                  <Table2 className="h-4 w-4 sm:mr-1.5 xl:mr-0 2xl:mr-1.5" />
+                  <span className="hidden sm:inline xl:hidden 2xl:inline">Таблица</span>
                 </Button>
                 {isGlobalAdmin ? (
                   <Button
@@ -3552,8 +3559,8 @@ export default function CropStructurePage() {
                     aria-label="Показать на карте"
                     title="Карта"
                   >
-                    <MapIcon className="mr-1.5 h-4 w-4 xl:mr-0 2xl:mr-1.5" />
-                    <span className="xl:hidden 2xl:inline">Карта</span>
+                    <MapIcon className="h-4 w-4 sm:mr-1.5 xl:mr-0 2xl:mr-1.5" />
+                    <span className="hidden sm:inline xl:hidden 2xl:inline">Карта</span>
                   </Button>
                 ) : null}
               </div>
@@ -3565,8 +3572,8 @@ export default function CropStructurePage() {
                 aria-label="Экспортировать в Excel"
                 title="Excel"
               >
-                <Download className="mr-1.5 h-4 w-4 xl:mr-0 2xl:mr-1.5" />
-                <span className="xl:hidden 2xl:inline">Excel</span>
+                <Download className="h-4 w-4 sm:mr-1.5 xl:mr-0 2xl:mr-1.5" />
+                <span className="hidden sm:inline xl:hidden 2xl:inline">Excel</span>
               </Button>
             </div>
           </div>
@@ -3578,6 +3585,9 @@ export default function CropStructurePage() {
           <CardContent className="p-8 text-center">
             <div className="text-lg font-semibold text-muted-foreground">Не удалось загрузить структуру посевов</div>
             <div className="mt-2 text-sm text-muted-foreground">{loadError}</div>
+            <Button type="button" variant="outline" className="mt-4" onClick={() => setReloadToken((value) => value + 1)}>
+              <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />Повторить загрузку
+            </Button>
           </CardContent>
         </Card>
       ) : null}
@@ -3649,7 +3659,7 @@ export default function CropStructurePage() {
           hideCloseButton
           data-testid="field-dialog-content"
           overlayClassName="motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none motion-reduce:duration-0"
-          className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-none flex-col gap-0 overflow-hidden border-border bg-card p-0 text-foreground shadow-2xl shadow-black/50 motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none motion-reduce:duration-0 sm:max-h-[92vh] sm:w-[94vw] sm:max-w-[1180px] sm:rounded-2xl"
+          className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-none flex-col gap-0 !overflow-hidden rounded-md border-border bg-card p-0 text-foreground shadow-manor-md motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none motion-reduce:duration-0 sm:max-h-[92vh] sm:w-[94vw] sm:max-w-[1180px]"
         >
           <DialogHeader className="shrink-0 gap-3 space-y-0 border-b border-border px-4 py-4 pr-4 text-left sm:px-6">
             <div className="flex items-start justify-between gap-3">
@@ -3695,7 +3705,7 @@ export default function CropStructurePage() {
                 tabIndex={fieldDialogTab === "dossier" ? 0 : -1}
                 variant="ghost"
                 size="sm"
-                className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "dossier" ? "border-yellow-400 text-amber-800" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
+                className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "dossier" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
                 onClick={() => setFieldDialogTab("dossier")}
                 onKeyDown={moveTabFocus}
               >
@@ -3710,7 +3720,7 @@ export default function CropStructurePage() {
                   tabIndex={fieldDialogTab === "editor" ? 0 : -1}
                   variant="ghost"
                   size="sm"
-                  className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "editor" ? "border-yellow-400 text-amber-800" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
+                  className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "editor" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
                   onClick={() => setFieldDialogTab("editor")}
                   onKeyDown={moveTabFocus}
                   disabled={!canEditSelectedSeason}
@@ -3728,7 +3738,7 @@ export default function CropStructurePage() {
                   tabIndex={fieldDialogTab === "legal" ? 0 : -1}
                   variant="ghost"
                   size="sm"
-                  className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "legal" ? "border-yellow-400 text-amber-800" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
+                  className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "legal" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
                   onClick={() => setFieldDialogTab("legal")}
                   onKeyDown={moveTabFocus}
                 >
@@ -3741,14 +3751,14 @@ export default function CropStructurePage() {
             id="field-dialog-panel"
             role="tabpanel"
             aria-labelledby={`field-tab-${fieldDialogTab}`}
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] sm:px-6 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent"
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 [scrollbar-width:thin] [scrollbar-color:var(--manor-line)_transparent] sm:px-6 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent"
           >
             {fieldDialogTab === "dossier" ? renderFieldDossier() : null}
             {fieldDialogTab === "editor" ? renderEditor() : null}
             {fieldDialogTab === "legal" ? renderLegalContour() : null}
           </div>
           <div
-            className="sticky bottom-0 z-20 flex shrink-0 flex-col gap-2 border-t border-border bg-card px-4 py-3 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:px-6"
+            className="sticky bottom-0 z-20 flex shrink-0 flex-col gap-2 border-t border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6"
             data-testid="field-dialog-action-bar"
           >
             <div className="min-h-5 text-xs text-muted-foreground" aria-live="polite">
@@ -3763,7 +3773,7 @@ export default function CropStructurePage() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-11 border-border bg-transparent text-foreground hover:border-yellow-500/50 hover:bg-muted hover:text-foreground"
+                  className="h-11 border-border bg-transparent text-foreground hover:border-primary/50 hover:bg-muted hover:text-foreground"
                   onClick={addRow}
                   disabled={saving}
                 >
@@ -3847,7 +3857,7 @@ export default function CropStructurePage() {
       </AlertDialog>
 
       <Dialog open={Boolean(selectedOperationDetail)} onOpenChange={(open) => !open && setSelectedOperationDetail(null)}>
-        <DialogContent className="max-h-[92vh] w-[94vw] max-w-none overflow-y-auto border-border bg-card text-foreground shadow-2xl shadow-black/50 sm:max-w-[1040px] travkin-scrollbar">
+        <DialogContent className="travkin-scrollbar max-h-[92vh] w-[94vw] max-w-none overflow-y-auto rounded-md border-border bg-card text-foreground shadow-manor-md sm:max-w-[1040px]">
           {selectedOperationDetail ? (
             <>
               <DialogHeader>
@@ -3908,7 +3918,7 @@ export default function CropStructurePage() {
       </Dialog>
 
       <Dialog open={pendingDeleteIndex !== null} onOpenChange={(open) => !open && setPendingDeleteIndex(null)}>
-        <DialogContent className="max-w-md border-border bg-card text-foreground shadow-2xl shadow-black/50">
+        <DialogContent className="max-w-md rounded-md border-border bg-card text-foreground shadow-manor-md">
           <DialogHeader>
             <DialogTitle>Удалить участок структуры?</DialogTitle>
             <DialogDescription className="text-muted-foreground">
@@ -3944,7 +3954,7 @@ export default function CropStructurePage() {
               <button
                 key={allocation.id}
                 type="button"
-                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-left text-sm text-foreground transition hover:border-yellow-400"
+                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-left text-sm text-foreground transition hover:border-primary"
                 onClick={(event) => sectionChoiceField && openOperationPlan(sectionChoiceField, allocation, event)}
               >
                 <div className="font-semibold">{allocationTitle(allocation)}</div>
@@ -3956,7 +3966,7 @@ export default function CropStructurePage() {
             {sectionChoiceField ? (
               <button
                 type="button"
-                className="w-full rounded-lg border border-dashed border-border bg-background px-3 py-2 text-left text-sm text-foreground transition hover:border-yellow-400"
+                className="w-full rounded-lg border border-dashed border-border bg-background px-3 py-2 text-left text-sm text-foreground transition hover:border-primary"
                 onClick={(event) => openWholeFieldOperationPlan(sectionChoiceField, event)}
               >
                 <div className="font-semibold">Всё поле — {fmtHa(Number(sectionChoiceField.area || 0))}</div>

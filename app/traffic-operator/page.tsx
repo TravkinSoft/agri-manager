@@ -84,8 +84,8 @@ export default function TrafficOperatorPage() {
 function TrafficPwaShell({ children }: { children: React.ReactNode }) {
   return (
     <main className={PTC_BOARD_V2
-      ? "tf2-shell tf2-traffic-shell min-h-[100dvh] touch-pan-y px-4 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] text-foreground sm:px-6"
-      : "min-h-[100dvh] touch-pan-y bg-card px-4 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] text-foreground sm:px-6"}>
+      ? "tf2-shell tf2-traffic-shell min-h-[100dvh] touch-pan-y pb-[max(2.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(1.5rem,env(safe-area-inset-top))] text-foreground sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))]"
+      : "min-h-[100dvh] touch-pan-y bg-card pb-[max(2.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(1.5rem,env(safe-area-inset-top))] text-foreground sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))]"}>
       <TrafficPwa />
       <div className={PTC_BOARD_V2 ? "mx-auto w-full max-w-6xl" : "mx-auto max-w-5xl"}>{children}</div>
     </main>

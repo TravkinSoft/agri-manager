@@ -144,13 +144,13 @@ export function Sidebar() {
   return (
     <div
       className={cn(
-        "tf-manor-sidebar flex h-full flex-col border-r text-[#F8F0E2] transition-all duration-150 ease-out",
+        "tf-manor-sidebar flex h-full flex-col border-r text-[var(--estate-shell-text)] transition-all duration-150 ease-out",
         isCollapsed ? "w-16" : "w-64"
       )}
     >
       <div
         className={cn(
-          "flex h-16 items-center border-b border-[#B98939]/25 transition-all duration-150",
+          "flex h-16 items-center border-b border-[var(--estate-shell-line)] transition-all duration-150",
           isCollapsed ? "justify-center px-0" : "px-4"
         )}
       >
@@ -167,13 +167,14 @@ export function Sidebar() {
               <Link
                 key={`${item.href}-${item.labelKey}`}
                 href={item.href}
+                aria-current={isActive ? "page" : undefined}
                 prefetch={["/weighbridge", "/warehouses", "/ledger"].includes(item.href) ? true : undefined}
                 className={cn(
-                  "tf-manor-control flex min-h-11 items-center rounded-lg text-sm font-medium",
+                  "tf-manor-control flex min-h-11 items-center border-l-2 text-sm font-medium",
                   isCollapsed ? "justify-center px-3 py-2" : "gap-3 px-3 py-2",
                   isActive
-                    ? "bg-gradient-to-r from-[#F2D48A] to-[#E5BE67] text-[#2B1D13] shadow-[0_0_0_1px_rgba(185,137,57,0.38),0_8px_20px_rgba(19,12,7,0.16)]"
-                    : "text-[#DED2C1] hover:bg-[#F8F0E2]/10 hover:text-white"
+                    ? "border-[var(--manor-brass-soft)] bg-white/10 text-[var(--estate-shell-text)]"
+                    : "border-transparent text-[var(--estate-shell-muted)] hover:bg-white/5 hover:text-[var(--estate-shell-text)]"
                 )}
               >
                 <Icon className="h-5 w-5 flex-shrink-0" />
@@ -209,7 +210,7 @@ export function Sidebar() {
       ) : null}
 
       {!isCollapsed ? (
-        <div className="border-t border-[#B98939]/25 px-4 py-3 text-[11px] text-[#BDAE98]">
+        <div className="border-t border-[var(--estate-shell-line)] px-4 py-3 text-[11px] text-[var(--estate-shell-muted)]">
           Copyright © Сунгатов Айымбек
         </div>
       ) : null}

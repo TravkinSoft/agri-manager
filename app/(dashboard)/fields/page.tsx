@@ -338,9 +338,9 @@ export default function FieldsPage() {
               </div>
             ) : (
               filteredFields.map((field) => (
-                <div key={`mobile-${field.id}`} className="rounded-xl border border-border bg-white p-3">
+                <div key={`mobile-${field.id}`} className="rounded-md border border-border bg-card p-3 shadow-manor-sm">
                   <Link href={`/fields/${field.id}`} className="block rounded-md focus:outline-none focus:ring-2 focus:ring-ring">
-                    <div className="text-base font-semibold text-muted-foreground">{getFieldDisplayName(field)}</div>
+                    <div className="text-base font-semibold text-foreground">{getFieldDisplayName(field)}</div>
                     <div className="mt-1 text-sm text-muted-foreground">
                       {text.area}: {field.area.toFixed(2)} {localizeUnit("ha", language)}
                     </div>
@@ -398,7 +398,7 @@ export default function FieldsPage() {
                   filteredFields.map((field) => (
                     <TableRow key={field.id}>
                       <TableCell className="font-medium">
-                        <Link href={`/fields/${field.id}`} className="text-muted-foreground hover:underline">
+                        <Link href={`/fields/${field.id}`} className="text-foreground hover:underline">
                           {getFieldDisplayName(field)}
                         </Link>
                       </TableCell>
@@ -465,7 +465,7 @@ export default function FieldsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>{text.archiveTitle}</AlertDialogTitle>
             <AlertDialogDescription>
-              {text.archiveDesc} "{fieldToArchive ? getFieldDisplayName(fieldToArchive) : ""}"? {text.archiveDescTail}
+              {text.archiveDesc} &ldquo;{fieldToArchive ? getFieldDisplayName(fieldToArchive) : ""}&rdquo;? {text.archiveDescTail}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

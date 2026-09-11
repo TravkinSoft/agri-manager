@@ -7,7 +7,8 @@ import { CropDistributionTable } from "@/components/dashboard/crop-distribution-
 import { RecentOperationsTable } from "@/components/dashboard/recent-operations-table";
 import { InventorySnapshotTable } from "@/components/dashboard/inventory-snapshot-table";
 import { Card, CardContent } from "@/components/ui/card";
-import { MapPin, Sprout, Maximize2, Warehouse, Package, ArrowRightLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { MapPin, Sprout, Maximize2, Warehouse, Package, ArrowRightLeft, Loader2, RefreshCw } from "lucide-react";
 import {
   getDashboardMetrics,
   getCropDistribution,
@@ -26,7 +27,7 @@ import { HarvestDashboard } from "@/components/dashboard/harvest-dashboard";
 
 export default function DashboardPage() {
   const { profile, loading } = useAuth();
-  if (loading) return <div className="py-12 text-center text-sm text-muted-foreground">Загрузка...</div>;
+  if (loading) return <div className="tf-estate-document flex min-h-40 items-center justify-center gap-2 p-6 text-sm text-muted-foreground" role="status" aria-live="polite"><Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />Загружаем панель…</div>;
   if (profile?.role === "agronomist" || profile?.role === "director") return <HarvestDashboard />;
   return <LegacyDashboard />;
 }
@@ -49,6 +50,7 @@ function LegacyDashboard() {
   const [recentMovements, setRecentMovements] = useState(0);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
   const currentYear = new Date().getFullYear();
 
   useEffect(() => {
@@ -108,14 +110,15 @@ function LegacyDashboard() {
     }
 
     loadDashboardData();
-  }, [authLoading, currentYear, profile?.role, profile?.company_id, language]);
+  }, [authLoading, currentYear, profile?.role, profile?.company_id, language, reloadToken]);
 
   if (authLoading || loading) {
     return (
       <div>
         <PageHeader title={t("dashboard_title")} description={t("dashboard_desc")} />
-        <div className="text-center py-12">
-          <p className="text-muted-foreground">{t("dashboard_loading")}</p>
+        <div className="tf-estate-document flex min-h-40 items-center justify-center gap-2 p-6 text-sm text-muted-foreground" role="status" aria-live="polite">
+          <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+          <span>{t("dashboard_loading")}</span>
         </div>
       </div>
     );
@@ -125,8 +128,11 @@ function LegacyDashboard() {
     return (
       <div>
         <PageHeader title={t("dashboard_title")} description={t("dashboard_desc")} />
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {errorMessage}
+        <div className="tf-estate-document border-destructive/40 p-5" role="alert">
+          <p className="text-sm text-destructive">{errorMessage}</p>
+          <Button type="button" variant="outline" className="mt-4" onClick={() => setReloadToken((value) => value + 1)}>
+            <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />Повторить загрузку
+          </Button>
         </div>
       </div>
     );

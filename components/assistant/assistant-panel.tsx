@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Bot } from "lucide-react";
+import { Bot, X } from "lucide-react";
 import { AssistantConversationHost } from "@/components/assistant/assistant-conversation-host";
 import { useAssistantShell } from "@/components/assistant/assistant-shell-provider";
+import { Button } from "@/components/ui/button";
 import { defaultAssistantPanelEngine } from "@/lib/assistant/panel-engine";
 
 export function AssistantPanel() {
@@ -32,7 +33,7 @@ export function AssistantPanel() {
   }, []);
 
   useEffect(() => {
-    const media = window.matchMedia("(max-width: 767px)");
+    const media = window.matchMedia("(max-width: 767px), (max-width: 1023px) and (max-height: 600px) and (orientation: landscape)");
     const update = () => setIsMobileView(media.matches);
     update();
     media.addEventListener("change", update);
@@ -109,10 +110,10 @@ export function AssistantPanel() {
       aria-hidden={!isOpen}
       className={
         isMobileView
-          ? `fixed inset-x-0 bottom-0 z-50 h-[82vh] rounded-t-2xl border border-border bg-card shadow-2xl transition-transform duration-200 ease-out ${
+          ? `fixed bottom-0 left-[env(safe-area-inset-left)] right-[env(safe-area-inset-right)] z-50 h-[82vh] rounded-t-md border border-border bg-card pb-[env(safe-area-inset-bottom)] shadow-manor-md transition-transform duration-200 ease-out ${
               isOpen ? "translate-y-0" : "translate-y-[calc(100%+24px)]"
             }`
-          : `fixed inset-y-0 right-0 z-50 border-l border-border bg-card shadow-[0_20px_70px_rgba(0,0,0,0.45)] transition-transform duration-200 ease-out ${
+          : `fixed inset-y-0 right-0 z-50 border-l border-border bg-card shadow-manor-md transition-transform duration-200 ease-out ${
               isOpen ? "translate-x-0" : "translate-x-[calc(100%+24px)]"
             }`
       }
@@ -137,7 +138,7 @@ export function AssistantPanel() {
           className="group absolute -left-6 inset-y-0 z-10 w-12 cursor-col-resize touch-none"
         >
           <div className="mx-auto h-full w-px bg-muted transition group-hover:w-1 group-hover:bg-primary" />
-          <div className="absolute left-1/2 top-1/2 hidden h-16 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/70 shadow-[0_0_18px_rgba(224,177,0,0.45)] group-hover:block" />
+          <div className="absolute left-1/2 top-1/2 hidden h-16 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/70 shadow-manor-sm group-hover:block" />
         </div>
       ) : null}
 
@@ -156,6 +157,9 @@ export function AssistantPanel() {
                 <div className="mt-0.5 truncate text-xs text-muted-foreground">{contextLabel || "Контекст загружается"}</div>
               </div>
             </div>
+            <Button type="button" variant="ghost" size="icon" onClick={close} aria-label="Закрыть Travkin Copilot" className="shrink-0">
+              <X className="h-4 w-4" aria-hidden="true" />
+            </Button>
           </div>
         </header>
 

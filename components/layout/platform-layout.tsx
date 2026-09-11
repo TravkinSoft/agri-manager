@@ -140,7 +140,13 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
   }, [loading, profile?.role]);
 
   if (loading || profile?.role !== "global_admin") {
-    return null;
+    return (
+      <main className="tf-manor grid min-h-screen place-items-center bg-background p-4" role="status" aria-live="polite">
+        <div className="tf-estate-document w-full max-w-md p-6 text-sm text-muted-foreground">
+          Проверяем доступ и открываем рабочий раздел…
+        </div>
+      </main>
+    );
   }
 
   const environment = runtimeStatus?.runtime.environment || (runtimeError ? "error" : "loading");
@@ -150,19 +156,19 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
   const selectedCompany = runtimeStatus?.companies.selected || null;
 
   return (
-    <div className="tf-manor-shell min-h-screen">
-      <header className="tf-manor-topbar border-b text-[#F8F0E2] shadow-[0_8px_28px_rgba(43,29,19,0.16)]">
+    <div className="travkin-shell tf-manor-shell min-h-screen">
+      <header className="tf-manor-topbar border-b text-[var(--estate-shell-text)] shadow-[0_8px_28px_rgba(30,33,25,0.14)]">
         <div className="flex min-h-10 flex-col gap-2 px-3 py-2 text-[11px] sm:flex-row sm:items-center sm:justify-between sm:px-4">
           <div className="flex min-w-0 flex-wrap items-center gap-3">
             <TravkinLogo size="mobile" />
             <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.18em]">
               ГЛОБАЛЬНАЯ КОНСОЛЬ
             </span>
-            <span className="border border-[#B98939]/35 bg-[#F8F0E2]/5 px-2 py-0.5 font-mono uppercase text-[#D8C8AC]">
+            <span className="border border-[var(--estate-shell-line)] bg-white/5 px-2 py-0.5 font-mono uppercase text-[var(--estate-shell-muted)]">
               внутренний доступ администратора
             </span>
           </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-2 font-mono text-[10px] uppercase text-[#D8C8AC]">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 font-mono text-[10px] uppercase text-[var(--estate-shell-muted)]">
             <span className="border border-slate-400/25 px-2 py-0.5">env:{environment}</span>
             <span className="border border-slate-400/25 px-2 py-0.5">db:{database}</span>
             <span className="border border-slate-400/25 px-2 py-0.5">branch:{branch}</span>
@@ -186,7 +192,7 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
           : "Компания не выбрана. Сначала выберите компанию на главной странице платформы."}
       </div>
       <div className="grid w-full grid-cols-1 gap-3 px-3 py-3 sm:px-4 lg:grid-cols-[268px_minmax(0,1fr)]">
-        <aside className="tf-manor-panel h-fit overflow-hidden rounded-xl">
+        <aside className="tf-manor-panel h-fit max-h-[42vh] overflow-y-auto rounded-md lg:max-h-none lg:overflow-visible">
           <div className="border-b border-[color:var(--manor-line)] bg-[var(--manor-paper-recessed)] px-3 py-2 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--manor-espresso)]">
             Дерево консоли
           </div>
@@ -194,7 +200,7 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
           {NAV_GROUPS.map((group) => {
             const GroupIcon = group.icon;
             return (
-              <div key={group.titleKey} className="overflow-hidden rounded-lg border border-[color:var(--manor-line)] bg-[var(--manor-paper-raised)]">
+              <div key={group.titleKey} className="overflow-hidden rounded-md border border-[color:var(--manor-line)] bg-[var(--manor-paper-raised)]">
                 <div className="flex items-center gap-2 border-b border-[color:var(--manor-line)] bg-[var(--manor-paper-recessed)] px-2 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[color:var(--manor-text-muted)]">
                   <GroupIcon className="h-3.5 w-3.5" />
                   {group.title || t(group.titleKey)}
@@ -206,11 +212,12 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
                       <Link
                         key={item.href}
                         href={item.href}
+                        aria-current={active ? "page" : undefined}
                         className={cn(
                           "grid grid-cols-[58px_minmax(0,1fr)] items-center border-l-2 px-2 py-1 text-[12px] leading-5",
                           active
-                            ? "border-[#536B32] bg-[#E8D6AE]/60 font-semibold text-[#31251C]"
-                            : "border-transparent text-[#49392C] hover:bg-[#EDE4D4]",
+                            ? "border-primary bg-accent font-semibold text-foreground"
+                            : "border-transparent text-foreground hover:bg-accent/55",
                         )}
                       >
                         <span className="font-mono text-[10px] text-[color:var(--manor-text-muted)]">{item.code || "NODE"}</span>
@@ -222,7 +229,7 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
               </div>
             );
           })}
-          <div className="rounded-lg border border-[color:var(--manor-line)] bg-[var(--manor-paper-recessed)]/65 p-2 text-[11px] leading-5 text-[color:var(--manor-text-muted)]">
+          <div className="rounded-md border border-[color:var(--manor-line)] bg-[var(--manor-paper-recessed)] p-2 text-[11px] leading-5 text-[color:var(--manor-text-muted)]">
             <div className="flex items-center gap-1 font-mono font-semibold uppercase text-[color:var(--manor-espresso)]">
               <Settings className="h-3.5 w-3.5" />
               Системные заметки
@@ -246,8 +253,8 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
           </Button>
           </div>
         </aside>
-        <main className="tf-manor-panel min-w-0 rounded-xl p-3 sm:p-5">
-          {children}
+        <main className="tf-manor-panel min-w-0 rounded-md p-3 sm:p-5">
+          <div key={pathname} className="tf-estate-page-enter">{children}</div>
         </main>
       </div>
     </div>
