@@ -3,7 +3,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Edit3, FileText, LayoutGrid, Loader2, Map as MapIcon, Maximize2, Plus, RefreshCw, Search, Table2, X } from "lucide-react";
-import { PageHeader } from "@/components/layout/page-header";
 import { FieldFormDialog } from "@/components/fields/field-form-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -447,7 +446,6 @@ export default function CropStructurePage() {
   const [operationConsumptions, setOperationConsumptions] = useState<Consumption[]>([]);
   const [search, setSearch] = useState("");
   const [cropFilter, setCropFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState<"all" | FieldState>("all");
   const [sortBy, setSortBy] = useState<"field" | "area" | "main_crop" | "state">("field");
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [draftRows, setDraftRows] = useState<Allocation[]>([]);
@@ -877,7 +875,6 @@ export default function CropStructurePage() {
     return fields
       .filter((field) => !q || field.name.toLowerCase().includes(q))
       .filter((field) => cropFilter === "all" || (allocByField.get(field.id) || []).some((row) => row.crop_id === cropFilter))
-      .filter((field) => statusFilter === "all" || fieldState(field.id) === statusFilter)
       .sort((a, b) => {
         if (sortBy === "field") return a.name.localeCompare(b.name, "ru");
         if (sortBy === "area") return b.area - a.area;
@@ -885,7 +882,7 @@ export default function CropStructurePage() {
         const rank: Record<FieldState, number> = { over: 4, partial: 3, empty: 2, complete: 1 };
         return rank[fieldState(b.id)] - rank[fieldState(a.id)];
       });
-  }, [fields, search, cropFilter, statusFilter, sortBy, allocByField]);
+  }, [fields, search, cropFilter, sortBy, allocByField]);
 
   useEffect(() => {
     let mounted = true;
@@ -2506,8 +2503,6 @@ export default function CropStructurePage() {
   const renderFieldDossier = () => {
     if (!selectedField) return null;
     const rows = allocByField.get(selectedField.id) || [];
-    const planned = sumArea(rows);
-    const fieldConsumptions = consumptionsByField.get(selectedField.id) || [];
     const rowItems = rows.map((allocation, index) => {
       const facts = allocationFacts(allocation);
       const operationsForAllocation = allocation.id ? operationFactsByAllocation.get(allocation.id) || [] : [];
@@ -2533,53 +2528,18 @@ export default function CropStructurePage() {
     });
     const selectedItem = rowItems.find((item) => item.key === selectedDossierAllocationKey) || rowItems[0] || null;
     const selectedItemField = selectedItem ? fieldMap.get(selectedItem.allocation.field_id) || selectedField : selectedField;
-    const totalOperations = rowItems.reduce((sum, item) => sum + item.operationsForAllocation.length, 0);
-    const totalMaterials = rowItems.reduce((sum, item) => sum + item.materialRows.length, 0);
 
     return (
-      <div className="space-y-6 text-foreground" data-testid="field-dossier">
-        <section aria-labelledby="field-season-summary-heading" className="space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 id="field-season-summary-heading" className="text-sm font-semibold text-foreground">
-                Состояние поля в сезоне {season?.year || "—"}
-              </h3>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Поле {fmtHa(selectedField.area)} · структура {fmtHa(planned)} · фактических выдач {fieldConsumptions.length}
-              </p>
-            </div>
-            <Badge className={stateClass(fieldState(selectedField.id))}>{stateText(fieldState(selectedField.id))}</Badge>
-          </div>
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-border py-3 sm:grid-cols-4 sm:divide-x sm:divide-border">
-            <div className="sm:px-4 sm:first:pl-0">
-              <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Участков</dt>
-              <dd className="mt-1 text-lg font-semibold text-foreground">{rows.length}</dd>
-            </div>
-            <div className="sm:px-4">
-              <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Операций</dt>
-              <dd className="mt-1 text-lg font-semibold text-foreground">{totalOperations}</dd>
-            </div>
-            <div className="sm:px-4">
-              <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Материалов</dt>
-              <dd className="mt-1 text-lg font-semibold text-foreground">{totalMaterials}</dd>
-            </div>
-            <div className="sm:px-4 sm:last:pr-0">
-              <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">В структуре</dt>
-              <dd className="mt-1 text-lg font-semibold text-foreground">{fmtHa(planned)}</dd>
-            </div>
-          </dl>
-          {FIELD_HARVEST_LIVE_ENABLED && activeCompanyId && seasonId ? (
-            <div className="border-t border-border pt-4">
-              <FieldHarvestLive
-                companyId={activeCompanyId}
-                seasonId={seasonId}
-                fieldId={selectedField.id}
-                allocationId={selectedItem?.allocation.id || null}
-                allocationLabel={selectedItem?.title || null}
-              />
-            </div>
-          ) : null}
-        </section>
+      <div className="space-y-4 text-foreground" data-testid="field-dossier">
+        {FIELD_HARVEST_LIVE_ENABLED && activeCompanyId && seasonId ? (
+          <FieldHarvestLive
+            companyId={activeCompanyId}
+            seasonId={seasonId}
+            fieldId={selectedField.id}
+            allocationId={selectedItem?.allocation.id || null}
+            allocationLabel={selectedItem?.title || null}
+          />
+        ) : null}
 
         {selectedItem ? (
           <div className="grid gap-5 lg:h-[min(600px,calc(92vh-220px))] lg:grid-cols-[280px_minmax(0,1fr)]">
@@ -2614,10 +2574,12 @@ export default function CropStructurePage() {
                           {item.reviewRequired ? "Требуется уточнить сорт и репродукцию" : fmtHa(item.plannedArea)}
                         </div>
                       </div>
-                      <div className="shrink-0 text-right text-[11px] leading-5 text-muted-foreground">
-                        <div>{item.operationsForAllocation.length} оп.</div>
-                        <div>{item.materialRows.length} мат.</div>
-                      </div>
+                      {item.operationsForAllocation.length || item.materialRows.length ? (
+                        <div className="shrink-0 text-right text-[11px] leading-5 text-muted-foreground">
+                          {item.operationsForAllocation.length ? <div>{item.operationsForAllocation.length} оп.</div> : null}
+                          {item.materialRows.length ? <div>{item.materialRows.length} мат.</div> : null}
+                        </div>
+                      ) : null}
                     </button>
                   );
                 })}
@@ -2635,7 +2597,11 @@ export default function CropStructurePage() {
                       </div>
                     ) : null}
                     <div className="mt-1 text-sm text-muted-foreground">
-                      {fmtHa(selectedItem.plannedArea)} · операций {selectedItem.operationsForAllocation.length} · материалов {selectedItem.materialRows.length}
+                      {[
+                        fmtHa(selectedItem.plannedArea),
+                        selectedItem.operationsForAllocation.length ? `операций ${selectedItem.operationsForAllocation.length}` : null,
+                        selectedItem.materialRows.length ? `материалов ${selectedItem.materialRows.length}` : null,
+                      ].filter(Boolean).join(" · ")}
                     </div>
                   </div>
                   {FIELD_FIRST_CREATE_ENABLED && selectedItemField ? (
@@ -3439,7 +3405,7 @@ export default function CropStructurePage() {
   };
 
   if (loading) {
-    return <div className="space-y-4"><PageHeader title="Структура посевов" description="Поля, культуры и работы" /><div className="tf-estate-document flex min-h-40 items-center justify-center gap-2 p-6 text-sm text-muted-foreground" role="status" aria-live="polite"><Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />Загружаем структуру посевов…</div></div>;
+    return <div className="tf-estate-document flex min-h-40 items-center justify-center gap-2 p-6 text-sm text-muted-foreground" role="status" aria-live="polite"><Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />Загружаем структуру посевов…</div>;
   }
 
   const hasFields = fields.length > 0;
@@ -3448,8 +3414,8 @@ export default function CropStructurePage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Структура посевов" description="Компактный агрономический обзор по полям">
-        <div className="ml-auto flex items-center gap-2">
+      {seasons.length > 1 ? (
+        <div className="flex justify-end">
           <Select
             value={seasonId || undefined}
             onValueChange={(value) => {
@@ -3467,13 +3433,13 @@ export default function CropStructurePage() {
             <SelectContent>
               {seasons.map((item) => (
                 <SelectItem key={item.id} value={item.id}>
-                  {item.year}{item.archived ? " · закрыт" : item.id === activeSeasonId ? " · активный" : " · только чтение"}
+                  {item.year}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
-      </PageHeader>
+      ) : null}
 
       {season && !canEditSelectedSeason && canEditStructure ? (
         <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-800">
@@ -3483,7 +3449,7 @@ export default function CropStructurePage() {
 
       <Card>
         <CardContent className="p-3">
-          <div className="grid items-center gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(180px,1fr)_minmax(140px,170px)_minmax(130px,150px)_minmax(135px,155px)_auto]">
+          <div className="grid items-center gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(180px,1fr)_minmax(140px,170px)_minmax(135px,155px)_auto]">
             <div className="relative min-w-0">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input className="h-9 w-full pl-8" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск поля..." />
@@ -3491,16 +3457,6 @@ export default function CropStructurePage() {
             <Select value={cropFilter} onValueChange={setCropFilter}>
               <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
               <SelectContent><SelectItem value="all">Все культуры</SelectItem>{globalCrops.map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={(value: "all" | FieldState) => setStatusFilter(value)}>
-              <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все статусы</SelectItem>
-                <SelectItem value="empty">Пусто</SelectItem>
-                <SelectItem value="partial">Частично</SelectItem>
-                <SelectItem value="complete">Заполнено</SelectItem>
-                <SelectItem value="over">Переплан</SelectItem>
-              </SelectContent>
             </Select>
             <Select value={sortBy} onValueChange={(value: "field" | "area" | "main_crop" | "state") => setSortBy(value)}>
               <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>

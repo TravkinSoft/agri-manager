@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronDown, Loader2 } from "lucide-react";
+import { ChevronUp, Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { localizeUnit } from "@/lib/i18n/helpers";
@@ -67,7 +67,7 @@ export function StockAvailability({ companyId, userId, actorScope, active, place
         <details key={crop.key} open className="group/crop border-b border-border last:border-0" aria-label={crop.name}>
           <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between gap-3 py-2 marker:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <h2 className="text-base font-semibold text-foreground">{crop.name}</h2>
-            <span className="flex items-center gap-3"><strong className="tabular-nums text-emerald-800">{crop.identities.reduce((total, identity) => total + identity.quantity, 0).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} {localizeUnit(crop.identities[0]?.unit || "kg", language)}</strong><ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-150 group-open/crop:rotate-180" /></span>
+            <span className="flex items-center gap-3"><strong className="tabular-nums text-emerald-800">{crop.identities.reduce((total, identity) => total + identity.quantity, 0).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} {localizeUnit(crop.identities[0]?.unit || "kg", language)}</strong><ChevronUp className="h-4 w-4 text-muted-foreground transition-transform duration-150 group-open/crop:rotate-180" /></span>
           </summary>
           <div className="pb-3">
             <div className="hidden grid-cols-[minmax(180px,1fr)_90px_130px] gap-3 border-b border-border pb-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground sm:grid"><span>Сорт</span><span>Репр.</span><span className="text-right">В наличии</span></div>
@@ -77,7 +77,7 @@ export function StockAvailability({ companyId, userId, actorScope, active, place
               return (
                 <details key={identity.key} className="group/identity border-b border-border/70 last:border-0">
                   <summary className="grid min-h-[48px] cursor-pointer list-none grid-cols-[minmax(64px,1fr)_84px_112px] items-center gap-2 py-2 text-sm transition-colors hover:text-[color:var(--manor-brass-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring marker:hidden sm:grid-cols-[minmax(180px,1fr)_90px_130px] sm:gap-3">
-                    <span className="flex min-w-0 items-center gap-2"><ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open/identity:rotate-180" /><span className="truncate">{variety}</span></span>
+                    <span className="flex min-w-0 items-center gap-2"><ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open/identity:rotate-180" /><span className="truncate">{variety}</span></span>
                     <span className="whitespace-nowrap text-xs text-muted-foreground sm:text-sm">{normalizedReproduction}</span>
                     <strong className="whitespace-nowrap text-right text-sm tabular-nums text-emerald-800">{identity.quantity.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} {localizeUnit(identity.unit, language)}</strong>
                   </summary>

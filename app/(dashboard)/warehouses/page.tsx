@@ -3,16 +3,11 @@
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowDown,
   ArrowRightLeft,
-  ArrowUp,
-  Check,
   ClipboardList,
-  GripVertical,
   PackagePlus,
   Search,
   Settings2,
-  X,
 } from "lucide-react";
 import { EmptyState, ObjectVisual, StatusBadge } from "@/components/operations/operational-ui";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -27,12 +22,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { PageHeader } from "@/components/layout/page-header";
 import { HarvestBatchDialog } from "@/components/warehouses/harvest-batch-dialog";
 import { StockAvailability } from "@/components/warehouses/stock-availability";
 import { compareStoragePlaces, parseWarehouseView, warehouseViewKey, type WarehouseView } from "@/lib/warehouse/stock-availability";
 import { WarehouseReceiptDialog } from "@/components/warehouses/warehouse-receipt-dialog";
-import { WarehouseOpeningBalanceDialog } from "@/components/warehouses/warehouse-opening-balance-dialog";
 import { WarehouseStockDetailsDialog } from "@/components/warehouses/warehouse-stock-details-dialog";
 import { WarehouseTransferDialog } from "@/components/warehouses/warehouse-transfer-dialog";
 import { useToast } from "@/hooks/use-toast";
@@ -41,14 +34,12 @@ import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { localizeUnit } from "@/lib/i18n/helpers";
 import { listHarvestBatchSummaries } from "@/lib/services/weighbridge";
-import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 import { compactReproductionLabel } from "@/lib/agronomy/reproduction-display";
 import {
   getInventoryBalances,
   getProducts,
   getWarehouses,
   getWarehouseSummaries,
-  reorderWarehouses,
 } from "@/lib/services/warehouses";
 import type { HarvestBatchSummary } from "@/lib/types/weighbridge";
 import type {
@@ -67,8 +58,9 @@ import {
   compareWarehouseDisplayOrder,
   moveWarehouseId,
   moveWarehouseIdByOffset,
+  parseWarehousePersonalOrder,
   reconcileWarehouseOrder,
-  withWarehouseDisplayOrder,
+  warehousePersonalOrderKey,
 } from "@/lib/warehouse/warehouse-order";
 import {
   isAgrochemicalWarehouseType,
@@ -135,13 +127,16 @@ function formatMass(valueKg: number): string {
   return `${valueKg.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} кг`;
 }
 
-const WAREHOUSE_ORDER_UI_ENABLED = TRAVKINFLOW_2_FUNCTIONS_RELEASED;
-const WAREHOUSE_REORDER_HOLD_MS = 180;
+const WAREHOUSE_REORDER_HOLD_MS = 320;
 
 type ReorderPointerSession = {
   active: boolean;
   lastTargetWarehouseId: string | null;
+  lastClientY: number;
+  moved: boolean;
   pointerId: number;
+  pointerType: string;
+  startClientY: number;
   warehouseId: string;
   timer: ReturnType<typeof setTimeout> | null;
 };
@@ -181,7 +176,6 @@ export default function WarehousesPage() {
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
   const selectedWarehouseIdRef = useRef<string | null>(null);
   const [receiptWarehouseId, setReceiptWarehouseId] = useState<string | null>(null);
-  const [openingBalanceOpen, setOpeningBalanceOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [detailBalance, setDetailBalance] = useState<InventoryBalance | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<HarvestBatchSummary | null>(null);
@@ -189,20 +183,18 @@ export default function WarehousesPage() {
   const selectedBatchRequestGeneration = useRef(0);
   const [isReorderMode, setIsReorderMode] = useState(false);
   const [reorderDraftIds, setReorderDraftIds] = useState<string[]>([]);
-  const [reorderSaving, setReorderSaving] = useState(false);
   const [reorderError, setReorderError] = useState<string | null>(null);
   const [draggingWarehouseId, setDraggingWarehouseId] = useState<string | null>(null);
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const reorderDraftIdsRef = useRef<string[]>([]);
-  const reorderInitialIdsRef = useRef<string[]>([]);
-  const reorderSaveGeneration = useRef(0);
-  const reorderSavingRef = useRef(false);
+  const suppressWarehouseOpenRef = useRef<string | null>(null);
   const reorderPointerRef = useRef<ReorderPointerSession | null>(null);
   const reorderGridRef = useRef<HTMLDivElement | null>(null);
   const reorderLayoutBeforeRef = useRef<Map<string, DOMRect> | null>(null);
   const [detailRevision, setDetailRevision] = useState(0);
   const [availabilityRefreshTick, setAvailabilityRefreshTick] = useState(0);
   const preferenceKey = user?.id && profile?.company_id ? warehouseViewKey(user.id, profile.company_id) : null;
+  const orderPreferenceKey = user?.id && profile?.company_id ? warehousePersonalOrderKey(user.id, profile.company_id) : null;
   const [viewPreference, setViewPreference] = useState<{ key: string; view: WarehouseView } | null>(null);
   const selectedView = viewPreference?.key === preferenceKey ? viewPreference.view : "availability";
   const isAgronomist = profile?.role === "agronomist";
@@ -224,8 +216,8 @@ export default function WarehousesPage() {
   const role = String(profile?.role || "");
   const canStockOperate = ["warehouse", "warehouse_operator", "global_admin"].includes(role);
   const canManageWarehouses = ["company_admin", "global_admin"].includes(role);
-  const canView = canStockOperate || canManageWarehouses || ["agronomist", "director", "legal_operator", "weighman"].includes(role);
   const isReadOnlyRole = ["weighman", "agronomist", "director", "legal_operator"].includes(role);
+  const canView = canStockOperate || canManageWarehouses || isReadOnlyRole;
 
   const loadWarehouseList = async ({
     foreground = true,
@@ -255,9 +247,6 @@ export default function WarehousesPage() {
         }
         warehouseRows = await warehouseRequest;
         if (scopeRef.current !== requestScope) return;
-        if (reorderSavingRef.current) {
-          warehouseRows = withWarehouseDisplayOrder(warehouseRows, reorderDraftIdsRef.current);
-        }
         warehouseListLoaded = true;
         setWarehouses(warehouseRows);
         const cached = warehousePageCache.get(cacheKey) || { summaries: [] };
@@ -275,16 +264,6 @@ export default function WarehousesPage() {
       }
       let summaryRows = await request;
       if (scopeRef.current !== requestScope) return;
-      if (reorderSavingRef.current) {
-        const orderedSummaryWarehouses = withWarehouseDisplayOrder(
-          summaryRows.map((summary) => summary.warehouse),
-          reorderDraftIdsRef.current,
-        );
-        summaryRows = summaryRows.map((summary, index) => ({
-          ...summary,
-          warehouse: orderedSummaryWarehouses[index],
-        }));
-      }
       setWarehouseSummaryRows(summaryRows);
       setWarehouses(summaryRows.map((row) => row.warehouse));
       warehousePageCache.set(cacheKey, { ...warehousePageCache.get(cacheKey), warehouses: warehouseRows, summaries: summaryRows });
@@ -468,13 +447,9 @@ export default function WarehousesPage() {
     setSearchDataLoaded(false);
     if (reorderPointerRef.current?.timer) clearTimeout(reorderPointerRef.current.timer);
     reorderPointerRef.current = null;
-    reorderSaveGeneration.current += 1;
-    reorderSavingRef.current = false;
     reorderDraftIdsRef.current = [];
-    reorderInitialIdsRef.current = [];
     setReorderDraftIds([]);
     setIsReorderMode(false);
-    setReorderSaving(false);
     setReorderError(null);
     setDraggingWarehouseId(null);
     setReorderAnnouncement("");
@@ -579,13 +554,18 @@ export default function WarehousesPage() {
   );
 
   useEffect(() => {
-    if (!isReorderMode) return;
-    const reconciled = reconcileWarehouseOrder(reorderDraftIdsRef.current, persistedActiveWarehouseIds);
+    if (!orderPreferenceKey || isReorderMode) return;
+    let storedOrder: string[] = [];
+    try {
+      storedOrder = parseWarehousePersonalOrder(window.localStorage.getItem(orderPreferenceKey));
+    } catch {
+      setReorderError("Личный порядок недоступен в этом браузере");
+    }
+    const reconciled = reconcileWarehouseOrder(storedOrder, persistedActiveWarehouseIds);
     if (reconciled.join("|") === reorderDraftIdsRef.current.join("|")) return;
     reorderDraftIdsRef.current = reconciled;
     setReorderDraftIds(reconciled);
-    setReorderAnnouncement("Список складов изменился. Новый склад добавлен в конец порядка.");
-  }, [isReorderMode, persistedActiveWarehouseIds]);
+  }, [isReorderMode, orderPreferenceKey, persistedActiveWarehouseIds]);
 
   useEffect(() => () => {
     const session = reorderPointerRef.current;
@@ -620,13 +600,13 @@ export default function WarehousesPage() {
 
   const activeSummaries = useMemo(() => {
     const active = filteredSummaries.filter((row) => !isArchived(row.warehouse));
-    if (!isReorderMode) return active;
+    if (!reorderDraftIds.length) return active;
     const orderById = new Map(reorderDraftIds.map((warehouseId, index) => [warehouseId, index]));
     return [...active].sort((left, right) => (
       (orderById.get(left.warehouse.id) ?? Number.MAX_SAFE_INTEGER)
       - (orderById.get(right.warehouse.id) ?? Number.MAX_SAFE_INTEGER)
     ));
-  }, [filteredSummaries, isReorderMode, reorderDraftIds]);
+  }, [filteredSummaries, reorderDraftIds]);
   const archivedSummaries = filteredSummaries.filter((row) => isArchived(row.warehouse));
 
   const captureReorderLayout = () => {
@@ -656,147 +636,44 @@ export default function WarehousesPage() {
     );
   };
 
-  const moveReorderItemByOffset = (warehouseId: string, offset: -1 | 1) => {
-    setReorderOrder(
-      moveWarehouseIdByOffset(reorderDraftIdsRef.current, warehouseId, offset),
-      warehouseId,
-    );
-  };
-
-  const beginReorderMode = () => {
-    const initialIds = [...persistedActiveWarehouseIds];
-    reorderInitialIdsRef.current = initialIds;
-    reorderDraftIdsRef.current = initialIds;
-    setReorderDraftIds(initialIds);
-    setSearch("");
-    setReorderError(null);
-    setReorderAnnouncement("Режим изменения порядка включён.");
-    setIsReorderMode(true);
-  };
-
-  const cancelReorderMode = () => {
-    const session = reorderPointerRef.current;
-    if (session?.timer) clearTimeout(session.timer);
-    reorderPointerRef.current = null;
-    reorderDraftIdsRef.current = [];
-    setReorderDraftIds([]);
-    setDraggingWarehouseId(null);
-    setReorderAnnouncement("Изменение порядка отменено.");
-    setIsReorderMode(false);
-  };
-
-  const saveReorder = async () => {
-    if (!profile?.company_id || reorderSavingRef.current) return;
-    const orderedIds = [...reorderDraftIdsRef.current];
-    if (orderedIds.join("|") === reorderInitialIdsRef.current.join("|")) {
-      cancelReorderMode();
-      return;
-    }
-
-    const cacheKey = `${profile.company_id}:${language}:${canManageWarehouses}`;
-    const previousCache = warehousePageCache.get(cacheKey);
-    const nextWarehouses = withWarehouseDisplayOrder(warehouses, orderedIds);
-    const nextSummaryWarehouses = withWarehouseDisplayOrder(
-      warehouseSummaryRows.map((summary) => summary.warehouse),
-      orderedIds,
-    );
-    const nextSummaryRows = warehouseSummaryRows.map((summary, index) => ({
-      ...summary,
-      warehouse: nextSummaryWarehouses[index],
-    }));
-    const saveGeneration = ++reorderSaveGeneration.current;
-
-    reorderSavingRef.current = true;
-    setReorderSaving(true);
-    setReorderError(null);
-    setDraggingWarehouseId(null);
-    setIsReorderMode(false);
-    setWarehouses(nextWarehouses);
-    setWarehouseSummaryRows(nextSummaryRows);
-    if (previousCache) {
-      const cachedSummaryWarehouses = withWarehouseDisplayOrder(
-        previousCache.summaries.map((summary) => summary.warehouse),
-        orderedIds,
-      );
-      warehousePageCache.set(cacheKey, {
-        ...previousCache,
-        warehouses: previousCache.warehouses
-          ? withWarehouseDisplayOrder(previousCache.warehouses, orderedIds)
-          : undefined,
-        summaries: previousCache.summaries.map((summary, index) => ({
-          ...summary,
-          warehouse: cachedSummaryWarehouses[index],
-        })),
-      });
-    }
-
-    try {
-      await reorderWarehouses(profile.company_id, orderedIds);
-      if (reorderSaveGeneration.current !== saveGeneration) return;
-      reorderSavingRef.current = false;
-      reorderInitialIdsRef.current = orderedIds;
-      reorderDraftIdsRef.current = [];
-      setReorderDraftIds([]);
-      setReorderAnnouncement("Порядок складов сохранён.");
-      toast({ title: "Порядок сохранён", description: "Склады отображаются в новом порядке." });
-    } catch (cause) {
-      if (reorderSaveGeneration.current !== saveGeneration) return;
-      reorderSavingRef.current = false;
-      const message = cause instanceof Error ? cause.message : "Не удалось сохранить порядок складов";
-      const rollbackIds = [...reorderInitialIdsRef.current];
-      setWarehouses((current) => withWarehouseDisplayOrder(current, rollbackIds));
-      setWarehouseSummaryRows((current) => {
-        const rollbackWarehouses = withWarehouseDisplayOrder(
-          current.map((summary) => summary.warehouse),
-          rollbackIds,
-        );
-        return current.map((summary, index) => ({
-          ...summary,
-          warehouse: rollbackWarehouses[index],
-        }));
-      });
-      const currentCache = warehousePageCache.get(cacheKey);
-      if (currentCache) {
-        const rollbackSummaryWarehouses = withWarehouseDisplayOrder(
-          currentCache.summaries.map((summary) => summary.warehouse),
-          rollbackIds,
-        );
-        warehousePageCache.set(cacheKey, {
-          ...currentCache,
-          warehouses: currentCache.warehouses
-            ? withWarehouseDisplayOrder(currentCache.warehouses, rollbackIds)
-            : undefined,
-          summaries: currentCache.summaries.map((summary, index) => ({
-            ...summary,
-            warehouse: rollbackSummaryWarehouses[index],
-          })),
-        });
+  const persistPersonalReorder = (orderedIds: string[], movedWarehouseId: string) => {
+    reorderDraftIdsRef.current = orderedIds;
+    setReorderDraftIds(orderedIds);
+    if (orderPreferenceKey) {
+      try {
+        window.localStorage.setItem(orderPreferenceKey, JSON.stringify(orderedIds));
+        setReorderError(null);
+      } catch {
+        setReorderError("Не удалось сохранить личный порядок в этом браузере");
       }
-      reorderDraftIdsRef.current = [];
-      setReorderDraftIds([]);
-      setReorderError(message);
-      setReorderAnnouncement("Сохранение не удалось. Исходный порядок восстановлен.");
-      toast({
-        title: "Порядок не сохранён",
-        description: `${message}. Исходный порядок восстановлен.`,
-        variant: "destructive",
-      });
-    } finally {
-      if (reorderSaveGeneration.current === saveGeneration) setReorderSaving(false);
     }
+    const warehouseName = summaries.find((row) => row.warehouse.id === movedWarehouseId)?.warehouse.name || "Склад";
+    setReorderAnnouncement(`${warehouseName}: новый порядок сохранён только для вас.`);
   };
 
-  const beginPointerReorder = (event: React.PointerEvent<HTMLButtonElement>, warehouseId: string) => {
-    if (!isReorderMode || reorderSaving || event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
+  const moveReorderItemByOffset = (warehouseId: string, offset: -1 | 1) => {
+    const currentIds = reconcileWarehouseOrder(reorderDraftIdsRef.current, persistedActiveWarehouseIds);
+    const nextIds = moveWarehouseIdByOffset(currentIds, warehouseId, offset);
+    if (nextIds.join("|") !== currentIds.join("|")) persistPersonalReorder(nextIds, warehouseId);
+  };
+
+  const beginPointerReorder = (event: React.PointerEvent<HTMLElement>, warehouseId: string) => {
+    if (event.button !== 0 || query || persistedActiveWarehouseIds.length < 2) return;
     const previousSession = reorderPointerRef.current;
     if (previousSession?.timer) clearTimeout(previousSession.timer);
+
+    const initialIds = reconcileWarehouseOrder(reorderDraftIdsRef.current, persistedActiveWarehouseIds);
+    reorderDraftIdsRef.current = initialIds;
+    setReorderDraftIds(initialIds);
 
     const session: ReorderPointerSession = {
       active: false,
       lastTargetWarehouseId: null,
+      lastClientY: event.clientY,
+      moved: false,
       pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      startClientY: event.clientY,
       warehouseId,
       timer: null,
     };
@@ -805,15 +682,32 @@ export default function WarehousesPage() {
       if (reorderPointerRef.current !== session) return;
       session.active = true;
       session.timer = null;
+      setIsReorderMode(true);
       setDraggingWarehouseId(warehouseId);
-      setReorderAnnouncement("Перетаскивание начато.");
+      setReorderAnnouncement("Карточку можно перемещать.");
     }, WAREHOUSE_REORDER_HOLD_MS);
     reorderPointerRef.current = session;
   };
 
-  const continuePointerReorder = (event: React.PointerEvent<HTMLButtonElement>) => {
+  const continuePointerReorder = (event: React.PointerEvent<HTMLElement>) => {
     const session = reorderPointerRef.current;
-    if (!session || session.pointerId !== event.pointerId || !session.active) return;
+    if (!session || session.pointerId !== event.pointerId) return;
+    if (!session.active) {
+      if (session.pointerType !== "touch") return;
+      const distance = event.clientY - session.startClientY;
+      const deltaY = event.clientY - session.lastClientY;
+      if (!session.moved && Math.abs(distance) > 6) {
+        session.moved = true;
+        if (session.timer) clearTimeout(session.timer);
+        session.timer = null;
+      }
+      if (session.moved) {
+        event.preventDefault();
+        window.scrollBy({ top: -deltaY, behavior: "auto" });
+        session.lastClientY = event.clientY;
+      }
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     const targetCard = document
@@ -831,21 +725,26 @@ export default function WarehousesPage() {
     }
   };
 
-  const finishPointerReorder = (event: React.PointerEvent<HTMLButtonElement>) => {
+  const finishPointerReorder = (event: React.PointerEvent<HTMLElement>) => {
     const session = reorderPointerRef.current;
     if (!session || session.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    event.stopPropagation();
     if (session.timer) clearTimeout(session.timer);
     reorderPointerRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     const finalIndex = reorderDraftIdsRef.current.indexOf(session.warehouseId);
-    if (session.active && finalIndex >= 0) {
-      setReorderAnnouncement(`Перетаскивание завершено. Позиция ${finalIndex + 1} из ${reorderDraftIdsRef.current.length}.`);
+    if ((session.active && finalIndex >= 0) || session.moved) {
+      event.preventDefault();
+      event.stopPropagation();
+      suppressWarehouseOpenRef.current = session.warehouseId;
+      window.setTimeout(() => {
+        if (suppressWarehouseOpenRef.current === session.warehouseId) suppressWarehouseOpenRef.current = null;
+      }, 0);
+      if (session.active && finalIndex >= 0) persistPersonalReorder([...reorderDraftIdsRef.current], session.warehouseId);
     }
     setDraggingWarehouseId(null);
+    setIsReorderMode(false);
   };
 
   const selectedSummary = summaries.find((row) => row.warehouse.id === selectedWarehouseId) || null;
@@ -901,27 +800,45 @@ export default function WarehousesPage() {
     const fillPercent = warehouseCapacityPercent(totalWeightKg, capacity);
     const capacityExceeded = fillPercent != null && fillPercent > 100;
     const positionLabel = warehousePositionCountLabel(positionCount, harvestLotCount);
-    const reorderable = isReorderMode && !isArchived(warehouse);
-    const reorderPosition = reorderable ? reorderDraftIds.indexOf(warehouse.id) : -1;
+    const reorderable = !isArchived(warehouse) && !query && persistedActiveWarehouseIds.length > 1;
     const warehouseSummary = summaries.find((row) => row.warehouse.id === warehouse.id);
     const cultures = Array.from(new Set((warehouseSummary?.batches || []).map((batch) => batch.cropName).filter(Boolean)));
     return (
       <article
         key={warehouse.id}
-        role={reorderable ? "listitem" : "button"}
-        tabIndex={reorderable ? undefined : 0}
-        aria-label={reorderable ? `${warehouse.name}, позиция ${reorderPosition + 1} из ${reorderDraftIds.length}` : `Открыть склад ${warehouse.name}`}
+        role="button"
+        tabIndex={0}
+        aria-label={reorderable ? `Открыть склад ${warehouse.name}. Удерживайте карточку, чтобы изменить личный порядок.` : `Открыть склад ${warehouse.name}`}
+        aria-grabbed={draggingWarehouseId === warehouse.id ? true : undefined}
         data-warehouse-reorder-id={reorderable ? warehouse.id : undefined}
+        title={reorderable ? "Удерживайте карточку, чтобы изменить личный порядок" : undefined}
         onClick={() => {
-          if (!reorderable) openWarehouse(warehouse.id);
+          if (suppressWarehouseOpenRef.current === warehouse.id) {
+            suppressWarehouseOpenRef.current = null;
+            return;
+          }
+          openWarehouse(warehouse.id);
         }}
         onKeyDown={(event) => {
-          if (!reorderable && (event.key === "Enter" || event.key === " ")) {
+          if (reorderable && event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+            event.preventDefault();
+            moveReorderItemByOffset(warehouse.id, event.key === "ArrowUp" ? -1 : 1);
+            return;
+          }
+          if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             openWarehouse(warehouse.id);
           }
         }}
-        className={`group relative flex h-full min-h-[112px] min-w-0 flex-col rounded-lg bg-card px-4 py-3 shadow-manor-sm transition-[background-color,transform,box-shadow] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${reorderable ? "cursor-default select-none" : "cursor-pointer hover:-translate-y-0.5 hover:bg-accent hover:shadow-manor-md"} ${draggingWarehouseId === warehouse.id ? "z-10 bg-accent shadow-manor-md will-change-transform" : ""}`}
+        onPointerDown={reorderable ? (event) => beginPointerReorder(event, warehouse.id) : undefined}
+        onPointerMove={reorderable ? continuePointerReorder : undefined}
+        onPointerUp={reorderable ? finishPointerReorder : undefined}
+        onPointerCancel={reorderable ? finishPointerReorder : undefined}
+        onLostPointerCapture={reorderable ? finishPointerReorder : undefined}
+        onContextMenu={(event) => {
+          if (draggingWarehouseId === warehouse.id) event.preventDefault();
+        }}
+        className={`group relative flex h-full min-h-[112px] min-w-0 cursor-pointer touch-none flex-col rounded-lg bg-card px-4 py-3 shadow-manor-sm transition-[background-color,transform,box-shadow] duration-150 ease-out hover:-translate-y-0.5 hover:bg-accent hover:shadow-manor-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${isReorderMode ? "select-none" : ""} ${draggingWarehouseId === warehouse.id ? "z-10 scale-[1.015] cursor-grabbing bg-accent shadow-manor-md will-change-transform" : ""}`}
       >
         <div className="flex items-start gap-2.5">
           <div className="min-w-0 flex-1">
@@ -930,61 +847,7 @@ export default function WarehousesPage() {
                 <h2 className="break-words text-sm font-semibold leading-5 text-foreground">{warehouse.name}</h2>
                 <div className="mt-1 truncate text-xs text-muted-foreground">{cultures.length ? cultures.join(", ") : placeType === "WAREHOUSE" ? warehouseTypeLabel(warehouse.warehouse_type) : storagePlaceTypeLabel(placeType)}</div>
               </div>
-              {reorderable ? (
-                <div className="flex shrink-0 items-center gap-1" aria-label={`Порядок склада ${warehouse.name}`}>
-                  <button
-                    type="button"
-                    disabled={reorderSaving || reorderPosition <= 0}
-                    aria-label={`Переместить ${warehouse.name} вверх`}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      moveReorderItemByOffset(warehouse.id, -1);
-                    }}
-                    className="inline-flex h-11 w-11 items-center justify-center rounded-md text-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-30"
-                  >
-                    <ArrowUp className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={reorderSaving || reorderPosition >= reorderDraftIds.length - 1}
-                    aria-label={`Переместить ${warehouse.name} вниз`}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      moveReorderItemByOffset(warehouse.id, 1);
-                    }}
-                    className="inline-flex h-11 w-11 items-center justify-center rounded-md text-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-30"
-                  >
-                    <ArrowDown className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={reorderSaving}
-                    aria-label={`Удерживайте и перетащите ${warehouse.name}. Стрелки вверх и вниз меняют позицию с клавиатуры.`}
-                    aria-describedby="warehouse-reorder-instructions"
-                    title="Удерживайте и перетащите"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                    }}
-                    onKeyDown={(event) => {
-                      event.stopPropagation();
-                      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-                      event.preventDefault();
-                      moveReorderItemByOffset(warehouse.id, event.key === "ArrowUp" ? -1 : 1);
-                    }}
-                    onPointerDown={(event) => beginPointerReorder(event, warehouse.id)}
-                    onPointerMove={continuePointerReorder}
-                    onPointerUp={finishPointerReorder}
-                    onPointerCancel={finishPointerReorder}
-                    onLostPointerCapture={finishPointerReorder}
-                    className="inline-flex h-11 w-11 touch-none cursor-grab items-center justify-center rounded-md text-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-30"
-                  >
-                    <GripVertical className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : isArchived(warehouse) ? <StatusBadge status="empty">Архив</StatusBadge> : null}
+              {isArchived(warehouse) ? <StatusBadge status="empty">Архив</StatusBadge> : null}
             </div>
           </div>
         </div>
@@ -1008,39 +871,21 @@ export default function WarehousesPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Склады">
-        <div className="flex flex-wrap gap-2">
-          {isReadOnlyRole ? <Badge variant="outline">Только просмотр</Badge> : null}
-          {canManageWarehouses ? (
-            <>
-              <Button variant="outline" onClick={() => setOpeningBalanceOpen(true)}>
-                <PackagePlus className="mr-2 h-4 w-4" />Начальный остаток
-              </Button>
-              <Button asChild variant="outline">
-                <Link href="/warehouses/manage"><Settings2 className="mr-2 h-4 w-4" />Управление складами</Link>
-              </Button>
-              {WAREHOUSE_ORDER_UI_ENABLED && !isReorderMode ? (
-                <Button
-                  variant="outline"
-                  disabled={loading || reorderSaving || persistedActiveWarehouseIds.length < 2}
-                  onClick={beginReorderMode}
-                >
-                  <GripVertical className="mr-2 h-4 w-4" />
-                  {reorderSaving ? "Сохраняем порядок..." : "Изменить порядок"}
-                </Button>
-              ) : null}
-            </>
-          ) : null}
+      {canManageWarehouses || canStockOperate ? (
+        <div className="flex flex-wrap justify-end gap-2">
+          {canManageWarehouses ? <Button asChild variant="outline">
+            <Link href="/warehouses/manage"><Settings2 className="mr-2 h-4 w-4" />Управление складами</Link>
+          </Button> : null}
           {canStockOperate ? (
             <Button asChild variant="outline">
               <Link href="/warehouses/inventory"><ClipboardList className="mr-2 h-4 w-4" />Инвентаризация</Link>
             </Button>
           ) : null}
         </div>
-      </PageHeader>
+      ) : null}
 
       {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
-      {reorderError ? <Alert variant="destructive"><AlertDescription>{reorderError}. Исходный порядок восстановлен.</AlertDescription></Alert> : null}
+      {reorderError ? <Alert variant="destructive"><AlertDescription>{reorderError}.</AlertDescription></Alert> : null}
       <div className="sr-only" role="status" aria-live="polite">{reorderAnnouncement}</div>
       {isAgronomist ? (
         <div role="tablist" aria-label="Представление складов" className="flex gap-1 border-b border-border">
@@ -1061,24 +906,6 @@ export default function WarehousesPage() {
         </div>
       ) : null}
       <div id="warehouse-view" hidden={isAgronomist && selectedView !== "warehouses"} role={isAgronomist ? "tabpanel" : undefined} aria-labelledby={isAgronomist ? "warehouse-tab-warehouses" : undefined} className="space-y-3">
-      {isReorderMode ? (
-        <section className="flex flex-col gap-3 rounded-md border border-border bg-accent/35 p-4 sm:flex-row sm:items-center sm:justify-between" aria-label="Изменение порядка складов">
-          <div>
-            <div className="text-sm font-semibold text-foreground">Изменение порядка</div>
-            <p id="warehouse-reorder-instructions" className="mt-1 text-xs leading-5 text-muted-foreground">
-              Удерживайте рукоятку и перетащите карточку. С клавиатуры используйте кнопки вверх и вниз. Архивные склады не меняются.
-            </p>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            <Button variant="outline" disabled={reorderSaving} onClick={cancelReorderMode}>
-              <X className="mr-2 h-4 w-4" />Отмена
-            </Button>
-            <Button disabled={reorderSaving} onClick={() => void saveReorder()}>
-              <Check className="mr-2 h-4 w-4" />{reorderSaving ? "Сохраняем..." : "Сохранить порядок"}
-            </Button>
-          </div>
-        </section>
-      ) : null}
       <div className="relative max-w-md">
         <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
         <Input
@@ -1086,7 +913,7 @@ export default function WarehousesPage() {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           onKeyDown={handleSearchKeyDown}
-          disabled={isReorderMode || reorderSaving}
+          disabled={isReorderMode}
           placeholder="Найти склад, материал, культуру, поле или партию"
         />
       </div>
@@ -1101,8 +928,7 @@ export default function WarehousesPage() {
       ) : (
         <div
           ref={reorderGridRef}
-          role={isReorderMode ? "list" : undefined}
-          aria-label={isReorderMode ? "Активные склады в изменяемом порядке" : undefined}
+          data-personal-warehouse-order="enabled"
           className="grid items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-3"
         >
           {activeSummaries.map(renderWarehouseCard)}
@@ -1231,23 +1057,6 @@ export default function WarehousesPage() {
               loadWarehouseList({ foreground: false, force: true }),
               receiptWarehouseId ? loadWarehouseDetails(receiptWarehouseId, { foreground: false, force: true }) : Promise.resolve(),
             ]);
-            setDetailRevision((current) => current + 1);
-          }}
-        />
-      ) : null}
-      {profile?.company_id && canManageWarehouses ? (
-        <WarehouseOpeningBalanceDialog
-          open={openingBalanceOpen}
-          onOpenChange={setOpeningBalanceOpen}
-          companyId={profile.company_id}
-          warehouses={warehouses.filter((warehouse) => !isArchived(warehouse))}
-          defaultWarehouseId={selectedWarehouseId}
-          onCreated={async (result) => {
-            toast({
-              title: "Начальный остаток проведён",
-              description: `${result.document_no}: ${result.line_count} строк, без фиктивных талонов.`,
-            });
-            await loadWarehouseList({ foreground: false, force: true });
             setDetailRevision((current) => current + 1);
           }}
         />

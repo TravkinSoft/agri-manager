@@ -222,16 +222,6 @@ export function HarvestDashboard() {
 
   return (
     <div className="mx-auto w-full max-w-[1500px] space-y-5 overflow-x-hidden">
-      <header className="flex items-end justify-between gap-4 border-b border-border pb-3">
-        <div>
-          <h1 className="tf-manor-heading text-3xl sm:text-4xl">Картофель</h1>
-          <div className="mt-1 text-xs text-muted-foreground">Обновлено в {clock(traffic?.snapshot.serverTime || new Date(now).toISOString())}</div>
-        </div>
-        <div className="flex items-center gap-2 pb-0.5 text-xs uppercase tracking-[0.12em] text-emerald-700">
-          {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
-          Live
-        </div>
-      </header>
       {error ? <div className="border-l-2 border-rose-400 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
       {loading && !summary ? <div className="flex min-h-[18rem] items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка...</div> : null}
 
@@ -239,6 +229,11 @@ export function HarvestDashboard() {
         <>
           <section className="flex items-center justify-between gap-4 border-y border-border py-3" aria-label="Текущее поле">
             <div className="min-w-0">
+              <div className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+                <span>Картофель</span><span>·</span><span>{clock(traffic?.snapshot.serverTime || new Date(now).toISOString())}</span>
+                {refreshing ? <Loader2 className="h-3 w-3 animate-spin text-emerald-700" /> : <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
+                <span className="text-emerald-700">Live</span>
+              </div>
               <h2 className="truncate text-base font-semibold text-foreground">{activeField}</h2>
               <div className="mt-1 truncate text-xs text-muted-foreground">{fieldDetail || "Картофель"}</div>
             </div>
@@ -264,12 +259,11 @@ export function HarvestDashboard() {
           </section>
 
           {calculatorOpen ? (
-            <section className="grid gap-3 border-b border-border pb-4 sm:grid-cols-[minmax(0,1fr)_minmax(180px,.5fr)_minmax(160px,.5fr)] sm:items-end" aria-label="Калькулятор урожайности">
-              <div><div className="text-xs text-muted-foreground">Принятый вес</div><div className="mt-1 text-lg font-semibold tabular-nums">{mass(receivedKg)}</div></div>
-              <label className="text-xs text-muted-foreground">Убрано, га
-                <Input inputMode="decimal" value={harvestedHectares} onChange={(event) => setHarvestedHectares(event.target.value)} placeholder="Например, 2,4" className="mt-1 h-10" />
+            <section className="grid max-w-md grid-cols-[minmax(0,1fr)_minmax(112px,.8fr)] items-end gap-3 rounded-lg bg-card px-3 py-2.5 shadow-manor-sm" aria-label="Калькулятор урожайности">
+              <label className="text-[11px] text-muted-foreground">Убрано, га
+                <Input inputMode="decimal" value={harvestedHectares} onChange={(event) => setHarvestedHectares(event.target.value)} placeholder="Например, 2,4" className="mt-1 h-9" />
               </label>
-              <div><div className="text-xs text-muted-foreground">Урожайность</div><div className="mt-1 text-lg font-semibold tabular-nums text-[color:var(--manor-brass-soft)]">{yieldTonnes == null ? "—" : `${yieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div></div>
+              <div className="min-w-0"><div className="text-[11px] text-muted-foreground">Урожайность</div><div className="mt-1 truncate text-lg font-semibold tabular-nums text-[color:var(--manor-brass-soft)]">{yieldTonnes == null ? "—" : `${yieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div></div>
             </section>
           ) : null}
 

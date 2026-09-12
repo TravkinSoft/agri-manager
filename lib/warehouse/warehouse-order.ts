@@ -6,6 +6,27 @@ type WarehouseOrderable = {
 
 export const WAREHOUSE_ORDER_MAX_ITEMS = 500;
 
+export function warehousePersonalOrderKey(userId: string, companyId: string): string {
+  return `travkinflow:warehouse-order:v2:${userId}:${companyId}`;
+}
+
+export function parseWarehousePersonalOrder(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set<string>();
+    return parsed.flatMap((entry) => {
+      const id = typeof entry === "string" ? entry.trim() : "";
+      if (!id || seen.has(id)) return [];
+      seen.add(id);
+      return [id];
+    }).slice(0, WAREHOUSE_ORDER_MAX_ITEMS);
+  } catch {
+    return [];
+  }
+}
+
 export function normalizeWarehouseDisplayOrder(value: unknown): number | null {
   const normalized = Number(value);
   return Number.isInteger(normalized) && normalized > 0 ? normalized : null;

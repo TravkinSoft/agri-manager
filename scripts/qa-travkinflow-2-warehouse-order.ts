@@ -11,7 +11,9 @@ import {
   mergeVisibleWarehouseOrder,
   moveWarehouseId,
   moveWarehouseIdByOffset,
+  parseWarehousePersonalOrder,
   reconcileWarehouseOrder,
+  warehousePersonalOrderKey,
   withWarehouseDisplayOrder,
 } from "../lib/warehouse/warehouse-order";
 
@@ -121,6 +123,12 @@ check("optimistic display order touches only requested active ids", () => {
     { id: "archived", display_order: 7 },
   ]);
 });
+check("personal order storage is scoped by user and company and tolerates stale values", () => {
+  assert.equal(warehousePersonalOrderKey("user-a", "company-a"), "travkinflow:warehouse-order:v2:user-a:company-a");
+  assert.notEqual(warehousePersonalOrderKey("user-a", "company-a"), warehousePersonalOrderKey("user-b", "company-a"));
+  assert.deepEqual(parseWarehousePersonalOrder('["b","a","b",null]'), ["b", "a"]);
+  assert.deepEqual(parseWarehousePersonalOrder("not-json"), []);
+});
 
 check("warehouse type and normalizer carry the nullable display order", () => {
   assert.match(types, /display_order\?: number \| null/);
@@ -132,16 +140,18 @@ check("legacy list and summary reads sort locally without selecting a required n
   assert.doesNotMatch(listRoute, /\.order\("display_order"/);
   assert.doesNotMatch(summariesRoute, /\.order\("display_order"/);
 });
-check("UI uses the released TravkinFlow 2 switch and has an explicit mode", () => {
-  assert.match(page, /WAREHOUSE_ORDER_UI_ENABLED = TRAVKINFLOW_2_FUNCTIONS_RELEASED/);
-  assert.match(page, /"Изменить порядок"/);
-  assert.match(page, /setIsReorderMode\(true\)/);
+check("UI has no separate reorder mode or company-wide write", () => {
+  assert.doesNotMatch(page, /Изменить порядок|Сохранить порядок|Начальный остаток/);
+  assert.doesNotMatch(page, /await reorderWarehouses|WAREHOUSE_ORDER_UI_ENABLED/);
+  assert.match(page, /warehousePersonalOrderKey\(user\.id, profile\.company_id\)/);
+  assert.match(page, /window\.localStorage\.setItem\(orderPreferenceKey, JSON\.stringify\(orderedIds\)\)/);
 });
-check("pointer and touch ordering requires a hold on a dedicated handle", () => {
-  assert.match(page, /WAREHOUSE_REORDER_HOLD_MS = 180/);
+check("pointer and touch ordering requires a hold on the warehouse card", () => {
+  assert.match(page, /WAREHOUSE_REORDER_HOLD_MS = 320/);
   assert.match(page, /setPointerCapture\(event\.pointerId\)/);
-  assert.match(page, /onPointerDown=\{\(event\) => beginPointerReorder/);
-  assert.match(page, /h-11 w-11 touch-none cursor-grab/);
+  assert.match(page, /onPointerDown=\{reorderable \? \(event\) => beginPointerReorder/);
+  assert.match(page, /touch-none/);
+  assert.match(page, /window\.scrollBy\(\{ top: -deltaY, behavior: "auto" \}\)/);
 });
 check("drag hit-testing reorders cards and has smooth reduced-motion-safe settle", () => {
   assert.match(page, /elementFromPoint\(event\.clientX, event\.clientY\)/);
@@ -149,33 +159,25 @@ check("drag hit-testing reorders cards and has smooth reduced-motion-safe settle
   assert.match(page, /card\.animate\(/);
   assert.match(page, /prefers-reduced-motion: reduce/);
 });
-check("keyboard alternative exposes named up and down controls", () => {
-  assert.match(page, /aria-label=\{`Переместить \$\{warehouse\.name\} вверх`\}/);
-  assert.match(page, /aria-label=\{`Переместить \$\{warehouse\.name\} вниз`\}/);
-  assert.match(page, /event\.key !== "ArrowUp" && event\.key !== "ArrowDown"/);
+check("keyboard alternative uses Alt plus arrow on the focused card", () => {
+  assert.match(page, /event\.altKey && \(event\.key === "ArrowUp" \|\| event\.key === "ArrowDown"\)/);
+  assert.match(page, /moveReorderItemByOffset\(warehouse\.id, event\.key === "ArrowUp" \? -1 : 1\)/);
 });
-check("reorder mode is announced and excludes archived warehouses", () => {
+check("personal reorder is announced and excludes archived warehouses", () => {
   assert.match(page, /aria-live="polite"/);
-  assert.match(page, /Архивные склады не меняются/);
-  assert.match(page, /const reorderable = isReorderMode && !isArchived\(warehouse\)/);
+  assert.match(page, /новый порядок сохранён только для вас/);
+  assert.match(page, /const reorderable = !isArchived\(warehouse\)/);
 });
-check("normal card opening remains available outside reorder mode", () => {
-  assert.match(page, /if \(!reorderable\) openWarehouse\(warehouse\.id\)/);
-  assert.match(page, /role=\{reorderable \? "listitem" : "button"\}/);
-  assert.match(page, /tabIndex=\{reorderable \? undefined : 0\}/);
+check("normal card opening remains available without a separate mode", () => {
+  assert.match(page, /role="button"/);
+  assert.match(page, /tabIndex=\{0\}/);
+  assert.match(page, /suppressWarehouseOpenRef\.current === warehouse\.id/);
+  assert.match(page, /openWarehouse\(warehouse\.id\)/);
 });
-check("save is single-flight, optimistic, and rolls back order without losing refreshed data", () => {
-  assert.match(page, /if \(!profile\?\.company_id \|\| reorderSavingRef\.current\) return/);
-  assert.match(page, /setWarehouses\(nextWarehouses\)[\s\S]*?await reorderWarehouses/);
-  assert.match(page, /catch \(cause\)[\s\S]*?setWarehouses\(\(current\) => withWarehouseDisplayOrder\(current, rollbackIds\)\)/);
-  assert.match(page, /setWarehouseSummaryRows\(\(current\) =>/);
-  assert.match(page, /const currentCache = warehousePageCache\.get\(cacheKey\)/);
-  assert.match(page, /currentCache\.warehouses[\s\S]*?\? withWarehouseDisplayOrder/);
-  assert.match(page, /Исходный порядок восстановлен/);
-});
-check("scope changes invalidate stale save responses", () => {
-  assert.match(page, /reorderSaveGeneration\.current \+= 1/);
-  assert.match(page, /reorderSaveGeneration\.current !== saveGeneration/);
+check("drag completion stores the final order and suppresses accidental opening", () => {
+  assert.match(page, /persistPersonalReorder\(\[\.\.\.reorderDraftIdsRef\.current\], session\.warehouseId\)/);
+  assert.match(page, /suppressWarehouseOpenRef\.current = session\.warehouseId/);
+  assert.match(page, /setIsReorderMode\(false\)/);
 });
 check("client service sends one authenticated PATCH with the complete visible order", () => {
   assert.match(service, /export async function reorderWarehouses/);
