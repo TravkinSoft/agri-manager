@@ -1,18 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Calculator, Clock3, Loader2, Scale, Warehouse } from "lucide-react";
+import { AlertTriangle, ChevronDown, Clock3, Loader2, Warehouse } from "lucide-react";
 import { TicketPreviewDialog } from "@/components/weighbridge/ticket-preview-dialog";
 import { PotatoDriverSummary } from "@/components/dashboard/potato-driver-summary";
 import { TrafficShiftSummary } from "@/components/dashboard/traffic-shift-summary";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/contexts/auth-context";
-import { isPotatoLabel, type HarvestFilterOptions, type HarvestOverview, type HarvestParty } from "@/lib/dashboard/harvest-summary";
+import { isPotatoLabel, type HarvestFilterOptions, type HarvestOverview } from "@/lib/dashboard/harvest-summary";
 import { getHarvestBootstrap, getHarvestSummary } from "@/lib/services/harvest-dashboard";
 import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
 import { getFleetVehicleBrand, type FleetVehicle } from "@/lib/fleet/model";
 import type { TrafficSnapshot, TrafficVehicle } from "@/lib/traffic/model";
 import { trafficRequest } from "@/components/traffic/use-traffic";
+import { compactReproductionLabel } from "@/lib/agronomy/reproduction-display";
 
 type BootstrapPayload = {
   summary: HarvestOverview;
@@ -107,15 +108,6 @@ function useDashboardTraffic(enabled: boolean) {
   return { payload, error };
 }
 
-function PotatoIdentity({ party }: { party: HarvestParty }) {
-  return (
-    <div className="min-w-0">
-      <div className="truncate text-base font-semibold text-foreground">{party.varietyName || "Сорт не указан"}</div>
-      <div className="mt-0.5 text-xs text-muted-foreground">{party.reproductionName || "Репродукция не указана"}</div>
-    </div>
-  );
-}
-
 function VehicleCard({ vehicle, now }: { vehicle: TrafficVehicle; now: number }) {
   const brand = getFleetVehicleBrand(vehicle);
   return (
@@ -143,6 +135,7 @@ export function HarvestDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<TrafficGroup>("loaded");
   const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const [shiftReportOpen, setShiftReportOpen] = useState(false);
   const [harvestedHectares, setHarvestedHectares] = useState("");
   const [ticketId, setTicketId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -197,7 +190,19 @@ export function HarvestDashboard() {
   const waitingTare = potatoParties.flatMap((party) => party.openTickets).filter((ticket) => (ticket.waitingTareMinutes || 0) > 0);
   const recentEvents = (summary?.completedEvents || []).filter((event) => isPotatoLabel(event.identityLabel)).slice(0, 5);
   const fields = potatoParties.flatMap((party) => party.fields.map((field) => ({ ...field, party })));
-  const activeField = traffic?.snapshot.fieldName || fields[0]?.fieldName || "Поле не выбрано";
+  const activeFieldName = traffic?.snapshot.fieldName?.trim() || "";
+  const activeFieldRow = activeFieldName
+    ? fields.find((field) => field.fieldName.trim().toLocaleLowerCase("ru-RU") === activeFieldName.toLocaleLowerCase("ru-RU")) || null
+    : null;
+  const activeParty = activeFieldRow?.party || null;
+  const activeField = activeFieldName || "Поле не выбрано";
+  const activeIdentity = activeParty
+    ? [activeParty.varietyName, compactReproductionLabel(activeParty.reproductionName)].filter((value) => value && value !== "—").join(" · ")
+    : "Картофель";
+  const activeShift = traffic?.snapshot.combineShift || null;
+  const fieldHectares = activeShift?.hectaresFieldTotal ?? activeShift?.hectaresShift ?? null;
+  const fieldDetail = [activeIdentity, fieldHectares === null ? null : `${fieldHectares.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`].filter(Boolean).join(" · ");
+  const shiftIsOpen = activeShift?.status === "open";
   const hectares = Number(harvestedHectares.replace(",", "."));
   const yieldTonnes = hectares > 0 ? receivedKg / 1000 / hectares : null;
   const trafficVehicles = useMemo(() => mergeTrafficVehicles(traffic?.snapshot || null, traffic?.fleet || []), [traffic]);
@@ -205,31 +210,44 @@ export function HarvestDashboard() {
 
   return (
     <div className="mx-auto w-full max-w-[1500px] space-y-5 overflow-x-hidden">
-      <header className="flex items-center justify-between gap-4 border-b border-border pb-3">
-        <h1 className="tf-manor-heading text-3xl sm:text-4xl">Сводка</h1>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />}
+      <header className="flex items-end justify-between gap-4 border-b border-border pb-3">
+        <div>
+          <h1 className="tf-manor-heading text-3xl sm:text-4xl">Картофель</h1>
+          <div className="mt-1 text-xs text-muted-foreground">Обновлено в {clock(traffic?.snapshot.serverTime || new Date(now).toISOString())}</div>
+        </div>
+        <div className="flex items-center gap-2 pb-0.5 text-xs uppercase tracking-[0.12em] text-emerald-700">
+          {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
           Live
         </div>
       </header>
       {error ? <div className="border-l-2 border-rose-400 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
       {loading && !summary ? <div className="flex min-h-[18rem] items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка...</div> : null}
 
-      {profile && ["agronomist", "director"].includes(profile.role) && profile.company_id ? <TrafficShiftSummary key={profile.company_id} companyId={profile.company_id} /> : null}
       {summary ? (
         <>
-          <section className="grid grid-cols-3 border-y border-border" aria-label="Главные показатели картофеля">
-            <div className="py-4 pr-3">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Принято</div>
-              <div className="mt-1 text-xl font-semibold tabular-nums text-foreground sm:text-2xl">{mass(receivedKg)}</div>
+          <section className="flex items-center justify-between gap-4 border-y border-border py-3" aria-label="Текущее поле">
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-semibold text-foreground">{activeField}</h2>
+              <div className="mt-1 truncate text-xs text-muted-foreground">{fieldDetail || "Картофель"}</div>
             </div>
-            <div className="border-x border-border px-3 py-4">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">На складе</div>
-              <div className="mt-1 text-xl font-semibold tabular-nums text-foreground sm:text-2xl">{mass(stockKg)}</div>
+            {canReadTraffic ? <div className="shrink-0 text-right">
+              <div className="text-sm font-medium text-[color:var(--manor-brass-soft)]">{traffic ? (shiftIsOpen ? "Смена открыта" : "Смена не открыта") : "PTC загружается"}</div>
+              <div className="mt-1 text-xs text-muted-foreground">{traffic?.snapshot.enabled ? "PTC работает" : "ожидание данных"}</div>
+            </div> : null}
+          </section>
+
+          <section className="grid grid-cols-3 border-b border-border" aria-label="Главные показатели картофеля">
+            <div className="min-w-0 py-4 pr-2 sm:pr-3">
+              <div className="text-[9px] uppercase tracking-[0.11em] text-muted-foreground sm:text-[10px]">Принято</div>
+              <div className="mt-1 whitespace-nowrap text-lg font-semibold tabular-nums text-[color:var(--manor-brass-soft)] sm:text-2xl">{mass(receivedKg)}</div>
             </div>
-            <button type="button" onClick={() => setCalculatorOpen((value) => !value)} className="group px-3 py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-              <div className="flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Урожайность <Calculator className="h-3 w-3 transition-transform duration-150 group-hover:-translate-y-0.5" /></div>
-              <div className="mt-1 text-xl font-semibold tabular-nums text-foreground sm:text-2xl">{yieldTonnes == null ? "Рассчитать" : `${yieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div>
+            <div className="min-w-0 border-x border-border px-2 py-4 sm:px-3">
+              <div className="text-[9px] uppercase tracking-[0.11em] text-muted-foreground sm:text-[10px]">На складе</div>
+              <div className="mt-1 whitespace-nowrap text-lg font-semibold tabular-nums text-foreground sm:text-2xl">{mass(stockKg)}</div>
+            </div>
+            <button type="button" onClick={() => setCalculatorOpen((value) => !value)} className="min-w-0 px-2 py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-3">
+              <div className="text-[9px] uppercase tracking-[0.08em] text-muted-foreground sm:text-[10px]">Урожайность</div>
+              <div className="mt-1 whitespace-nowrap text-base font-semibold tabular-nums text-foreground sm:text-2xl">{yieldTonnes == null ? "Рассчитать" : `${yieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div>
             </button>
           </section>
 
@@ -244,58 +262,18 @@ export function HarvestDashboard() {
           ) : null}
 
           {waitingTare.length ? <div className="flex items-start gap-2 border-l-2 border-amber-400 px-3 py-2 text-sm text-amber-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{waitingTare.length} {waitingTare.length === 1 ? "машина ждёт" : "машины ждут"} тары на весовой</div> : null}
-
-          <section className="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,.9fr)]">
-            <div>
-              <div className="mb-3 flex items-end justify-between gap-3">
-                <div className="min-w-0"><div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Сейчас убирают</div><h2 className="tf-manor-heading mt-0.5 truncate text-2xl">{activeField}</h2></div>
-                <span className="shrink-0 text-xs text-muted-foreground">Картофель</span>
-              </div>
-              <div className="border-y border-border">
-                {potatoParties.length ? potatoParties.map((party) => (
-                  <div key={party.key} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-border py-3 last:border-0">
-                    <PotatoIdentity party={party} />
-                    <div className="text-right"><div className="text-sm font-semibold tabular-nums">{mass(party.receivedKg)}</div><div className="mt-0.5 text-[11px] text-muted-foreground">принято</div></div>
-                  </div>
-                )) : <div className="py-6 text-sm text-muted-foreground">Сегодня картофель ещё не принимали.</div>}
-              </div>
-            </div>
-            <div>
-              <div className="mb-3 flex items-center gap-2"><Warehouse className="h-4 w-4 text-muted-foreground" /><h2 className="text-sm font-semibold">Размещение</h2></div>
-              <div className="border-y border-border">
-                {potatoParties.flatMap((party) => party.warehouses.map((warehouse) => ({ ...warehouse, party }))).map((warehouse) => (
-                  <div key={`${warehouse.party.key}:${warehouse.warehouseId}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-border py-3 last:border-0">
-                    <div className="min-w-0"><div className="truncate text-sm font-medium">{warehouse.warehouseName}</div><div className="mt-0.5 truncate text-xs text-muted-foreground">{warehouse.party.varietyName} · {warehouse.party.reproductionName}</div></div>
-                    <div className="text-sm font-semibold tabular-nums">{mass(warehouse.currentKg)}</div>
-                  </div>
-                ))}
-                {!potatoParties.some((party) => party.warehouses.length) ? <div className="py-6 text-sm text-muted-foreground">Размещения пока нет.</div> : null}
-              </div>
-            </div>
-          </section>
-
-          <section>
-            <div className="mb-3 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold">Последние поступления</h2><Scale className="h-4 w-4 text-muted-foreground" /></div>
-            <div className="border-y border-border">
-              {recentEvents.map((event) => (
-                <button key={event.ticketId} type="button" onClick={() => setTicketId(event.ticketId)} className="grid w-full grid-cols-[42px_minmax(0,1fr)_auto] gap-3 border-b border-border py-3 text-left last:border-0 hover:text-[color:var(--manor-brass-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-                  <span className="text-xs tabular-nums text-muted-foreground">{clock(event.occurredAt)}</span>
-                  <span className="min-w-0"><span className="block truncate text-sm font-medium">{event.fieldName}</span><span className="block truncate text-xs text-muted-foreground">{event.identityLabel} → {event.destinationName}</span></span>
-                  <strong className="text-sm tabular-nums">{mass(event.netWeightKg)}</strong>
-                </button>
-              ))}
-              {!recentEvents.length ? <div className="py-6 text-sm text-muted-foreground">Поступлений сегодня нет.</div> : null}
-            </div>
-          </section>
         </>
       ) : null}
 
       {canReadTraffic ? (
-        <section className="pt-2" aria-label="Статусы машин PTC">
-          <div className="mb-3 flex items-end justify-between gap-3"><div><div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">PTC · Live</div><h2 className="tf-manor-heading text-2xl">Машины</h2></div>{traffic?.snapshot.fieldName ? <span className="truncate text-xs text-muted-foreground">{traffic.snapshot.fieldName}</span> : null}</div>
+        <section aria-label="Статусы машин PTC">
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <h2 className="text-sm font-semibold">Оборот машин</h2>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="text-emerald-700">PTC · Live</span><span>{trafficVehicles.filter((vehicle) => vehicle.assigned).length} на линии</span></div>
+          </div>
           {trafficError ? <div className="mb-3 border-l-2 border-amber-400 px-3 py-2 text-sm text-amber-700">{trafficError}</div> : null}
           <div role="tablist" aria-label="Статусы машин" className="grid grid-cols-5 border-y border-border lg:hidden">
-            {GROUPS.map((group) => <button key={group.key} role="tab" aria-selected={selectedGroup === group.key} onClick={() => setSelectedGroup(group.key)} className={`min-h-[58px] px-1 py-2 text-center ${selectedGroup === group.key ? "bg-accent text-foreground" : "text-muted-foreground"}`}><span className="block text-[9px] leading-3">{group.mobile}</span><strong className="mt-1 block text-lg tabular-nums">{grouped[group.key]?.length || 0}</strong></button>)}
+            {GROUPS.map((group) => <button key={group.key} role="tab" aria-selected={selectedGroup === group.key} onClick={() => setSelectedGroup(group.key)} className={`min-h-[58px] min-w-0 px-1 py-2 text-center ${selectedGroup === group.key ? "bg-accent text-foreground" : "text-muted-foreground"}`}><span className="block text-[9px] leading-3">{group.mobile}</span><strong className="mt-1 block text-lg tabular-nums">{grouped[group.key]?.length || 0}</strong></button>)}
           </div>
           {!traffic ? <div className="flex min-h-28 items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка PTC...</div> : (
             <>
@@ -307,7 +285,50 @@ export function HarvestDashboard() {
           )}
         </section>
       ) : null}
+
+      {summary ? (
+        <>
+          <section>
+            <div className="mb-3 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold">Последние рейсы</h2><span className="text-xs text-muted-foreground">Нетто</span></div>
+            <div className="border-y border-border">
+              {recentEvents.map((event) => (
+                <button key={event.ticketId} type="button" onClick={() => setTicketId(event.ticketId)} className="grid w-full grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-3 border-b border-border py-3 text-left last:border-0 hover:text-[color:var(--manor-brass-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                  <span className="text-xs tabular-nums text-muted-foreground">{clock(event.occurredAt)}</span>
+                  <span className="min-w-0 truncate text-sm font-medium">{event.fieldName}</span>
+                  <strong className="whitespace-nowrap text-sm tabular-nums">{mass(event.netWeightKg)}</strong>
+                </button>
+              ))}
+              {!recentEvents.length ? <div className="py-6 text-sm text-muted-foreground">Рейсов сегодня нет.</div> : null}
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-3 flex items-center gap-2"><Warehouse className="h-4 w-4 text-muted-foreground" /><h2 className="text-sm font-semibold">Размещение</h2></div>
+            <div className="border-y border-border">
+              {potatoParties.flatMap((party) => party.warehouses.map((warehouse) => ({ ...warehouse, party }))).map((warehouse) => (
+                <div key={`${warehouse.party.key}:${warehouse.warehouseId}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border py-3 last:border-0">
+                  <div className="min-w-0"><div className="truncate text-sm font-medium">{warehouse.warehouseName}</div><div className="mt-0.5 truncate text-xs text-muted-foreground">{warehouse.party.varietyName || "Сорт не указан"} · {compactReproductionLabel(warehouse.party.reproductionName)}</div></div>
+                  <div className="whitespace-nowrap text-sm font-semibold tabular-nums">{mass(warehouse.currentKg)}</div>
+                </div>
+              ))}
+              {!potatoParties.some((party) => party.warehouses.length) ? <div className="py-6 text-sm text-muted-foreground">Размещения пока нет.</div> : null}
+            </div>
+          </section>
+        </>
+      ) : null}
+
       {summary ? <PotatoDriverSummary rows={summary.potatoDrivers} /> : null}
+
+      {profile && ["agronomist", "director"].includes(profile.role) && profile.company_id ? (
+        <details className="group border-y border-border" onToggle={(event) => setShiftReportOpen(event.currentTarget.open)}>
+          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 py-2 text-sm font-medium marker:hidden">
+            <span>Отчёт PTC по закрытой смене</span>
+            <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
+          </summary>
+          {shiftReportOpen ? <div className="pb-4"><TrafficShiftSummary key={profile.company_id} companyId={profile.company_id} /></div> : null}
+        </details>
+      ) : null}
+
       <TicketPreviewDialog ticketId={ticketId} open={Boolean(ticketId)} onOpenChange={(open) => !open && setTicketId(null)} />
     </div>
   );

@@ -344,13 +344,14 @@ check("dashboard presents the potato live chain", () => {
   assert.match(dashboardUi, /Главные показатели картофеля/);
   assert.match(dashboardUi, /Принято/);
   assert.match(dashboardUi, /На складе/);
-  assert.match(dashboardUi, /Последние поступления/);
+  assert.match(dashboardUi, /Текущее поле[\s\S]*Главные показатели картофеля[\s\S]*Статусы машин PTC[\s\S]*Последние рейсы[\s\S]*Размещение/);
   assert.match(dashboardUi, /potatoParties/);
   assert.doesNotMatch(dashboardUi, /Поступление по культурам|Завершено рейсов/);
 });
 check("dashboard exposes secondary potato driver table", () => {
   assert.match(dashboardUi, /PotatoDriverSummary/);
   assert.match(dashboardUi, /\["agronomist", "director"\]\.includes\(profile\.role\)[\s\S]*?<TrafficShiftSummary/);
+  assert.match(dashboardUi, /shiftReportOpen \? <div[\s\S]*?<TrafficShiftSummary/);
   assert.match(potatoDriverUi, /timeZone: HARVEST_TIME_ZONE/);
   assert.match(potatoDriverUi, /"водитель"[\s\S]*?"водителя"[\s\S]*?"водителей"/);
 });

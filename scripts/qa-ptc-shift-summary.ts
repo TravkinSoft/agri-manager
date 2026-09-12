@@ -192,7 +192,8 @@ assert.match(summaryNormalizer, /latestDistinctVehicleLoadSpanMinutes: finiteOrN
 
 const dashboard = readFileSync("components/dashboard/harvest-dashboard.tsx", "utf8");
 assert.match(dashboard, /\["agronomist", "director"\]\.includes\(profile\.role\)[\s\S]*?<TrafficShiftSummary key=\{profile\.company_id\}/); checks += 1;
-assert.ok(dashboard.indexOf("<TrafficShiftSummary") < dashboard.indexOf("Главные показатели картофеля")); checks += 1;
+assert.ok(dashboard.indexOf("Главные показатели картофеля") < dashboard.indexOf("<TrafficShiftSummary")); checks += 1;
+assert.match(dashboard, /Отчёт PTC по закрытой смене[\s\S]*?shiftReportOpen \? <div[\s\S]*?<TrafficShiftSummary/); checks += 1;
 
 type FakeResult = { data: unknown; error: null };
 

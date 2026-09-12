@@ -11,6 +11,7 @@ import type { HarvestBatchSummary } from "@/lib/types/weighbridge";
 import type { InventoryBalance, Warehouse } from "@/lib/types/warehouse";
 import { buildStockAvailability } from "@/lib/warehouse/stock-availability";
 import { readErrorMessage, ScopedReadResource } from "@/lib/utils/scoped-read-resource";
+import { compactReproductionLabel } from "@/lib/agronomy/reproduction-display";
 
 type Props = {
   companyId: string;
@@ -72,13 +73,13 @@ export function StockAvailability({ companyId, userId, actorScope, active, place
             <div className="hidden grid-cols-[minmax(180px,1fr)_90px_130px] gap-3 border-b border-border pb-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground sm:grid"><span>Сорт</span><span>Репр.</span><span className="text-right">В наличии</span></div>
             {crop.identities.map((identity) => {
               const [variety = "Сорт не указан", reproduction = "—"] = identity.label.split(" · ");
-              const normalizedReproduction = reproduction.match(/^(?:репродукция\s*)?(\d+)$/i)?.[1] || reproduction;
+              const normalizedReproduction = compactReproductionLabel(reproduction);
               return (
                 <details key={identity.key} className="group/identity border-b border-border/70 last:border-0">
-                  <summary className="grid min-h-[48px] cursor-pointer list-none grid-cols-[minmax(0,1fr)_54px_auto] items-center gap-3 py-2 text-sm transition-colors hover:text-[color:var(--manor-brass-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring marker:hidden sm:grid-cols-[minmax(180px,1fr)_90px_130px]">
+                  <summary className="grid min-h-[48px] cursor-pointer list-none grid-cols-[minmax(64px,1fr)_84px_112px] items-center gap-2 py-2 text-sm transition-colors hover:text-[color:var(--manor-brass-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring marker:hidden sm:grid-cols-[minmax(180px,1fr)_90px_130px] sm:gap-3">
                     <span className="flex min-w-0 items-center gap-2"><ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open/identity:rotate-180" /><span className="truncate">{variety}</span></span>
-                    <span className="text-muted-foreground">{normalizedReproduction}</span>
-                    <strong className="text-right tabular-nums text-emerald-800">{identity.quantity.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} {localizeUnit(identity.unit, language)}</strong>
+                    <span className="whitespace-nowrap text-xs text-muted-foreground sm:text-sm">{normalizedReproduction}</span>
+                    <strong className="whitespace-nowrap text-right text-sm tabular-nums text-emerald-800">{identity.quantity.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} {localizeUnit(identity.unit, language)}</strong>
                   </summary>
                   <div className="pb-1 pl-6">
                     {identity.positions.map((position) => <button key={position.key} type="button" className="flex min-h-[42px] w-full items-center justify-between gap-3 py-2 text-left text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => position.batch ? onOpenBatch(position.batch) : position.material && onOpenMaterial(position.material)}>

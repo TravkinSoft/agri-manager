@@ -42,6 +42,7 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import { localizeUnit } from "@/lib/i18n/helpers";
 import { listHarvestBatchSummaries } from "@/lib/services/weighbridge";
 import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
+import { compactReproductionLabel } from "@/lib/agronomy/reproduction-display";
 import {
   getInventoryBalances,
   getProducts,
@@ -85,12 +86,6 @@ function formatDate(value?: string | null): string {
 
 function quantity(value: number): string {
   return Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 3 });
-}
-
-function reproductionLabel(value?: string | null): string {
-  const label = String(value || "").trim();
-  const numeric = label.match(/^(?:репродукция\s*)?(\d+)$/i);
-  return numeric ? numeric[1] : label || "—";
 }
 
 function isArchived(warehouse: Warehouse): boolean {
@@ -1181,12 +1176,12 @@ export default function WarehousesPage() {
                           key={`harvest-${batch.id}`}
                           type="button"
                           onClick={() => void openHarvestBatch(batch)}
-                          className="grid w-full grid-cols-[minmax(0,1fr)_64px_auto] gap-3 py-3 text-left transition-colors hover:text-[color:var(--manor-brass-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:grid-cols-[minmax(130px,.8fr)_minmax(170px,1fr)_88px_120px]"
+                          className="grid w-full grid-cols-[minmax(72px,1fr)_84px_112px] gap-2 py-3 text-left transition-colors hover:text-[color:var(--manor-brass-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:grid-cols-[minmax(130px,.8fr)_minmax(170px,1fr)_88px_120px] sm:gap-3"
                         >
                           <div className="min-w-0 truncate text-sm font-semibold text-foreground">{batch.cropName}</div>
                           <div className={`min-w-0 truncate text-sm ${batch.reviewState === "requires_review" ? "text-amber-800" : "text-muted-foreground"}`}>{batch.varietyName || identity}</div>
-                          <div className="text-sm text-muted-foreground">{reproductionLabel(batch.reproductionName)}</div>
-                          <div className="col-span-3 text-right text-sm font-semibold tabular-nums text-emerald-800 sm:col-span-1">{quantity(batch.cleanMassKg)} кг</div>
+                          <div className="whitespace-nowrap text-xs text-muted-foreground sm:text-sm">{compactReproductionLabel(batch.reproductionName)}</div>
+                          <div className="col-span-3 whitespace-nowrap text-right text-sm font-semibold tabular-nums text-emerald-800 sm:col-span-1">{quantity(batch.cleanMassKg)} кг</div>
                         </button>
                       );
                     })}
