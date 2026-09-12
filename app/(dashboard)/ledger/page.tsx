@@ -82,7 +82,7 @@ export default function LedgerPage() {
               {filtered.map((row) => (
                 <div key={row.id} className="rounded-lg border p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="font-medium">
+                    <div className={`font-medium ${row.direction === "in" ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
                       {row.direction === "in" ? "+" : "-"}{Number(row.quantity || 0).toFixed(3)} кг · {row.product_name}
                     </div>
                     <div className="text-xs rounded-full px-2 py-1 bg-muted">{row.direction}</div>

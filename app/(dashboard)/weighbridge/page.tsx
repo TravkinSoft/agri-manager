@@ -2,7 +2,7 @@
 
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, ChevronDown, ClipboardList, Clock3, FileDown, Info, Loader2, LockKeyhole, MoreHorizontal, Pencil, Scale, Trash2, UserRound } from "lucide-react";
+import { CheckCircle2, Clock3, FileDown, Info, Loader2, MoreHorizontal, Pencil, Scale, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,7 +22,7 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
-import { adminTicketAction, changeActiveHarvestRouteContext, closeShift, createActiveHarvestRoute, createTicket, downloadTicketPdf, finalizeTicket, getTicketDetails, getWeighbridgeBootstrap, getWeighbridgeOperatorState, getWeighbridgeResources, getWeighbridgeTransportPickerData, handoverWeighbridgeOperator, listActiveHarvestRoutes, listHarvestBatchSummaries, listWeighbridgeWorkspaceTickets, lockWeighbridgeOperator, patchTicket, startTicketCorrection, unlockWeighbridgeOperator, updateActiveHarvestRoute, voidTicket, type ActiveHarvestRouteList } from "@/lib/services/weighbridge";
+import { adminTicketAction, changeActiveHarvestRouteContext, closeShift, createActiveHarvestRoute, createTicket, downloadTicketPdf, finalizeTicket, getTicketDetails, getWeighbridgeBootstrap, getWeighbridgeOperatorState, getWeighbridgeResources, getWeighbridgeTransportPickerData, handoverWeighbridgeOperator, listActiveHarvestRoutes, listHarvestBatchSummaries, listWeighbridgeWorkspaceTickets, patchTicket, startTicketCorrection, unlockWeighbridgeOperator, updateActiveHarvestRoute, voidTicket, type ActiveHarvestRouteList } from "@/lib/services/weighbridge";
 import type { ActiveHarvestRoute, HarvestBatchSummary, ImpuritySourceScopeInput, TicketDirection, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket } from "@/lib/types/weighbridge";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import {
@@ -1167,7 +1167,6 @@ export default function WeighbridgeOperationsPage() {
   const canVoid = profile?.role === "company_admin" || profile?.role === "global_admin" || profile?.role === "director";
   const canCorrectTicket = profile?.role === "company_admin" || profile?.role === "global_admin" || profile?.role === "director" || profile?.role === "weighman";
   const canAdminVoidHistoryTicket = profile?.role === "global_admin";
-  const canUseInventory = ["company_admin", "global_admin", "warehouse", "warehouse_operator", "weighman"].includes(String(profile?.role || ""));
   const canUseOperatorSession = ["company_admin", "global_admin", "director", "weighman"].includes(String(profile?.role || ""));
   const eligibleOperators = useMemo(
     () => operatorState.operators.filter((operator) => operator.has_pin !== false && operator.pin_active !== false),
@@ -5295,20 +5294,6 @@ export default function WeighbridgeOperationsPage() {
     }
   };
 
-  const lockOperatorAction = async () => {
-    if (!profile?.company_id) return;
-    invalidateOperatorSessionRequest();
-    try {
-      await lockWeighbridgeOperator(profile.company_id);
-      updateOperatorState((state) => ({ ...state, unlocked: false, operator: null, session_expires_at: null }));
-      setOperatorSessionStatus("ready");
-      setOperatorPin("");
-      setOperatorDialogOpen(true);
-    } catch (e: any) {
-      toast({ title: "Не удалось заблокировать терминал", description: e?.message, variant: "destructive" });
-    }
-  };
-
   const closeShiftAction = async () => {
     if (!profile?.company_id || !profile?.id || !activeShift) return;
     try {
@@ -5520,102 +5505,6 @@ export default function WeighbridgeOperationsPage() {
       aria-hidden={operatorGateBlocked ? true : undefined}
       className={`tf-estate-weighbridge mx-auto max-w-[1680px] space-y-3 px-2 pb-4 sm:px-3 ${operatorGateBlocked ? "pointer-events-none select-none blur-sm opacity-35" : ""}`}
     >
-      <header aria-label="Режим весовой" className="border-b border-border px-1 pb-3 pt-1">
-        <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h1 className="tf-manor-heading text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Весовая</h1>
-            </div>
-          </div>
-
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button type="button" variant="outline" disabled={!workspaceReady} className="h-9 border-border bg-background text-foreground hover:bg-background">
-                  Сменить операцию<ChevronDown className="ml-2 h-4 w-4 text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-[min(22rem,calc(100vw-2rem))] border-border bg-background p-1 text-foreground">
-                {WEIGHBRIDGE_MODES.map((mode) => {
-                  const active = mode.type === form.operationType;
-                  return (
-                    <DropdownMenuItem
-                      key={mode.type}
-                      className="items-start rounded-md px-3 py-2.5 focus:bg-muted"
-                      onSelect={() => void selectOperation(mode.type)}
-                    >
-                      <span className="min-w-0 text-sm font-semibold text-foreground">{mode.label}</span>
-                      {active ? <span className="ml-auto shrink-0 text-[10px] font-semibold uppercase text-muted-foreground">Сейчас</span> : null}
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            {canUseOperatorSession ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={operatorState.unlocked
-                  ? "h-9 max-w-[210px] shrink-0 border-emerald-500/35 bg-emerald-500/10 px-3 text-xs text-emerald-800"
-                  : "h-9 shrink-0 border-amber-500/35 bg-amber-500/10 px-3 text-xs text-amber-800"}
-                onClick={openShiftAction}
-              >
-                {operatorState.unlocked ? <UserRound className="mr-1.5 h-3.5 w-3.5" /> : <LockKeyhole className="mr-1.5 h-3.5 w-3.5" />}
-                <span className="truncate">{operatorState.operator?.name || "Введите PIN"}</span>
-              </Button>
-            ) : null}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" className="h-9 w-9 border-border bg-background text-foreground" aria-label="Дополнительные действия">
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                <DropdownMenuItem onClick={() => setShiftDialogOpen(true)}>
-                  <Info className="mr-2 h-4 w-4" />Информация о смене
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => historyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-                  <Clock3 className="mr-2 h-4 w-4" />История талонов
-                </DropdownMenuItem>
-                {canUseInventory ? (
-                  <DropdownMenuItem asChild>
-                    <Link href="/warehouses/inventory"><ClipboardList className="mr-2 h-4 w-4" />Инвентаризация</Link>
-                  </DropdownMenuItem>
-                ) : null}
-                <DropdownMenuSeparator />
-                {activeShift ? (
-                  <DropdownMenuItem onClick={() => setShiftDialogOpen(true)}>Закрыть смену</DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem onClick={openShiftAction}>Открыть смену</DropdownMenuItem>
-                )}
-                {operatorState.unlocked ? (
-                  <DropdownMenuItem onClick={() => void lockOperatorAction()}>
-                    <LockKeyhole className="mr-2 h-4 w-4" />Заблокировать терминал
-                  </DropdownMenuItem>
-                ) : null}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-      </header>
-
-      <div className="relative">
-        <nav aria-label="Операции весовой" className="travkin-scrollbar flex gap-1 overflow-x-auto border-b border-border pr-8 lg:pr-0">
-          {WEIGHBRIDGE_MODES.map((mode) => (
-            <button
-              key={mode.type}
-              type="button"
-              aria-pressed={mode.type === form.operationType}
-              disabled={!workspaceReady}
-              onClick={() => void selectOperation(mode.type)}
-              className={`tf-manor-control min-h-11 shrink-0 border-b-2 px-3 py-2 text-sm disabled:opacity-50 ${mode.type === form.operationType ? "border-primary font-semibold text-foreground" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
-            >{mode.label}</button>
-          ))}
-        </nav>
-        <span aria-hidden="true" className="pointer-events-none absolute inset-y-px right-0 w-9 bg-gradient-to-l from-background to-transparent lg:hidden" />
-        <span className="sr-only">Список операций прокручивается по горизонтали</span>
-      </div>
-
       <UniversalWorkspaceTabs
         tabs={workspaceTabs}
         selectedId={selectedWorkspaceId}
