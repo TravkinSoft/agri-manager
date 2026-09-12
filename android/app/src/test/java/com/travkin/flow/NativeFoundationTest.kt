@@ -21,13 +21,17 @@ class NativeFoundationTest {
     }
 
     @Test
-    fun `native Android accepts only agronomist`() {
-        assertEquals(listOf(SupportedRole.AGRONOMIST), SupportedRole.entries)
+    fun `native Android accepts the six product roles only`() {
+        assertEquals(6, SupportedRole.entries.size)
         assertSame(SupportedRole.AGRONOMIST, SupportedRole.fromWire("agronomist"))
         assertSame(SupportedRole.AGRONOMIST, SupportedRole.fromWire(" AGRONOMIST "))
+        assertSame(SupportedRole.DIRECTOR, SupportedRole.fromWire("director"))
+        assertSame(SupportedRole.FLEET_MANAGER, SupportedRole.fromWire("fleet_manager"))
+        assertSame(SupportedRole.RECEIVER, SupportedRole.fromWire("vegetable_brigadier"))
+        assertSame(SupportedRole.WEIGHMAN, SupportedRole.fromWire("weighman"))
+        assertSame(SupportedRole.HARVESTER, SupportedRole.fromWire("mechanic_operator"))
         assertNull(SupportedRole.fromWire("global_admin"))
         assertNull(SupportedRole.fromWire("company_admin"))
-        assertNull(SupportedRole.fromWire("weighman"))
         assertNull(SupportedRole.fromWire("specialist"))
         assertNull(SupportedRole.fromWire("warehouse"))
         assertNull(SupportedRole.fromWire(null))

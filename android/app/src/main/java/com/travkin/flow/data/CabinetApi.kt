@@ -56,6 +56,9 @@ interface CabinetApi {
     @GET("api/traffic")
     suspend fun traffic(@Header("Authorization") auth: String): Response<JsonObject>
 
+    @GET("api/traffic/operator")
+    suspend fun trafficOperator(@Header("Authorization") auth: String): Response<JsonObject>
+
     @GET("api/weather-lab/kato")
     suspend fun localities(@Header("Authorization") auth: String, @Query("q") query: String,
         @Query("mode") mode: String = "search"): Response<JsonObject>

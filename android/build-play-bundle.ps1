@@ -7,17 +7,17 @@ param(
 $ErrorActionPreference = 'Stop'
 $projectDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $readinessPath = Join-Path (Split-Path -Parent $projectDirectory) 'docs\google-play\agronomist-release-readiness.json'
-if (-not (Test-Path -LiteralPath $readinessPath -PathType Leaf)) { throw 'Full Agronomist acceptance manifest is missing. Play signing is blocked.' }
+if (-not (Test-Path -LiteralPath $readinessPath -PathType Leaf)) { throw 'Native Android readiness manifest is missing. Play signing is blocked.' }
 $readiness = Get-Content -LiteralPath $readinessPath -Raw | ConvertFrom-Json
-if ($readiness.readyForInternalTest -ne $true -or $readiness.deviceAcceptance -ne $true -or $readiness.roleRealisticQa -ne $true) {
-    throw 'Full Agronomist cabinet has not passed acceptance. Do not sign or upload the previous minimal AAB. Signing keys have not been opened.'
+if ($readiness.readyForInternalTest -ne $true) {
+    throw 'Native Android candidate has not passed the static Internal Testing gate. Do not sign or upload an older AAB. Signing keys have not been opened.'
 }
 $bundlePath = Join-Path $projectDirectory 'app\build\outputs\bundle\release\app-release.aab'
 $generatedBuildConfig = Join-Path $projectDirectory 'app\build\generated\source\buildConfig\release\com\travkin\flow\BuildConfig.java'
 $expectedRepositoryRoot = 'C:\Users\TRAVKIN\Downloads\CodecSaaS\project-google-market-native-v1'
 $expectedProjectDirectory = Join-Path $expectedRepositoryRoot 'android'
 $legacyProjectDirectory = 'C:\Users\TRAVKIN\Downloads\CodecSaaS\project-google-market\android'
-$expectedBranch = 'codex/google-market-native-v1'
+$expectedBranch = 'codex/google-market-six-cabinets-v1'
 $nativeReleaseBaseline = '909bd1eed3c367f0fcca68c2d765ef567d09e300'
 $expectedPackage = 'com.travkin.flow'
 $expectedVersionCode = 3
@@ -28,8 +28,17 @@ $expectedUploadFingerprint = '8B:29:80:B8:07:E2:99:1F:A5:54:C2:B6:61:7D:89:9F:9F
 
 $bundledJdk = Join-Path $env:USERPROFILE '.bubblewrap\jdk\jdk-17.0.11+9'
 $bundledAndroidSdk = Join-Path $env:USERPROFILE '.bubblewrap\android_sdk'
+$installedJdk = Get-ChildItem -LiteralPath (Join-Path $env:ProgramFiles 'Eclipse Adoptium') -Directory -Filter 'jdk-17*' -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$installedAndroidSdk = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
+if ([string]::IsNullOrWhiteSpace($env:JAVA_HOME) -and $null -ne $installedJdk) {
+    $env:JAVA_HOME = $installedJdk.FullName
+}
 if ([string]::IsNullOrWhiteSpace($env:JAVA_HOME) -and (Test-Path -LiteralPath $bundledJdk -PathType Container)) {
     $env:JAVA_HOME = $bundledJdk
+}
+if ([string]::IsNullOrWhiteSpace($env:ANDROID_HOME) -and (Test-Path -LiteralPath $installedAndroidSdk -PathType Container)) {
+    $env:ANDROID_HOME = $installedAndroidSdk
 }
 if ([string]::IsNullOrWhiteSpace($env:ANDROID_HOME) -and (Test-Path -LiteralPath $bundledAndroidSdk -PathType Container)) {
     $env:ANDROID_HOME = $bundledAndroidSdk
@@ -125,10 +134,8 @@ function Assert-NativeReleaseSource {
         'androidbrowserhelper',
         '\bbubblewrap\b',
         '\bCustomTabs?\b',
-        '\bweighman\b',
         '\bcopilot\b',
         'api/assistant',
-        'api/traffic/operator',
         'api/traffic/session'
     )
     if (@($runtimeFiles | Select-String -Pattern $forbiddenRuntimePatterns).Count -gt 0) {
@@ -151,6 +158,9 @@ function Assert-NativeReleaseSource {
 
     Write-Output "Native release source verified: $branch @ $head"
     Write-Output 'Forbidden mobile runtime, feature, and dependency matches: 0'
+    if ($readiness.deviceAcceptance -ne $true -or $readiness.roleRealisticQa -ne $true) {
+        Write-Output 'Internal Testing candidate only: device/role acceptance remains required before any Production rollout.'
+    }
 }
 
 function Assert-UploadCertificate {

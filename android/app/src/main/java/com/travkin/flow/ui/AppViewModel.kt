@@ -56,14 +56,14 @@ class AppViewModel(private val repository: TravkinRepository) : ViewModel() {
 
     fun openSection(section: CabinetSection) {
         val current = _state.value as? AppUiState.SignedIn ?: return
-        if (current.saving) return
+        if (current.saving || !current.actor.role.canOpen(section)) return
         _state.value = current.copy(query = CabinetQuery(section), page = null, message = null, commandError = null, backStack = emptyList(), refreshing = false)
         refresh()
     }
 
     fun open(query: CabinetQuery) {
         val current = _state.value as? AppUiState.SignedIn ?: return
-        if (current.saving) return
+        if (current.saving || !current.actor.role.canOpen(query.section)) return
         _state.value = current.copy(query = query, page = null, message = null, commandError = null, backStack = current.backStack + current.query, refreshing = false)
         refresh()
     }
@@ -132,6 +132,10 @@ class AppViewModel(private val repository: TravkinRepository) : ViewModel() {
         runCommand(onSuccess) { actor -> repository.saveTraffic(actor, context, selected, emptyConfirmed) }
     }
 
+    fun transitionTraffic(transition: TrafficTransition) {
+        runCommand({}) { actor -> repository.transitionTraffic(actor, transition) }
+    }
+
     fun saveDriverAssignment(context: DriverAssignment, personId: String?) {
         runCommand({}) { actor -> repository.saveDriverAssignment(actor, context, personId) }
     }
@@ -187,7 +191,8 @@ class AppViewModel(private val repository: TravkinRepository) : ViewModel() {
     }
 
     private fun signedIn(actor: Actor) {
-        _state.value = AppUiState.SignedIn(actor, query = CabinetQuery(pendingRoute ?: CabinetSection.HARVEST))
+        val section = pendingRoute?.takeIf(actor.role::canOpen) ?: actor.role.defaultSection()
+        _state.value = AppUiState.SignedIn(actor, query = CabinetQuery(section))
         pendingRoute = null
         job = null
         refresh()

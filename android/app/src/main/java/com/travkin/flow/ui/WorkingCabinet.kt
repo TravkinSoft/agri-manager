@@ -69,16 +69,18 @@ fun WorkingCabinet(state: AppUiState.SignedIn, viewModel: AppViewModel) {
     ModalNavigationDrawer(drawerState = drawer, drawerContent = {
         ModalDrawerSheet {
             Text("TravkinFlow", Modifier.padding(24.dp), style = MaterialTheme.typography.headlineSmall, color = Color(0xFFF2C94C))
-            Text("Агроном", Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
-            CabinetSection.entries.filter { it.primary }.forEach { section ->
+            Text(state.actor.role.displayName, Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+            state.actor.role.primarySections().forEach { section ->
                 NavigationDrawerItem(label = { Text(section.label) }, selected = state.query.section == section,
                     icon = { Icon(section.icon(), contentDescription = null) },
                     onClick = { scope.launch { drawer.close() }; viewModel.openSection(section) },
                     modifier = Modifier.padding(horizontal = 12.dp))
             }
             HorizontalDivider(Modifier.padding(16.dp))
-            NavigationDrawerItem(label = { Text("Настройки уведомлений") }, selected = state.query.section == CabinetSection.SETTINGS,
-                icon = { Icon(Icons.Outlined.Settings, null) }, onClick = { scope.launch { drawer.close() }; viewModel.openSection(CabinetSection.SETTINGS) })
+            if (state.actor.role.canOpen(CabinetSection.SETTINGS)) {
+                NavigationDrawerItem(label = { Text("Настройки уведомлений") }, selected = state.query.section == CabinetSection.SETTINGS,
+                    icon = { Icon(Icons.Outlined.Settings, null) }, onClick = { scope.launch { drawer.close() }; viewModel.openSection(CabinetSection.SETTINGS) })
+            }
             NavigationDrawerItem(label = { Text("Учётная запись") }, selected = false,
                 icon = { Icon(Icons.Outlined.Person, null) }, onClick = { scope.launch { drawer.close() }; profileOpen = true })
         }
@@ -96,7 +98,7 @@ fun WorkingCabinet(state: AppUiState.SignedIn, viewModel: AppViewModel) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(padding).imePadding(),
                 contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
-                    Text("Кабинет Агронома", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
+                    Text("Кабинет · ${state.actor.role.displayName}", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
                 }
                 if (state.query.section == CabinetSection.HARVEST) item {
                     Choices(listOf("current_day" to "Сегодня", "previous_day" to "Вчера", "last_24_hours" to "24 часа", "current_shift" to "Смена", "season" to "Сезон"), state.query.period) {
@@ -125,10 +127,12 @@ fun WorkingCabinet(state: AppUiState.SignedIn, viewModel: AppViewModel) {
                                 viewModel.changeQuery(state.query.copy(weatherProfileId = it))
                             }
                             val selectedProfile = profiles.firstOrNull { it.id == state.query.weatherProfileId } ?: profiles.firstOrNull { it.isDefault } ?: profiles.firstOrNull()
-                            if (selectedProfile != null) OutlinedButton(onClick = { viewModel.clearCommandError(); weatherEdit = selectedProfile }, enabled = !state.actorStale && !state.refreshing,
+                            if (selectedProfile != null && state.actor.role.canMutateAgronomy()) OutlinedButton(onClick = { viewModel.clearCommandError(); weatherEdit = selectedProfile }, enabled = !state.actorStale && !state.refreshing,
                                 modifier = Modifier.fillMaxWidth()) { Text("Изменить профиль") }
-                            OutlinedButton(onClick = { viewModel.clearCommandError(); weatherEdit = WeatherProfile() }, enabled = !state.actorStale && !state.refreshing && state.page != null,
-                                modifier = Modifier.fillMaxWidth()) { Text("Создать погодный профиль") }
+                            if (state.actor.role.canMutateAgronomy()) {
+                                OutlinedButton(onClick = { viewModel.clearCommandError(); weatherEdit = WeatherProfile() }, enabled = !state.actorStale && !state.refreshing && state.page != null,
+                                    modifier = Modifier.fillMaxWidth()) { Text("Создать погодный профиль") }
+                            }
                         }
                     }
                 }
@@ -176,11 +180,11 @@ fun WorkingCabinet(state: AppUiState.SignedIn, viewModel: AppViewModel) {
                             OutlinedButton(onClick = { trafficAccessOnly = true; trafficEdit = editor }, modifier = Modifier.fillMaxWidth()) { Text("Доступ сотрудников") }
                         }
                     } }
-                    page.cropEditor?.let { editor -> item {
+                    page.cropEditor?.takeIf { state.actor.role.canMutateAgronomy() }?.let { editor -> item {
                         Button(onClick = { viewModel.clearCommandError(); cropEdit = editor }, enabled = !state.actorStale && !state.refreshing,
                             modifier = Modifier.fillMaxWidth()) { Text("Редактор структуры") }
                     } }
-                    page.operationPlanner?.let { planner -> item {
+                    page.operationPlanner?.takeIf { state.actor.role.canMutateAgronomy() }?.let { planner -> item {
                         Button(onClick = { viewModel.clearCommandError(); operationEdit = planner }, enabled = !state.actorStale && !state.refreshing,
                             modifier = Modifier.fillMaxWidth()) { Text("Создать план работы") }
                     } }
@@ -196,7 +200,12 @@ fun WorkingCabinet(state: AppUiState.SignedIn, viewModel: AppViewModel) {
                         if (group.cards.isNotEmpty()) {
                             item("heading-$index") { Text(group.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
                             items(group.cards.size, key = { "$index-${group.cards[it].id}-$it" }) { cardIndex ->
-                                WorkingCard(group.cards[cardIndex], viewModel::open)
+                                WorkingCard(
+                                    group.cards[cardIndex],
+                                    viewModel::open,
+                                    viewModel::transitionTraffic,
+                                    state.saving || state.refreshing || state.actorStale,
+                                )
                             }
                         }
                     }
@@ -209,7 +218,7 @@ fun WorkingCabinet(state: AppUiState.SignedIn, viewModel: AppViewModel) {
     }
     if (profileOpen) AlertDialog(onDismissRequest = { profileOpen = false }, title = { Text("Учётная запись") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Роль: Агроном")
+            Text("Роль: ${state.actor.role.displayName}")
             Text(state.actor.email ?: "Email не указан")
             Text("Компания: ${state.actor.companyId ?: "не назначена"}")
             Text("Рабочие данные загружаются с того же сервера, что и на сайте.")
@@ -235,7 +244,12 @@ private fun Choices(items: List<Pair<String, String>>, selected: String, onSelec
 }
 
 @Composable
-private fun WorkingCard(card: CabinetCard, onOpen: (CabinetQuery) -> Unit) {
+private fun WorkingCard(
+    card: CabinetCard,
+    onOpen: (CabinetQuery) -> Unit,
+    onTrafficTransition: (TrafficTransition) -> Unit,
+    actionDisabled: Boolean,
+) {
     val color = when (card.tone) {
         "loaded" -> Color(0xFF12392E)
         "unloading", "warning" -> Color(0xFF3A3119)
@@ -252,6 +266,13 @@ private fun WorkingCard(card: CabinetCard, onOpen: (CabinetQuery) -> Unit) {
                 }
             }
             card.destination?.let { target -> OutlinedButton(onClick = { onOpen(target) }, Modifier.fillMaxWidth()) { Text("Открыть") } }
+            card.trafficTransition?.let { transition ->
+                Button(
+                    onClick = { onTrafficTransition(transition) },
+                    enabled = !actionDisabled,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(transition.label) }
+            }
         }
     }
 }

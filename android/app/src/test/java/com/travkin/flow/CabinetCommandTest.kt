@@ -98,6 +98,6 @@ class CabinetCommandTest {
             method.getAnnotation(PUT::class.java)?.let { "PUT ${it.value}" } ?: method.getAnnotation(POST::class.java)?.let { "POST ${it.value}" }
                 ?: method.getAnnotation(PATCH::class.java)?.let { "PATCH ${it.value}" } ?: method.getAnnotation(DELETE::class.java)?.let { "DELETE ${it.value}" }
         }.toSet()
-        assertEquals(setOf("PUT api/crop-structure/fields/{id}", "POST api/operations", "POST api/traffic", "POST api/weather-lab/profiles", "PATCH api/weather-lab/profiles/{id}", "DELETE api/weather-lab/profiles/{id}", "PATCH api/settings/notifications", "POST api/vehicles/driver-assignment"), paths)
+        assertEquals(setOf("PUT api/crop-structure/fields/{id}", "POST api/operations", "POST api/traffic", "POST api/traffic/operator", "POST api/weather-lab/profiles", "PATCH api/weather-lab/profiles/{id}", "DELETE api/weather-lab/profiles/{id}", "PATCH api/settings/notifications", "POST api/vehicles/driver-assignment"), paths)
     }
 }

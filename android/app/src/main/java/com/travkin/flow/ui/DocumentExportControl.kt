@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
-/** No WebView, external URL, auth token in a filename, or automatic storage write. */
+/** No embedded browser, external URL, auth token in a filename, or automatic storage write. */
 internal suspend fun renderExport(document: DocumentExport): ByteArray = withContext(Dispatchers.Default) {
     if (document is DocumentExport.Pdf) return@withContext document.bytes
     val field = document as DocumentExport.FieldCard

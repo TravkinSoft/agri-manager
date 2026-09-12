@@ -4,11 +4,16 @@ enum class SupportedRole(
     val wireValue: String,
     val displayName: String,
 ) {
-    AGRONOMIST("agronomist", "Агроном");
+    AGRONOMIST("agronomist", "Агроном"),
+    DIRECTOR("director", "Директор"),
+    FLEET_MANAGER("fleet_manager", "Завгар · PTC"),
+    RECEIVER("vegetable_brigadier", "Приёмка · PTC"),
+    WEIGHMAN("weighman", "Весовая · PTC"),
+    HARVESTER("mechanic_operator", "Комбайнёр · PTC");
 
     companion object {
         fun fromWire(value: String?): SupportedRole? =
-            AGRONOMIST.takeIf { value?.trim()?.lowercase() == it.wireValue }
+            entries.firstOrNull { value?.trim()?.lowercase() == it.wireValue }
     }
 }
 

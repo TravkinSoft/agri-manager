@@ -15,7 +15,7 @@ Minimum devices:
 - one physical Android device with Play-installed versionCode 2 for upgrade testing;
 - portrait and landscape; light and dark mode; font scales 100% and 200%; display scale default and large.
 
-Required role accounts: Global Admin, Company Admin, Агроном, Весовщик and Специалист. Include one unsupported role to verify fail-closed login. Passwords stay in the QA credential store/Play Console, never in this file.
+Required role accounts: Агроном, Директор, Завгар, Комбайнёр, Весовая and Приёмка. Include one unsupported role to verify fail-closed login. Passwords stay in the QA credential store/Play Console, never in this file.
 
 ## Install and upgrade
 
@@ -37,7 +37,7 @@ Required role accounts: Global Admin, Company Admin, Агроном, Весов�
 
 ## Role and screen acceptance
 
-For each supported role, compare the visible buttons with the matrix in `native-rc-preflight.md`. Verify direct UI actions cannot open a disallowed screen.
+For each supported role, compare the visible buttons with the matrix in `six-role-internal-test-2026-09-13.md`. Verify direct UI actions cannot open a disallowed screen.
 
 For every allowed screen:
 
@@ -61,10 +61,10 @@ For every allowed screen:
 
 ## Data and write boundaries
 
-1. Use a release build: all Weighbridge mutation controls must be disabled and commands must fail before network execution.
-2. Confirm no notification read/update request is sent; the centre performs SELECT only.
-3. In a separately authorized QA build only, enable the Weighbridge flag and verify operator/session/idempotency against the confirmed station backend contract.
-4. Repeat offline/online transitions and prove queued commands retain one idempotency key with no duplicate ticket.
+1. Use a release build: no full web Weighbridge, administrator screen, role picker or site fallback is reachable.
+2. Confirm notification acknowledgement occurs only after the user's explicit read action and remains actor/company scoped.
+3. In an authorized QA environment, verify the three PTC transitions against the canonical vehicle version and server receipt.
+4. Repeat offline/online uncertainty and prove there is no automatic command retry or duplicate PTC event.
 5. Capture backend audit evidence. Production DB writes must remain 0 during this plan.
 
 ## Store capture

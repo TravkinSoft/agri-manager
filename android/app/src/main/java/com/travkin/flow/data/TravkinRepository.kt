@@ -20,6 +20,10 @@ import com.travkin.flow.domain.DriverAssignment
 import com.travkin.flow.domain.DocumentExport
 import com.travkin.flow.domain.OperationPlanDraft
 import com.travkin.flow.domain.OperationPlannerData
+import com.travkin.flow.domain.TrafficTransition
+import com.travkin.flow.domain.canMutateAgronomy
+import com.travkin.flow.domain.canOpen
+import com.travkin.flow.domain.isPtcOperator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
@@ -102,7 +106,8 @@ class TravkinRepository(context: Context) {
     suspend fun saveDriverAssignment(actor: Actor, context: DriverAssignment, personId: String?) {
         val generation = sessionGeneration
         val verified = refreshActor()
-        if (verified.id != actor.id || verified.companyId != actor.companyId || context.companyId != verified.companyId || generation != sessionGeneration) throw SessionExpiredException()
+        if (verified.id != actor.id || verified.role != actor.role || verified.companyId != actor.companyId || context.companyId != verified.companyId || generation != sessionGeneration) throw SessionExpiredException()
+        if (verified.role != SupportedRole.FLEET_MANAGER) throw UserFacingException("Назначать водителей может только Завгар.")
         val body = driverAssignmentBody(context, personId)
         val session = resolveSession(localState.loadSession() ?: throw SessionExpiredException())
         if (generation != sessionGeneration) throw CancellationException("Session changed")
@@ -116,7 +121,8 @@ class TravkinRepository(context: Context) {
     suspend fun saveNotificationPreferences(actor: Actor, original: NotificationPreferences, updated: NotificationPreferences) {
         val generation = sessionGeneration
         val verified = refreshActor()
-        if (verified.id != actor.id || verified.companyId != actor.companyId || generation != sessionGeneration) throw SessionExpiredException()
+        if (verified.id != actor.id || verified.role != actor.role || verified.companyId != actor.companyId || generation != sessionGeneration) throw SessionExpiredException()
+        if (!verified.role.canOpen(CabinetSection.SETTINGS)) throw UserFacingException("Настройки уведомлений недоступны этой роли.")
         val company = verified.companyId ?: throw UserFacingException("Компания не назначена.")
         val fresh = notificationPreferences(readCabinet { cabinetApi.notificationPreferences(it, company) }.obj("preferences"))
         if (fresh != original) throw UserFacingException("Настройки уже изменены. Обновите раздел.")
@@ -132,7 +138,7 @@ class TravkinRepository(context: Context) {
     suspend fun markNotificationsRead(actor: Actor, id: String?) {
         val generation = sessionGeneration
         val verified = refreshActor()
-        if (verified.id != actor.id || verified.authUserId != actor.authUserId || verified.companyId != actor.companyId || generation != sessionGeneration) throw SessionExpiredException()
+        if (verified.id != actor.id || verified.role != actor.role || verified.authUserId != actor.authUserId || verified.companyId != actor.companyId || generation != sessionGeneration) throw SessionExpiredException()
         val company = verified.companyId ?: throw UserFacingException("Компания не назначена.")
         val session = resolveSession(localState.loadSession() ?: throw SessionExpiredException())
         val body = JsonObject().apply { addProperty("read_at", java.time.Instant.now().toString()) }
@@ -147,7 +153,8 @@ class TravkinRepository(context: Context) {
     suspend fun changeWeatherProfile(actor: Actor, original: WeatherProfile, updated: WeatherProfile?) {
         val generation = sessionGeneration
         val verified = refreshActor()
-        if (verified.id != actor.id || verified.companyId != actor.companyId || generation != sessionGeneration) throw SessionExpiredException()
+        if (verified.id != actor.id || verified.role != actor.role || verified.companyId != actor.companyId || generation != sessionGeneration) throw SessionExpiredException()
+        if (!verified.role.canMutateAgronomy()) throw UserFacingException("Погодные профили может изменять только Агроном.")
         if (original.id != null) {
             val fresh = readCabinet { cabinetApi.weatherProfiles(it) }.requireRows("profiles").map(::weatherProfile).firstOrNull { it.id == original.id }
             if (fresh == null || fresh.updatedAt != original.updatedAt) throw UserFacingException("Профиль уже изменён или удалён. Закройте редактор и обновите погоду.")
@@ -172,7 +179,8 @@ class TravkinRepository(context: Context) {
     suspend fun saveTraffic(actor: Actor, context: TrafficEditorData, selected: Set<String>, emptyConfirmed: Boolean) {
         val generation = sessionGeneration
         val verified = refreshActor()
-        if (verified.id != actor.id || verified.companyId != actor.companyId || generation != sessionGeneration) throw SessionExpiredException()
+        if (verified.id != actor.id || verified.role != actor.role || verified.companyId != actor.companyId || generation != sessionGeneration) throw SessionExpiredException()
+        if (verified.role != SupportedRole.FLEET_MANAGER) throw UserFacingException("Оборот машин настраивает только Завгар.")
         val fresh = trafficEditor(readCabinet { cabinetApi.traffic(it) })
         if (fresh.fieldId != context.fieldId || fresh.assignedIds != context.assignedIds) {
             throw UserFacingException("Состав машин уже изменился. Закройте настройки и обновите раздел.")
@@ -190,7 +198,8 @@ class TravkinRepository(context: Context) {
     suspend fun saveCrop(actor: Actor, context: CropEditorData, rows: List<CropAllocationDraft>) {
         val generation = sessionGeneration
         val verified = refreshActor()
-        if (verified.id != actor.id || verified.companyId != actor.companyId || generation != sessionGeneration) throw SessionExpiredException()
+        if (verified.id != actor.id || verified.role != actor.role || verified.companyId != actor.companyId || generation != sessionGeneration) throw SessionExpiredException()
+        if (!verified.role.canMutateAgronomy()) throw UserFacingException("Структуру посевов может изменять только Агроном.")
         val company = verified.companyId ?: throw UserFacingException("Компания не назначена.")
         val fresh = cropEditor(readCabinet { cabinetApi.crops(it, company) }, context.fieldId)
             ?: throw UserFacingException("Текущий сезон или поле недоступны для изменения.")
@@ -209,9 +218,10 @@ class TravkinRepository(context: Context) {
     suspend fun createOperation(actor: Actor, context: OperationPlannerData, draft: OperationPlanDraft, idempotencyKey: String) {
         val generation = sessionGeneration
         val verified = refreshActor()
-        if (verified.id != actor.id || verified.authUserId != actor.authUserId || verified.companyId != actor.companyId || generation != sessionGeneration) {
+        if (verified.id != actor.id || verified.role != actor.role || verified.authUserId != actor.authUserId || verified.companyId != actor.companyId || generation != sessionGeneration) {
             throw SessionExpiredException()
         }
+        if (!verified.role.canMutateAgronomy()) throw UserFacingException("Планировать работы может только Агроном.")
         val company = verified.companyId ?: throw UserFacingException("Компания не назначена.")
         val canonicalKey = runCatching { UUID.fromString(idempotencyKey).toString() }.getOrNull()
         if (canonicalKey == null || canonicalKey != idempotencyKey.lowercase()) throw UserFacingException("Некорректный ключ безопасного повтора.")
@@ -246,9 +256,10 @@ class TravkinRepository(context: Context) {
     suspend fun loadCabinet(actor: Actor, query: CabinetQuery): CabinetPage {
         val generation = sessionGeneration
         val verified = refreshActor()
-        if (generation != sessionGeneration || verified.id != actor.id || verified.companyId != actor.companyId) {
+        if (generation != sessionGeneration || verified.id != actor.id || verified.role != actor.role || verified.companyId != actor.companyId) {
             throw SessionExpiredException("Контекст пользователя изменился. Войдите снова.")
         }
+        if (!verified.role.canOpen(query.section)) throw UserFacingException("Раздел «${query.section.label}» недоступен роли ${verified.role.displayName}.")
         val company = verified.companyId?.takeIf(String::isNotBlank)
             ?: throw UserFacingException("Пользователю не назначена компания.")
         val payload = when (query.section) {
@@ -308,8 +319,15 @@ class TravkinRepository(context: Context) {
             }
             CabinetSection.TICKETS -> if (query.objectId == null) readCabinet { cabinetApi.tickets(it, company) }
                 else readCabinet { cabinetApi.ticket(it, requireObjectId(query.objectId), company) }
-            CabinetSection.TRAFFIC -> if (query.objectId == null) readCabinet { cabinetApi.traffic(it) } else
-                readCabinet { cabinetApi.driverAssignment(it, company, requireObjectId(query.objectId)) }.also { driverAssignment(it, query.objectId, company) }
+            CabinetSection.TRAFFIC -> when {
+                query.objectId != null && verified.role == SupportedRole.FLEET_MANAGER ->
+                    readCabinet { cabinetApi.driverAssignment(it, company, requireObjectId(query.objectId)) }
+                        .also { driverAssignment(it, query.objectId, company) }
+                query.objectId != null -> throw UserFacingException("Карточка назначения водителя доступна только Завгару.")
+                verified.role == SupportedRole.FLEET_MANAGER -> readCabinet { cabinetApi.traffic(it) }
+                verified.role.isPtcOperator() -> readCabinet { cabinetApi.trafficOperator(it) }
+                else -> throw UserFacingException("Оборот машин недоступен этой роли.")
+            }
             CabinetSection.WEATHER -> if (query.localityCode == null) {
                 readCabinet { cabinetApi.localities(it, query.localitySearch) }
             } else {
@@ -324,6 +342,61 @@ class TravkinRepository(context: Context) {
         }
         if (generation != sessionGeneration) throw CancellationException("Session changed")
         return mapCabinet(query, payload, operationTypeCatalog)
+    }
+
+    suspend fun transitionTraffic(actor: Actor, transition: TrafficTransition) {
+        val generation = sessionGeneration
+        val verified = refreshActor()
+        if (verified.id != actor.id || verified.role != actor.role || verified.authUserId != actor.authUserId || verified.companyId != actor.companyId || generation != sessionGeneration) {
+            throw SessionExpiredException()
+        }
+        if (!verified.role.isPtcOperator()) throw UserFacingException("Переход PTC недоступен этой роли.")
+        requireObjectId(transition.vehicleId)
+        val operatorRole = when (verified.role) {
+            SupportedRole.HARVESTER -> "harvester"
+            SupportedRole.WEIGHMAN -> "weighman"
+            SupportedRole.RECEIVER -> "receiver"
+            else -> throw UserFacingException("Переход PTC недоступен этой роли.")
+        }
+        val snapshot = readCabinet { cabinetApi.trafficOperator(it) }
+        if (snapshot.text("role") != operatorRole || !snapshot.flag("enabled")) {
+            throw UserFacingException("Оборот машин не запущен или роль изменилась. Обновите экран.")
+        }
+        val vehicle = snapshot.requireRows("vehicles").firstOrNull { it.text("vehicle_id") == transition.vehicleId && it.flag("assigned") }
+            ?: throw UserFacingException("Машина больше недоступна этой роли. Обновите экран.")
+        val version = vehicle.number("version")?.takeIf { it >= 0 && it % 1.0 == 0.0 }?.toInt()
+            ?: throw UserFacingException("Сервер вернул некорректную версию машины.")
+        val expectedTarget = operatorNextState(operatorRole, vehicle.text("state"), vehicle.flag("inRepair"))
+        if (version != transition.version || expectedTarget != transition.target) {
+            throw UserFacingException("Состояние машины уже изменилось. Обновите экран перед действием.")
+        }
+        val key = UUID.randomUUID().toString()
+        val body = JsonObject().apply {
+            addProperty("vehicleId", transition.vehicleId)
+            addProperty("version", version)
+            addProperty("target", expectedTarget)
+            addProperty("key", key)
+        }
+        val session = resolveSession(localState.loadSession() ?: throw SessionExpiredException())
+        if (generation != sessionGeneration) throw CancellationException("Session changed")
+        val result = try { commandApi.transitionTraffic(session.bearer(), BuildConfig.BASE_URL.trimEnd('/'), body) }
+        catch (error: java.io.IOException) {
+            throw UserFacingException("Ответ не получен. Не нажимайте повторно вслепую: обновите оборот машин и проверьте состояние.", error)
+        }
+        if (generation != sessionGeneration) throw CancellationException("Session changed")
+        if (!result.isSuccessful) throw result.toApiFailure("Переход машины не выполнен.")
+        val receipt = result.body() ?: throw UserFacingException("Сервер не вернул подтверждение перехода.")
+        val eventId = receipt.text("eventId")
+        if (eventId == null || runCatching { UUID.fromString(eventId) }.isFailure) {
+            throw UserFacingException("Сервер не подтвердил переход. Обновите экран и проверьте состояние.")
+        }
+        if (receipt.has("vehicle") && receipt.get("vehicle")?.isJsonNull == false) {
+            val committed = receipt.obj("vehicle")
+            val committedVersion = committed.number("version")?.takeIf { it % 1.0 == 0.0 }?.toInt()
+            if (committed.text("vehicle_id") != transition.vehicleId || committed.text("state") != expectedTarget || committedVersion == null || committedVersion <= version) {
+                throw UserFacingException("Сервер вернул противоречивое состояние машины. Обновите экран.")
+            }
+        }
     }
 
     private suspend fun readCabinet(request: suspend (String) -> Response<JsonObject>): JsonObject {
@@ -456,7 +529,7 @@ class TravkinRepository(context: Context) {
         }
 
         val dto = response.body()?.actor ?: throw UserFacingException("Профиль пользователя не найден.")
-        if (dto.isImpersonating == true) throw UserFacingException("В Android требуется собственный вход Агронома, без подмены роли.")
+        if (dto.isImpersonating == true) throw UserFacingException("В Android требуется собственный вход сотрудника, без подмены роли.")
         if (dto.status?.lowercase() !in setOf(null, "active")) {
             throw SessionExpiredException("Профиль пользователя неактивен.")
         }
@@ -586,5 +659,5 @@ class SessionExpiredException(message: String = "Сессия истекла. В
     UserFacingException(message)
 
 class UnsupportedRoleException(role: String?) : UserFacingException(
-    "Мобильный TravkinFlow сейчас доступен только роли Агроном. Текущая роль: ${role?.takeIf(String::isNotBlank) ?: "не определена"}.",
+    "Мобильный TravkinFlow доступен ролям Агроном, Директор, Завгар, Приёмка, Весовая и Комбайнёр. Текущая роль: ${role?.takeIf(String::isNotBlank) ?: "не определена"}.",
 )

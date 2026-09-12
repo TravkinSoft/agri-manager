@@ -1,14 +1,14 @@
-# TravkinFlow Native Android — Agronomist cabinet (in progress)
+# TravkinFlow Native Android — six role cabinets
 
-Jetpack Compose client for the existing Play identity `com.travkin.flow`. This is a native implementation of the real Agronomist cabinet, not a TWA/WebView shell. On 2026-09-05 the owner clarified that operation planning belongs inside «Структура посевов» and must not become a separately invented page. The standalone «Талоны» page is deferred from the current visible scope.
+Jetpack Compose client for the existing Play identity `com.travkin.flow`. This is a native role-routed application, not a TWA/WebView shell. It contains the Agronomist and Director information cabinets plus the PTC cabinets for Fleet Manager, Harvester, Weighbridge and Receiving. Operation planning remains inside «Структура посевов»; the standalone «Талоны» page and full web Weighbridge are not exposed.
 
-**NOT READY FOR INTERNAL TEST.** Do not upload the previous minimal signed V3 bundle. Acceptance is tracked in `../docs/google-play/agronomist-parity-2026-09-04.md` and the machine-readable readiness manifest.
+**READY FOR A NEW INTERNAL TESTING CANDIDATE; NOT READY FOR PRODUCTION.** Do not upload the previous minimal signed V3 bundle. The current gate is tracked in `../docs/google-play/six-role-internal-test-2026-09-13.md` and the machine-readable readiness manifest.
 
 ## Architecture and isolation
 
-- Isolated worktree `project-google-market-native-v1`, branch `codex/google-market-native-v1`.
+- Isolated worktree `project-google-market-native-v1`, branch `codex/google-market-six-cabinets-v1`.
 - Native Compose UI, user-scoped HTTPS API calls, server-authoritative role/company.
-- Agronomist only; no role impersonation, operator station or administrative cabinet.
+- Six server-confirmed roles; no role picker, impersonation or administrative cabinet.
 - No WebView, TWA, Custom Tabs or embedded-site fallback.
 - `debug`: package `com.travkin.flow.qa`, API `https://qa.travkinflow.com`.
 - `release`: package `com.travkin.flow`, API `https://travkinflow.com`.
@@ -18,7 +18,7 @@ Jetpack Compose client for the existing Play identity `com.travkin.flow`. This i
 
 ## Current implementation (not device-accepted)
 
-Current visible primary navigation is: harvest summary, crop structure, warehouses and weather. Shared notification/settings screens are separate. The dormant ticket code is not reachable from the drawer, dashboard cards, warehouse cards or notification links. Vehicle traffic was removed from primary navigation because it is not in the current website Agronomist menu.
+Agronomist navigation is harvest summary, crop structure, warehouses and weather. Director receives the read-only harvest, warehouse and weather subset. Fleet Manager receives PTC configuration/driver assignment. Harvester, Weighbridge and Receiving receive only the server-filtered vehicle cards and the single legal next PTC transition for their role. Shared notifications are separate; settings are limited to Agronomist and Fleet Manager.
 
 Implemented source surfaces include period/identity filters and party drilldowns; crop/fallow/mix field dossiers and historical seasons; crop editor; warehouse stock/lot details; forecast/operating windows and personal weather-profile CRUD; notifications/read acknowledgements and notification preferences.
 
@@ -26,7 +26,7 @@ The native «Создать план работы» action is embedded only in t
 
 Persistent vehicle-driver assignment was also ported from the new web baseline, including its compare-and-set token and scope-checked receipt. PDF export uses the existing ticket PDF unchanged, and renders the existing field-card HTML response as native paginated PDF text (no script execution/browser engine). Only an explicit Android document-picker action writes to the user's chosen destination. MIME/template/size checks reject login pages and unexpected content. This is not a claim of exact browser print layout or device acceptance.
 
-Still required: the material-heavy operation forms and detailed operation actions/attachments, printing/export visual fidelity, complete payload/surface parity audit, role-realistic QA and physical Android acceptance. Latest local gates: 77 unit tests, `lintDebug` and `assembleDebug` pass. Do not describe a passing local build as release or full parity.
+Still required before Production: material-heavy operation forms and detailed operation actions/attachments, printing/export visual fidelity, complete payload/surface parity audit, all-six-role QA and physical Android acceptance. Latest local gates: 80 unit tests, `lintDebug` and `assembleDebug` pass. Do not describe a passing local build as Production acceptance.
 
 ## Synchronization
 
@@ -50,7 +50,7 @@ Current integration blocker (2026-09-04): unauthenticated native HTTP calls to Q
 
 ## Release guard
 
-`preReleaseBuild` and `build-play-bundle.ps1` reject signing/packaging while `readyForInternalTest`, `deviceAcceptance` and `roleRealisticQa` are false. Passing tests alone must not change these fields. The PowerShell guard runs before opening signing files.
+`preReleaseBuild` and `build-play-bundle.ps1` reject signing/packaging until the static `readyForInternalTest` gate is true. The signed result is an Internal Testing candidate only; `deviceAcceptance` and `roleRealisticQa` must both become true before any Production rollout. The PowerShell guard runs before opening signing files.
 
 After acceptance, existing signing invariants still apply: exact native worktree/branch and approved native ancestry, clean HEAD, package/version/target, external upload key/alias/fingerprint, bundletool validation and signer verification. The legacy TWA checkout is rejected. The script builds but never uploads or publishes.
 

@@ -16,6 +16,17 @@ class CabinetParityTest {
     @Test fun `visible sections use current site names and owner scope`() {
         assertEquals(listOf("/dashboard", "/crop-structure", "/warehouses", "/weather-lab"), CabinetSection.entries.filter { it.primary }.map { it.webPath })
     }
+    @Test fun `each supported role receives only its native cabinet`() {
+        assertEquals(listOf(CabinetSection.HARVEST, CabinetSection.CROPS, CabinetSection.WAREHOUSES, CabinetSection.WEATHER), SupportedRole.AGRONOMIST.primarySections())
+        assertEquals(listOf(CabinetSection.HARVEST, CabinetSection.WAREHOUSES, CabinetSection.WEATHER), SupportedRole.DIRECTOR.primarySections())
+        listOf(SupportedRole.FLEET_MANAGER, SupportedRole.RECEIVER, SupportedRole.WEIGHMAN, SupportedRole.HARVESTER).forEach {
+            assertEquals(listOf(CabinetSection.TRAFFIC), it.primarySections())
+        }
+        assertTrue(SupportedRole.AGRONOMIST.canMutateAgronomy())
+        assertFalse(SupportedRole.DIRECTOR.canMutateAgronomy())
+        assertTrue(SupportedRole.FLEET_MANAGER.canOpen(CabinetSection.SETTINGS))
+        assertFalse(SupportedRole.WEIGHMAN.canOpen(CabinetSection.SETTINGS))
+    }
     @Test fun `admin and station links never become native routes`() {
         listOf("/platform", "/weighbridge", "/users", "/fields-map", "/assistant", "/traffic-operator", "/tickets", "/traffic", null).forEach { assertNull(CabinetSection.fromPath(it)) }
     }
@@ -95,6 +106,26 @@ class CabinetParityTest {
         val page = mapCabinet(CabinetQuery(CabinetSection.TRAFFIC), json("""{"snapshot":{"role":"manager","enabled":true,"vehicles":[{"vehicle_id":"v1","name":"Машина","assigned":true,"state":"loaded"},{"vehicle_id":"v2","assigned":false,"state":"loaded"}],"events":[]}}"""))
         assertEquals(1, page.groups.sumOf { it.cards.size })
         assertEquals("loaded", page.groups[1].cards.single().tone)
+    }
+    @Test fun `PTC operators see only their server supplied transition`() {
+        val harvester = mapCabinet(CabinetQuery(CabinetSection.TRAFFIC), json("""{"role":"harvester","enabled":true,"vehicles":[{"vehicle_id":"00000000-0000-0000-0000-000000000001","name":"КамАЗ","assigned":true,"state":"empty","version":4,"cycle":2,"inRepair":false}],"events":[]}"""))
+        assertEquals("loaded", harvester.groups.single().cards.single().trafficTransition!!.target)
+        assertEquals("Загружена — отправить", harvester.groups.single().cards.single().trafficTransition!!.label)
+
+        val weighman = mapCabinet(CabinetQuery(CabinetSection.TRAFFIC), json("""{"role":"weighman","enabled":true,"vehicles":[{"vehicle_id":"00000000-0000-0000-0000-000000000002","assigned":true,"state":"loaded","version":5,"cycle":2}],"events":[]}"""))
+        assertEquals("unloading", weighman.groups.single().cards.single().trafficTransition!!.target)
+
+        val receiver = mapCabinet(CabinetQuery(CabinetSection.TRAFFIC), json("""{"role":"receiver","enabled":true,"vehicles":[{"vehicle_id":"00000000-0000-0000-0000-000000000003","assigned":true,"state":"unloading","version":6,"cycle":2}],"events":[]}"""))
+        assertEquals("empty", receiver.groups.single().cards.single().trafficTransition!!.target)
+    }
+    @Test fun `PTC transition matrix fails closed`() {
+        assertEquals("loaded", operatorNextState("harvester", "empty"))
+        assertNull(operatorNextState("harvester", "empty", inRepair = true))
+        assertNull(operatorNextState("harvester", "loaded"))
+        assertEquals("unloading", operatorNextState("weighman", "loaded"))
+        assertNull(operatorNextState("weighman", "empty"))
+        assertEquals("empty", operatorNextState("receiver", "unloading"))
+        assertNull(operatorNextState("manager", "empty"))
     }
     @Test fun `stock response cannot silently show different warehouse`() {
         assertThrows(UserFacingException::class.java) { stockPage(json("""{"details":{"warehouse_id":"other","product_id":"p1"}}"""), CabinetQuery(CabinetSection.WAREHOUSES, warehouseId = "w1", productId = "p1")) }

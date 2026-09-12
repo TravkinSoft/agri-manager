@@ -178,7 +178,21 @@ private fun ticketDetail(data: JsonObject): CabinetPage {
 }
 
 internal val trafficLabels = linkedMapOf("empty" to "Пустая", "loaded" to "Загружена", "unloading" to "На выгрузке")
+internal val trafficActionLabels = mapOf(
+    "loaded" to "Загружена — отправить",
+    "unloading" to "Прибыла на выгрузку",
+    "empty" to "Разгрузилась",
+)
+
+internal fun operatorNextState(role: String?, state: String?, inRepair: Boolean = false): String? = when {
+    role == "harvester" && state == "empty" && !inRepair -> "loaded"
+    role == "weighman" && state == "loaded" -> "unloading"
+    role == "receiver" && state == "unloading" -> "empty"
+    else -> null
+}
+
 private fun trafficPage(data: JsonObject): CabinetPage {
+    if (!data.has("snapshot")) return trafficOperatorPage(data)
     val snapshot = data.obj("snapshot")
     if (snapshot.text("role") != "manager") throw UserFacingException("Сервер не подтвердил кабинет управления оборотом машин.")
     val vehicles = snapshot.requireRows("vehicles")
@@ -191,6 +205,47 @@ private fun trafficPage(data: JsonObject): CabinetPage {
         "${trafficLabels[r.text("from_state")] ?: "—"} → ${trafficLabels[r.text("to_state")] ?: "—"}", listOf(value("Сотрудник", r.text("actor_name")), value("Время", serverDate(r.text("created_at"))))) }),
         if (snapshot.flag("enabled")) null else "Оборот машин не настроен или приостановлен.",
         trafficEditor = if (data.has("fleet")) trafficEditor(data) else null)
+}
+
+private fun trafficOperatorPage(snapshot: JsonObject): CabinetPage {
+    val role = snapshot.text("role")
+    val roleLabel = when (role) {
+        "harvester" -> "Комбайнёр"
+        "weighman" -> "Весовая"
+        "receiver" -> "Приёмка"
+        else -> throw UserFacingException("Сервер не подтвердил роль оператора PTC.")
+    }
+    val vehicles = snapshot.requireRows("vehicles").filter { it.flag("assigned") }
+    val groups = trafficLabels.mapNotNull { (state, label) ->
+        val rows = vehicles.filter { it.text("state") == state }
+        if (rows.isEmpty()) null else CabinetGroup("$label · ${rows.size}", rows.map { row ->
+            val id = row.text("vehicle_id") ?: throw UserFacingException("Сервер вернул машину без идентификатора.")
+            val version = row.number("version")?.takeIf { it >= 0 && it % 1.0 == 0.0 }?.toInt()
+                ?: throw UserFacingException("Сервер вернул некорректную версию машины.")
+            val target = operatorNextState(role, state, row.flag("inRepair"))
+            CabinetCard(
+                id = id,
+                title = row.text("plate") ?: row.text("name") ?: "Машина",
+                subtitle = row.text("name"),
+                rows = listOf(
+                    value("Водитель", row.text("driver")),
+                    value("Состояние", trafficLabels[state]),
+                    value("Состояние с", serverDate(row.text("since"))),
+                    metric("Цикл", row, "cycle"),
+                ),
+                tone = state,
+                trafficTransition = target?.let {
+                    TrafficTransition(id, version, it, trafficActionLabels[it] ?: "Подтвердить")
+                },
+            )
+        })
+    }
+    val notice = when {
+        !snapshot.flag("enabled") -> "Оборот машин не запущен. Обратитесь к Завгару."
+        vehicles.isEmpty() -> "Сейчас нет машин, ожидающих действие роли «$roleLabel»."
+        else -> "Показаны только машины, доступные вашей роли. Переход фиксируется сервером один раз."
+    }
+    return CabinetPage("PTC · $roleLabel", groups, notice)
 }
 
 private fun weatherPage(data: JsonObject, query: CabinetQuery): CabinetPage {

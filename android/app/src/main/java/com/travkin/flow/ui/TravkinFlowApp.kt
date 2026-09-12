@@ -115,7 +115,7 @@ private fun LoginScreen(
         Icon(Icons.Outlined.Agriculture, contentDescription = null, tint = BrandGold)
         Spacer(Modifier.height(16.dp))
         Text("TravkinFlow", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-        Text("Мобильный кабинет Агронома", color = Muted)
+        Text("Ролевые мобильные кабинеты", color = Muted)
         Spacer(Modifier.height(28.dp))
 
         Card(
@@ -163,7 +163,7 @@ private fun LoginScreen(
                             strokeWidth = 2.dp,
                         )
                     } else {
-                        Text("Войти как Агроном")
+                        Text("Войти")
                     }
                 }
             }

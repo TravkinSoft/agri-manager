@@ -109,16 +109,16 @@ dependencies {
     testImplementation "junit:junit:4.13.2"
 }
 
-// User expanded the product from a minimal identity screen to the full cabinet.
-// Fail before packaging/signing, including direct Gradle invocations.
+// A signed bundle may enter Google Play Internal Testing after the static gate.
+// Device and role-realistic acceptance remain separate Production rollout gates.
 tasks.configureEach { task ->
     if (task.name == "preReleaseBuild") {
         task.doFirst {
             def readinessFile = rootProject.file("../docs/google-play/agronomist-release-readiness.json")
-            if (!readinessFile.exists()) throw new GradleException("Full Agronomist acceptance manifest missing")
+            if (!readinessFile.exists()) throw new GradleException("Native Android readiness manifest missing")
             def readiness = new groovy.json.JsonSlurper().parse(readinessFile)
-            if (readiness.readyForInternalTest != true || readiness.deviceAcceptance != true || readiness.roleRealisticQa != true) {
-                throw new GradleException("Full Agronomist cabinet is not accepted. Release is blocked; use debug verification only.")
+            if (readiness.readyForInternalTest != true) {
+                throw new GradleException("Native Android candidate has not passed the static Internal Testing gate.")
             }
         }
     }

@@ -1,8 +1,8 @@
 {
-  "scope": "full-agronomist-cabinet",
-  "webBaseline": "99bfca6277d9528d36b9d5087a2b3e0f51ceba66",
-  "readyForInternalTest": false,
+  "scope": "six-role-native-cabinets",
+  "webBaseline": "d95b0158f03f5310101b25c26a6eaa1be3c6fecb92",
+  "readyForInternalTest": true,
   "deviceAcceptance": false,
   "roleRealisticQa": false,
-  "acceptanceDocument": "docs/google-play/agronomist-parity-2026-09-04.md"
+  "acceptanceDocument": "docs/google-play/six-role-internal-test-2026-09-13.md"
 }

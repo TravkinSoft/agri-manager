@@ -4,7 +4,7 @@ import com.google.gson.JsonObject
 import retrofit2.Response
 import retrofit2.http.*
 
-/** Explicit Agronomist actions only. No station/operator actions or retry queue. */
+/** Explicit native actions only. Commands never use an automatic retry queue. */
 interface CabinetCommandApi {
     @POST("api/vehicles/driver-assignment")
     suspend fun driverAssignment(@Header("Authorization") auth: String, @Header("Origin") origin: String, @Body body: JsonObject): Response<JsonObject>
@@ -21,6 +21,9 @@ interface CabinetCommandApi {
 
     @POST("api/traffic")
     suspend fun configureTraffic(@Header("Authorization") auth: String, @Header("Origin") origin: String, @Body body: JsonObject): Response<JsonObject>
+
+    @POST("api/traffic/operator")
+    suspend fun transitionTraffic(@Header("Authorization") auth: String, @Header("Origin") origin: String, @Body body: JsonObject): Response<JsonObject>
 
     @POST("api/weather-lab/profiles")
     suspend fun createWeatherProfile(@Header("Authorization") auth: String, @Body body: JsonObject): Response<JsonObject>

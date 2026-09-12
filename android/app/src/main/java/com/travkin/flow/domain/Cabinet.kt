@@ -1,6 +1,6 @@
 package com.travkin.flow.domain
 
-/** Mirrors AGRONOMIST_NAV, web baseline 9ea2c8317aad, not the admin menu. */
+/** Native sections are admitted by an explicit role policy below, never by URL discovery. */
 enum class CabinetSection(val label: String, val webPath: String, val primary: Boolean = true) {
     HARVEST("Сводка урожая", "/dashboard"),
     CROPS("Структура посевов", "/crop-structure"),
@@ -17,6 +17,46 @@ enum class CabinetSection(val label: String, val webPath: String, val primary: B
         }
     }
 }
+
+private val AGRONOMIST_SECTIONS = listOf(
+    CabinetSection.HARVEST,
+    CabinetSection.CROPS,
+    CabinetSection.WAREHOUSES,
+    CabinetSection.WEATHER,
+)
+private val DIRECTOR_SECTIONS = listOf(
+    CabinetSection.HARVEST,
+    CabinetSection.WAREHOUSES,
+    CabinetSection.WEATHER,
+)
+private val PTC_SECTIONS = listOf(CabinetSection.TRAFFIC)
+
+fun SupportedRole.primarySections(): List<CabinetSection> = when (this) {
+    SupportedRole.AGRONOMIST -> AGRONOMIST_SECTIONS
+    SupportedRole.DIRECTOR -> DIRECTOR_SECTIONS
+    SupportedRole.FLEET_MANAGER,
+    SupportedRole.RECEIVER,
+    SupportedRole.WEIGHMAN,
+    SupportedRole.HARVESTER -> PTC_SECTIONS
+}
+
+fun SupportedRole.defaultSection(): CabinetSection = primarySections().first()
+
+fun SupportedRole.canOpen(section: CabinetSection): Boolean =
+    section in primarySections() || section == CabinetSection.NOTIFICATIONS ||
+        (section == CabinetSection.SETTINGS && this in setOf(SupportedRole.AGRONOMIST, SupportedRole.FLEET_MANAGER))
+
+fun SupportedRole.isPtcOperator(): Boolean =
+    this == SupportedRole.RECEIVER || this == SupportedRole.WEIGHMAN || this == SupportedRole.HARVESTER
+
+fun SupportedRole.canMutateAgronomy(): Boolean = this == SupportedRole.AGRONOMIST
+
+data class TrafficTransition(
+    val vehicleId: String,
+    val version: Int,
+    val target: String,
+    val label: String,
+)
 
 data class CabinetQuery(
     val section: CabinetSection = CabinetSection.HARVEST,
@@ -47,6 +87,7 @@ data class CabinetCard(
     val rows: List<CabinetRow> = emptyList(),
     val destination: CabinetQuery? = null,
     val tone: String? = null,
+    val trafficTransition: TrafficTransition? = null,
 )
 
 data class CabinetGroup(val title: String, val cards: List<CabinetCard>)
