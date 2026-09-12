@@ -1167,7 +1167,7 @@ export default function WarehousesPage() {
                 {detailsError ? (
                   <Alert variant="destructive"><AlertDescription>{detailsError}</AlertDescription></Alert>
                 ) : null}
-                <section className="mt-4">
+                <section className="mt-4" aria-label="Остатки">
                   <div className="hidden grid-cols-[minmax(130px,.8fr)_minmax(170px,1fr)_88px_120px] gap-3 border-b border-border pb-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground sm:grid">
                     <span>Культура</span><span>Сорт</span><span>Репр.</span><span className="text-right">Остаток</span>
                   </div>

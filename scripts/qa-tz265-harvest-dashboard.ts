@@ -340,11 +340,13 @@ check("legal operator remains read-only at the database boundary", () => {
   assert.match(readOnlyGuardRuntimeGrants, /to anon, authenticated, service_role, authenticator/);
 });
 check("dashboard API does not cap harvest at one thousand rows", () => assert.match(dashboardApi, /\.range\(from, from \+ pageSize - 1\)/));
-check("dashboard groups around parties", () => {
-  assert.match(dashboardUi, /Партии в уборке/);
-  assert.match(dashboardUi, /На складах сейчас/);
-  assert.match(dashboardUi, /Принято за период/);
-  assert.doesNotMatch(dashboardUi, /Поступление по культурам/);
+check("dashboard presents the potato live chain", () => {
+  assert.match(dashboardUi, /Главные показатели картофеля/);
+  assert.match(dashboardUi, /Принято/);
+  assert.match(dashboardUi, /На складе/);
+  assert.match(dashboardUi, /Последние поступления/);
+  assert.match(dashboardUi, /potatoParties/);
+  assert.doesNotMatch(dashboardUi, /Поступление по культурам|Завершено рейсов/);
 });
 check("dashboard exposes secondary potato driver table", () => {
   assert.match(dashboardUi, /PotatoDriverSummary/);
@@ -352,7 +354,10 @@ check("dashboard exposes secondary potato driver table", () => {
   assert.match(potatoDriverUi, /timeZone: HARVEST_TIME_ZONE/);
   assert.match(potatoDriverUi, /"водитель"[\s\S]*?"водителя"[\s\S]*?"водителей"/);
 });
-check("expanded state survives live refresh", () => assert.match(dashboardUi, /expandedParties/));
+check("yield calculator uses accepted potato mass and entered hectares", () => {
+  assert.match(dashboardUi, /receivedKg \/ 1000 \/ hectares/);
+  assert.match(dashboardUi, /Убрано, га/);
+});
 check("live refresh uses existing weighbridge tables", () => assert.match(dashboardUi, /LIVE_REFRESH_TABLES\.weighbridge/));
 
 console.log(`TZ265 PASS ${checks.length}/${checks.length}`);
