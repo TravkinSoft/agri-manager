@@ -1919,11 +1919,12 @@ export default function WeighbridgeOperationsPage() {
   };
 
   const refreshLiveData = async (event?: { source: string; table?: string; tables?: string[] }) => {
-    const isForeground = !event || event.source !== "realtime";
+    const isResourcePoll = event?.source === "interval";
+    const isForeground = !event || (event.source !== "realtime" && !isResourcePoll);
     const table = event?.table || "";
     const changedTables = new Set([...(event?.tables || []), table].filter(Boolean));
     const hasScopedTables = changedTables.size > 0;
-    const shiftChanged = !hasScopedTables || changedTables.has("weighbridge_shifts");
+    const shiftChanged = (!hasScopedTables && !isResourcePoll) || changedTables.has("weighbridge_shifts");
     if (canUseOperatorSession && (isForeground || shiftChanged)) {
       const canonicalSession = await verifyOperatorSession();
       if (canonicalSession && !canonicalSession.unlocked) return;
@@ -1931,11 +1932,21 @@ export default function WeighbridgeOperationsPage() {
     } else if (canUseOperatorSession && !operatorCanonicalStateRef.current.unlocked) {
       return;
     }
-    const ticketChanged = !hasScopedTables || ["tickets", "ticket_lines", "ticket_weighings"].some((name) => changedTables.has(name));
-    const stockChanged = !hasScopedTables || ["inventory_batches", "stock_ledger_entries"].some((name) => changedTables.has(name));
-    const cropStructureChanged = !hasScopedTables || changedTables.has("crop_structure");
+    const refreshAllForegroundData = !hasScopedTables && !isResourcePoll;
+    const ticketChanged = refreshAllForegroundData || ["tickets", "ticket_lines", "ticket_weighings"].some((name) => changedTables.has(name));
+    const stockChanged = refreshAllForegroundData || ["inventory_batches", "stock_ledger_entries"].some((name) => changedTables.has(name));
+    const cropStructureChanged = refreshAllForegroundData || changedTables.has("crop_structure");
+    const transportResourcesChanged = isResourcePoll || refreshAllForegroundData || [
+      "reference_vehicles",
+      "reference_specialists",
+      "reference_machines",
+      "company_people",
+    ].some((name) => changedTables.has(name));
     if (stockChanged) stockIdentityCacheRef.current.clear();
     const tasks: Promise<unknown>[] = [];
+    if (transportResourcesChanged) {
+      tasks.push(load(undefined, true));
+    }
     if (cropStructureChanged) {
       tasks.push(refreshHarvestAllocations());
     }
@@ -1959,7 +1970,7 @@ export default function WeighbridgeOperationsPage() {
     onRefresh: refreshLiveData,
     companyId: profile?.company_id,
     tables: LIVE_REFRESH_TABLES.weighbridge,
-    intervalMs: 0,
+    intervalMs: 30_000,
     minRefreshIntervalMs: 5_000,
   });
 

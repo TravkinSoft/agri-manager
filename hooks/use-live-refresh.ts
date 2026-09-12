@@ -32,6 +32,10 @@ export const LIVE_REFRESH_TABLES = {
     "operation_lines",
     "weighbridge_active_harvests",
     "crop_structure",
+    "reference_vehicles",
+    "reference_specialists",
+    "reference_machines",
+    "company_people",
   ],
 } as const;
 

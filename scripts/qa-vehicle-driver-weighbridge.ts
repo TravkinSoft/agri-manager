@@ -102,6 +102,14 @@ check("resource loads started before assignment cannot restore old driver links"
   assert.match(page, /const assignmentRevision = vehicleAssignmentRevisionRef\.current/);
   assert.match(page, /!failedResources\.has\("company_people"\) && assignmentRevision === vehicleAssignmentRevisionRef\.current/);
 });
+check("cross-device PTC changes refresh transport resources without reloading the draft", () => {
+  const refresh = page.slice(page.indexOf("const refreshLiveData"), page.indexOf("const siteConfirm"));
+  assert.match(refresh, /const isResourcePoll = event\?\.source === "interval"/);
+  assert.match(refresh, /"reference_vehicles",\s*"reference_specialists",\s*"reference_machines",\s*"company_people"/);
+  assert.match(refresh, /if \(transportResourcesChanged\) \{\s*tasks\.push\(load\(undefined, true\)\)/);
+  assert.match(refresh, /intervalMs: 30_000/);
+  assert.doesNotMatch(refresh, /setForm\(|setActiveTicket\(|patchTicket\(/);
+});
 
 check("choosing a historical driver changes only the ticket callback and leaves current fleet assignment intact", () => {
   const changes: Array<[string, string]> = [];
