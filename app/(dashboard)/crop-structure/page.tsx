@@ -28,6 +28,7 @@ import { CatalogIdentityCombobox } from "@/components/crop-structure/catalog-ide
 import { FieldHarvestLive } from "@/components/crop-structure/field-harvest-live";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
+import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
@@ -222,7 +223,7 @@ const CROP_STRUCTURE_VIEW_KEY = "travkinflow.cropStructure.viewMode";
 const FIELD_FIRST_CREATE_ENABLED =
   process.env.NEXT_PUBLIC_OPERATIONS_FIELD_FIRST_CREATE !== "0" &&
   process.env.OPERATIONS_FIELD_FIRST_CREATE !== "0";
-const FIELD_HARVEST_LIVE_ENABLED = process.env.NEXT_PUBLIC_FIELD_HARVEST_LIVE_V2 === "1";
+const FIELD_HARVEST_LIVE_ENABLED = TRAVKINFLOW_2_FUNCTIONS_RELEASED;
 
 const stageDefs: Array<{ key: StageKey; label: string; operations: string[] }> = [
   { key: "prep", label: "Подготовка", operations: ["preparation", "tillage", "cultivation", "plowing", "other"] },

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { dashboardAgronomist, failed, noStore, TrafficError } from "@/lib/traffic/server";
+import { dashboardSummaryReader, failed, noStore, TrafficError } from "@/lib/traffic/server";
 import {
   readLatestClosedTrafficShiftSummary,
   TrafficShiftReconstructionLimitError,
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
-    const { companyId } = await dashboardAgronomist(request);
+    const { companyId } = await dashboardSummaryReader(request);
     return noStore({
       summary: await readLatestClosedTrafficShiftSummary(companyId),
     });

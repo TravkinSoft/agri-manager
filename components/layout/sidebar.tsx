@@ -78,6 +78,9 @@ const AGRONOMIST_NAV: NavItem[] = [
 
 const DIRECTOR_NAV: NavItem[] = [
   { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "field_map", href: "/fields-map", icon: Map },
+  { labelKey: "warehouses", href: "/warehouses", icon: Package },
+  { labelKey: "weather", href: "/weather-lab", icon: CloudSun },
 ];
 
 const WAREHOUSE_NAV: NavItem[] = [
@@ -109,8 +112,9 @@ const BRIGADIER_NAV: NavItem[] = [
 ];
 
 const LEGAL_OPERATOR_NAV: NavItem[] = [
-  { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { labelKey: "fields", href: "/fields", icon: MapPin },
+  { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "field_map", href: "/fields-map", icon: Map },
+  { labelKey: "warehouses", href: "/warehouses", icon: Package },
   { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
 ];
 

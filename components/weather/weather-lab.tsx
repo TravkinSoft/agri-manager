@@ -246,7 +246,13 @@ function CriterionRow({ label, enabled, onEnabledChange, children }: { label: st
   );
 }
 
-export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?: boolean }) {
+export function WeatherLab({
+  showTechnicalDebug = false,
+  readOnly = false,
+}: {
+  showTechnicalDebug?: boolean;
+  readOnly?: boolean;
+}) {
   const pickerScrollRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<RecentLocation | null>(null);
@@ -470,9 +476,17 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
     () => operationMode === "custom" ? activeProfile : operationModeProfile(operationMode),
     [activeProfile, operationMode]
   );
-  const evaluationProfile = profileOpen
+  const evaluationProfile = profileOpen && !readOnly
     ? previewProfile(profileDraft, editingProfile)
     : modeProfile;
+
+  useEffect(() => {
+    if (!readOnly) return;
+    setProfileOpen(false);
+    setEditingProfile(null);
+    setProfileDraft(emptyWeatherProfile);
+    setProfileError(null);
+  }, [readOnly]);
   const operatingHours = useMemo(
     () => evaluateOperatingHours(weather?.hourlyForecast || [], evaluationProfile),
     [evaluationProfile, weather?.hourlyForecast]
@@ -511,6 +525,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
   const current = weather?.current || null;
 
   const openProfileEditor = (profile: WeatherProfile | null = null) => {
+    if (readOnly) return;
     setEditingProfile(profile);
     setProfileDraft(profile ? profileToInput(profile) : { ...emptyWeatherProfile, name: "" });
     setProfileError(null);
@@ -518,6 +533,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
   };
 
   const saveProfile = async () => {
+    if (readOnly) return;
     const parsed = weatherProfileInputSchema.safeParse({
       ...profileDraft,
       isDefault: editingProfile ? editingProfile.id === activeProfile?.id : profiles.length === 0,
@@ -554,6 +570,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
     setActiveProfileId(profile.id);
     setProfiles((items) => items.map((item) => ({ ...item, isDefault: item.id === profile.id })));
     setProfileError(null);
+    if (readOnly) return;
     try {
       const payload = await authorizedJson<{ profile: WeatherProfile }>(`/api/weather-lab/profiles/${profile.id}`, {
         method: "PATCH",
@@ -568,6 +585,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
   };
 
   const deleteProfile = async (profile: WeatherProfile) => {
+    if (readOnly) return;
     if (!window.confirm(`Удалить профиль «${profile.name}»?`)) return;
     setProfileSaving(true);
     setProfileError(null);
@@ -590,6 +608,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
         <div>
           <h1 className="tf-manor-heading text-2xl font-semibold text-foreground sm:text-3xl">Погода</h1>
           <p className="mt-1 text-sm text-muted-foreground">Лаборатория реального прогноза UAV Forecast</p>
+          {readOnly ? <p className="mt-1 text-xs font-medium text-muted-foreground">Режим просмотра</p> : null}
         </div>
       </header>
 
@@ -733,20 +752,24 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
                 >
                   {profile.name}
                 </button>
-                <Button type="button" variant="ghost" size="icon" onClick={() => openProfileEditor(profile)} title="Изменить профиль" aria-label={`Изменить профиль ${profile.name}`} className="h-8 w-8 text-muted-foreground hover:bg-muted hover:text-foreground">
-                  <Settings2 className="h-3.5 w-3.5" />
-                </Button>
+                {!readOnly ? (
+                  <Button type="button" variant="ghost" size="icon" onClick={() => openProfileEditor(profile)} title="Изменить профиль" aria-label={`Изменить профиль ${profile.name}`} className="h-8 w-8 text-muted-foreground hover:bg-muted hover:text-foreground">
+                    <Settings2 className="h-3.5 w-3.5" />
+                  </Button>
+                ) : null}
               </div>
             ))}
           </div>
-          <Button type="button" variant="outline" size="sm" onClick={() => openProfileEditor()} className="h-9 shrink-0 border-border bg-transparent px-2.5 text-foreground hover:bg-muted hover:text-foreground">
-            <Plus className="mr-1 h-4 w-4" /> Профиль
-          </Button>
+          {!readOnly ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => openProfileEditor()} className="h-9 shrink-0 border-border bg-transparent px-2.5 text-foreground hover:bg-muted hover:text-foreground">
+              <Plus className="mr-1 h-4 w-4" /> Профиль
+            </Button>
+          ) : null}
         </div>
         {profileError && !profileOpen ? <div role="alert" className="mt-2 text-xs text-red-800">{profileError}</div> : null}
       </section>
 
-      {profileOpen ? (
+      {profileOpen && !readOnly ? (
         <Dialog open onOpenChange={(open) => !profileSaving && setProfileOpen(open)}>
           <DialogContent className="max-h-[88dvh] w-[calc(100vw-24px)] max-w-xl grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border-border bg-card p-0 text-foreground sm:w-full">
             <DialogHeader className="border-b border-border px-4 pb-3 pt-4 text-left">

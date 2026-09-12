@@ -17,6 +17,7 @@ import { supabase } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ProfileAvatar } from "@/components/profile/profile-avatar";
 import { PROFILE_AVATAR_ACCEPT, prepareProfileAvatarWebp } from "@/lib/profile/avatar-client";
+import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 
 type NotificationPreferences = {
   email_enabled: boolean;
@@ -38,7 +39,7 @@ const defaultPreferences: NotificationPreferences = {
   proactive_assist_cadence: "events",
 };
 
-const PROFILE_AVATAR_UI_ENABLED = process.env.NEXT_PUBLIC_PROFILE_AVATAR_V1 === "1";
+const PROFILE_AVATAR_UI_ENABLED = TRAVKINFLOW_2_FUNCTIONS_RELEASED;
 
 export default function SettingsPage() {
   const { language } = useLanguage();

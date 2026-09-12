@@ -11,6 +11,7 @@ import {
   type FieldHarvestStructureRow,
   type FieldHarvestTicketRow,
 } from "@/lib/fields/field-harvest";
+import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -86,7 +87,7 @@ async function loadLedgerEntries(
 
 export async function GET(request: NextRequest) {
   try {
-    if (process.env.FIELD_HARVEST_LIVE_V2 !== "1") {
+    if (!TRAVKINFLOW_2_FUNCTIONS_RELEASED) {
       throw new SessionAuthError("Field harvest summary is temporarily disabled", 404);
     }
     const actor = await getServerActorFromSession(request);

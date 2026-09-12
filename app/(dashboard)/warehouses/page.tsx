@@ -42,6 +42,7 @@ import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { localizeUnit } from "@/lib/i18n/helpers";
 import { listHarvestBatchSummaries } from "@/lib/services/weighbridge";
+import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 import {
   getInventoryBalances,
   getProducts,
@@ -134,7 +135,7 @@ function formatMass(valueKg: number): string {
   return `${valueKg.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} кг`;
 }
 
-const WAREHOUSE_ORDER_UI_ENABLED = process.env.NEXT_PUBLIC_UI_WAREHOUSE_V2 === "1";
+const WAREHOUSE_ORDER_UI_ENABLED = TRAVKINFLOW_2_FUNCTIONS_RELEASED;
 const WAREHOUSE_REORDER_HOLD_MS = 180;
 
 type ReorderPointerSession = {
@@ -223,8 +224,8 @@ export default function WarehousesPage() {
   const role = String(profile?.role || "");
   const canStockOperate = ["warehouse", "warehouse_operator", "global_admin"].includes(role);
   const canManageWarehouses = ["company_admin", "global_admin"].includes(role);
-  const canView = canStockOperate || canManageWarehouses || ["agronomist", "director", "weighman"].includes(role);
-  const isReadOnlyRole = ["weighman", "agronomist", "director"].includes(role);
+  const canView = canStockOperate || canManageWarehouses || ["agronomist", "director", "legal_operator", "weighman"].includes(role);
+  const isReadOnlyRole = ["weighman", "agronomist", "director", "legal_operator"].includes(role);
 
   const loadWarehouseList = async ({
     foreground = true,

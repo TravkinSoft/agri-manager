@@ -30,9 +30,10 @@ import {
   type TrafficVehicle,
 } from "@/lib/traffic/model";
 import { getFleetVehicleCardIdentity, type FleetVehicle } from "@/lib/fleet/model";
+import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 import { trafficRequest } from "./use-traffic";
 import { isTrafficAcknowledgement, optimisticTrafficVehicles, trafficCommandObserved, type PendingTrafficCommand, type TrafficCommand } from "@/lib/traffic/optimistic";
-const PTC_BOARD_V2 = process.env.NEXT_PUBLIC_PTC_BOARD_V2 === "1";
+const PTC_BOARD_V2 = TRAVKINFLOW_2_FUNCTIONS_RELEASED;
 const legacyTones: Record<TrafficState, string> = {
   empty: "border-border bg-card text-foreground",
   loaded: "border-emerald-300 bg-emerald-100 text-emerald-950",

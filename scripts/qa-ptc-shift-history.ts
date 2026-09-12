@@ -311,26 +311,27 @@ async function verifyReconstructionBudgets() {
 }
 
 const route = readFileSync("app/api/dashboard/traffic-shift-history/route.ts", "utf8");
-matches(route, /const \{ companyId \} = await dashboardAgronomist\(request\)/);
+const release = readFileSync("lib/travkinflow-2/release.ts", "utf8");
+matches(route, /const \{ companyId \} = await dashboardSummaryReader\(request\)/);
 excludes(route, /await manager\(request\)|actor\.role !== "agronomist"/);
 matches(route, /readClosedTrafficShiftHistoryPage\(companyId/);
 matches(route, /readClosedTrafficShiftSummaryById\(companyId, shiftId\)/);
 matches(route, /const MAX_PAGE_SIZE = 25/);
-matches(route, /process\.env\.DASHBOARD_DATA_V2 !== "1"/);
+matches(route, /if \(!TRAVKINFLOW_2_FUNCTIONS_RELEASED\)/);
 matches(route, /TrafficShiftReconstructionLimitError[\s\S]*422/);
 excludes(route, /requestedCompany|company_id|companyId\s*:/);
 excludes(route, /\.(?:insert|update|upsert|delete|rpc)\s*\(/);
 
 const trafficServer = readFileSync("lib/traffic/server.ts", "utf8");
-const dashboardAgronomistHelper = trafficServer.slice(
-  trafficServer.indexOf("export async function dashboardAgronomist"),
+const dashboardSummaryReaderHelper = trafficServer.slice(
+  trafficServer.indexOf("export async function dashboardSummaryReader"),
   trafficServer.indexOf("export async function fleetManager"),
 );
-matches(dashboardAgronomistHelper, /getServerActorFromSession\(request, \{\s*skipCache: true,\s*\}\)/);
-excludes(dashboardAgronomistHelper, /ignoreImpersonation:\s*true/);
-matches(dashboardAgronomistHelper, /actor\.role !== "agronomist"/);
-matches(dashboardAgronomistHelper, /actorUserId: actor\.id/);
-matches(dashboardAgronomistHelper, /allowedRoles: \["agronomist"\]/);
+matches(dashboardSummaryReaderHelper, /getServerActorFromSession\(request, \{\s*skipCache: true,\s*\}\)/);
+excludes(dashboardSummaryReaderHelper, /ignoreImpersonation:\s*true/);
+matches(dashboardSummaryReaderHelper, /\["agronomist", "director"\]\.includes\(actor\.role\)/);
+matches(dashboardSummaryReaderHelper, /actorUserId: actor\.id/);
+matches(dashboardSummaryReaderHelper, /allowedRoles: \["agronomist", "director"\]/);
 
 const server = readFileSync("lib/traffic/shift-summary-server.ts", "utf8");
 matches(server, /const HISTORY_PAGE_SIZE = 10/);
@@ -360,7 +361,7 @@ matches(component, /История закрытых смен/);
 matches(component, /if \(nextOpen && !loaded && !loading\) void loadPage\(null, false\)/);
 matches(component, /getClosedTrafficShiftSummaryById\(shiftId, controller\.signal\)/);
 matches(component, /aria-expanded=\{expanded\}/);
-matches(component, /NEXT_PUBLIC_DASHBOARD_DATA_V2 === "1"/);
+matches(component, /TRAFFIC_SHIFT_HISTORY_ENABLED = TRAVKINFLOW_2_FUNCTIONS_RELEASED/);
 matches(component, /failure\.status === 422[\s\S]*failure\.message/);
 matches(component, /new AbortController\(\)/);
 matches(component, /generation !== detailGenerationRef\.current/);
@@ -375,9 +376,7 @@ matches(historyIndexMigration, /create index if not exists ptc_combine_shift_com
 matches(historyIndexMigration, /ptc_combine_shifts\(company_id, closed_at desc, id desc\)/);
 matches(historyIndexMigration, /where closed_at is not null/);
 
-const envExample = readFileSync(".env.example", "utf8");
-matches(envExample, /^DASHBOARD_DATA_V2=0$/m);
-matches(envExample, /^NEXT_PUBLIC_DASHBOARD_DATA_V2=0$/m);
+matches(release, /export const TRAVKINFLOW_2_FUNCTIONS_RELEASED = true/);
 
 async function verifyHistoryIndexMigration() {
   const db = new PGlite();

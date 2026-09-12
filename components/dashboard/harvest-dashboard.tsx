@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CalendarClock, ChevronDown, Clock3, Loader2, Scale, Warehouse } from "lucide-react";
 import { TicketPreviewDialog } from "@/components/weighbridge/ticket-preview-dialog";
+import { PotatoDriverSummary } from "@/components/dashboard/potato-driver-summary";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -227,7 +228,7 @@ export function HarvestDashboard() {
         <div className="hidden rounded-md border border-emerald-700/40 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-800 sm:block">Live</div>
       </div>
 
-      {profile?.role === "agronomist" && profile.company_id ? <TrafficShiftSummary key={profile.company_id} companyId={profile.company_id} /> : null}
+      {profile && ["agronomist", "director"].includes(profile.role) && profile.company_id ? <TrafficShiftSummary key={profile.company_id} companyId={profile.company_id} /> : null}
 
       <Card className="rounded-lg" style={{ background: "transparent", border: 0, boxShadow: "none" }}>
         <CardContent className="space-y-3 p-0">
@@ -285,6 +286,7 @@ export function HarvestDashboard() {
         {summary?.parties.length ? summary.parties.map((party) => <PartyCard key={party.key} party={party} open={Boolean(expandedParties[party.key])} onOpenChange={(open) => setExpandedParties((current) => ({ ...current, [party.key]: open }))} onTicket={setTicketId} />) : null}
         {summary && !summary.parties.length ? <div className="flex min-h-[20rem] items-center justify-center text-sm text-muted-foreground">По выбранным условиям партий нет.</div> : null}
       </section>
+      {summary ? <PotatoDriverSummary rows={summary.potatoDrivers} /> : null}
       <TicketPreviewDialog ticketId={ticketId} open={Boolean(ticketId)} onOpenChange={(open) => !open && setTicketId(null)} />
     </div>
   );

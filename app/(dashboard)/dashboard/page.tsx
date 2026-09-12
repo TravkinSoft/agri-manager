@@ -28,7 +28,7 @@ import { HarvestDashboard } from "@/components/dashboard/harvest-dashboard";
 export default function DashboardPage() {
   const { profile, loading } = useAuth();
   if (loading) return <div className="tf-estate-document flex min-h-40 items-center justify-center gap-2 p-6 text-sm text-muted-foreground" role="status" aria-live="polite"><Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />Загружаем панель…</div>;
-  if (profile?.role === "agronomist" || profile?.role === "director") return <HarvestDashboard />;
+  if (["agronomist", "director", "legal_operator"].includes(String(profile?.role || ""))) return <HarvestDashboard />;
   return <LegacyDashboard />;
 }
 

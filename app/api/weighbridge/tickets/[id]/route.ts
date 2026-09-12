@@ -8,6 +8,8 @@ import { enrichTicketCombineOperators } from "@/lib/server/weighbridge-combine-o
 import { enrichSharedImpurityScopes } from "@/lib/server/weighbridge-shared-impurity";
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 
+const TICKET_READ_ROLES = [...WEIGHBRIDGE_READ_ROLES, "legal_operator"] as const;
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -22,7 +24,7 @@ export async function GET(
 
     const authStartedAt = Date.now();
     const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
-      allowedRoles: WEIGHBRIDGE_READ_ROLES,
+      allowedRoles: TICKET_READ_ROLES,
       serverProfileRead: true,
     });
     timing.authMs = Date.now() - authStartedAt;

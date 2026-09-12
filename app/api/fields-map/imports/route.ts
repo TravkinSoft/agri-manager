@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fieldsMapErrorResponse, resolveFieldsMapContext } from "@/lib/fields-map/server";
+import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 
 export async function GET(request: NextRequest) {
   try {
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
 
     let mapRevision: Record<string, unknown> | null = null;
     if (
-      process.env.FIELD_BOUNDARY_WRITE_V1 === "1" &&
+      TRAVKINFLOW_2_FUNCTIONS_RELEASED &&
       actor.role === "global_admin" &&
       !actor.roleIsLegacyAlias &&
       actor.roleRawKey === "global_admin"

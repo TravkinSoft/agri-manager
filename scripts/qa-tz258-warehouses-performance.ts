@@ -21,7 +21,7 @@ const checks: Array<[string, () => void]> = [
     const body = page.match(/const loadWarehouseList = async[\s\S]*?\n  };/)?.[0] || "";
     assert.match(body, /request = getWarehouseSummaries\(/);
     assert.match(body, /warehouseSummaryRequestCache\.set\(cacheKey, request\)/);
-    assert.match(body, /const summaryRows = await request/);
+    assert.match(body, /(?:const|let) summaryRows = await request/);
     assert.doesNotMatch(body, /getProducts|getInventoryBalances|getInventoryTransactions|getWarehouseReceipts|getWarehouseIssueRequests|listHarvestBatchSummaries|Promise\.all/);
   }],
   ["selected warehouse details are loaded separately", () => {

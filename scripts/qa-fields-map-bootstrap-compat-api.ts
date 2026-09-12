@@ -57,13 +57,14 @@ function harness(options:Row={}){
   const auth={SessionAuthError:MockAuthError,getServerActorFromSession:async()=>{if(options.authError)throw new MockAuthError("Session expired",401);return actor;},resolveCompanyForActor:()=>ids.company};
   const dependencies:Record<string,unknown>={"next/server":{NextRequest,NextResponse},"@/lib/auth/server-session":auth,"@/lib/supabase/service":{getServiceClient:()=>supabase},
     "@/lib/fields-map/access-policy":accessPolicy,"@/lib/fields/display":{getFieldDisplayName},"@/lib/i18n/helpers":{brandName,localizedName},
-    "@/lib/fields-map/engineering-objects":{mapEngineeringObjectRow:(row:Row)=>row}};
+    "@/lib/fields-map/engineering-objects":{mapEngineeringObjectRow:(row:Row)=>row},
+    "@/lib/travkinflow-2/release":{TRAVKINFLOW_2_FUNCTIONS_RELEASED:options.released??true}};
   const cache=new Map<string,Row>();
   function load(file:string):Row{
     if(cache.has(file))return cache.get(file)!;
     const output=ts.transpileModule(read(file),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
     const loaded={exports:{} as Row};cache.set(file,loaded.exports);
-    vm.runInNewContext(output,{module:loaded,exports:loaded.exports,Error,TypeError,SyntaxError,process:{env:{FIELD_BOUNDARY_WRITE_V1:options.flag??"0"}},require:(name:string)=>{
+    vm.runInNewContext(output,{module:loaded,exports:loaded.exports,Error,TypeError,SyntaxError,process:{env:{}},require:(name:string)=>{
       if(Object.prototype.hasOwnProperty.call(dependencies,name))return dependencies[name];
       if(name.startsWith("@/lib/fields-map/"))return load(`${name.slice(2)}.ts`);
       if(name.startsWith(".")){
@@ -92,16 +93,16 @@ function fieldCardAssertions(body:Row){
 
 async function main(){
   await check("v3 success preserves independent contours, tombstones and complete business cards",async()=>{
-    for(const flag of ["0","1"]){const app=harness({flag});const response=await app.get();assert.equal(response.status,200);
+    for(const released of [false,true]){const app=harness({released});const response=await app.get();assert.equal(response.status,200);
       assert.equal(response.body.contour_editing_available,true);fieldCardAssertions(response.body);assert.equal(response.body.contours.length,3);
       const unlinked=response.body.contours.find((item:Row)=>item.contour_id===ids.unlinked);assert.equal(unlinked.field_id,null);same(unlinked.geometry,multi);
       assert.ok(response.body.contours.find((item:Row)=>item.contour_id===ids.deleted).deleted_at);
       assert.equal(app.tables.filter(item=>item.table==="field_geometries").length,0);assert.equal(app.rpc.length,1);assert.equal(app.rpc[0].name,"get_field_map_contours_v3");
     }
   });
-  await check("exact missing v3 RPC codes fall back read-only for flags OFF and ON",async()=>{
-    for(const flag of ["0","1"]){for(const rpcError of [missingFunction,{code:"42883",message:"function public.get_field_map_contours_v3(uuid) does not exist"}]){
-      const app=harness({flag,rpcError});const response=await app.get();assert.equal(response.status,200);assert.equal(response.body.contour_editing_available,false);
+  await check("exact missing v3 RPC codes fall back read-only before and after functional release",async()=>{
+    for(const released of [false,true]){for(const rpcError of [missingFunction,{code:"42883",message:"function public.get_field_map_contours_v3(uuid) does not exist"}]){
+      const app=harness({released,rpcError});const response=await app.get();assert.equal(response.status,200);assert.equal(response.body.contour_editing_available,false);
       fieldCardAssertions(response.body);assert.equal(response.body.contours.length,1);same(response.body.contours[0].geometry,polygon);assert.equal(response.body.contours[0].field_id,ids.fieldA);
       assert.equal(response.body.contours[0].contour_id,ids.geometry);assert.equal(response.body.contours[0].contour_version,1);
       assert.equal(response.body.contours[0].display_name,getFieldDisplayName(fields[0]));assert.equal(response.body.contours[0].source_import_id,legacy[0].import_id);

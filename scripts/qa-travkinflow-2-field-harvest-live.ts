@@ -186,6 +186,7 @@ const page = readFileSync(
   "utf8"
 );
 const envExample = readFileSync(resolve(process.cwd(), ".env.example"), "utf8");
+const release = readFileSync(resolve(process.cwd(), "lib/travkinflow-2/release.ts"), "utf8");
 
 check("route scopes effective tickets by company, season and field", () => {
   assert.match(route, /\.eq\("company_id", scope\.companyId\)/);
@@ -210,11 +211,11 @@ check("client retains exact-scope data and exposes stale/error states", () => {
   assert.match(component, /Показаны последние подтверждённые данные/);
 });
 
-check("field modal mounts the projection behind an independently reversible flag", () => {
-  assert.match(route, /process\.env\.FIELD_HARVEST_LIVE_V2\s*!==\s*["']1["']/);
-  assert.match(page, /NEXT_PUBLIC_FIELD_HARVEST_LIVE_V2\s*===\s*["']1["']/);
-  assert.match(envExample, /^FIELD_HARVEST_LIVE_V2=0$/m);
-  assert.match(envExample, /^NEXT_PUBLIC_FIELD_HARVEST_LIVE_V2=0$/m);
+check("field modal and API share the released TravkinFlow 2 switch", () => {
+  assert.match(release, /export const TRAVKINFLOW_2_FUNCTIONS_RELEASED = true/);
+  assert.match(route, /if \(!TRAVKINFLOW_2_FUNCTIONS_RELEASED\)/);
+  assert.match(page, /FIELD_HARVEST_LIVE_ENABLED = TRAVKINFLOW_2_FUNCTIONS_RELEASED/);
+  assert.doesNotMatch(envExample, /FIELD_HARVEST_LIVE_V2/);
   assert.match(page, /<FieldHarvestLive[\s\S]*?companyId=\{activeCompanyId\}[\s\S]*?seasonId=\{seasonId\}[\s\S]*?fieldId=\{selectedField\.id\}/);
 });
 

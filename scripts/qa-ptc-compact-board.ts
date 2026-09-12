@@ -91,7 +91,7 @@ function harness(role: model.TrafficRole, input = vehicles, options: {
   confirm?: boolean;
   canManage?: boolean;
   fleet?: FleetVehicle[];
-  featureFlag?: string | null;
+  released?: boolean;
 } = {}) {
   const snapshot: model.TrafficSnapshot = {
     role, companyId: "company-a", personName: "", enabled: true, fieldId: null, fieldName: null, serverTime: "2026-09-04T10:08:00Z",
@@ -151,8 +151,10 @@ function harness(role: model.TrafficRole, input = vehicles, options: {
       calls.push(args); const request = deferred<model.TrafficCommit>(); requests.push(request); return request.promise;
     } },
     "@/components/ui/button": { Button },
+    "@/lib/travkinflow-2/release": {
+      TRAVKINFLOW_2_FUNCTIONS_RELEASED: options.released !== false,
+    },
   };
-  const featureFlag = options.featureFlag === undefined ? "1" : options.featureFlag;
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
     { module: loaded, exports: loaded.exports, document: {
         visibilityState: "visible",
@@ -169,7 +171,7 @@ function harness(role: model.TrafficRole, input = vehicles, options: {
         },
       },
       crypto: { randomUUID: () => `50000000-0000-4000-8000-${String(++keyCounter).padStart(12, "0")}` },
-      process: { env: featureFlag === null ? {} : { NEXT_PUBLIC_PTC_BOARD_V2: featureFlag } },
+      process: { env: {} },
       require: (name: string) => dependencies[name] ?? localRequire(name) });
   const render = () => {
     cursor = 0; refCursor = 0; effectCursor = 0;
@@ -287,8 +289,8 @@ async function main() {
   cardNodes(groups[4])[0].props.onClick();
   check(manager.managedVehicles, ["car-5", "car-4"]); // Repair and reserve cards are managed directly from the board.
 
-  for (const featureFlag of ["0", "true", null] as const) {
-    const legacyManager = harness("manager", managerVehicles, { fleet: managerFleet, featureFlag });
+  {
+    const legacyManager = harness("manager", managerVehicles, { fleet: managerFleet, released: false });
     const legacyTree = legacyManager.render();
     const legacyLists = nodes(legacyTree).find(node => node.props?.["data-testid"] === "traffic-manager-lists");
     const legacyHeadings = nodes(legacyTree).filter(node => node.type === "h2");
@@ -298,11 +300,11 @@ async function main() {
     check(cardNodes(legacyTree).some(card => card.props.className.includes("bg-card")), true);
     check(cardNodes(legacyTree).every(card => !card.props.className.includes("tf2-traffic-card")), true);
 
-    const legacySwipe = harness("harvester", [vehicles[1]], { featureFlag });
+    const legacySwipe = harness("harvester", [vehicles[1]], { released: false });
     const belowLegacyThreshold = cardNodes(legacySwipe.render())[0];
     performSwipe(belowLegacyThreshold, { width: 200, dx: 83 });
     check(legacySwipe.calls.length, 0);
-    const exactLegacyThreshold = harness("harvester", [vehicles[1]], { featureFlag });
+    const exactLegacyThreshold = harness("harvester", [vehicles[1]], { released: false });
     performSwipe(cardNodes(exactLegacyThreshold.render())[0], { width: 200, dx: 84 });
     check(exactLegacyThreshold.calls.length, 1);
   }
@@ -684,10 +686,12 @@ async function main() {
   const pageSource = readFileSync("app/(dashboard)/traffic/page.tsx", "utf8");
   const operatorPageSource = readFileSync("app/traffic-operator/page.tsx", "utf8");
   const envExample = readFileSync(".env.example", "utf8");
-  check((source.match(/process\.env\.NEXT_PUBLIC_PTC_BOARD_V2 === "1"/g) ?? []).length, 1);
-  check((pageSource.match(/process\.env\.NEXT_PUBLIC_PTC_BOARD_V2 === "1"/g) ?? []).length, 1);
-  check((operatorPageSource.match(/process\.env\.NEXT_PUBLIC_PTC_BOARD_V2 === "1"/g) ?? []).length, 1);
-  check(envExample.includes("NEXT_PUBLIC_PTC_BOARD_V2=0"), true);
+  const releaseSource = readFileSync("lib/travkinflow-2/release.ts", "utf8");
+  check(source.includes("const PTC_BOARD_V2 = TRAVKINFLOW_2_FUNCTIONS_RELEASED"), true);
+  check(pageSource.includes("const PTC_BOARD_V2 = TRAVKINFLOW_2_FUNCTIONS_RELEASED"), true);
+  check(operatorPageSource.includes("const PTC_BOARD_V2 = TRAVKINFLOW_2_FUNCTIONS_RELEASED"), true);
+  check(releaseSource.includes("export const TRAVKINFLOW_2_FUNCTIONS_RELEASED = true"), true);
+  check(envExample.includes("NEXT_PUBLIC_PTC_BOARD_V2"), false);
   check(pageSource.includes("tf2-shell"), true);
   check(pageSource.includes("tf2-portal-panel tf2-panel"), true);
   check(pageSource.includes("Живая линия · загрузка, весовая и приёмка"), true);

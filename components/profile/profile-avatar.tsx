@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { supabase } from "@/lib/supabase/client";
 import { profileAvatarRetryDelay } from "@/lib/profile/avatar-client";
+import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 import { cn } from "@/lib/utils";
 
 type ProfileAvatarProps = {
@@ -14,7 +15,7 @@ type ProfileAvatarProps = {
   className?: string;
 };
 
-const PROFILE_AVATAR_UI_ENABLED = process.env.NEXT_PUBLIC_PROFILE_AVATAR_V1 === "1";
+const PROFILE_AVATAR_UI_ENABLED = TRAVKINFLOW_2_FUNCTIONS_RELEASED;
 
 function avatarInitials(fullName?: string | null, email?: string | null): string {
   const nameParts = String(fullName || "").trim().split(/\s+/).filter(Boolean);

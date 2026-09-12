@@ -16,7 +16,7 @@ import {
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { getServiceClient } from "@/lib/supabase/service";
 
-const DASHBOARD_ROLES = ["global_admin", "company_admin", "agronomist", "director"] as const;
+const DASHBOARD_ROLES = ["global_admin", "company_admin", "agronomist", "director", "legal_operator"] as const;
 const PERIOD_PRESETS = new Set<HarvestPeriodPreset>(["current_day", "previous_day", "current_shift", "last_24_hours", "season", "custom"]);
 const LINEAGE_QUERY_CHUNK_SIZE = 200;
 const LINEAGE_QUERY_CONCURRENCY = 4;

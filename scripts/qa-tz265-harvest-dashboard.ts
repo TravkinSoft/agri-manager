@@ -146,6 +146,98 @@ check("unknown identity remains provisional party", () => {
 });
 check("party moisture is absent for potato", () => assert.equal(summary.parties.find((row) => row.cropName === "Картофель")?.moisture, null));
 check("potato has no missing moisture issue", () => assert.equal(summary.parties.find((row) => row.cropName === "Картофель")?.issues.some((issue) => issue.kind === "missing_moisture"), false));
+check("potato driver table groups only effective potato trips", () => {
+  const first = ticket({
+    ticket_no: "POTATO-DRIVER-1",
+    driver_id: "driver-1",
+    driver_name_snapshot: "Мади Шахмет",
+    crop_name_snapshot: "Картофель",
+    net_weight_kg: 8_000,
+    finalized_at: "2026-08-12T05:00:00Z",
+    updated_at: "2026-08-12T05:00:00Z",
+    lines: [{ id: "pd-1", product_id: "p2", crop_id: "c2", product_name: "Картофель", quantity: 8_000, uom: "kg", moisture_percent: null, variety_id: "v2", variety_name: "Гала", reproduction_id: "r2", reproduction_name: "Элита", warehouse_to_id: "w1" }],
+  });
+  const second = ticket({
+    ticket_no: "POTATO-DRIVER-2",
+    driver_id: "driver-1",
+    driver_name_snapshot: "Мади Шахмет",
+    crop_name_snapshot: "Potato",
+    net_weight_kg: 10_000,
+    finalized_at: "2026-08-12T06:00:00Z",
+    updated_at: "2026-08-12T06:00:00Z",
+    lines: [{ id: "pd-2", product_id: "p2", crop_id: "c2", product_name: "Potato", quantity: 10_000, uom: "kg", moisture_percent: null, variety_id: "v2", variety_name: "Гала", reproduction_id: "r2", reproduction_name: "Элита", warehouse_to_id: "w1" }],
+  });
+  const ignoredVoided = ticket({ ...second, id: crypto.randomUUID(), ticket_no: "POTATO-VOID", is_voided: true, status: "voided", net_weight_kg: 99_000 });
+  const result = buildHarvestOverview([first, second, ignoredVoided, valid], { period });
+  assert.equal(result.potatoDrivers.length, 1);
+  assert.deepEqual(result.potatoDrivers[0], {
+    key: "driver-1",
+    driverId: "driver-1",
+    driverName: "Мади Шахмет",
+    tripCount: 2,
+    netWeightKg: 18_000,
+    averageNetWeightKg: 9_000,
+    lastTripAt: "2026-08-12T06:00:00Z",
+  });
+});
+check("potato driver grouping reconciles legacy names, keeps anonymous trips separate, and uses the latest label", () => {
+  const potatoLines = potato.lines;
+  const rows = [
+    ticket({
+      id: "driver-2-new",
+      driver_id: "driver-2",
+      driver_name_snapshot: "Новое имя",
+      crop_name_snapshot: "Картофель",
+      finalized_at: "2026-08-12T06:00:00Z",
+      updated_at: "2026-08-12T06:00:00Z",
+      lines: potatoLines,
+    }),
+    ticket({
+      id: "driver-2-old",
+      driver_id: "driver-2",
+      driver_name_snapshot: "Старое имя",
+      crop_name_snapshot: "Картофель",
+      finalized_at: "2026-08-12T05:00:00Z",
+      updated_at: "2026-08-12T05:00:00Z",
+      lines: potatoLines,
+    }),
+    ticket({
+      id: "driver-1-current",
+      driver_id: "driver-1",
+      driver_name_snapshot: "Мади Шахмед",
+      crop_name_snapshot: "Картофель",
+      finalized_at: "2026-08-12T05:30:00Z",
+      updated_at: "2026-08-12T05:30:00Z",
+      lines: potatoLines,
+    }),
+    ticket({
+      id: "driver-1-legacy",
+      driver_id: null,
+      driver_name_snapshot: "  мади   шахмед ",
+      crop_name_snapshot: "Картофель",
+      finalized_at: "2026-08-12T04:30:00Z",
+      updated_at: "2026-08-12T04:30:00Z",
+      lines: potatoLines,
+    }),
+    ticket({ id: "anonymous-1", driver_id: null, driver_name_snapshot: null, crop_name_snapshot: "Картофель", lines: potatoLines }),
+    ticket({ id: "anonymous-2", driver_id: null, driver_name_snapshot: null, crop_name_snapshot: "Картофель", lines: potatoLines }),
+    ticket({ id: "unresolved-name-1", driver_id: null, driver_name_snapshot: "Тёзка Водитель", crop_name_snapshot: "Картофель", lines: potatoLines }),
+    ticket({ id: "unresolved-name-2", driver_id: null, driver_name_snapshot: "Тёзка Водитель", crop_name_snapshot: "Картофель", lines: potatoLines }),
+  ];
+  const result = buildHarvestOverview(rows, { period });
+  const first = result.potatoDrivers.find((row) => row.key === "driver-1");
+  const second = result.potatoDrivers.find((row) => row.key === "driver-2");
+  const anonymous = result.potatoDrivers.filter((row) => row.key.startsWith("ticket:anonymous-"));
+  const unresolvedNames = result.potatoDrivers.filter((row) => row.key.startsWith("ticket:unresolved-name-"));
+  assert.equal(first?.tripCount, 2);
+  assert.equal(first?.driverName, "Мади Шахмед");
+  assert.equal(second?.tripCount, 2);
+  assert.equal(second?.driverName, "Новое имя");
+  assert.equal(anonymous.length, 2);
+  assert.ok(anonymous.every((row) => row.tripCount === 1 && row.driverName === "Водитель не указан"));
+  assert.equal(unresolvedNames.length, 2);
+  assert.ok(unresolvedNames.every((row) => row.tripCount === 1 && row.driverName === "Тёзка Водитель"));
+});
 
 const roleAccess = readFileSync(resolve(root, "lib/auth/role-access.ts"), "utf8");
 const sidebar = readFileSync(resolve(root, "components/layout/sidebar.tsx"), "utf8");
@@ -153,18 +245,41 @@ const assistantShell = readFileSync(resolve(root, "lib/assistant/shell.ts"), "ut
 const assistantLauncher = readFileSync(resolve(root, "components/assistant/assistant-launcher.tsx"), "utf8");
 const assistantPanel = readFileSync(resolve(root, "components/assistant/assistant-panel.tsx"), "utf8");
 const serverSession = readFileSync(resolve(root, "lib/auth/server-session.ts"), "utf8");
+const legalOperatorReadOnlyGuard = readFileSync(resolve(root, "supabase/migrations/20260912110000_tf2_legal_operator_read_only_guard_v1.sql"), "utf8");
+const readOnlyGuardRuntimeGrants = readFileSync(resolve(root, "supabase/migrations/20260912111500_tf2_read_only_guard_runtime_grants_v1.sql"), "utf8");
 const mobileNav = readFileSync(resolve(root, "components/layout/mobile-bottom-nav.tsx"), "utf8");
+const dashboardPage = readFileSync(resolve(root, "app/(dashboard)/dashboard/page.tsx"), "utf8");
 const dashboardApi = readFileSync(resolve(root, "app/api/dashboard/harvest-summary/route.ts"), "utf8");
 const dashboardUi = readFileSync(resolve(root, "components/dashboard/harvest-dashboard.tsx"), "utf8");
-check("agronomist/director routes limited", () => {
+const potatoDriverUi = readFileSync(resolve(root, "components/dashboard/potato-driver-summary.tsx"), "utf8");
+const fieldMapPolicy = readFileSync(resolve(root, "lib/fields-map/access-policy.ts"), "utf8");
+const warehousePage = readFileSync(resolve(root, "app/(dashboard)/warehouses/page.tsx"), "utf8");
+const warehouseAuth = readFileSync(resolve(root, "app/api/warehouses/_helpers.ts"), "utf8");
+const weighbridgeAuth = readFileSync(resolve(root, "app/api/weighbridge/_auth.ts"), "utf8");
+const harvestBatchApi = readFileSync(resolve(root, "app/api/weighbridge/harvest-batches/route.ts"), "utf8");
+const ticketApi = readFileSync(resolve(root, "app/api/weighbridge/tickets/[id]/route.ts"), "utf8");
+const ticketPdfApi = readFileSync(resolve(root, "app/api/weighbridge/tickets/[id]/pdf/route.ts"), "utf8");
+check("agronomist/director/legal routes are explicit", () => {
   assert.match(roleAccess, /AGRONOMIST_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/crop-structure",\s*"\/weather-lab",\s*"\/tickets",\s*"\/auth"/);
-  assert.match(roleAccess, /DIRECTOR_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/auth"/);
+  assert.match(roleAccess, /DIRECTOR_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/weather-lab",\s*"\/auth"/);
+  assert.match(roleAccess, /DIRECTOR_ALLOWED_EXACT = \["\/fields-map", "\/warehouses"\]/);
+  assert.match(roleAccess, /LEGAL_OPERATOR_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/analytics",\s*"\/auth"/);
+  assert.match(roleAccess, /LEGAL_OPERATOR_ALLOWED_EXACT = \["\/fields-map", "\/warehouses"\]/);
 });
-check("director cannot open warehouse or ticket routes", () => {
-  assert.equal(canAccessPath("director", "/dashboard"), true);
-  assert.equal(canAccessPath("director", "/warehouses"), false);
-  assert.equal(canAccessPath("director", "/tickets"), false);
-  assert.equal(canAccessPath("director", "/settings"), false);
+check("director and legal operator receive only their approved cabinet routes", () => {
+  for (const path of ["/dashboard", "/fields-map", "/warehouses", "/weather-lab"]) {
+    assert.equal(canAccessPath("director", path), true, `director ${path}`);
+  }
+  for (const path of ["/analytics", "/fields-map/import", "/warehouses/transactions", "/tickets", "/weighbridge", "/crop-structure", "/settings"]) {
+    assert.equal(canAccessPath("director", path), false, `director ${path}`);
+  }
+  for (const path of ["/dashboard", "/fields-map", "/warehouses", "/analytics"]) {
+    assert.equal(canAccessPath("legal_operator", path), true, `legal_operator ${path}`);
+  }
+  assert.equal(canAccessPath("legal_operator", "/weighbridge/ticket-id/print"), true, "legal_operator ticket print");
+  for (const path of ["/weather-lab", "/fields", "/fields-map/import", "/warehouses/transactions", "/reports", "/tickets", "/weighbridge", "/crop-structure", "/settings"]) {
+    assert.equal(canAccessPath("legal_operator", path), false, `legal_operator ${path}`);
+  }
 });
 check("agronomist menus expose traffic and keep tickets hidden", () => {
   const desktopAgronomist = sidebar.match(/const AGRONOMIST_NAV[\s\S]*?\];/)?.[0] ?? "";
@@ -174,22 +289,68 @@ check("agronomist menus expose traffic and keep tickets hidden", () => {
   assert.match(mobileAgronomist, /harvest_summary[\s\S]*?crop_structure[\s\S]*?warehouses[\s\S]*?traffic[\s\S]*?MORE_ITEM/);
   assert.doesNotMatch(mobileAgronomist, /tickets_nav/);
 });
-check("director menus contain dashboard only", () => {
-  assert.match(sidebar, /const DIRECTOR_NAV:[\s\S]*?harvest_summary[\s\S]*?\];/);
-  assert.match(mobileNav, /case "director":[\s\S]*?return \[\{ labelKey: "harvest_summary"/);
+check("director and legal operator menus match their four approved pages", () => {
+  const desktopDirector = sidebar.match(/const DIRECTOR_NAV[\s\S]*?\];/)?.[0] ?? "";
+  const desktopLegal = sidebar.match(/const LEGAL_OPERATOR_NAV[\s\S]*?\];/)?.[0] ?? "";
+  const mobileDirector = mobileNav.match(/case "director":[\s\S]*?case "legal_operator"/)?.[0] ?? "";
+  const mobileLegal = mobileNav.match(/case "legal_operator":[\s\S]*?case "specialist"/)?.[0] ?? "";
+  assert.match(desktopDirector, /harvest_summary[\s\S]*?field_map[\s\S]*?warehouses[\s\S]*?weather/);
+  assert.doesNotMatch(desktopDirector, /analytics|crop_structure|traffic|tickets_nav/);
+  assert.match(desktopLegal, /harvest_summary[\s\S]*?field_map[\s\S]*?warehouses[\s\S]*?analytics/);
+  assert.doesNotMatch(desktopLegal, /weather|fields"|crop_structure|traffic|tickets_nav/);
+  assert.match(mobileDirector, /harvest_summary[\s\S]*?field_map[\s\S]*?warehouses[\s\S]*?weather/);
+  assert.doesNotMatch(mobileDirector, /analytics|MORE_ITEM/);
+  assert.match(mobileLegal, /harvest_summary[\s\S]*?field_map[\s\S]*?warehouses[\s\S]*?analytics/);
+  assert.doesNotMatch(mobileLegal, /weather|MORE_ITEM/);
+});
+check("dashboard and warehouse read APIs include both read-only roles", () => {
+  assert.match(dashboardPage, /\["agronomist", "director", "legal_operator"\]/);
+  assert.match(dashboardApi, /DASHBOARD_ROLES = \["global_admin", "company_admin", "agronomist", "director", "legal_operator"\]/);
+  assert.match(warehousePage, /\["weighman", "agronomist", "director", "legal_operator"\]\.includes\(role\)/);
+  assert.match(warehouseAuth, /WAREHOUSE_READ_ROLES = \[[\s\S]*?"director",\s*"legal_operator"/);
+  const weighbridgeReadRoles = weighbridgeAuth.match(/WEIGHBRIDGE_READ_ROLES = \[[\s\S]*?\] as const/)?.[0] ?? "";
+  assert.doesNotMatch(weighbridgeReadRoles, /"legal_operator"/);
+  assert.match(harvestBatchApi, /HARVEST_BATCH_READ_ROLES = \[\.\.\.WEIGHBRIDGE_READ_ROLES, "legal_operator"\]/);
+  assert.match(ticketApi, /TICKET_READ_ROLES = \[\.\.\.WEIGHBRIDGE_READ_ROLES, "legal_operator"\]/);
+  assert.match(ticketPdfApi, /TICKET_PDF_READ_ROLES = \[\.\.\.WEIGHBRIDGE_READ_ROLES, "legal_operator"\]/);
+});
+check("field-map and warehouse writes exclude read-only cabinet roles", () => {
+  const fieldWriteRoles = fieldMapPolicy.match(/FIELD_MAP_WRITE_ROLES = new Set<string>\(\[[\s\S]*?\]\)/)?.[0] ?? "";
+  const warehouseEntityWrites = warehouseAuth.match(/WAREHOUSE_ENTITY_WRITE_ROLES = \[[\s\S]*?\] as const/)?.[0] ?? "";
+  const warehouseStockWrites = warehouseAuth.match(/WAREHOUSE_STOCK_WRITE_ROLES = \[[\s\S]*?\] as const/)?.[0] ?? "";
+  assert.doesNotMatch(fieldWriteRoles, /"director"|"legal_operator"/);
+  for (const source of [warehouseEntityWrites, warehouseStockWrites]) assert.doesNotMatch(source, /"legal_operator"/);
 });
 check("assistant is global admin only", () => {
   assert.match(assistantShell, /AssistantAllowedRole = "global_admin"/);
   assert.match(assistantLauncher, /if \(!enabled\) return null/);
   assert.match(assistantPanel, /if \(!enabled\) return null/);
 });
-check("director server mutations blocked", () => assert.match(serverSession, /Director access is read-only/));
+check("director and legal operator server mutations are blocked", () => {
+  assert.match(serverSession, /\["director", "legal_operator"\]\.includes\(actor\.role\)/);
+  assert.match(serverSession, /This cabinet is read-only/);
+});
+check("legal operator remains read-only at the database boundary", () => {
+  assert.match(legalOperatorReadOnlyGuard, /is_current_user_legal_operator_v1/);
+  assert.match(legalOperatorReadOnlyGuard, /as restrictive for insert to authenticated/);
+  assert.match(legalOperatorReadOnlyGuard, /as restrictive for update to authenticated/);
+  assert.match(legalOperatorReadOnlyGuard, /as restrictive for delete to authenticated/);
+  assert.match(legalOperatorReadOnlyGuard, /pgrst\.db_pre_request = 'public\.enforce_read_only_cabinet_request_v1'/);
+  assert.match(legalOperatorReadOnlyGuard, /is_current_user_director_v1\(\)[\s\S]*?is_current_user_legal_operator_v1\(\)/);
+  assert.match(readOnlyGuardRuntimeGrants, /to anon, authenticated, service_role, authenticator/);
+});
 check("dashboard API does not cap harvest at one thousand rows", () => assert.match(dashboardApi, /\.range\(from, from \+ pageSize - 1\)/));
 check("dashboard groups around parties", () => {
   assert.match(dashboardUi, /Партии в уборке/);
   assert.match(dashboardUi, /На складах сейчас/);
   assert.match(dashboardUi, /Принято за период/);
   assert.doesNotMatch(dashboardUi, /Поступление по культурам/);
+});
+check("dashboard exposes secondary potato driver table", () => {
+  assert.match(dashboardUi, /PotatoDriverSummary/);
+  assert.match(dashboardUi, /\["agronomist", "director"\]\.includes\(profile\.role\)[\s\S]*?<TrafficShiftSummary/);
+  assert.match(potatoDriverUi, /timeZone: HARVEST_TIME_ZONE/);
+  assert.match(potatoDriverUi, /"водитель"[\s\S]*?"водителя"[\s\S]*?"водителей"/);
 });
 check("expanded state survives live refresh", () => assert.match(dashboardUi, /expandedParties/));
 check("live refresh uses existing weighbridge tables", () => assert.match(dashboardUi, /LIVE_REFRESH_TABLES\.weighbridge/));

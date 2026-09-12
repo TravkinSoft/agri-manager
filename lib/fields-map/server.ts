@@ -11,6 +11,7 @@ import {
   assertFieldMapRead,
   assertFieldMapWrite,
 } from "@/lib/fields-map/access";
+import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 
 export type FieldsMapRequestContext = {
   actor: ServerActorContext;
@@ -25,9 +26,9 @@ type ResolveOptions = {
 };
 
 function assertFieldBoundaryMutationEnabled(): void {
-  if (process.env.FIELD_BOUNDARY_WRITE_V1 !== "1") {
+  if (!TRAVKINFLOW_2_FUNCTIONS_RELEASED) {
     throw new SessionAuthError(
-      "Изменения границ полей временно выключены. Включите FIELD_BOUNDARY_WRITE_V1 только для проверенной волны импорта.",
+      "Изменения границ полей временно выключены.",
       503
     );
   }

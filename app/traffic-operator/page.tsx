@@ -10,9 +10,10 @@ import { TrafficFleetControls } from "@/components/traffic/traffic-fleet-control
 import { FleetEntityCreator } from "@/components/traffic/fleet-entity-creator";
 import { TrafficShiftControls } from "@/components/traffic/traffic-shift-controls";
 import { supabase } from "@/lib/supabase/client";
+import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 
 type CabinetMode = "checking" | "operator" | "manager" | "error";
-const PTC_BOARD_V2 = process.env.NEXT_PUBLIC_PTC_BOARD_V2 === "1";
+const PTC_BOARD_V2 = TRAVKINFLOW_2_FUNCTIONS_RELEASED;
 
 export default function TrafficOperatorPage() {
   const [mode, setMode] = useState<CabinetMode>("checking");

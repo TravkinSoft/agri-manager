@@ -46,7 +46,8 @@ check("agronomist fields and operations remain hidden", () => {
 
 check("director receives no structure write route", () => {
   assert.equal(canAccessPath("director", "/crop-structure"), false);
-  assert.equal(canAccessPath("director", "/weather-lab"), false);
+  assert.equal(canAccessPath("director", "/weather-lab"), true);
+  assert.equal(canAccessPath("legal_operator", "/weather-lab"), false);
 });
 
 check("desktop menu order matches owner contract", () => {
@@ -88,13 +89,17 @@ check("agronomist does not receive field administration", () => {
   assert.doesNotMatch(cropPage.match(/canManageFields =[^;]+/)?.[0] || "", /agronomist/);
 });
 
-check("weather route is available only to approved roles", () => {
-  assert.match(weatherAuth, /actor\.role !== "global_admin" && actor\.role !== "agronomist"/);
-  assert.match(weatherPage, /profile\?\.role !== "global_admin" && profile\?\.role !== "agronomist"/);
+check("weather route includes read-only director access", () => {
+  assert.match(weatherAuth, /\["global_admin", "agronomist", "director"\]\.includes\(actor\.role\)/);
+  assert.match(weatherAuth, /actor\.role === "director"[\s\S]*?\["GET", "HEAD", "OPTIONS"\]/);
+  assert.match(weatherPage, /\["global_admin", "agronomist", "director"\]\.includes\(profile\.role\)/);
+  assert.match(weatherPage, /readOnly=\{profile\.role === "director"\}/);
+  assert.match(weatherUi, /if \(readOnly\) return;/);
+  assert.match(weatherUi, /profileOpen && !readOnly/);
 });
 
 check("technical provider details are global admin only", () => {
-  assert.match(weatherPage, /showTechnicalDebug=\{profile\?\.role === "global_admin"\}/);
+  assert.match(weatherPage, /showTechnicalDebug=\{profile\.role === "global_admin"\}/);
   assert.match(weatherUi, /showTechnicalDebug \? <details/);
   assert.match(forecastApi, /showTechnicalDetails = actor\.role === "global_admin"/);
   assert.match(locationApi, /showTechnicalDetails = actor\.role === "global_admin"/);

@@ -3,8 +3,11 @@ import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-s
 
 export async function requireWeatherLabAccess(request: NextRequest) {
   const actor = await getServerActorFromSession(request, { ignoreImpersonation: true });
-  if (actor.role !== "global_admin" && actor.role !== "agronomist") {
-    throw new SessionAuthError("Weather Lab доступен Global Admin и агроному", 403);
+  if (!["global_admin", "agronomist", "director"].includes(actor.role)) {
+    throw new SessionAuthError("Weather Lab недоступен для текущей роли", 403);
+  }
+  if (actor.role === "director" && !["GET", "HEAD", "OPTIONS"].includes(request.method.toUpperCase())) {
+    throw new SessionAuthError("Директору доступен только просмотр погоды", 403);
   }
   return actor;
 }

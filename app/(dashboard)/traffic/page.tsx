@@ -8,6 +8,7 @@ import { TrafficBoard } from "@/components/traffic/traffic-board";
 import { TrafficAnalyticsPanel } from "@/components/traffic/traffic-analytics-panel";
 import { useTraffic } from "@/components/traffic/use-traffic";
 import { trafficEventSummary } from "@/lib/traffic/model";
+import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 import {
   Dialog,
   DialogContent,
@@ -22,7 +23,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-const PTC_BOARD_V2 = process.env.NEXT_PUBLIC_PTC_BOARD_V2 === "1";
+const PTC_BOARD_V2 = TRAVKINFLOW_2_FUNCTIONS_RELEASED;
 export default function TrafficPage() {
   const live = useTraffic(true);
   return <TrafficManager key={live.scopeKey} live={live} />;

@@ -11,6 +11,7 @@ export const WAREHOUSE_READ_ROLES = [
   "weighman",
   "agronomist",
   "director",
+  "legal_operator",
 ] as const;
 
 export const WAREHOUSE_ENTITY_WRITE_ROLES = [

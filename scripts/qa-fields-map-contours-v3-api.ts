@@ -67,10 +67,11 @@ function harness(options:Row={}){
   const auth={SessionAuthError:MockSessionAuthError,getServerActorFromSession:async()=>{
     if(options.authError)throw new MockSessionAuthError("Session unavailable",401);return actor;
   },resolveCompanyForActor:()=>ids.company};
-  const env={FIELD_BOUNDARY_WRITE_V1:options.flag??"1"};
+  const env:Record<string,string|undefined>={};
   const access=load(read("lib/fields-map/access.ts"),{"@/lib/auth/server-session":auth,"@/lib/fields-map/access-policy":accessPolicy},env);
   const server=load(read("lib/fields-map/server.ts"),{"next/server":{NextRequest,NextResponse},"@/lib/auth/server-session":auth,
-    "@/lib/supabase/service":{getServiceClient:()=>supabase},"@/lib/fields-map/access":access},env);
+    "@/lib/supabase/service":{getServiceClient:()=>supabase},"@/lib/fields-map/access":access,
+    "@/lib/travkinflow-2/release":{TRAVKINFLOW_2_FUNCTIONS_RELEASED:options.released??true}},env);
   const dependencies={"next/server":{NextRequest,NextResponse},"@/lib/fields-map/server":server,
     "@/lib/fields-map/import-validation":{validateParsedPolygonsForImport}};
   const confirm=load(read("app/api/fields-map/import/confirm/route.ts"),dependencies,env).POST;
@@ -163,10 +164,10 @@ async function main(){
       assert.equal((await app.mutate(body)).status,400);assert.equal(app.rpc.length,0);
     }
   });
-  await check("actual server role and write flag gates remain fail-closed for both routes",async()=>{
+  await check("actual server role and release gates remain fail-closed for both routes",async()=>{
     const denied=[{options:{authError:true},status:401},{options:{role:"agronomist"},status:403},
       {options:{role:"company_admin"},status:403},{options:{role:"director"},status:403},
-      {options:{alias:true},status:403},{options:{rawRole:"admin"},status:403},{options:{flag:"0"},status:503},{options:{flag:""},status:503}];
+      {options:{alias:true},status:403},{options:{rawRole:"admin"},status:403},{options:{released:false},status:503}];
     for(const test of denied){
       const app=harness(test.options);assert.equal((await app.confirm()).status,test.status);
       assert.equal((await app.mutate({action:"delete",expected_geometry_id:ids.geometry})).status,test.status);

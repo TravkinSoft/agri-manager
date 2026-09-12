@@ -112,6 +112,15 @@ export type HarvestOverview = {
   period: HarvestPeriod;
   completedTripCount: number;
   openTicketCount: number;
+  potatoDrivers: Array<{
+    key: string;
+    driverId: string | null;
+    driverName: string;
+    tripCount: number;
+    netWeightKg: number;
+    averageNetWeightKg: number;
+    lastTripAt: string;
+  }>;
   parties: HarvestParty[];
   cropTotals: Array<{ key: string; cropId: string | null; cropName: string; receivedKg: number; trips: number }>;
   openTickets: Array<{
@@ -426,8 +435,49 @@ export function buildHarvestOverview(
   const cropMap = new Map<string, HarvestOverview["cropTotals"][number]>();
   const fieldMap = new Map<string, HarvestOverview["fields"][number]>();
   const moistureMap = new Map<string, { key: string; fieldName: string; cropName: string; samples: Array<{ percent: number; kg: number; occurredAt: string }>; totalTrips: number }>();
+  const potatoDriverMap = new Map<string, HarvestOverview["potatoDrivers"][number]>();
   const partyMap = new Map<string, HarvestParty>();
   const knownPartyByIdentity = new Map<string, string>();
+
+  const potatoDriverIdsByName = new Map<string, Set<string>>();
+  for (const ticket of finalized) {
+    if (!isPotatoLabel(ticketIdentity(ticket).crop)) continue;
+    const driverId = cleanLabel(ticket.driver_id);
+    const driverName = cleanLabel(ticket.driver_name_snapshot)?.replace(/\s+/gu, " ") || null;
+    if (!driverId || !driverName) continue;
+    const normalizedName = driverName.replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU");
+    const ids = potatoDriverIdsByName.get(normalizedName) || new Set<string>();
+    ids.add(driverId);
+    potatoDriverIdsByName.set(normalizedName, ids);
+  }
+
+  const potatoDriverIdentityByTicketId = new Map<string, { key: string; driverId: string | null; driverName: string | null }>();
+  const latestPotatoDriverNameByKey = new Map<string, { driverName: string; occurredAtMs: number; ticketId: string }>();
+  for (const ticket of finalized) {
+    if (!isPotatoLabel(ticketIdentity(ticket).crop)) continue;
+    const snapshotDriverId = cleanLabel(ticket.driver_id);
+    const driverName = cleanLabel(ticket.driver_name_snapshot)?.replace(/\s+/gu, " ") || null;
+    const normalizedName = driverName?.replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU") || null;
+    const matchingDriverIds = normalizedName ? potatoDriverIdsByName.get(normalizedName) : null;
+    const inferredDriverId = !snapshotDriverId && matchingDriverIds?.size === 1
+      ? Array.from(matchingDriverIds)[0]
+      : null;
+    const driverId = snapshotDriverId || inferredDriverId;
+    const key = driverId || `ticket:${ticket.id}`;
+    potatoDriverIdentityByTicketId.set(ticket.id, { key, driverId, driverName });
+
+    if (driverName) {
+      const candidate = { driverName, occurredAtMs: ticketTime(ticket), ticketId: ticket.id };
+      const current = latestPotatoDriverNameByKey.get(key);
+      if (
+        !current
+        || candidate.occurredAtMs > current.occurredAtMs
+        || (candidate.occurredAtMs === current.occurredAtMs && candidate.ticketId.localeCompare(current.ticketId) > 0)
+      ) {
+        latestPotatoDriverNameByKey.set(key, candidate);
+      }
+    }
+  }
 
   const ensureParty = (key: string, identity: HarvestIdentity, seasonId: string | null): HarvestParty => {
     const existing = partyMap.get(key);
@@ -513,6 +563,34 @@ export function buildHarvestOverview(
     cropRow.receivedKg += netKg;
     cropRow.trips += 1;
     cropMap.set(cropKey, cropRow);
+
+    if (isPotatoLabel(identity.crop)) {
+      const driverIdentity = potatoDriverIdentityByTicketId.get(ticket.id) || {
+        key: `ticket:${ticket.id}`,
+        driverId: null,
+        driverName: null,
+      };
+      const driverName = latestPotatoDriverNameByKey.get(driverIdentity.key)?.driverName
+        || driverIdentity.driverName
+        || "Водитель не указан";
+      const driverKey = driverIdentity.key;
+      const driverRow = potatoDriverMap.get(driverKey) || {
+        key: driverKey,
+        driverId: driverIdentity.driverId,
+        driverName,
+        tripCount: 0,
+        netWeightKg: 0,
+        averageNetWeightKg: 0,
+        lastTripAt: occurredAt,
+      };
+      driverRow.tripCount += 1;
+      driverRow.netWeightKg += netKg;
+      driverRow.averageNetWeightKg = driverRow.netWeightKg / driverRow.tripCount;
+      if (new Date(occurredAt).getTime() >= new Date(driverRow.lastTripAt).getTime()) {
+        driverRow.lastTripAt = occurredAt;
+      }
+      potatoDriverMap.set(driverKey, driverRow);
+    }
 
     const fieldKey = `${ticket.field_id || fieldName}|${identity.cropId || identity.crop}|${identity.varietyId || "?"}|${identity.reproductionId || "?"}`;
     const fieldRow = fieldMap.get(fieldKey) || {
@@ -700,6 +778,8 @@ export function buildHarvestOverview(
     period: options.period,
     completedTripCount: finalized.length,
     openTicketCount: open.length,
+    potatoDrivers: Array.from(potatoDriverMap.values())
+      .sort((a, b) => b.tripCount - a.tripCount || b.netWeightKg - a.netWeightKg || a.driverName.localeCompare(b.driverName, "ru")),
     parties: Array.from(partyMap.values())
       .filter((party) => party.currentStockKg > 0 || party.receivedKg > 0 || party.openTicketCount > 0)
       .sort((a, b) => b.openTicketCount - a.openTicketCount || b.receivedKg - a.receivedKg || b.currentStockKg - a.currentStockKg),

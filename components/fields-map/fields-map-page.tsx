@@ -41,6 +41,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { canWriteFieldMap } from "@/lib/fields-map/access-policy";
+import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 import {
   CROP_COLOR_LEGEND,
   WORK_STATUS_COLOR_LEGEND,
@@ -278,7 +279,7 @@ const MAP_DEFAULT_MAX_ZOOM = Math.max(...Object.values(BASE_LAYER_MAX_ZOOM));
 const EMPTY_FIELDS: FieldMapFieldCard[] = [];
 const EMPTY_PREVIEW_ROWS: FieldMapPreviewMatch[] = [];
 const EMPTY_ENGINEERING_OBJECTS: FieldEngineeringObject[] = [];
-const FIELD_BOUNDARY_UI_ENABLED = process.env.NEXT_PUBLIC_FIELD_BOUNDARY_WRITE_V1 === "1";
+const FIELD_BOUNDARY_UI_ENABLED = TRAVKINFLOW_2_FUNCTIONS_RELEASED;
 
 const ENGINEERING_OBJECT_DEFINITIONS: EngineeringObjectDefinition[] = [
   { type: "pond", label: "Котлован / водоём", geometry: "Polygon", group: "ponds", color: "#38bdf8" },

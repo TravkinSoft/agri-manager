@@ -20,6 +20,8 @@ import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
 import { summarizeAggregateHarvestLotFields } from "@/lib/weighbridge/harvest-lot-option-label";
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { getServiceClient } from "@/lib/supabase/service";
+
+const HARVEST_BATCH_READ_ROLES = [...WEIGHBRIDGE_READ_ROLES, "legal_operator"] as const;
 import {
   collapseOperationDocuments,
   selectActiveWarehouseOperationEntries,
@@ -1343,7 +1345,7 @@ async function loadAggregateHarvestLots(
 export async function GET(request: NextRequest) {
   try {
     const { companyId, supabase } = await resolveWeighbridgeSession(request, {
-      allowedRoles: WEIGHBRIDGE_READ_ROLES,
+      allowedRoles: HARVEST_BATCH_READ_ROLES,
       serverProfileRead: true,
     });
     const warehouseId = String(request.nextUrl.searchParams.get("warehouseId") || "").trim() || null;

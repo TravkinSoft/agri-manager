@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { dashboardAgronomist, failed, noStore, TrafficError } from "@/lib/traffic/server";
+import { dashboardSummaryReader, failed, noStore, TrafficError } from "@/lib/traffic/server";
+import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 import {
   readClosedTrafficShiftHistoryPage,
   readClosedTrafficShiftSummaryById,
@@ -23,9 +24,9 @@ function pageSize(value: string | null) {
 
 export async function GET(request: NextRequest) {
   try {
-    if (process.env.DASHBOARD_DATA_V2 !== "1")
+    if (!TRAVKINFLOW_2_FUNCTIONS_RELEASED)
       throw new TrafficError("История смен пока не включена", 404);
-    const { companyId } = await dashboardAgronomist(request);
+    const { companyId } = await dashboardSummaryReader(request);
 
     const shiftId = request.nextUrl.searchParams.get("shiftId");
     if (shiftId) {

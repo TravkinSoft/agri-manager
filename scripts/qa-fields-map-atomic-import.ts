@@ -7,6 +7,7 @@ const read = (relativePath: string) => fs.readFileSync(path.join(root, relativeP
 const confirmRoute = read("app/api/fields-map/import/confirm/route.ts");
 const stateRoute = read("app/api/fields-map/imports/[id]/route.ts");
 const server = read("lib/fields-map/server.ts");
+const release = read("lib/travkinflow-2/release.ts");
 const previewRoute = read("app/api/fields-map/import/preview/route.ts");
 const migration = read("supabase/migrations/20260909211431_field_map_independent_contours_v3.sql");
 
@@ -24,7 +25,8 @@ check(confirmRoute.includes("status || \"\") !== \"draft\""), "draft compare-and
 check(stateRoute.includes('.rpc("set_field_map_import_state_v3"'), "state changes use one RPC");
 check(!stateRoute.includes('.from("field_geometries")'), "state route has no split geometry mutation");
 check(stateRoute.includes('importRes.data.status !== "imported"'), "activate is UI/API limited to imported state");
-check(server.includes('process.env.FIELD_BOUNDARY_WRITE_V1 !== "1"'), "server mutation gate is fail closed");
+check(server.includes("if (!TRAVKINFLOW_2_FUNCTIONS_RELEASED)"), "server mutation gate shares the release switch");
+check(release.includes("export const TRAVKINFLOW_2_FUNCTIONS_RELEASED = true"), "TravkinFlow 2 functions are released");
 check(previewRoute.includes("estimateAreaGeometryConflictComplexity"), "preview budgets pairwise geometry work");
 check(previewRoute.includes("FIELD_MAP_MAX_CONFLICT_CANDIDATE_PAIRS"), "preview caps candidate-pair growth");
 check(migration.includes("pg_advisory_xact_lock"), "RPC serializes one company import snapshot");

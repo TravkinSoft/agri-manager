@@ -68,11 +68,13 @@ check(!summary.canConfirm, "duplicate final assignment blocks confirmation");
 
 const route = read("app/api/fields-map/boundaries/mutate/route.ts");
 const confirmRoute = read("app/api/fields-map/import/confirm/route.ts");
+const importsRoute = read("app/api/fields-map/imports/route.ts");
 const migration = read("supabase/migrations/20260908232606_field_boundary_revision_v1.sql");
 const contourMigration = read("supabase/migrations/20260909211431_field_map_independent_contours_v3.sql");
 const page = read("components/fields-map/fields-map-page.tsx");
 const review = read("components/fields-map/field-map-import-review.tsx");
 const env = read(".env.example");
+const release = read("lib/travkinflow-2/release.ts");
 
 check(route.includes("resolveFieldsMapContext(request, { mutation: true })"), "boundary route uses global-admin server gate");
 check(route.includes("validateParsedPolygonsForImport"), "replacement geometry is server validated");
@@ -96,9 +98,12 @@ check(contourMigration.includes("and g.contour_version>s.contour_version"), "res
 check(contourMigration.includes("v_action='restore' and s.deleted_at is null"), "restore requires the current deletion tombstone");
 check(migration.includes("to service_role"), "boundary RPC is service-role only");
 check(!/grant execute on function public\.mutate_field_boundary_v1[\s\S]*?to authenticated/u.test(migration), "authenticated users cannot call boundary RPC");
-check(env.includes("FIELD_BOUNDARY_WRITE_V1=0") && env.includes("NEXT_PUBLIC_FIELD_BOUNDARY_WRITE_V1=0"), "both boundary flags default off");
+check(/export const TRAVKINFLOW_2_FUNCTIONS_RELEASED = true/u.test(release), "TravkinFlow 2 functions are released through one code switch");
+check(!/FIELD_BOUNDARY_WRITE_V1|NEXT_PUBLIC_FIELD_BOUNDARY_WRITE_V1/u.test(env), "obsolete boundary environment flags are absent");
 check(page.includes('profile?.role === "global_admin"'), "client mutation UI checks effective role");
-check(page.includes('NEXT_PUBLIC_FIELD_BOUNDARY_WRITE_V1 === "1"'), "client mutation UI is fail closed");
+check(page.includes("FIELD_BOUNDARY_UI_ENABLED = TRAVKINFLOW_2_FUNCTIONS_RELEASED"), "client mutation UI shares the release switch");
+check(importsRoute.includes("TRAVKINFLOW_2_FUNCTIONS_RELEASED &&"), "import revision uses the same release switch");
+check(importsRoute.includes('actor.role === "global_admin"') && importsRoute.includes('actor.roleRawKey === "global_admin"'), "import revision keeps the exact global-admin gate");
 check(page.includes("<FieldMapImportReview"), "active map renders the match queue");
 check(review.includes("FIELD_MAP_UNLINKED_DECISION") && review.includes("Не импортировать этот контур"), "save-unlinked and excluded are distinct decisions");
 check(page.includes('event.key.toLowerCase() === "z"') && page.includes('event.key === "Escape"'), "full-boundary editor exposes undo and cancel shortcuts");

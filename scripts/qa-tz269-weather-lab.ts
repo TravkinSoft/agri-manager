@@ -237,13 +237,21 @@ async function main() {
   check("KATO API requires Weather Lab role access", () => assert.match(katoRoute, /requireWeatherLabAccess\(request\)/));
   check("location API resolves exact KATO code", () => assert.match(locationRoute, /resolveKatoLocation\(katoCode\)/));
   check("auth helper ignores impersonation", () => assert.match(authSource, /ignoreImpersonation:\s*true/));
-  check("auth helper allows global admin", () => assert.match(authSource, /actor\.role !== "global_admin"/));
-  check("auth helper allows agronomist", () => assert.match(authSource, /actor\.role !== "agronomist"/));
+  check("auth helper allows the explicit read-role set", () => {
+    assert.match(authSource, /\["global_admin", "agronomist", "director"\]\.includes\(actor\.role\)/);
+  });
+  check("auth helper keeps director read-only", () => {
+    assert.match(authSource, /actor\.role === "director"/);
+    assert.match(authSource, /\["GET", "HEAD", "OPTIONS"\]\.includes\(request\.method\.toUpperCase\(\)\)/);
+  });
   check("Weather Lab hides Assist surfaces", () => {
     assert.match(layoutSource, /assistantEnabled\s*=\s*canUseAssistantShell\(profile\?\.role\)\s*&&\s*!isWeatherLab/);
     assert.match(layoutSource, /assistantEnabled \? <AssistantLauncher/);
   });
-  check("Weather Lab hides mobile Copilot", () => assert.match(mobileBottomNavSource, /item\.kind !== "copilot"/));
+  check("mobile navigation has no Copilot item", () => {
+    assert.match(mobileBottomNavSource, /kind: "route" \| "more"/);
+    assert.doesNotMatch(mobileBottomNavSource, /kind:\s*"copilot"/);
+  });
   check("UI has no manual coordinate fields", () => assert.equal(/<Input[^>]+(?:lat|lon|latitude|longitude)/i.test(clientSource), false));
   check("UI shows provider wind direction", () => {
     assert.match(clientSource, /windDirection\(current\.windBearingDeg\)/);
@@ -279,7 +287,10 @@ async function main() {
     assert.match(clientSource, /touch-pan-x/);
   });
   check("timeline technical scrollbar is hidden", () => assert.match(clientSource, /overflow-x-auto[\s\S]+\[scrollbar-width:none\][\s\S]+webkit-scrollbar\]:hidden/));
-  check("profile edit previews without a forecast request", () => assert.match(clientSource, /profileOpen[\s\S]+\? previewProfile\(profileDraft/));
+  check("profile edit previews without a forecast request", () => assert.match(clientSource, /profileOpen && !readOnly[\s\S]+\? previewProfile\(profileDraft/));
+  check("switching to read-only discards the hidden profile draft", () => {
+    assert.match(clientSource, /if \(!readOnly\) return;[\s\S]*?setProfileOpen\(false\);[\s\S]*?setEditingProfile\(null\);[\s\S]*?setProfileDraft\(emptyWeatherProfile\);[\s\S]*?setProfileError\(null\);/);
+  });
   check("main UI omits Kp satellites and visibility", () => {
     assert.equal(clientSource.includes("Видимые спутники"), false);
     assert.equal(clientSource.includes("Ожидаемый захват спутников"), false);

@@ -69,11 +69,11 @@ const BRIGADIER_ALLOWED_PREFIXES = [
 
 const LEGAL_OPERATOR_ALLOWED_PREFIXES = [
   "/dashboard",
-  "/fields",
   "/analytics",
-  "/reports",
   "/auth",
 ];
+
+const LEGAL_OPERATOR_ALLOWED_EXACT = ["/fields-map", "/warehouses"];
 
 const AGRONOMIST_ALLOWED_PREFIXES = [
   "/dashboard",
@@ -87,10 +87,11 @@ const AGRONOMIST_ALLOWED_EXACT = ["/fields-map", "/warehouses", "/settings", "/t
 
 const DIRECTOR_ALLOWED_PREFIXES = [
   "/dashboard",
+  "/weather-lab",
   "/auth",
 ];
 
-const DIRECTOR_ALLOWED_EXACT: string[] = [];
+const DIRECTOR_ALLOWED_EXACT = ["/fields-map", "/warehouses"];
 
 export function canAccessPath(role: AppRole, pathname: string): boolean {
   const path = String(pathname || "").toLowerCase();
@@ -163,7 +164,9 @@ export function canAccessPath(role: AppRole, pathname: string): boolean {
   }
 
   if (role === "legal_operator") {
-    return LEGAL_OPERATOR_ALLOWED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+    const hasPrefixAccess = LEGAL_OPERATOR_ALLOWED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+    const isTicketPrint = /^\/weighbridge\/[^/]+\/print$/.test(path);
+    return hasPrefixAccess || LEGAL_OPERATOR_ALLOWED_EXACT.includes(path) || isTicketPrint;
   }
 
   if (role === "agronomist") {

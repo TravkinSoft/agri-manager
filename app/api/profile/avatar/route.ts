@@ -9,13 +9,14 @@ import {
   isOwnedAvatarPath,
   sanitizeProfileAvatarWebp,
 } from "@/lib/profile/avatar";
+import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 
 export const runtime = "nodejs";
 
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store, max-age=0" };
 
 function assertWriteEnabled() {
-  if (process.env.PROFILE_AVATAR_WRITE_V1 !== "1") {
+  if (!TRAVKINFLOW_2_FUNCTIONS_RELEASED) {
     throw new SessionAuthError("Profile photo changes are temporarily disabled", 503);
   }
 }

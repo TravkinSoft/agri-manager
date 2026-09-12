@@ -118,21 +118,21 @@ equal(changingFleet.latestFleetRoundMinutes, 55);
 equal(changingFleet.latestDistinctVehicleLoadSpanMinutes, 55);
 
 const route = readFileSync("app/api/dashboard/traffic-shift-summary/route.ts", "utf8");
-assert.match(route, /const \{ companyId \} = await dashboardAgronomist\(request\)/); checks += 1;
+assert.match(route, /const \{ companyId \} = await dashboardSummaryReader\(request\)/); checks += 1;
 assert.doesNotMatch(route, /await manager\(request\)|actor\.role !== "agronomist"/); checks += 1;
 assert.doesNotMatch(route, /searchParams|requestedCompany|companyId\s*:/); checks += 1;
 assert.doesNotMatch(route, /\.(?:insert|update|upsert|delete|rpc)\s*\(/); checks += 1;
 
 const trafficServer = readFileSync("lib/traffic/server.ts", "utf8");
-const dashboardAgronomistHelper = trafficServer.slice(
-  trafficServer.indexOf("export async function dashboardAgronomist"),
+const dashboardSummaryReaderHelper = trafficServer.slice(
+  trafficServer.indexOf("export async function dashboardSummaryReader"),
   trafficServer.indexOf("export async function fleetManager"),
 );
-assert.match(dashboardAgronomistHelper, /getServerActorFromSession\(request, \{\s*skipCache: true,\s*\}\)/); checks += 1;
-assert.doesNotMatch(dashboardAgronomistHelper, /ignoreImpersonation:\s*true/); checks += 1;
-assert.match(dashboardAgronomistHelper, /actor\.role !== "agronomist"/); checks += 1;
-assert.match(dashboardAgronomistHelper, /actorUserId: actor\.id/); checks += 1;
-assert.match(dashboardAgronomistHelper, /allowedRoles: \["agronomist"\]/); checks += 1;
+assert.match(dashboardSummaryReaderHelper, /getServerActorFromSession\(request, \{\s*skipCache: true,\s*\}\)/); checks += 1;
+assert.doesNotMatch(dashboardSummaryReaderHelper, /ignoreImpersonation:\s*true/); checks += 1;
+assert.match(dashboardSummaryReaderHelper, /\["agronomist", "director"\]\.includes\(actor\.role\)/); checks += 1;
+assert.match(dashboardSummaryReaderHelper, /actorUserId: actor\.id/); checks += 1;
+assert.match(dashboardSummaryReaderHelper, /allowedRoles: \["agronomist", "director"\]/); checks += 1;
 
 const server = readFileSync("lib/traffic/shift-summary-server.ts", "utf8");
 assert.match(server, /const EVENT_PAGE_SIZE = 500/); checks += 1;
@@ -191,7 +191,7 @@ assert.match(summaryNormalizer, /loadIntervalSamples:[\s\S]*Math\.max\(0, totalT
 assert.match(summaryNormalizer, /latestDistinctVehicleLoadSpanMinutes: finiteOrNull/); checks += 1;
 
 const dashboard = readFileSync("components/dashboard/harvest-dashboard.tsx", "utf8");
-assert.match(dashboard, /profile\?\.role === "agronomist" && profile\.company_id \? <TrafficShiftSummary key=\{profile\.company_id\}/); checks += 1;
+assert.match(dashboard, /\["agronomist", "director"\]\.includes\(profile\.role\)[\s\S]*?<TrafficShiftSummary key=\{profile\.company_id\}/); checks += 1;
 assert.ok(dashboard.indexOf("<TrafficShiftSummary") < dashboard.indexOf("<Card className=\"rounded-lg\"")); checks += 1;
 
 type FakeResult = { data: unknown; error: null };

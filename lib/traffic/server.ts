@@ -127,18 +127,18 @@ export async function manager(request: NextRequest) {
   });
   return { actor, companyId };
 }
-export async function dashboardAgronomist(request: NextRequest) {
+export async function dashboardSummaryReader(request: NextRequest) {
   const actor = await getServerActorFromSession(request, {
     skipCache: true,
   });
-  if (actor.role !== "agronomist")
-    throw new TrafficError("Итоги смен доступны только агроному", 403);
+  if (!["agronomist", "director"].includes(actor.role))
+    throw new TrafficError("Итоги смен доступны только агроному и директору", 403);
   const companyId = resolveCompanyForActor(actor);
   await assertActorAccess({
     supabase: getServiceClient(),
     actorUserId: actor.id,
     companyId,
-    allowedRoles: ["agronomist"],
+    allowedRoles: ["agronomist", "director"],
   });
   return { actor, companyId };
 }

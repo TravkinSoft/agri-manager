@@ -3,7 +3,7 @@ const FIELD_MAP_READ_ROLES = new Set<string>([
   "global_admin", "company_admin", "director", "agronomist", "legal_operator",
 ]);
 const FIELD_MAP_WRITE_ROLES = new Set<string>([
-  "global_admin", "company_admin", "director",
+  "global_admin", "company_admin",
 ]);
 const FIELD_MAP_MUTATION_ROLES = new Set<string>(["global_admin"]);
 

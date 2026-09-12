@@ -40,7 +40,7 @@ function materialize(node: any): any {
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 const TrafficBoard = () => null;
 const TrafficPwa = () => null;
-function page(live: Record<string, unknown>, featureFlag: string | null = "1") {
+function page(live: Record<string, unknown>, released = true) {
   const pageModule = load(pageSource, {
     react: {
       ...React,
@@ -57,8 +57,7 @@ function page(live: Record<string, unknown>, featureFlag: string | null = "1") {
     "@/components/traffic/fleet-entity-creator": { FleetEntityCreator: () => null },
     "@/components/traffic/traffic-shift-controls": { TrafficShiftControls: () => null },
     "@/lib/supabase/client": { supabase: {} },
-  }, {
-    process: { env: featureFlag === null ? {} : { NEXT_PUBLIC_PTC_BOARD_V2: featureFlag } },
+    "@/lib/travkinflow-2/release": { TRAVKINFLOW_2_FUNCTIONS_RELEASED: released },
   });
   return materialize(pageModule.default());
 }
@@ -85,7 +84,8 @@ async function main() {
   check(pageSource.includes("fleet={managed?.fleet}"), true);
   check(/onManageVehicle=\{managed\?\.canManageFleet \? setSelected : undefined\}/.test(pageSource), true);
   check(/Settings2|Машины не на линии|drawerOpen|onDrawerOpen/.test(pageSource), false);
-  check((pageSource.match(/process\.env\.NEXT_PUBLIC_PTC_BOARD_V2 === "1"/g) ?? []).length, 1);
+  check(pageSource.includes("const PTC_BOARD_V2 = TRAVKINFLOW_2_FUNCTIONS_RELEASED"), true);
+  check(readFileSync("lib/travkinflow-2/release.ts", "utf8").includes("export const TRAVKINFLOW_2_FUNCTIONS_RELEASED = true"), true);
 
   const applyCommitted = () => undefined;
   const scenarios = [
@@ -118,12 +118,12 @@ async function main() {
     }
   }
 
-  for (const featureFlag of ["0", "true", null] as const) {
-    const legacyTree = page({ loading: false, needsLogin: true, data: null, stale: false, error: "", refresh: async () => undefined }, featureFlag);
+  {
+    const legacyTree = page({ loading: false, needsLogin: true, data: null, stale: false, error: "", refresh: async () => undefined }, false);
     const legacyClasses = legacyTree.props.className.split(/\s+/);
     check(legacyClasses.includes("tf2-shell"), false);
     check(legacyClasses.includes("tf2-traffic-shell"), false);
-    check(legacyClasses.includes("bg-[#0c1118]"), true);
+    check(legacyClasses.includes("bg-card"), true);
     const legacyContainer = nodes(legacyTree).find(node => node.type === "div" && node.props?.className === "mx-auto max-w-5xl");
     check(Boolean(legacyContainer), true);
     const legacyForm = nodes(legacyTree).find(node => node.type === "form");

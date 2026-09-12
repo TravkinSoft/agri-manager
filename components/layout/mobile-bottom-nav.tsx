@@ -71,7 +71,19 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
         MORE_ITEM,
       ];
     case "director":
-      return [{ labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard, kind: "route" }];
+      return [
+        { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard, kind: "route" },
+        { labelKey: "field_map", href: "/fields-map", icon: Map, kind: "route" },
+        { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
+        { labelKey: "weather", href: "/weather-lab", icon: CloudSun, kind: "route" },
+      ];
+    case "legal_operator":
+      return [
+        { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard, kind: "route" },
+        { labelKey: "field_map", href: "/fields-map", icon: Map, kind: "route" },
+        { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
+        { labelKey: "analytics", href: "/analytics", icon: BarChart3, kind: "route" },
+      ];
     case "specialist":
       return [
         { labelKey: "my_tasks", href: "/tasks", icon: CheckSquare, kind: "route" },

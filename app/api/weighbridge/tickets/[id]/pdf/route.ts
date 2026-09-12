@@ -7,6 +7,8 @@ import { ticketOperatorFacts } from "@/lib/weighbridge/ticket-operator";
 import { transportPickerLabel } from "@/lib/weighbridge/transport";
 import type { WeighbridgeTicket } from "@/lib/types/weighbridge";
 
+const TICKET_PDF_READ_ROLES = [...WEIGHBRIDGE_READ_ROLES, "legal_operator"] as const;
+
 function escapePdfText(text: string) {
   return text.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 }
@@ -76,7 +78,7 @@ export async function GET(
     }
 
     const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
-      allowedRoles: WEIGHBRIDGE_READ_ROLES,
+      allowedRoles: TICKET_PDF_READ_ROLES,
     });
     const { data: ticket, error: ticketError } = await supabase
       .from("tickets")

@@ -11,6 +11,7 @@ import {
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
 import { getServiceClient } from "@/lib/supabase/service";
+import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 import { rowHasQaDataMarker } from "@/lib/utils/qa-data";
 import {
   WAREHOUSE_ORDER_MAX_ITEMS,
@@ -27,7 +28,7 @@ function errorResponse(message: string, status: number) {
 }
 
 export async function PATCH(request: NextRequest) {
-  if (process.env.WAREHOUSE_ORDER_WRITE_V1 !== "1") {
+  if (!TRAVKINFLOW_2_FUNCTIONS_RELEASED) {
     return errorResponse("Изменение порядка складов временно отключено", 404);
   }
 

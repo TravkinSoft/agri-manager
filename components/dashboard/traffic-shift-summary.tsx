@@ -14,9 +14,10 @@ import type {
   TrafficClosedShiftHistoryItem,
   TrafficClosedShiftSummary,
 } from "@/lib/traffic/shift-summary";
+import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 
 const HISTORY_PAGE_SIZE = 10;
-const TRAFFIC_SHIFT_HISTORY_ENABLED = process.env.NEXT_PUBLIC_DASHBOARD_DATA_V2 === "1";
+const TRAFFIC_SHIFT_HISTORY_ENABLED = TRAVKINFLOW_2_FUNCTIONS_RELEASED;
 
 function number(value: number | null, suffix = "") {
   return value === null ? "—" : `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })}${suffix}`;

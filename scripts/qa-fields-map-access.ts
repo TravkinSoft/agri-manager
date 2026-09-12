@@ -23,7 +23,6 @@ const READ_ROLES = new Set<CanonicalRole>([
 const WRITE_ROLES = new Set<CanonicalRole>([
   "global_admin",
   "company_admin",
-  "director",
 ]);
 
 function actorForRole(role: CanonicalRole): ServerActorContext {
@@ -85,8 +84,11 @@ assert.equal(canAccessPath("agronomist", "/fields-map"), true);
 assert.equal(canAccessPath("agronomist", "/fields-map/import"), false);
 assert.equal(canAccessPath("agronomist", "/map"), false);
 assert.equal(canAccessPath("company_admin", "/fields-map"), false);
-assert.equal(canAccessPath("director", "/fields-map"), false);
-assertions += 6;
+assert.equal(canAccessPath("director", "/fields-map"), true);
+assert.equal(canAccessPath("director", "/fields-map/import"), false);
+assert.equal(canAccessPath("legal_operator", "/fields-map"), true);
+assert.equal(canAccessPath("legal_operator", "/fields-map/import"), false);
+assertions += 9;
 
 for (const legacyGlobalAdminAlias of ["super_admin", "superadmin", "globaladmin"]) {
   const actor = {
@@ -159,7 +161,7 @@ assert.match(confirmSource, /status \|\| ""\) !== "draft"/u);
 assert.match(confirmSource, /rpc\("confirm_field_map_import_v3"/u);
 assert.doesNotMatch(confirmSource, /from\("field_geometries"\)/u);
 const fieldsMapServerSource = fs.readFileSync(path.join(repoRoot, "lib/fields-map/server.ts"), "utf8");
-assert.match(fieldsMapServerSource, /FIELD_BOUNDARY_WRITE_V1 !== "1"/u);
+assert.match(fieldsMapServerSource, /if \(!TRAVKINFLOW_2_FUNCTIONS_RELEASED\)/u);
 const serviceSource = fs.readFileSync(path.join(repoRoot, "lib/services/fields-map.ts"), "utf8");
 const previewServiceSource = serviceSource.slice(
   serviceSource.indexOf("export async function previewFieldMapImport"),

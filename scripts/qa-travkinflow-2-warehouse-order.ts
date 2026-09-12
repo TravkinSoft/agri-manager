@@ -26,6 +26,7 @@ const helpers = read("app/api/warehouses/_helpers.ts");
 const types = read("lib/types/warehouse.ts");
 const migration = read("supabase/migrations/20260908215514_warehouse_display_order_v1.sql");
 const envExample = read(".env.example");
+const release = read("lib/travkinflow-2/release.ts");
 const localRequire = createRequire(import.meta.url);
 
 let checks = 0;
@@ -52,7 +53,6 @@ function loadCommonJs(source: string, dependencies: Record<string, unknown>) {
   vm.runInNewContext(output, {
     exports: loaded.exports,
     module: loaded,
-    process: { env: { WAREHOUSE_ORDER_WRITE_V1: "1" } },
     require: (name: string) => dependencies[name] ?? localRequire(name),
   });
   return loaded.exports;
@@ -132,8 +132,8 @@ check("legacy list and summary reads sort locally without selecting a required n
   assert.doesNotMatch(listRoute, /\.order\("display_order"/);
   assert.doesNotMatch(summariesRoute, /\.order\("display_order"/);
 });
-check("UI is independently feature flagged and has an explicit mode", () => {
-  assert.match(page, /NEXT_PUBLIC_UI_WAREHOUSE_V2/);
+check("UI uses the released TravkinFlow 2 switch and has an explicit mode", () => {
+  assert.match(page, /WAREHOUSE_ORDER_UI_ENABLED = TRAVKINFLOW_2_FUNCTIONS_RELEASED/);
   assert.match(page, /"Изменить порядок"/);
   assert.match(page, /setIsReorderMode\(true\)/);
 });
@@ -184,10 +184,10 @@ check("client service sends one authenticated PATCH with the complete visible or
   assert.match(service, /JSON\.stringify\(\{ companyId, warehouseIds \}\)/);
 });
 
-check("write API is independently disabled by default", () => {
-  assert.match(route, /process\.env\.WAREHOUSE_ORDER_WRITE_V1 !== "1"/);
-  assert.match(envExample, /WAREHOUSE_ORDER_WRITE_V1=0/);
-  assert.match(envExample, /NEXT_PUBLIC_UI_WAREHOUSE_V2=0/);
+check("write API shares the released TravkinFlow 2 switch", () => {
+  assert.match(release, /export const TRAVKINFLOW_2_FUNCTIONS_RELEASED = true/);
+  assert.match(route, /if \(!TRAVKINFLOW_2_FUNCTIONS_RELEASED\)/);
+  assert.doesNotMatch(envExample, /WAREHOUSE_ORDER_WRITE_V1|NEXT_PUBLIC_UI_WAREHOUSE_V2/);
 });
 check("write API resolves trusted actor and company scope", () => {
   assert.match(route, /getServerActorFromSession\(request\)/);
@@ -306,6 +306,7 @@ async function runRouteIntegration() {
       resolveCompanyForActor: (_actor: unknown, requestedCompanyId: string | null) => requestedCompanyId || companyId,
     },
     "@/lib/supabase/service": { getServiceClient: () => serviceClient },
+    "@/lib/travkinflow-2/release": { TRAVKINFLOW_2_FUNCTIONS_RELEASED: true },
     "@/lib/utils/qa-data": { rowHasQaDataMarker },
     "@/lib/warehouse/warehouse-order": {
       WAREHOUSE_ORDER_MAX_ITEMS,
