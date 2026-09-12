@@ -171,4 +171,13 @@ assert.doesNotMatch(previewServiceSource, /body: JSON\.stringify\(payload\)/u);
 assert.match(previewServiceSource, /kmlText: payload\.kmlText/u);
 assertions += 9;
 
+const legacyFarmImportSource = fs.readFileSync(
+  path.join(repoRoot, "app/api/import-farm-data/route.ts"),
+  "utf8"
+);
+assert.match(legacyFarmImportSource, /LEGACY_FARM_IMPORT_DISABLED/u);
+assert.match(legacyFarmImportSource, /\{ status: 410 \}/u);
+assert.doesNotMatch(legacyFarmImportSource, /getServiceClient|request\.json|\.from\(/u);
+assertions += 3;
+
 console.log(`Fields map access gate PASS: ${assertions} assertions. No remote calls.`);
