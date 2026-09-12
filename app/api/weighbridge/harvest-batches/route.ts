@@ -121,12 +121,16 @@ function processingLabel(value: unknown): string {
 }
 
 async function loadSharedImpurityPoolSummaries(
-  supabase: any,
   harvestStockSupabase: any,
   companyId: string,
   warehouseId: string | null
 ) {
-  let groupsQuery = supabase
+  // The request session and company access are already verified by
+  // resolveWeighbridgeSession. Read the complete pool projection through the
+  // server-only client so a role-specific RLS/profile race cannot silently
+  // turn a valid physical pool into an empty picker result. Every tenant-owned
+  // table below remains explicitly company-scoped.
+  let groupsQuery = harvestStockSupabase
     .from("weighbridge_shared_impurity_groups")
     .select("id,ticket_id,source_warehouse_id,season_id,crop_id,product_id,display_name,pool_inventory_batch_id,source_total_kg,impurity_weight_kg,clean_total_kg,created_at,finalized_at")
     .eq("company_id", companyId)
@@ -154,23 +158,23 @@ async function loadSharedImpurityPoolSummaries(
       .select("id,batch_code,warehouse_id,product_id,crop_id,current_quantity,current_weight_kg,mass_kg,uom,batch_class,physical_state,origin_type,display_name")
       .eq("company_id", companyId)
       .in("id", chunk)),
-    supabase
+    harvestStockSupabase
       .from("weighbridge_shared_impurity_members")
       .select("group_id,crop_structure_id,field_id,identity_snapshot")
       .eq("company_id", companyId)
       .in("group_id", groupIds)
       .order("created_at", { ascending: true }),
     cropIds.length
-      ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug,category,subcategory,crop_subcategory").in("id", cropIds)
+      ? harvestStockSupabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug,category,subcategory,crop_subcategory").in("id", cropIds)
       : Promise.resolve({ data: [], error: null }),
     productIds.length
-      ? supabase.from("products").select("id,name,trade_name,normalized_name").in("id", productIds)
+      ? harvestStockSupabase.from("products").select("id,name,trade_name,normalized_name").in("id", productIds)
       : Promise.resolve({ data: [], error: null }),
     warehouseIds.length
-      ? supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en").eq("company_id", companyId).in("id", warehouseIds)
+      ? harvestStockSupabase.from("warehouses").select("id,name,name_ru,name_kz,name_en").eq("company_id", companyId).in("id", warehouseIds)
       : Promise.resolve({ data: [], error: null }),
     seasonIds.length
-      ? supabase.from("seasons").select("id,name,year").eq("company_id", companyId).in("id", seasonIds)
+      ? harvestStockSupabase.from("seasons").select("id,name,year").eq("company_id", companyId).in("id", seasonIds)
       : Promise.resolve({ data: [], error: null }),
   ]);
   const firstError = [membersResult, cropsResult, productsResult, warehousesResult, seasonsResult]
@@ -1517,7 +1521,7 @@ export async function GET(request: NextRequest) {
           ? loadAggregateHarvestLotSummaries(supabase, harvestStockSupabase, companyId, warehouseId, lotId)
           : loadAggregateHarvestLots(supabase, harvestStockSupabase, companyId, warehouseId, lotId),
         summaryOnly && !lotId
-          ? loadSharedImpurityPoolSummaries(supabase, harvestStockSupabase, companyId, warehouseId)
+          ? loadSharedImpurityPoolSummaries(harvestStockSupabase, companyId, warehouseId)
           : Promise.resolve([]),
       ]);
       if (lots !== null) return NextResponse.json({ batches: [...sharedImpurityPools, ...lots] });

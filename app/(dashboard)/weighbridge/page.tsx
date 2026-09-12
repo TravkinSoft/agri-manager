@@ -1934,7 +1934,13 @@ export default function WeighbridgeOperationsPage() {
     }
     const refreshAllForegroundData = !hasScopedTables && !isResourcePoll;
     const ticketChanged = refreshAllForegroundData || ["tickets", "ticket_lines", "ticket_weighings"].some((name) => changedTables.has(name));
-    const stockChanged = refreshAllForegroundData || ["inventory_batches", "stock_ledger_entries"].some((name) => changedTables.has(name));
+    const stockChanged = refreshAllForegroundData || [
+      "inventory_batches",
+      "stock_ledger_entries",
+      "weighbridge_shared_impurity_groups",
+      "weighbridge_shared_impurity_members",
+      "weighbridge_shared_impurity_source_batches",
+    ].some((name) => changedTables.has(name));
     const cropStructureChanged = refreshAllForegroundData || changedTables.has("crop_structure");
     const transportResourcesChanged = isResourcePoll || refreshAllForegroundData || [
       "reference_vehicles",

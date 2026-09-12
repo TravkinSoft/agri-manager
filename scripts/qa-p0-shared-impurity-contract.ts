@@ -255,12 +255,20 @@ async function main() {
 
   check("finalized shared pool remains selectable for repeated physical impurity trips", () => {
     assert.match(harvestBatchesRoute.text, /loadSharedImpurityPoolSummaries/);
+    assert.match(harvestBatchesRoute.text, /let groupsQuery = harvestStockSupabase/);
+    assert.match(harvestBatchesRoute.text, /harvestStockSupabase[\s\S]*\.from\("weighbridge_shared_impurity_members"\)/);
     assert.match(harvestBatchesRoute.text, /origin_type[^]*shared_impurity_pool/);
     assert.match(harvestBatchesRoute.text, /sharedImpurityPool:\s*true/);
     assert.match(createRoute.text, /\.in\("origin_type", \["harvest", "shared_impurity_pool"\]\)/);
     assert.match(createRoute.text, /pool_inventory_batch_id/);
     assert.match(createRoute.text, /\.eq\("state", "finalized"\)/);
     assert.match(page.text, /Общая физическая партия после примеси/);
+  });
+
+  check("shared pool lifecycle invalidates an already open impurity picker", () => {
+    assert.match(page.text, /"weighbridge_shared_impurity_groups"/);
+    assert.match(page.text, /"weighbridge_shared_impurity_members"/);
+    assert.match(page.text, /"weighbridge_shared_impurity_source_batches"/);
   });
 
   check("UI closes shared impurity tickets through the atomic finalizer", () => {
