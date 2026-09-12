@@ -225,6 +225,17 @@ async function main() {
     assert.match(page.text, /selectedImpuritySourceOptions\.length > 1/);
   });
 
+  check("UI closes shared impurity tickets through the atomic finalizer", () => {
+    assert.match(
+      page.text,
+      /const isAtomicSharedImpurityClosure = activeTicket\.op_type === "weighbridge_impurities"[\s\S]*activeTicket\.impurity_source_scope\?\.allocation_mode === "unresolved_total"/,
+    );
+    assert.match(
+      page.text,
+      /if \(isAtomicHarvestClosure \|\| isAtomicTransferClosure \|\| isAtomicSharedImpurityClosure\)/,
+    );
+  });
+
   check("picker prevents mixing whole-party and exact-source modes and blocks one exact source", () => {
     assert.match(picker.text, /selectedContainsLegacyFallback/);
     assert.match(picker.text, /hasIncompleteSharedSelection/);

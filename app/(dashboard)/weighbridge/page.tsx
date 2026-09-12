@@ -4905,6 +4905,9 @@ export default function WeighbridgeOperationsPage() {
     const isAtomicTransferClosure = activeTicket.op_type === "warehouse_transfer"
       && activeTicket.weigh_method !== "manual_override_with_reason"
       && !activeTicket.correction_of_ticket_id;
+    const isAtomicSharedImpurityClosure = activeTicket.op_type === "weighbridge_impurities"
+      && activeTicket.impurity_source_scope?.allocation_mode === "unresolved_total"
+      && !activeTicket.correction_of_ticket_id;
     const moisture = closingMoisture.trim()
       ? Number(closingMoisture.replace(",", "."))
       : null;
@@ -4987,7 +4990,7 @@ export default function WeighbridgeOperationsPage() {
     setFinalizing(true);
     try {
       let finalizeResponse: Record<string, any> | null = null;
-      if (isAtomicHarvestClosure || isAtomicTransferClosure) {
+      if (isAtomicHarvestClosure || isAtomicTransferClosure || isAtomicSharedImpurityClosure) {
         const finalizeAtomicTicket = async (confirmTareVariance: boolean) => finalizeTicket(closingTicket.id, profile.id, {
           tare_weight_kg: t,
           moisture_percent: moisture,
