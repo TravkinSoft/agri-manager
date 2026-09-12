@@ -108,16 +108,24 @@ function useDashboardTraffic(enabled: boolean) {
   return { payload, error };
 }
 
-function VehicleCard({ vehicle, now }: { vehicle: TrafficVehicle; now: number }) {
+const VEHICLE_CARD_SURFACES: Record<TrafficGroup, string> = {
+  empty: "bg-[rgba(238,232,215,0.035)]",
+  loaded: "bg-[rgba(143,183,126,0.12)]",
+  unloading: "bg-[rgba(208,171,101,0.12)]",
+  repair: "bg-[rgba(207,116,104,0.10)]",
+  offline: "bg-[rgba(238,232,215,0.025)]",
+};
+
+function VehicleCard({ vehicle, now, group }: { vehicle: TrafficVehicle; now: number; group: TrafficGroup }) {
   const brand = getFleetVehicleBrand(vehicle);
   return (
-    <article className="group grid min-h-[82px] grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-border/70 py-3 last:border-0">
+    <article data-traffic-vehicle-card={group} className={`grid min-h-[92px] grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-[10px] px-3 py-3.5 animate-in fade-in slide-in-from-bottom-1 duration-200 ${VEHICLE_CARD_SURFACES[group]}`}>
       <div className="min-w-0">
-        <div className="truncate text-sm font-semibold text-foreground">{vehicle.driver?.trim() || "Водитель не назначен"}</div>
-        <div className="mt-1 truncate text-xs text-muted-foreground">{brand}</div>
-        <div className="mt-0.5 text-[11px] font-medium tracking-wide text-[color:var(--manor-brass-soft)]">{vehicle.plate?.trim() || "Без номера"}</div>
+        <div className="truncate text-base font-semibold tracking-[0.01em] text-foreground">{vehicle.driver?.trim() || "Водитель не назначен"}</div>
+        <div className="mt-1.5 truncate text-xs text-muted-foreground">{brand}</div>
+        <div className="mt-0.5 text-xs font-medium tracking-[0.04em] text-[color:var(--manor-brass-soft)]">{vehicle.plate?.trim() || "Без номера"}</div>
       </div>
-      <div className="flex items-start gap-1 pt-0.5 text-[11px] tabular-nums text-muted-foreground">
+      <div className="flex items-start gap-1 pt-0.5 text-xs font-medium tabular-nums text-[color:var(--manor-brass-soft)]">
         <Clock3 className="mt-0.5 h-3 w-3" />{age(vehicle.inRepair ? vehicle.repairChangedAt || vehicle.since : vehicle.since, now)}
       </div>
     </article>
@@ -141,6 +149,7 @@ export function HarvestDashboard() {
   const [now, setNow] = useState(Date.now());
   const summaryRef = useRef<HarvestOverview | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const initialTrafficGroupSelectedRef = useRef(false);
 
   const loadDashboard = useCallback(async () => {
     if (!companyId) {
@@ -174,6 +183,7 @@ export function HarvestDashboard() {
 
   useEffect(() => {
     summaryRef.current = null;
+    initialTrafficGroupSelectedRef.current = false;
     setSummary(null);
     void loadDashboard();
     return () => abortRef.current?.abort();
@@ -196,12 +206,19 @@ export function HarvestDashboard() {
     : "Картофель";
   const activeShift = traffic?.snapshot.combineShift || null;
   const fieldHectares = activeSelection?.areaHa ?? null;
-  const fieldDetail = [activeIdentity, fieldHectares === null ? null : `${fieldHectares.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`].filter(Boolean).join(" · ");
+  const fieldDetail = [activeIdentity, fieldHectares === null ? null : `участок ${fieldHectares.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`].filter(Boolean).join(" · ");
   const shiftIsOpen = activeShift?.status === "open";
   const hectares = Number(harvestedHectares.replace(",", "."));
   const yieldTonnes = hectares > 0 ? receivedKg / 1000 / hectares : null;
   const trafficVehicles = useMemo(() => mergeTrafficVehicles(traffic?.snapshot || null, traffic?.fleet || []), [traffic]);
   const grouped = useMemo(() => Object.fromEntries(GROUPS.map((group) => [group.key, trafficVehicles.filter((vehicle) => vehicleGroup(vehicle) === group.key)])) as Record<TrafficGroup, TrafficVehicle[]>, [trafficVehicles]);
+
+  useEffect(() => {
+    if (!traffic || initialTrafficGroupSelectedRef.current) return;
+    initialTrafficGroupSelectedRef.current = true;
+    const initialGroup = (["loaded", "unloading", "empty", "repair", "offline"] as TrafficGroup[]).find((group) => grouped[group].length > 0);
+    if (initialGroup) setSelectedGroup(initialGroup);
+  }, [grouped, traffic]);
 
   return (
     <div className="mx-auto w-full max-w-[1500px] space-y-5 overflow-x-hidden">
@@ -267,14 +284,14 @@ export function HarvestDashboard() {
             <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="text-emerald-700">PTC · Live</span><span>{trafficVehicles.filter((vehicle) => vehicle.assigned).length} на линии</span></div>
           </div>
           {trafficError ? <div className="mb-3 border-l-2 border-amber-400 px-3 py-2 text-sm text-amber-700">{trafficError}</div> : null}
-          <div role="tablist" aria-label="Статусы машин" className="grid grid-cols-5 border-y border-border lg:hidden">
-            {GROUPS.map((group) => <button key={group.key} role="tab" aria-selected={selectedGroup === group.key} onClick={() => setSelectedGroup(group.key)} className={`min-h-[58px] min-w-0 px-1 py-2 text-center ${selectedGroup === group.key ? "bg-accent text-foreground" : "text-muted-foreground"}`}><span className="block text-[9px] leading-3">{group.mobile}</span><strong className="mt-1 block text-lg tabular-nums">{grouped[group.key]?.length || 0}</strong></button>)}
+          <div role="tablist" aria-label="Статусы машин" className="grid grid-cols-5 gap-1 border-y border-border py-1 lg:hidden">
+            {GROUPS.map((group) => <button key={group.key} role="tab" aria-selected={selectedGroup === group.key} onClick={() => setSelectedGroup(group.key)} className={`min-h-[55px] min-w-0 rounded-lg px-1 py-2 text-center transition-colors duration-200 ${selectedGroup === group.key ? "bg-[color:var(--manor-paper-raised)] text-foreground" : "text-muted-foreground"}`}><span className="block text-[9px] leading-3">{group.mobile}</span><strong className="mt-1 block text-lg tabular-nums">{grouped[group.key]?.length || 0}</strong></button>)}
           </div>
           {!traffic ? <div className="flex min-h-28 items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка PTC...</div> : (
             <>
-              <div className="lg:hidden">{grouped[selectedGroup].map((vehicle) => <VehicleCard key={vehicle.vehicle_id} vehicle={vehicle} now={now} />)}{!grouped[selectedGroup].length ? <div className="py-6 text-sm text-muted-foreground">Машин в этом статусе нет.</div> : null}</div>
+              <div className="space-y-2 py-2 lg:hidden">{grouped[selectedGroup].map((vehicle) => <VehicleCard key={vehicle.vehicle_id} vehicle={vehicle} now={now} group={selectedGroup} />)}{!grouped[selectedGroup].length ? <div className="py-4 text-sm text-muted-foreground">Машин в этом статусе нет.</div> : null}</div>
               <div className="hidden grid-cols-5 gap-5 lg:grid">
-                {GROUPS.map((group) => <section key={group.key} className="min-w-0"><header className="flex items-center justify-between gap-2 border-b border-border pb-2"><h3 className="text-xs font-medium text-muted-foreground">{group.desktop}</h3><strong className="text-lg tabular-nums">{grouped[group.key].length}</strong></header>{grouped[group.key].map((vehicle) => <VehicleCard key={vehicle.vehicle_id} vehicle={vehicle} now={now} />)}</section>)}
+                {GROUPS.map((group) => <section key={group.key} className="min-w-0"><header className="flex items-center justify-between gap-2 border-b border-border pb-2"><h3 className="text-xs font-medium text-muted-foreground">{group.desktop}</h3><strong className="text-lg tabular-nums">{grouped[group.key].length}</strong></header><div className="space-y-2 pt-2">{grouped[group.key].map((vehicle) => <VehicleCard key={vehicle.vehicle_id} vehicle={vehicle} now={now} group={group.key} />)}</div></section>)}
               </div>
             </>
           )}
