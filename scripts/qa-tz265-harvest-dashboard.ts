@@ -303,8 +303,8 @@ check("director and legal operator menus match their four approved pages", () =>
   assert.match(mobileLegal, /harvest_summary[\s\S]*?field_map[\s\S]*?warehouses[\s\S]*?analytics/);
   assert.doesNotMatch(mobileLegal, /weather|MORE_ITEM/);
 });
-check("dashboard and warehouse read APIs include both read-only roles", () => {
-  assert.match(dashboardPage, /\["agronomist", "director", "legal_operator"\]/);
+check("live dashboard and warehouse read APIs include intended roles", () => {
+  assert.match(dashboardPage, /\["agronomist", "director", "legal_operator", "company_admin", "global_admin"\]/);
   assert.match(dashboardApi, /DASHBOARD_ROLES = \["global_admin", "company_admin", "agronomist", "director", "legal_operator"\]/);
   assert.match(warehousePage, /\["weighman", "agronomist", "director", "legal_operator"\]\.includes\(role\)/);
   assert.match(warehouseAuth, /WAREHOUSE_READ_ROLES = \[[\s\S]*?"director",\s*"legal_operator"/);
