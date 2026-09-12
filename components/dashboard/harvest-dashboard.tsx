@@ -189,18 +189,13 @@ export function HarvestDashboard() {
   const stockKg = potatoParties.reduce((total, party) => total + party.currentStockKg, 0);
   const waitingTare = potatoParties.flatMap((party) => party.openTickets).filter((ticket) => (ticket.waitingTareMinutes || 0) > 0);
   const recentEvents = (summary?.completedEvents || []).filter((event) => isPotatoLabel(event.identityLabel)).slice(0, 5);
-  const fields = potatoParties.flatMap((party) => party.fields.map((field) => ({ ...field, party })));
-  const activeFieldName = traffic?.snapshot.fieldName?.trim() || "";
-  const activeFieldRow = activeFieldName
-    ? fields.find((field) => field.fieldName.trim().toLocaleLowerCase("ru-RU") === activeFieldName.toLocaleLowerCase("ru-RU")) || null
-    : null;
-  const activeParty = activeFieldRow?.party || null;
-  const activeField = activeFieldName || "Поле не выбрано";
-  const activeIdentity = activeParty
-    ? [activeParty.varietyName, compactReproductionLabel(activeParty.reproductionName)].filter((value) => value && value !== "—").join(" · ")
+  const activeSelection = summary?.activeWeighbridgeSelection || null;
+  const activeField = activeSelection?.fieldName || "Поле не выбрано";
+  const activeIdentity = activeSelection
+    ? [activeSelection.varietyName, compactReproductionLabel(activeSelection.reproductionName)].filter((value) => value && value !== "—").join(" · ")
     : "Картофель";
   const activeShift = traffic?.snapshot.combineShift || null;
-  const fieldHectares = activeShift?.hectaresFieldTotal ?? activeShift?.hectaresShift ?? null;
+  const fieldHectares = activeSelection?.areaHa ?? null;
   const fieldDetail = [activeIdentity, fieldHectares === null ? null : `${fieldHectares.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`].filter(Boolean).join(" · ");
   const shiftIsOpen = activeShift?.status === "open";
   const hectares = Number(harvestedHectares.replace(",", "."));

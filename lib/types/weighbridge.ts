@@ -234,6 +234,7 @@ export interface WeighbridgeTicket {
   notes?: string | null;
   crop_structure_allocation_id?: string | null;
   crop_structure_allocation_label?: string | null;
+  crop_structure_area_ha?: number | null;
   impurity_source_scope?: ImpuritySourceScope | null;
   lines?: Array<{
     id: string;

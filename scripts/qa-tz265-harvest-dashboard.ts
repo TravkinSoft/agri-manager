@@ -73,6 +73,98 @@ check("open ticket stays outside received mass", () => assert.equal(summary.open
 check("field total equals completed harvest total", () => assert.equal(summary.fields.reduce((sum, row) => sum + row.receivedKg, 0), 1200 + 2400 + 900 + 1300 + 500));
 check("field includes last trip and destination", () => { assert.ok(summary.fields.every((row) => row.lastTripAt && row.destinationName)); });
 check("potato moisture block is absent", () => assert.equal(summary.moisture.some((row) => row.cropName === "Картофель"), false));
+check("latest potato weighbridge ticket selects the live field and allocation", () => {
+  const earlier = ticket({
+    id: "potato-earlier",
+    ticket_no: "POTATO-EARLIER",
+    field_id: "field-old",
+    field_name_snapshot: "Старое поле",
+    crop_structure_allocation_id: "allocation-old",
+    crop_structure_area_ha: 4,
+    crop_name_snapshot: "Картофель",
+    variety_name_snapshot: "Гала",
+    created_at: "2026-08-10T05:00:00Z",
+    weighing_1_at: "2026-08-10T05:00:00Z",
+    lines: potato.lines,
+  });
+  const current = ticket({
+    id: "potato-current",
+    ticket_no: "POTATO-CURRENT",
+    status: "active",
+    is_finalized: false,
+    net_weight_kg: null,
+    field_id: "field-current",
+    field_name_snapshot: "1 (МашДвор)",
+    crop_structure_allocation_id: "allocation-current",
+    crop_structure_area_ha: 8,
+    crop_name_snapshot: "Картофель",
+    variety_name_snapshot: "Гала",
+    created_at: "2026-08-12T06:30:00Z",
+    weighing_1_at: "2026-08-12T06:30:00Z",
+    lines: potato.lines,
+  });
+  const result = buildHarvestOverview([earlier, current], { period });
+  assert.deepEqual(result.activeWeighbridgeSelection, {
+    ticketId: "potato-current",
+    occurredAt: "2026-08-12T06:30:00Z",
+    fieldId: "field-current",
+    fieldName: "1 (МашДвор)",
+    cropStructureAllocationId: "allocation-current",
+    cropName: "Картофель",
+    varietyName: "Гала",
+    reproductionName: "Элита",
+    areaHa: 8,
+  });
+});
+check("voided or replaced potato tickets never replace the live field", () => {
+  const good = ticket({
+    id: "potato-good",
+    field_id: "field-good",
+    field_name_snapshot: "МашДвор",
+    crop_structure_allocation_id: "allocation-good",
+    crop_structure_area_ha: 8,
+    crop_name_snapshot: "Картофель",
+    variety_name_snapshot: "Гала",
+    created_at: "2026-08-12T05:00:00Z",
+    weighing_1_at: "2026-08-12T05:00:00Z",
+    lines: potato.lines,
+  });
+  const bad = ticket({
+    id: "potato-bad",
+    field_id: "field-bad",
+    field_name_snapshot: "Ошибочное поле",
+    crop_structure_allocation_id: "allocation-bad",
+    crop_structure_area_ha: 99,
+    crop_name_snapshot: "Картофель",
+    variety_name_snapshot: "Гала",
+    created_at: "2026-08-12T06:00:00Z",
+    weighing_1_at: "2026-08-12T06:00:00Z",
+    is_voided: true,
+    status: "voided",
+    lines: potato.lines,
+  });
+  assert.equal(buildHarvestOverview([good, bad], { period }).activeWeighbridgeSelection?.fieldName, "МашДвор");
+});
+check("latest valid potato field remains selected when the current period has no trips", () => {
+  const historical = ticket({
+    id: "potato-historical",
+    field_id: "field-historical",
+    field_name_snapshot: "МашДвор",
+    crop_structure_allocation_id: "allocation-historical",
+    crop_structure_area_ha: 8,
+    crop_name_snapshot: "Картофель",
+    variety_name_snapshot: "Гала",
+    created_at: "2026-08-10T05:00:00Z",
+    weighing_1_at: "2026-08-10T05:00:00Z",
+    finalized_at: "2026-08-10T06:00:00Z",
+    updated_at: "2026-08-10T06:00:00Z",
+    lines: potato.lines,
+  });
+  const result = buildHarvestOverview([historical], { period });
+  assert.equal(result.completedTripCount, 0);
+  assert.equal(result.activeWeighbridgeSelection?.fieldName, "МашДвор");
+  assert.equal(result.activeWeighbridgeSelection?.areaHa, 8);
+});
 check("moisture is mass weighted", () => {
   const wheat = summary.moisture[0];
   assert.equal(wheat.measuredTrips, 3);
@@ -345,6 +437,9 @@ check("dashboard presents the potato live chain", () => {
   assert.match(dashboardUi, /Принято/);
   assert.match(dashboardUi, /На складе/);
   assert.match(dashboardUi, /Текущее поле[\s\S]*Главные показатели картофеля[\s\S]*Статусы машин PTC[\s\S]*Последние рейсы[\s\S]*Размещение/);
+  assert.match(dashboardUi, /summary\?\.activeWeighbridgeSelection/);
+  assert.doesNotMatch(dashboardUi, /traffic\?\.snapshot\.fieldName/);
+  assert.match(dashboardApi, /crop_structure_allocation_id[\s\S]*crop_structure[\s\S]*field_id,area/);
   assert.match(dashboardUi, /potatoParties/);
   assert.doesNotMatch(dashboardUi, /Поступление по культурам|Завершено рейсов/);
 });

@@ -129,7 +129,7 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
       .from("tickets")
       .select(`
         id,company_id,ticket_no,ticket_type,op_type,status,direction,source_kind,destination_kind,
-        field_id,warehouse_from_id,warehouse_to_id,vehicle_id,driver_id,gross_weight_kg,tare_weight_kg,
+        field_id,crop_structure_allocation_id,warehouse_from_id,warehouse_to_id,vehicle_id,driver_id,gross_weight_kg,tare_weight_kg,
         net_weight_kg,weigh_method,is_finalized,is_voided,finalized_at,voided_at,weighing_1_at,weighing_2_at,
         created_at,updated_at,notes,season_id,replacement_ticket_id,correction_of_ticket_id,requires_review,
         review_reason,audit_json,
@@ -147,11 +147,13 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
   }
 
   const fieldIds = Array.from(new Set(rows.map((row) => String(row.field_id || "")).filter(Boolean)));
+  const allocationIds = Array.from(new Set(rows.map((row) => String(row.crop_structure_allocation_id || "")).filter(Boolean)));
   const warehouseIds = Array.from(new Set(rows.flatMap((row) => [String(row.warehouse_to_id || ""), ...(row.lines || []).map((line: any) => String(line.warehouse_to_id || ""))]).filter(Boolean)));
   const vehicleIds = Array.from(new Set(rows.map((row) => String(row.vehicle_id || "")).filter(Boolean)));
   const driverIds = Array.from(new Set(rows.map((row) => String(row.driver_id || "")).filter(Boolean)));
-  const [{ data: fields, error: fieldsError }, { data: warehouses, error: warehousesError }, { data: vehicles, error: vehiclesError }, { data: machines, error: machinesError }, { data: people, error: peopleError }, { data: specialists, error: specialistsError }, { data: driverProfiles, error: driverProfilesError }] = await Promise.all([
+  const [{ data: fields, error: fieldsError }, { data: allocations, error: allocationsError }, { data: warehouses, error: warehousesError }, { data: vehicles, error: vehiclesError }, { data: machines, error: machinesError }, { data: people, error: peopleError }, { data: specialists, error: specialistsError }, { data: driverProfiles, error: driverProfilesError }] = await Promise.all([
     fieldIds.length ? supabase.from("fields").select("id,name").eq("company_id", companyId).in("id", fieldIds) : Promise.resolve({ data: [], error: null }),
+    allocationIds.length ? supabase.from("crop_structure").select("id,field_id,area").eq("company_id", companyId).in("id", allocationIds) : Promise.resolve({ data: [], error: null }),
     warehouseIds.length ? supabase.from("warehouses").select("id,name").eq("company_id", companyId).in("id", warehouseIds) : Promise.resolve({ data: [], error: null }),
     vehicleIds.length ? supabase.from("reference_vehicles").select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name").eq("company_id", companyId).in("id", vehicleIds) : Promise.resolve({ data: [], error: null }),
     vehicleIds.length ? supabase.from("reference_machines").select("id,name,full_name,brand,model,series,license_plate,source_raw_name").eq("company_id", companyId).in("id", vehicleIds) : Promise.resolve({ data: [], error: null }),
@@ -159,11 +161,12 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
     driverIds.length ? supabase.from("reference_specialists").select("id,full_name,name_ru,name_kz,name_en").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
     driverIds.length ? supabase.from("profiles").select("id,full_name,email").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
   ]);
-  if (fieldsError || warehousesError || vehiclesError || machinesError || peopleError || specialistsError || driverProfilesError) {
-    throw fieldsError || warehousesError || vehiclesError || machinesError || peopleError || specialistsError || driverProfilesError;
+  if (fieldsError || allocationsError || warehousesError || vehiclesError || machinesError || peopleError || specialistsError || driverProfilesError) {
+    throw fieldsError || allocationsError || warehousesError || vehiclesError || machinesError || peopleError || specialistsError || driverProfilesError;
   }
   const byId = (items: any[]) => new Map(items.map((item) => [String(item.id), item]));
   const fieldById = byId(fields || []);
+  const allocationById = byId(allocations || []);
   const warehouseById = byId(warehouses || []);
   const vehicleById = byId([...(vehicles || []), ...(machines || [])]);
   const driverById = byId([...(people || []), ...(specialists || []), ...(driverProfiles || [])]);
@@ -174,6 +177,7 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
   return rows.map((row) => {
     const vehicle = vehicleById.get(String(row.vehicle_id || ""));
     const driver = driverById.get(String(row.driver_id || ""));
+    const allocation = allocationById.get(String(row.crop_structure_allocation_id || ""));
     const auditTransport = (row.audit_json?.transport || {}) as Record<string, unknown>;
     const transportIdentity = resolveTransportIdentity({
       ...(vehicle || {}),
@@ -184,6 +188,9 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
       ...row,
       harvest_lot_id: lotByTicketId.get(String(row.id)) || null,
       field_name_snapshot: String(fieldById.get(String(row.field_id || ""))?.name || "") || null,
+      crop_structure_area_ha: allocation?.field_id && String(allocation.field_id) === String(row.field_id || "")
+        ? Number(allocation.area || 0) || null
+        : null,
       warehouse_to_name_snapshot: String(warehouseById.get(String(row.warehouse_to_id || ""))?.name || "") || null,
       vehicle_name_snapshot: transportIdentity.name || null,
       vehicle_plate_snapshot: transportIdentity.plate || null,

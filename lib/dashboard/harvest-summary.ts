@@ -112,6 +112,17 @@ export type HarvestOverview = {
   period: HarvestPeriod;
   completedTripCount: number;
   openTicketCount: number;
+  activeWeighbridgeSelection: {
+    ticketId: string;
+    occurredAt: string;
+    fieldId: string;
+    fieldName: string;
+    cropStructureAllocationId: string;
+    cropName: string;
+    varietyName: string | null;
+    reproductionName: string | null;
+    areaHa: number | null;
+  } | null;
   potatoDrivers: Array<{
     key: string;
     driverId: string | null;
@@ -359,6 +370,10 @@ function ticketTime(ticket: WeighbridgeTicket): number {
   return new Date(ticket.finalized_at || ticket.updated_at || ticket.created_at).getTime();
 }
 
+function weighbridgeSelectionTime(ticket: WeighbridgeTicket): number {
+  return new Date(ticket.weighing_1_at || ticket.created_at).getTime();
+}
+
 function destinationName(ticket: WeighbridgeTicket): string {
   return cleanLabel(ticket.warehouse_to_name_snapshot) || "Место приёмки не указано";
 }
@@ -431,6 +446,32 @@ export function buildHarvestOverview(
   const finalized = harvestTickets.filter((ticket) => isEffectiveFinalizedHarvestTicket(ticket) && ticketTime(ticket) >= startMs && ticketTime(ticket) <= endMs);
   const open = harvestTickets.filter(isOpenHarvestTicket);
   const warehouseRows = options.warehouseRows || [];
+  const activeWeighbridgeTicket = harvestTickets
+    .filter((ticket) => (
+      (isOpenHarvestTicket(ticket) || isEffectiveFinalizedHarvestTicket(ticket))
+      && Boolean(ticket.field_id)
+      && Boolean(ticket.crop_structure_allocation_id)
+      && isPotatoLabel(ticketIdentity(ticket).crop)
+    ))
+    .sort((left, right) => weighbridgeSelectionTime(right) - weighbridgeSelectionTime(left))[0] || null;
+  const activeWeighbridgeIdentity = activeWeighbridgeTicket ? ticketIdentity(activeWeighbridgeTicket) : null;
+  const activeAreaHa = Number(activeWeighbridgeTicket?.crop_structure_area_ha);
+  const activeWeighbridgeSelection = activeWeighbridgeTicket
+    && activeWeighbridgeIdentity
+    && activeWeighbridgeTicket.field_id
+    && activeWeighbridgeTicket.crop_structure_allocation_id
+    ? {
+        ticketId: activeWeighbridgeTicket.id,
+        occurredAt: activeWeighbridgeTicket.weighing_1_at || activeWeighbridgeTicket.created_at,
+        fieldId: activeWeighbridgeTicket.field_id,
+        fieldName: cleanLabel(activeWeighbridgeTicket.field_name_snapshot) || "Поле не указано",
+        cropStructureAllocationId: activeWeighbridgeTicket.crop_structure_allocation_id,
+        cropName: activeWeighbridgeIdentity.crop,
+        varietyName: activeWeighbridgeIdentity.variety,
+        reproductionName: activeWeighbridgeIdentity.reproduction,
+        areaHa: Number.isFinite(activeAreaHa) && activeAreaHa > 0 ? activeAreaHa : null,
+      }
+    : null;
 
   const cropMap = new Map<string, HarvestOverview["cropTotals"][number]>();
   const fieldMap = new Map<string, HarvestOverview["fields"][number]>();
@@ -778,6 +819,7 @@ export function buildHarvestOverview(
     period: options.period,
     completedTripCount: finalized.length,
     openTicketCount: open.length,
+    activeWeighbridgeSelection,
     potatoDrivers: Array.from(potatoDriverMap.values())
       .sort((a, b) => b.tripCount - a.tripCount || b.netWeightKg - a.netWeightKg || a.driverName.localeCompare(b.driverName, "ru")),
     parties: Array.from(partyMap.values())
