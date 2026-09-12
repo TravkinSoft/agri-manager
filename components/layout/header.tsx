@@ -20,6 +20,7 @@ import { LanguageSwitcher } from "@/components/layout/language-switcher";
 import { TravkinLogo } from "@/components/layout/travkin-logo";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { isGlobalAdmin } from "@/lib/auth/roles";
+import { canAccessPath } from "@/lib/auth/role-access";
 import { supabase } from "@/lib/supabase/client";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { cachedClientValue, invalidateClientCache } from "@/lib/client/single-flight-cache";
@@ -183,6 +184,7 @@ export function Header() {
     if (role === "company_admin") return t("role_company_admin");
     if (role === "agronomist") return t("role_agronomist");
     if (role === "director") return t("role_director");
+    if (role === "accountant") return t("role_accountant");
     if (role === "specialist") return t("role_specialist");
     if (role === "warehouse") return t("role_warehouse");
     if (role === "warehouse_operator") return t("role_warehouse_operator");
@@ -487,11 +489,15 @@ export function Header() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator className="bg-[var(--manor-line)]" />
-            {profile?.role !== "fleet_manager" ? <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
-              <SettingsIcon className="mr-2 h-4 w-4" />
-              {t("settings_menu")}
-            </DropdownMenuItem> : null}
-            <DropdownMenuSeparator className="bg-[var(--manor-line)]" />
+            {canAccessPath(profile?.role, "/settings") ? (
+              <>
+                <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
+                  <SettingsIcon className="mr-2 h-4 w-4" />
+                  {t("settings_menu")}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-[var(--manor-line)]" />
+              </>
+            ) : null}
             <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-700 focus:bg-red-50 focus:text-red-800">
               <LogOut className="mr-2 h-4 w-4" />
               {t("logout")}

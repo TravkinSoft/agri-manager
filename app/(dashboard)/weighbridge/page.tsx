@@ -5432,11 +5432,11 @@ export default function WeighbridgeOperationsPage() {
       warehouseTo: warehouses.find((item) => item.id === ticket.warehouse_to_id)?.name || ticket.warehouse_to_name_snapshot,
       supplier: supplierName(ticket),
       buyer: buyerName(ticket),
-      vehicle: vehicle?.name || ticket.vehicle_name_snapshot,
-      vehiclePlate: vehicle?.plate || ticket.vehicle_plate_snapshot,
+      vehicle: ticket.vehicle_name_snapshot || vehicle?.name,
+      vehiclePlate: ticket.vehicle_plate_snapshot || vehicle?.plate,
       trailer: trailer?.name || ticket.trailer_name_snapshot,
       trailerPlate: trailer?.plate || ticket.trailer_plate_snapshot,
-      driver: driverNameForId(ticket.driver_id) || ticket.driver_name_snapshot,
+      driver: ticket.driver_name_snapshot || driverNameForId(ticket.driver_id),
       combineOperator: combineOperatorNameForTicket(ticket),
     };
   };

@@ -1,12 +1,25 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 const MARKER = "ptc_invitation_v1";
+const GENERIC_MARKER = "generic_invitation_v1";
 const PROVISIONING_BAN = "876000h";
 const OPERATOR_ROLES = ["mechanic_operator", "vegetable_brigadier", "fleet_manager"] as const;
 type OperatorRole = (typeof OPERATOR_ROLES)[number];
-type Profile = { id: string; company_id: string | null; role: string | null; status: string | null };
+type Profile = {
+  id: string;
+  company_id: string | null;
+  role: string | null;
+  status: string | null;
+  is_owner?: boolean | null;
+};
 type Person = { id: string; company_id: string; full_name: string; status: string; deleted_at: string | null };
 type Marker = { state: "provisioning" | "ready"; company_id: string; role: OperatorRole };
+type GenericMarker = {
+  state: "provisioning" | "ready";
+  company_id: string;
+  role: string;
+  is_owner: boolean;
+};
 
 export class TrafficInvitationError extends Error {
   constructor(message: string, public status = 409) { super(message); }
@@ -19,6 +32,13 @@ export function isTrafficOperatorRole(value: unknown): value is OperatorRole {
 function markerOf(user: User): Marker | null {
   const marker = user.app_metadata?.[MARKER];
   return marker && typeof marker === "object" ? marker as Marker : null;
+}
+
+function genericMarkerOf(user: User): GenericMarker | null {
+  const marker = user.app_metadata?.[GENERIC_MARKER];
+  return marker && typeof marker === "object" && !Array.isArray(marker)
+    ? marker as GenericMarker
+    : null;
 }
 
 function normalizedName(name: string) { return name.trim().replace(/\s+/g, " ").toLocaleLowerCase(); }
@@ -185,4 +205,51 @@ export async function assertTrafficActivationReady(db: SupabaseClient, user: Use
   }
   const person = requireAvailableLink(await linkedPeople(db, user.id), profile.company_id);
   if (!person) throw new TrafficInvitationError("Аккаунт не связан с действующим сотрудником компании.", 403);
+}
+
+/**
+ * Authorize a pending profile activation from server-controlled provenance.
+ * Public company signup is the sole exception: it creates its own company and
+ * an owner company_admin profile without any invitation marker. Every pending
+ * invitation, including an invited first-company owner, must carry either the
+ * PTC marker plus personnel binding or the exact ready generic-invite marker.
+ */
+export async function assertProfileActivationReady(
+  db: SupabaseClient,
+  user: User,
+  profile: Profile
+): Promise<void> {
+  if (isTrafficOperatorRole(profile.role)) {
+    await assertTrafficActivationReady(db, user, profile);
+    return;
+  }
+
+  const fresh = await db.auth.admin.getUserById(user.id);
+  if (fresh.error || !fresh.data.user) {
+    throw new TrafficInvitationError("Не удалось проверить готовность приглашения.", 503);
+  }
+
+  const current = fresh.data.user;
+  const currentAppMetadata = current.app_metadata ?? {};
+  const genericMarkerPresent = Object.prototype.hasOwnProperty.call(currentAppMetadata, GENERIC_MARKER);
+  const trafficMarkerPresent = Object.prototype.hasOwnProperty.call(currentAppMetadata, MARKER);
+
+  // A markerless owner is the public self-signup path. A first company admin
+  // created by an administrator also becomes an owner, but carries a generic
+  // invitation marker and must not activate while that marker is provisioning,
+  // malformed, or bound to a different tenant/role.
+  if (profile.is_owner === true && profile.role === "company_admin"
+    && !genericMarkerPresent && !trafficMarkerPresent) return;
+
+  const marker = genericMarkerOf(current);
+  if (trafficMarkerPresent || !genericMarkerPresent || !marker || marker.state !== "ready" || !profile.company_id
+    || marker.company_id !== profile.company_id || marker.role !== profile.role
+    || typeof marker.is_owner !== "boolean"
+    || marker.is_owner !== (profile.is_owner === true)
+    || (marker.is_owner && profile.role !== "company_admin")) {
+    throw new TrafficInvitationError(
+      "Приглашение ещё не готово или не подтверждено администратором. Обратитесь к администратору.",
+      403
+    );
+  }
 }

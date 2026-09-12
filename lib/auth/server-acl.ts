@@ -8,6 +8,7 @@ type AllowedRole =
   | "company_admin"
   | "agronomist"
   | "director"
+  | "accountant"
   | "legal_operator"
   | "warehouse"
   | "warehouse_operator"

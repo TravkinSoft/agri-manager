@@ -12,11 +12,24 @@ export const WEIGHBRIDGE_READ_ROLES = [
   "global_admin",
   "company_admin",
   "agronomist",
-  "director",
   "warehouse",
   "warehouse_operator",
   "weighman",
   "specialist",
+] as const;
+
+export const WEIGHBRIDGE_TICKET_READ_ROLES = [
+  ...WEIGHBRIDGE_READ_ROLES,
+  "director",
+  "accountant",
+  "legal_operator",
+] as const;
+
+export const WEIGHBRIDGE_HARVEST_READ_ROLES = [
+  ...WEIGHBRIDGE_READ_ROLES,
+  "director",
+  "accountant",
+  "legal_operator",
 ] as const;
 
 export const WEIGHBRIDGE_WRITE_ROLES = [
@@ -51,6 +64,7 @@ export async function resolveWeighbridgeSession(
       | "company_admin"
       | "agronomist"
       | "director"
+      | "accountant"
       | "legal_operator"
       | "warehouse"
       | "warehouse_operator"

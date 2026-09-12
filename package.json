@@ -96,6 +96,7 @@
     "qa:tz315:impurity-place-type-source": "npx --no-install tsx scripts/qa-tz315-impurity-place-type-source.ts",
     "qa:tz315:s19-s20-s23-corrective": "npx --no-install tsx scripts/qa-tz315-s19-s20-s23-corrective.ts",
     "qa:tz315:prod-p0-final": "npx --no-install tsx scripts/qa-tz315-prod-p0-final-corrective.ts",
+    "qa:tf2:accountant-invite-security": "npx --no-install tsx scripts/qa-tf2-accountant-invite-security.ts",
     "qa:agronomist:weighbridge-assist": "npx --no-install tsx scripts/qa-agronomist-weighbridge-assist-v1.ts",
     "qa:copilot:global-admin-only": "npx --no-install tsx scripts/qa-copilot-global-admin-only.ts",
     "qa:warehouse:opening-balance": "npx --no-install tsx scripts/qa-warehouse-opening-balance-v1.ts",

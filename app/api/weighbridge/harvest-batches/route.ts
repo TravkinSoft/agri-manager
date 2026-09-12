@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import {
-  WEIGHBRIDGE_READ_ROLES,
+  WEIGHBRIDGE_HARVEST_READ_ROLES,
   asSessionErrorResponse,
   resolveWeighbridgeSession,
 } from "@/app/api/weighbridge/_auth";
@@ -21,7 +21,6 @@ import { summarizeAggregateHarvestLotFields } from "@/lib/weighbridge/harvest-lo
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { getServiceClient } from "@/lib/supabase/service";
 
-const HARVEST_BATCH_READ_ROLES = [...WEIGHBRIDGE_READ_ROLES, "legal_operator"] as const;
 import {
   collapseOperationDocuments,
   selectActiveWarehouseOperationEntries,
@@ -1503,7 +1502,7 @@ async function loadAggregateHarvestLots(
 export async function GET(request: NextRequest) {
   try {
     const { companyId, supabase } = await resolveWeighbridgeSession(request, {
-      allowedRoles: HARVEST_BATCH_READ_ROLES,
+      allowedRoles: WEIGHBRIDGE_HARVEST_READ_ROLES,
       serverProfileRead: true,
     });
     const warehouseId = String(request.nextUrl.searchParams.get("warehouseId") || "").trim() || null;

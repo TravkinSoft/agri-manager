@@ -6,6 +6,7 @@ import vm from "node:vm";
 import ts from "typescript";
 import * as transport from "../lib/weighbridge/transport";
 import * as driverNames from "../lib/vehicles/driver-name";
+import { sanitizeClientTicketAuditJson } from "../lib/weighbridge/ticket-audit";
 import {
   preferredDriverForVehicle,
   preferredVehicleForDriver,
@@ -75,6 +76,7 @@ check("reverse suggestion retains open-ticket busy guards", () => {
 const read = (file: string) => readFileSync(resolve(process.cwd(), file), "utf8");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
 const picker = read("components/weighbridge/transport-driver-picker.tsx");
+const ticketRoute = read("app/api/weighbridge/tickets/route.ts");
 check("transport picker retains the vehicle and plate while permanent assignment editor is absent", () => {
   assert.equal(transport.transportPickerOptionLabel({ name: "KAMAZ", plate: "QA-207" }), "KAMAZ · QA-207");
   assert.doesNotMatch(page, /import\s+\{[^}]*\bVehicleDriverAssignment\b|<VehicleDriverAssignment\b|vehicleAssignment=|applyAssignmentToNewDraft/);
@@ -97,6 +99,32 @@ check("weighbridge wires driver selection to document form state only", () => {
   const selector = page.slice(page.indexOf("<TransportDriverSelects"), page.indexOf("{drivers.length === 0"));
   assert.match(selector, /onChange=\{\(vehicleId, driverId\) => setForm\(\(previous\) => \(\{ \.\.\.previous, vehicleId, driverId \}\)\)\}/);
   assert.doesNotMatch(selector, /saveVehicleDriverAssignment|publishVehicleDriverAssignment|onAssigned/);
+});
+check("ticket creation freezes the selected driver identity without changing PTC assignment", () => {
+  assert.match(ticketRoute, /driver:\s*\{[\s\S]*?person_id:\s*String\(selectedDriver\.id\)[\s\S]*?full_name_snapshot:[\s\S]*?source:\s*"ticket_selection"/);
+  assert.doesNotMatch(ticketRoute, /saveVehicleDriverAssignment|publishVehicleDriverAssignment/);
+});
+check("ticket audit input cannot forge server snapshots, fingerprints, or business time", () => {
+  assert.deepEqual(
+    sanitizeClientTicketAuditJson({
+      impurity_type: " soil_and_trash ",
+      transport: {
+        vehicle_source: " reference_vehicles ",
+        trailer_id: " trailer-1 ",
+        vehicle_name_snapshot: "FORGED VEHICLE",
+        vehicle_plate_snapshot: "FORGED PLATE",
+      },
+      paper_backfill: { source: "paper_journal", recorded_at: "1999-01-01T00:00:00.000Z" },
+      driver: { person_id: "forged", full_name_snapshot: "FORGED DRIVER" },
+      request_fingerprint: "forged",
+      processing_output: { transformation_id: "forged", output_role: "GRAIN" },
+    }),
+    {
+      impurity_type: "soil_and_trash",
+      transport: { vehicle_source: "reference_vehicles", trailer_id: "trailer-1" },
+    }
+  );
+  assert.match(ticketRoute, /audit_json:\s*sanitizeClientTicketAuditJson\(rawTicket\.audit_json\)/);
 });
 check("resource loads started before assignment cannot restore old driver links", () => {
   assert.match(page, /const assignmentRevision = vehicleAssignmentRevisionRef\.current/);

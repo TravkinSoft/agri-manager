@@ -55,6 +55,7 @@ type UserAction = "revoke_invite" | "deactivate_user" | "reactivate_user";
 const INVITE_ROLES = [
   "agronomist",
   "director",
+  "accountant",
   "legal_operator",
   "specialist",
   "warehouse",
@@ -72,6 +73,7 @@ const ROLE_BADGE_CLASS: Record<string, string> = {
   company_admin: "bg-accent text-foreground border-border",
   agronomist: "bg-accent text-foreground border-border",
   director: "bg-accent text-foreground border-border",
+  accountant: "bg-accent text-foreground border-border",
   legal_operator: "bg-accent text-foreground border-border",
   specialist: "bg-accent text-foreground border-border",
   warehouse: "bg-accent text-foreground border-border",
@@ -121,7 +123,8 @@ export default function UsersPage() {
     if (role === "company_admin") return t("Администратор компании", "Компания әкімшісі", "Company admin");
     if (role === "agronomist") return t("Агроном", "Агроном", "Agronomist");
     if (role === "director") return t("Директор", "Директор", "Director");
-    if (role === "legal_operator") return t("Юрист / бухгалтер", "Заң және бухгалтер", "Legal operator");
+    if (role === "accountant") return t("Бухгалтер", "Бухгалтер", "Accountant");
+    if (role === "legal_operator") return t("Юрист", "Заңгер", "Legal operator");
     if (role === "specialist") return t("Специалист", "Маман", "Specialist");
     if (role === "warehouse") return t("Склад", "Қойма", "Warehouse");
     if (role === "warehouse_operator") return t("Оператор склада", "Қойма операторы", "Warehouse operator");

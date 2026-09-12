@@ -1,6 +1,6 @@
 // Shared role predicates only. Keep server auth, clients and environment out of this module.
 const FIELD_MAP_READ_ROLES = new Set<string>([
-  "global_admin", "company_admin", "director", "agronomist", "legal_operator",
+  "global_admin", "company_admin", "director", "accountant", "agronomist", "legal_operator",
 ]);
 const FIELD_MAP_WRITE_ROLES = new Set<string>([
   "global_admin", "company_admin",

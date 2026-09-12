@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
-import { WEIGHBRIDGE_READ_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
+import { WEIGHBRIDGE_TICKET_READ_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 import { formatWeightNumber } from "@/lib/weighbridge/weight-format";
 import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
 import { ticketOperatorFacts } from "@/lib/weighbridge/ticket-operator";
 import { transportPickerLabel } from "@/lib/weighbridge/transport";
 import type { WeighbridgeTicket } from "@/lib/types/weighbridge";
-
-const TICKET_PDF_READ_ROLES = [...WEIGHBRIDGE_READ_ROLES, "legal_operator"] as const;
 
 function escapePdfText(text: string) {
   return text.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
@@ -78,7 +76,7 @@ export async function GET(
     }
 
     const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
-      allowedRoles: TICKET_PDF_READ_ROLES,
+      allowedRoles: WEIGHBRIDGE_TICKET_READ_ROLES,
     });
     const { data: ticket, error: ticketError } = await supabase
       .from("tickets")
@@ -88,6 +86,9 @@ export async function GET(
       .maybeSingle();
     if (ticketError || !ticket?.id) {
       return NextResponse.json({ error: ticketError?.message || "Ticket not found" }, { status: 404 });
+    }
+    if (actor.role === "accountant" && !["finalized", "voided"].includes(String(ticket.status || ""))) {
+      return NextResponse.json({ error: "Ticket not found" }, { status: 404 });
     }
 
     const [{ data: lines }, { data: company }, { data: fields }, { data: warehouses }, { data: products }, { data: varieties }, { data: reproductions }, { data: people }, { data: legacyDrivers }, { data: drivers }, { data: vehicles }, { data: machines }, { data: counterparties }] = await Promise.all([

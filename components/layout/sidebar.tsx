@@ -81,6 +81,15 @@ const DIRECTOR_NAV: NavItem[] = [
   { labelKey: "field_map", href: "/fields-map", icon: Map },
   { labelKey: "warehouses", href: "/warehouses", icon: Package },
   { labelKey: "weather", href: "/weather-lab", icon: CloudSun },
+  { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
+];
+
+const ACCOUNTANT_NAV: NavItem[] = [
+  { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "field_map", href: "/fields-map", icon: Map },
+  { labelKey: "warehouses", href: "/warehouses", icon: Package },
+  { labelKey: "tickets_nav", href: "/weighbridge/history", icon: ScrollText },
+  { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
 ];
 
 const WAREHOUSE_NAV: NavItem[] = [
@@ -128,6 +137,7 @@ function getNavigationByRole(role?: string | null): NavItem[] {
   if (role === "company_admin") return COMPANY_ADMIN_NAV;
   if (role === "agronomist") return AGRONOMIST_NAV;
   if (role === "director") return DIRECTOR_NAV;
+  if (role === "accountant") return ACCOUNTANT_NAV;
   if (role === "warehouse") return WAREHOUSE_NAV;
   if (role === "warehouse_operator") return WAREHOUSE_OPERATOR_NAV;
   if (role === "weighman") return WEIGHMAN_NAV;

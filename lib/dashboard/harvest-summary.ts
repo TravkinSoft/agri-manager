@@ -330,7 +330,10 @@ export function isOpenHarvestTicket(ticket: WeighbridgeTicket): boolean {
 
 export function ticketIdentity(ticket: WeighbridgeTicket): HarvestIdentity {
   const line = ticket.lines?.[0];
-  const crop = cleanLabel(ticket.crop_name_snapshot) || cleanLabel(line?.product_name) || "Культура не указана";
+  const mixedHarvest = ticket.lines?.some((item) => item.is_mixed_harvest === true) === true;
+  const crop = mixedHarvest
+    ? "Смешанный урожай"
+    : cleanLabel(line?.crop_name) || cleanLabel(ticket.crop_name_snapshot) || cleanLabel(line?.product_name) || "Культура не указана";
   const variety = cleanLabel(ticket.variety_name_snapshot) || cleanLabel(line?.variety_name);
   const reproduction = cleanLabel(ticket.reproduction_name_snapshot) || cleanLabel(line?.reproduction_name);
   const complete = Boolean(variety && reproduction);
@@ -366,8 +369,49 @@ function ticketMatchesFilters(ticket: WeighbridgeTicket, filters: HarvestDashboa
   return true;
 }
 
-function ticketTime(ticket: WeighbridgeTicket): number {
-  return new Date(ticket.finalized_at || ticket.updated_at || ticket.created_at).getTime();
+function validTimestamp(value: unknown): string | null {
+  const text = String(value || "").trim();
+  return text && Number.isFinite(Date.parse(text)) ? text : null;
+}
+
+function paperBackfillRecordedAt(ticket: WeighbridgeTicket): string | null {
+  const paperBackfill = ticket.audit_json?.paper_backfill;
+  if (!paperBackfill || typeof paperBackfill !== "object" || Array.isArray(paperBackfill)) return null;
+  const record = paperBackfill as Record<string, unknown>;
+  if (String(record.source || "").trim().toLowerCase() !== "paper_journal") return null;
+  return validTimestamp(record.recorded_at);
+}
+
+export function harvestTicketBusinessTime(
+  ticket: WeighbridgeTicket,
+  ticketById: ReadonlyMap<string, WeighbridgeTicket> = new Map(),
+  visited: ReadonlySet<string> = new Set()
+): string {
+  const paperRecordedAt = paperBackfillRecordedAt(ticket);
+  if (paperRecordedAt) return paperRecordedAt;
+  const correctionOfId = cleanLabel(ticket.correction_of_ticket_id);
+  if (correctionOfId && !visited.has(ticket.id)) {
+    const root = ticketById.get(correctionOfId);
+    if (root) {
+      const nextVisited = new Set(visited);
+      nextVisited.add(ticket.id);
+      return harvestTicketBusinessTime(root, ticketById, nextVisited);
+    }
+  }
+  return validTimestamp(ticket.finalized_at)
+    || validTimestamp(ticket.weighing_2_at)
+    || validTimestamp(ticket.updated_at)
+    || validTimestamp(ticket.created_at)
+    || new Date(0).toISOString();
+}
+
+export function harvestTicketHeaderNetKg(ticket: WeighbridgeTicket): number {
+  const value = Number(ticket.accepted_weight_kg ?? ticket.net_weight_kg ?? 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function ticketTime(ticket: WeighbridgeTicket, ticketById: ReadonlyMap<string, WeighbridgeTicket>): number {
+  return Date.parse(harvestTicketBusinessTime(ticket, ticketById));
 }
 
 function weighbridgeSelectionTime(ticket: WeighbridgeTicket): number {
@@ -442,8 +486,9 @@ export function buildHarvestOverview(
   const filters = options.filters || {};
   const startMs = new Date(options.period.start).getTime();
   const endMs = new Date(options.period.end).getTime();
+  const ticketById = new Map(tickets.map((ticket) => [ticket.id, ticket]));
   const harvestTickets = tickets.filter((ticket) => ticket.op_type === "harvest_incoming" && ticketMatchesFilters(ticket, filters));
-  const finalized = harvestTickets.filter((ticket) => isEffectiveFinalizedHarvestTicket(ticket) && ticketTime(ticket) >= startMs && ticketTime(ticket) <= endMs);
+  const finalized = harvestTickets.filter((ticket) => isEffectiveFinalizedHarvestTicket(ticket) && ticketTime(ticket, ticketById) >= startMs && ticketTime(ticket, ticketById) < endMs);
   const open = harvestTickets.filter(isOpenHarvestTicket);
   const warehouseRows = options.warehouseRows || [];
   const activeWeighbridgeTicket = harvestTickets
@@ -508,7 +553,7 @@ export function buildHarvestOverview(
     potatoDriverIdentityByTicketId.set(ticket.id, { key, driverId, driverName });
 
     if (driverName) {
-      const candidate = { driverName, occurredAtMs: ticketTime(ticket), ticketId: ticket.id };
+      const candidate = { driverName, occurredAtMs: ticketTime(ticket, ticketById), ticketId: ticket.id };
       const current = latestPotatoDriverNameByKey.get(key);
       if (
         !current
@@ -577,8 +622,8 @@ export function buildHarvestOverview(
     const identity = ticketIdentity(ticket);
     const party = ensureParty(partyKeyFromIdentity(ticket, identity, knownPartyByIdentity), identity, ticket.season_id || null);
     const fieldName = cleanLabel(ticket.field_name_snapshot) || "Поле не указано";
-    const netKg = Number(ticket.net_weight_kg || 0);
-    const occurredAt = ticket.finalized_at || ticket.updated_at;
+    const netKg = harvestTicketHeaderNetKg(ticket);
+    const occurredAt = harvestTicketBusinessTime(ticket, ticketById);
     const partyTicket: HarvestPartyTicket = {
       ticketId: ticket.id,
       ticketNo: ticket.ticket_no,
@@ -742,7 +787,7 @@ export function buildHarvestOverview(
   }
   const incomplete = finalized.filter((ticket) => !ticketIdentity(ticket).complete);
   if (incomplete.length) issues.push({ key: "unknown-identity", kind: "unknown_identity", title: "Нужно уточнить сорт или репродукцию", detail: `${incomplete.length} завершённых ${pluralRu(incomplete.length, "рейс", "рейса", "рейсов")} за выбранный период.` });
-  const corrected = harvestTickets.filter((ticket) => (ticket.is_voided || ticket.replacement_ticket_id || ticket.correction_of_ticket_id) && ticketTime(ticket) >= startMs && ticketTime(ticket) <= endMs);
+  const corrected = harvestTickets.filter((ticket) => (ticket.is_voided || ticket.replacement_ticket_id || ticket.correction_of_ticket_id) && ticketTime(ticket, ticketById) >= startMs && ticketTime(ticket, ticketById) < endMs);
   if (corrected.length) issues.push({ key: "corrected", kind: "corrected_or_voided", title: "Есть исправленные или аннулированные талоны", detail: `${corrected.length} ${pluralRu(corrected.length, "документ", "документа", "документов")} за выбранный период.` });
   const unusual = finalized.filter((ticket) => /"tare_variance_confirmed"\s*:\s*true/i.test(JSON.stringify(ticket.audit_json || {})));
   if (unusual.length) issues.push({ key: "tare", kind: "unusual_tare", title: "Подтверждена необычная тара", detail: `${unusual.length} ${pluralRu(unusual.length, "рейс", "рейса", "рейсов")} за выбранный период.` });
@@ -757,7 +802,7 @@ export function buildHarvestOverview(
   for (const party of Array.from(partyMap.values())) {
     const ticketIds = new Set([...party.openTickets, ...party.completedTickets].map((ticket) => ticket.ticketId));
     const relatedPeriodTickets = harvestTickets.filter((ticket) => {
-      if (ticketTime(ticket) < startMs || ticketTime(ticket) > endMs) return false;
+      if (ticketTime(ticket, ticketById) < startMs || ticketTime(ticket, ticketById) >= endMs) return false;
       return partyKeyFromIdentity(ticket, ticketIdentity(ticket), knownPartyByIdentity) === party.key;
     });
     const partyIssues: HarvestIssue[] = issues.filter((issue) => Boolean(issue.ticketId && ticketIds.has(issue.ticketId)));
@@ -832,10 +877,10 @@ export function buildHarvestOverview(
       vehicleLabel: vehicleLabel(ticket), grossWeightKg: Number(ticket.gross_weight_kg || 0),
       waitingTareMinutes: Math.max(0, Math.floor((now.getTime() - new Date(ticket.weighing_1_at || ticket.created_at).getTime()) / 60_000)),
     })),
-    completedEvents: [...finalized].sort((a, b) => ticketTime(b) - ticketTime(a)).slice(0, 8).map((ticket) => ({
-      ticketId: ticket.id, ticketNo: ticket.ticket_no, occurredAt: ticket.finalized_at || ticket.updated_at,
+    completedEvents: [...finalized].sort((a, b) => ticketTime(b, ticketById) - ticketTime(a, ticketById)).slice(0, 8).map((ticket) => ({
+      ticketId: ticket.id, ticketNo: ticket.ticket_no, occurredAt: harvestTicketBusinessTime(ticket, ticketById),
       fieldName: cleanLabel(ticket.field_name_snapshot) || "Поле не указано", identityLabel: ticketIdentity(ticket).label,
-      destinationName: destinationName(ticket), netWeightKg: Number(ticket.net_weight_kg || 0),
+      destinationName: destinationName(ticket), netWeightKg: harvestTicketHeaderNetKg(ticket),
     })),
     fields,
     moisture,

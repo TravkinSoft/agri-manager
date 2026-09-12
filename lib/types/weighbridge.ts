@@ -240,6 +240,8 @@ export interface WeighbridgeTicket {
     id: string;
     product_id: string;
     crop_id?: string | null;
+    crop_slug?: string | null;
+    crop_name?: string | null;
     product_name: string;
     quantity: number;
     uom: string;
@@ -263,6 +265,7 @@ export interface WeighbridgeTicket {
     reproduction_name_snapshot?: string | null;
     notes?: string | null;
     operation_line_id?: string | null;
+    is_mixed_harvest?: boolean | null;
   }>;
 }
 

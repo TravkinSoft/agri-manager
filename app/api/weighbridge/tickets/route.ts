@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { WEIGHBRIDGE_OPERATOR_COOKIE, WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, recordWeighbridgeOperatorActivity, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
+import { WEIGHBRIDGE_OPERATOR_COOKIE, WEIGHBRIDGE_TICKET_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, recordWeighbridgeOperatorActivity, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import type { ImpuritySourceScopeInput, TicketInput, TicketLineInput, WeighingInput } from "@/lib/types/weighbridge";
 import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
@@ -20,9 +20,17 @@ import {
   selectWeighbridgeVehicle,
 } from "@/lib/weighbridge/vehicle-guard";
 import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
+import { enrichTicketBusinessSnapshots } from "@/lib/server/weighbridge-ticket-business-snapshots";
 import { enrichTicketCombineOperators, validateActiveCombineOperator } from "@/lib/server/weighbridge-combine-operator";
 import { resolveStockOutQuantityAtCreate } from "@/lib/weighbridge/stock-out-availability";
 import { enrichSharedImpurityScopes } from "@/lib/server/weighbridge-shared-impurity";
+import {
+  decodeTicketHistoryCursor,
+  encodeTicketHistoryCursor,
+  ticketHistoryCursorFilter,
+  type TicketHistoryCursor,
+} from "@/lib/weighbridge/ticket-history-cursor";
+import { sanitizeClientTicketAuditJson } from "@/lib/weighbridge/ticket-audit";
 
 function buildTicketNo(companyId: string): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -260,14 +268,28 @@ const WEIGHBRIDGE_TICKET_SELECT = `
 export async function GET(request: NextRequest) {
   try {
     const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
-      allowedRoles: WEIGHBRIDGE_READ_ROLES,
+      allowedRoles: WEIGHBRIDGE_TICKET_READ_ROLES,
     });
-    const workspace = request.nextUrl.searchParams.get("workspace") === "true";
+    const accountantHistoryOnly = actor.role === "accountant";
+    const historyOnly = accountantHistoryOnly || request.nextUrl.searchParams.get("historyOnly") === "true";
+    const workspace = !historyOnly && request.nextUrl.searchParams.get("workspace") === "true";
     const requestedHistoryLimit = Number(request.nextUrl.searchParams.get("historyLimit") || 10);
     const historyLimit = Number.isFinite(requestedHistoryLimit)
       ? Math.min(100, Math.max(10, Math.trunc(requestedHistoryLimit)))
       : 10;
     let historyHasMore = false;
+    let historyNextCursor: string | null = null;
+    let historyCursor: TicketHistoryCursor | null = null;
+    const encodedHistoryCursor = historyOnly
+      ? String(request.nextUrl.searchParams.get("historyCursor") || "").trim()
+      : "";
+    if (encodedHistoryCursor) {
+      try {
+        historyCursor = decodeTicketHistoryCursor(encodedHistoryCursor);
+      } catch {
+        return NextResponse.json({ error: "Некорректный курсор журнала талонов." }, { status: 400 });
+      }
+    }
     let data: any[] | null = null;
     let error: any = null;
     if (workspace) {
@@ -307,6 +329,26 @@ export async function GET(request: NextRequest) {
           error = originalsResult.error;
           data = [...(data || []), ...(originalsResult.data || [])];
         }
+      }
+    } else if (historyOnly) {
+      let ticketQuery = supabase
+        .from("tickets")
+        .select(WEIGHBRIDGE_TICKET_SELECT)
+        .eq("company_id", companyId)
+        .in("status", ["finalized", "voided"]);
+      if (historyCursor) {
+        ticketQuery = ticketQuery.or(ticketHistoryCursorFilter(historyCursor));
+      }
+      const result = await ticketQuery
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(historyLimit + 1);
+      const rows = result.data || [];
+      historyHasMore = rows.length > historyLimit;
+      data = rows.slice(0, historyLimit);
+      error = result.error;
+      if (!error && historyHasMore && data.length) {
+        historyNextCursor = encodeTicketHistoryCursor(data[data.length - 1]);
       }
     } else {
       const result = await supabase
@@ -368,9 +410,14 @@ export async function GET(request: NextRequest) {
       includeTechnicalAudit: actor.role === "global_admin",
     });
     const combinedTickets = await enrichTicketCombineOperators(supabase, companyId, attributedTickets);
-    const enrichedTickets = await enrichSharedImpurityScopes(supabase, companyId, combinedTickets);
+    const scopedTickets = await enrichSharedImpurityScopes(supabase, companyId, combinedTickets);
+    const enrichedTickets = await enrichTicketBusinessSnapshots(supabase, companyId, scopedTickets);
 
-    return NextResponse.json({ tickets: enrichedTickets, historyHasMore });
+    return NextResponse.json({
+      tickets: enrichedTickets,
+      historyHasMore,
+      historyNextCursor: historyOnly ? historyNextCursor : null,
+    });
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) {
@@ -421,6 +468,7 @@ export async function POST(request: NextRequest) {
     const validationStartedAt = Date.now();
     const ticket = {
       ...rawTicket,
+      audit_json: sanitizeClientTicketAuditJson(rawTicket.audit_json),
       company_id: companyId,
       created_by: actor.id,
     } as TicketInput;
@@ -873,7 +921,7 @@ export async function POST(request: NextRequest) {
       ? Promise.all([
           supabase
             .from("company_people")
-            .select("id,company_id,role_type,status,deleted_at")
+            .select("id,company_id,full_name,role_type,status,deleted_at")
             .eq("id", ticket.driver_id)
             .eq("company_id", ticket.company_id)
             .eq("status", "active")
@@ -1051,6 +1099,10 @@ export async function POST(request: NextRequest) {
       ticket.processing_output_role = processingOutputRole;
       ticket.audit_json = {
         ...(ticket.audit_json || {}),
+        processing_output: {
+          transformation_id: String(transformation.id),
+          output_role: processingOutputRole,
+        },
         processing_output_source: {
           contract_version: "tz297_wip_source_v1",
           transformation_id: String(transformation.id),
@@ -1807,6 +1859,7 @@ export async function POST(request: NextRequest) {
         );
       }
     }
+    let selectedDriver: { id: string; full_name?: string | null } | null = null;
     if (ticket.driver_id) {
       const [driverResult, activeDriverTicketResult] = await (
         driverGuardPromise as NonNullable<typeof driverGuardPromise>
@@ -1824,6 +1877,7 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+      selectedDriver = driver;
       if (activeDriverTicketResult.error) {
         return NextResponse.json({ error: activeDriverTicketResult.error.message }, { status: 400 });
       }
@@ -1885,6 +1939,16 @@ export async function POST(request: NextRequest) {
           trailer_id: selectedTrailer?.id ? String(selectedTrailer.id) : null,
           trailer_name_snapshot: selectedTrailer?.id ? String(selectedTrailer.name || "Прицеп") : null,
           trailer_plate_snapshot: selectedTrailer?.id ? String(selectedTrailer.plate_number || "") || null : null,
+        },
+      };
+    }
+    if (selectedDriver) {
+      ticket.audit_json = {
+        ...((ticket.audit_json || {}) as Record<string, unknown>),
+        driver: {
+          person_id: String(selectedDriver.id),
+          full_name_snapshot: String(selectedDriver.full_name || "").trim() || null,
+          source: "ticket_selection",
         },
       };
     }

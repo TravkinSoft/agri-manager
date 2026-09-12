@@ -16,7 +16,7 @@ import {
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { getServiceClient } from "@/lib/supabase/service";
 
-const DASHBOARD_ROLES = ["global_admin", "company_admin", "agronomist", "director", "legal_operator"] as const;
+const DASHBOARD_ROLES = ["global_admin", "company_admin", "agronomist", "director", "accountant", "legal_operator"] as const;
 const PERIOD_PRESETS = new Set<HarvestPeriodPreset>(["current_day", "previous_day", "current_shift", "last_24_hours", "season", "custom"]);
 const LINEAGE_QUERY_CHUNK_SIZE = 200;
 const LINEAGE_QUERY_CONCURRENCY = 4;
@@ -130,11 +130,12 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
       .select(`
         id,company_id,ticket_no,ticket_type,op_type,status,direction,source_kind,destination_kind,
         field_id,crop_structure_allocation_id,warehouse_from_id,warehouse_to_id,vehicle_id,driver_id,gross_weight_kg,tare_weight_kg,
-        net_weight_kg,weigh_method,is_finalized,is_voided,finalized_at,voided_at,weighing_1_at,weighing_2_at,
+        net_weight_kg,accepted_weight_kg,weigh_method,is_finalized,is_voided,finalized_at,voided_at,weighing_1_at,weighing_2_at,
         created_at,updated_at,notes,season_id,replacement_ticket_id,correction_of_ticket_id,requires_review,
         review_reason,audit_json,
         lines:ticket_lines(id,product_id,crop_id,product_name_snapshot,quantity,uom,moisture_percent,variety_id,
-          variety_name_snapshot,reproduction_id,reproduction_name_snapshot,warehouse_to_id,
+          variety_name_snapshot,reproduction_id,reproduction_name_snapshot,warehouse_to_id,is_mixed_harvest,
+          crop:crop_id(name,name_ru,name_kz,name_en,slug),
           products:product_id(name,trade_name,normalized_name))
       `)
       .eq("company_id", companyId)
@@ -158,7 +159,7 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
     vehicleIds.length ? supabase.from("reference_vehicles").select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name").eq("company_id", companyId).in("id", vehicleIds) : Promise.resolve({ data: [], error: null }),
     vehicleIds.length ? supabase.from("reference_machines").select("id,name,full_name,brand,model,series,license_plate,source_raw_name").eq("company_id", companyId).in("id", vehicleIds) : Promise.resolve({ data: [], error: null }),
     driverIds.length ? supabase.from("company_people").select("id,full_name").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
-    driverIds.length ? supabase.from("reference_specialists").select("id,full_name,name_ru,name_kz,name_en").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
+    driverIds.length ? supabase.from("reference_specialists").select("id,person_id,full_name,name_ru,name_kz,name_en").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
     driverIds.length ? supabase.from("profiles").select("id,full_name,email").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
   ]);
   if (fieldsError || allocationsError || warehousesError || vehiclesError || machinesError || peopleError || specialistsError || driverProfilesError) {
@@ -170,6 +171,7 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
   const warehouseById = byId(warehouses || []);
   const vehicleById = byId([...(vehicles || []), ...(machines || [])]);
   const driverById = byId([...(people || []), ...(specialists || []), ...(driverProfiles || [])]);
+  const specialistById = byId(specialists || []);
 
   const ticketIds = rows.map((row) => String(row.id));
   const lotByTicketId = await loadLotByTicketId(supabase, companyId, ticketIds);
@@ -177,15 +179,23 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
   return rows.map((row) => {
     const vehicle = vehicleById.get(String(row.vehicle_id || ""));
     const driver = driverById.get(String(row.driver_id || ""));
+    const specialist = specialistById.get(String(row.driver_id || ""));
     const allocation = allocationById.get(String(row.crop_structure_allocation_id || ""));
+    const storedDriver = row.audit_json?.driver && typeof row.audit_json.driver === "object" && !Array.isArray(row.audit_json.driver)
+      ? row.audit_json.driver as Record<string, unknown>
+      : null;
+    const storedDriverId = String(storedDriver?.person_id || "").trim();
+    const canonicalDriverId = storedDriverId || String(specialist?.person_id || row.driver_id || "").trim() || null;
+    const storedDriverName = String(storedDriver?.full_name_snapshot || "").trim();
     const auditTransport = (row.audit_json?.transport || {}) as Record<string, unknown>;
     const transportIdentity = resolveTransportIdentity({
       ...(vehicle || {}),
-      name: vehicle?.name || auditTransport.vehicle_name_snapshot,
-      plate: vehicle?.plate_number || vehicle?.license_plate || auditTransport.vehicle_plate_snapshot,
+      name: auditTransport.vehicle_name_snapshot || vehicle?.name,
+      plate: auditTransport.vehicle_plate_snapshot || vehicle?.plate_number || vehicle?.license_plate,
     });
     return {
       ...row,
+      driver_id: canonicalDriverId,
       harvest_lot_id: lotByTicketId.get(String(row.id)) || null,
       field_name_snapshot: String(fieldById.get(String(row.field_id || ""))?.name || "") || null,
       crop_structure_area_ha: allocation?.field_id && String(allocation.field_id) === String(row.field_id || "")
@@ -194,13 +204,16 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
       warehouse_to_name_snapshot: String(warehouseById.get(String(row.warehouse_to_id || ""))?.name || "") || null,
       vehicle_name_snapshot: transportIdentity.name || null,
       vehicle_plate_snapshot: transportIdentity.plate || null,
-      driver_name_snapshot: String(driver?.full_name || driver?.name_ru || driver?.name_en || driver?.name_kz || driver?.email || "") || null,
+      driver_name_snapshot: storedDriverName || String(driver?.full_name || driver?.name_ru || driver?.name_en || driver?.name_kz || driver?.email || "") || null,
       lines: (row.lines || []).map((line: any) => ({
         ...line,
-        product_name: String(line.product_name_snapshot || line.products?.trade_name || line.products?.name || line.products?.normalized_name || "-"),
+        crop_slug: String(line.crop?.slug || "").trim() || null,
+        crop_name: String(line.crop?.name_ru || line.crop?.name || line.crop?.name_kz || line.crop?.name_en || "").trim() || null,
+        product_name: String(line.product_name_snapshot || line.crop?.name_ru || line.crop?.name || line.products?.trade_name || line.products?.name || line.products?.normalized_name || "-"),
         variety_name: String(line.variety_name_snapshot || "-"),
         reproduction_name: String(line.reproduction_name_snapshot || "-"),
         warehouse_to_name: String(warehouseById.get(String(line.warehouse_to_id || ""))?.name || "") || null,
+        is_mixed_harvest: line.is_mixed_harvest === true,
       })),
     };
   }) as WeighbridgeTicket[];

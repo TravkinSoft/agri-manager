@@ -88,10 +88,23 @@ const AGRONOMIST_ALLOWED_EXACT = ["/fields-map", "/warehouses", "/settings", "/t
 const DIRECTOR_ALLOWED_PREFIXES = [
   "/dashboard",
   "/weather-lab",
+  "/analytics",
   "/auth",
 ];
 
 const DIRECTOR_ALLOWED_EXACT = ["/fields-map", "/warehouses"];
+
+const ACCOUNTANT_ALLOWED_PREFIXES = [
+  "/dashboard",
+  "/analytics",
+  "/auth",
+];
+
+const ACCOUNTANT_ALLOWED_EXACT = ["/fields-map", "/warehouses", "/weighbridge/history"];
+
+function isReadOnlyTicketPrintPath(path: string): boolean {
+  return /^\/weighbridge\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/print$/u.test(path);
+}
 
 export function canAccessPath(role: AppRole, pathname: string): boolean {
   const path = String(pathname || "").toLowerCase();
@@ -165,8 +178,7 @@ export function canAccessPath(role: AppRole, pathname: string): boolean {
 
   if (role === "legal_operator") {
     const hasPrefixAccess = LEGAL_OPERATOR_ALLOWED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
-    const isTicketPrint = /^\/weighbridge\/[^/]+\/print$/.test(path);
-    return hasPrefixAccess || LEGAL_OPERATOR_ALLOWED_EXACT.includes(path) || isTicketPrint;
+    return hasPrefixAccess || LEGAL_OPERATOR_ALLOWED_EXACT.includes(path) || isReadOnlyTicketPrintPath(path);
   }
 
   if (role === "agronomist") {
@@ -178,6 +190,11 @@ export function canAccessPath(role: AppRole, pathname: string): boolean {
   if (role === "director") {
     const hasPrefixAccess = DIRECTOR_ALLOWED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
     return hasPrefixAccess || DIRECTOR_ALLOWED_EXACT.includes(path);
+  }
+
+  if (role === "accountant") {
+    const hasPrefixAccess = ACCOUNTANT_ALLOWED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+    return hasPrefixAccess || ACCOUNTANT_ALLOWED_EXACT.includes(path) || isReadOnlyTicketPrintPath(path);
   }
 
   return false;

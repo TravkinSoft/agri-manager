@@ -40,6 +40,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
+import { canAccessPath } from "@/lib/auth/role-access";
 import { canWriteFieldMap } from "@/lib/fields-map/access-policy";
 import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
 import {
@@ -934,6 +935,7 @@ export function FieldsMapPage() {
   const { profile } = useAuth();
   const router = useRouter();
   const canWriteEngineering = canWriteFieldMap(profile?.role);
+  const canOpenFieldDetails = canAccessPath(profile?.role, "/fields");
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -3081,7 +3083,7 @@ export function FieldsMapPage() {
                 <div className="text-sm text-muted-foreground">{formatHa(selectedContour?.area_ha ?? selectedField?.field_area_ha ?? null)}{selectedField ? ` • участков ${selectedFieldStructures.length}` : ""}</div>
               </div>
               <div className="flex gap-1">
-                {selectedField ? <Button size="sm" variant="outline" aria-label={`Открыть карточку поля ${selectedField.field_display_name}`} onClick={() => router.push(`/fields/${selectedField.field_id}`)}><MapPinned className="h-4 w-4" /></Button> : null}
+                {selectedField && canOpenFieldDetails ? <Button size="sm" variant="outline" aria-label={`Открыть карточку поля ${selectedField.field_display_name}`} onClick={() => router.push(`/fields/${selectedField.field_id}`)}><MapPinned className="h-4 w-4" /></Button> : null}
                 <Button size="sm" variant="ghost" aria-label="Закрыть инспектор поля" onClick={() => { cancelBoundaryEdit(); setSelectedFieldId(null); setSelectedContourId(null); }}><X className="h-4 w-4" /></Button>
               </div>
             </div>
@@ -3548,7 +3550,7 @@ export function FieldsMapPage() {
               <div className="rounded-xl border border-[#2B3448] bg-[#151C28] p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <div className="text-sm font-semibold text-slate-100">Поле {selectedField?.field_display_name || "-"}</div>
-                  <Button
+                  {canOpenFieldDetails ? <Button
                     size="sm"
                     variant="outline"
                     onClick={() => {
@@ -3557,7 +3559,7 @@ export function FieldsMapPage() {
                   >
                     <MapPinned className="mr-2 h-4 w-4" />
                     Открыть карточку поля
-                  </Button>
+                  </Button> : null}
                 </div>
                 <div className="grid gap-1 text-sm text-slate-300">
                   <div>Площадь: {formatHa(selectedField?.field_area_ha || 0)}</div>

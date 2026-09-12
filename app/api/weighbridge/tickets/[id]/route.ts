@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, recordWeighbridgeOperatorActivity, requireWeighbridgeOperatorSession, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
+import { WEIGHBRIDGE_TICKET_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, recordWeighbridgeOperatorActivity, requireWeighbridgeOperatorSession, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { validateHarvestWeights } from "@/lib/weighbridge/harvest-contract";
 import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
@@ -7,8 +7,6 @@ import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket
 import { enrichTicketCombineOperators } from "@/lib/server/weighbridge-combine-operator";
 import { enrichSharedImpurityScopes } from "@/lib/server/weighbridge-shared-impurity";
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
-
-const TICKET_READ_ROLES = [...WEIGHBRIDGE_READ_ROLES, "legal_operator"] as const;
 
 export async function GET(
   request: NextRequest,
@@ -24,7 +22,7 @@ export async function GET(
 
     const authStartedAt = Date.now();
     const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
-      allowedRoles: TICKET_READ_ROLES,
+      allowedRoles: WEIGHBRIDGE_TICKET_READ_ROLES,
       serverProfileRead: true,
     });
     timing.authMs = Date.now() - authStartedAt;
@@ -38,6 +36,9 @@ export async function GET(
 
     if (ticketError || !ticket?.id) {
       return NextResponse.json({ error: ticketError?.message || "Ticket not found" }, { status: 404 });
+    }
+    if (actor.role === "accountant" && !["finalized", "voided"].includes(String(ticket.status || ""))) {
+      return NextResponse.json({ error: "Ticket not found" }, { status: 404 });
     }
 
     let cropStructureAllocationLabel: string | null = null;

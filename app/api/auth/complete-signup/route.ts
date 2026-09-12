@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getServiceClient } from "@/lib/supabase/service";
-import { assertTrafficActivationReady, TrafficInvitationError } from "@/lib/auth/ptc-invitations";
+import { assertProfileActivationReady, TrafficInvitationError } from "@/lib/auth/ptc-invitations";
 
 export const runtime = "nodejs";
 
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     const supabase = getServiceClient();
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("id,status,role,company_id")
+      .select("id,status,role,company_id,is_owner")
       .eq("id", user.id)
       .maybeSingle();
     if (profileError) {
@@ -66,7 +66,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Account cannot be activated from status: ${currentStatus}` }, { status: 403 });
     }
 
-    await assertTrafficActivationReady(supabase, user, profile);
+    // Password recovery for an already-active account must not try to activate it
+    // again or require historical invitation metadata that older accounts lack.
+    if (currentStatus === "active") {
+      return NextResponse.json({ ok: true, status: "active" });
+    }
+
+    await assertProfileActivationReady(supabase, user, profile);
 
     // Do not undo an administrator's revoke/deactivate or role/company change between
     // the verification above and this write. Pending remains pending if the CAS loses.

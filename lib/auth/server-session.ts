@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getServiceClient } from "@/lib/supabase/service";
-import { isLegacyRoleAlias, normalizeRoleKey, parseCanonicalRole, type CanonicalRole } from "@/lib/auth/role-contract";
+import { isLegacyRoleAlias, isOperationalReadOnlyRole, normalizeRoleKey, parseCanonicalRole, type CanonicalRole } from "@/lib/auth/role-contract";
 
 export type ServerRole = CanonicalRole;
 
@@ -38,7 +38,7 @@ const ASSISTANT_ALLOWED_ROLES = new Set<ServerRole>([
 ]);
 
 function enforceReadOnlyCabinetRole(request: NextRequest, actor: ServerActorContext): ServerActorContext {
-  if (["director", "legal_operator"].includes(actor.role) && !["GET", "HEAD", "OPTIONS"].includes(request.method.toUpperCase())) {
+  if (isOperationalReadOnlyRole(actor.role) && !["GET", "HEAD", "OPTIONS"].includes(request.method.toUpperCase())) {
     throw new SessionAuthError("This cabinet is read-only", 403);
   }
   return actor;

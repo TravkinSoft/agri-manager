@@ -76,6 +76,15 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
         { labelKey: "field_map", href: "/fields-map", icon: Map, kind: "route" },
         { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
         { labelKey: "weather", href: "/weather-lab", icon: CloudSun, kind: "route" },
+        MORE_ITEM,
+      ];
+    case "accountant":
+      return [
+        { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard, kind: "route" },
+        { labelKey: "field_map", href: "/fields-map", icon: Map, kind: "route" },
+        { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
+        { labelKey: "tickets_nav", href: "/weighbridge/history", icon: Scale, kind: "route" },
+        MORE_ITEM,
       ];
     case "legal_operator":
       return [
@@ -132,6 +141,7 @@ function getMoreRouteCandidates(role?: string | null): BottomItem[] {
     { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
     { labelKey: "fuel", href: "/fuel", icon: Droplets, kind: "route" },
     { labelKey: "analytics", href: "/analytics", icon: BarChart3, kind: "route" },
+    { labelKey: "tickets_nav", href: "/weighbridge/history", icon: Scale, kind: "route" },
     { labelKey: "references", href: "/references", icon: BookOpen, kind: "route" },
     { labelKey: "users", href: "/users", icon: Users, kind: "route" },
   ];
@@ -151,7 +161,7 @@ function getRoleFilteredItems(role?: string | null): BottomItem[] {
       (item) => item.kind === "more" || canAccessPath(normalizedRole, item.href || "")
     );
   }
-  const routeLimit = normalizedRole === "agronomist" ? 5 : 4;
+  const routeLimit = ["agronomist", "director", "accountant"].includes(String(normalizedRole)) ? 5 : 4;
   return getMobileRouteCandidates(role)
     .filter((item) => item.kind === "more" || canAccessPath(normalizedRole, item.href || ""))
     .slice(0, routeLimit);

@@ -3,6 +3,7 @@ export const CANONICAL_ROLES = [
   "company_admin",
   "agronomist",
   "director",
+  "accountant",
   "legal_operator",
   "specialist",
   "warehouse",
@@ -22,6 +23,7 @@ const CANONICAL_ROLE_MAP: Record<string, CanonicalRole> = {
   company_admin: "company_admin",
   agronomist: "agronomist",
   director: "director",
+  accountant: "accountant",
   legal_operator: "legal_operator",
   specialist: "specialist",
   warehouse: "warehouse",
@@ -76,4 +78,15 @@ export function isCanonicalRole(raw: unknown): raw is CanonicalRole {
 export function isLegacyRoleAlias(raw: unknown): boolean {
   const key = normalizeRoleKey(raw);
   return !!LEGACY_ROLE_ALIASES[key];
+}
+
+const OPERATIONAL_READ_ONLY_ROLES = new Set<CanonicalRole>([
+  "director",
+  "accountant",
+  "legal_operator",
+]);
+
+export function isOperationalReadOnlyRole(raw: unknown): boolean {
+  const role = parseCanonicalRole(raw);
+  return role !== null && OPERATIONAL_READ_ONLY_ROLES.has(role);
 }

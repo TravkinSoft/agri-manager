@@ -45,6 +45,36 @@ export async function listTickets(
   return ((payload.tickets || []) as WeighbridgeTicket[]).filter((ticket) => !hasQaDataMarker(JSON.stringify(ticket)));
 }
 
+export async function listTicketHistoryPage(
+  companyId?: string,
+  _userId?: string,
+  options?: { cursor?: string | null; limit?: number; signal?: AbortSignal }
+): Promise<{ tickets: WeighbridgeTicket[]; hasMore: boolean; nextCursor: string | null }> {
+  const headers = await buildClientAuthHeaders("none");
+  const query = new URLSearchParams({
+    historyOnly: "true",
+    historyLimit: String(Math.min(100, Math.max(10, Math.trunc(options?.limit || 50)))),
+  });
+  if (companyId) query.set("companyId", companyId);
+  if (options?.cursor) query.set("historyCursor", options.cursor);
+  const response = await fetch(`/api/weighbridge/tickets?${query.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+    headers,
+    signal: options?.signal,
+  });
+  const payload = await parseJsonOrThrow(response);
+  const nextCursor = typeof payload.historyNextCursor === "string" && payload.historyNextCursor
+    ? payload.historyNextCursor
+    : null;
+  return {
+    tickets: ((payload.tickets || []) as WeighbridgeTicket[])
+      .filter((ticket) => !hasQaDataMarker(JSON.stringify(ticket))),
+    hasMore: Boolean(payload.historyHasMore && nextCursor),
+    nextCursor,
+  };
+}
+
 export async function listWeighbridgeWorkspaceTickets(
   companyId: string,
   _userId: string,

@@ -3,6 +3,9 @@ import { getInviteSetPasswordRedirectTo } from "@/lib/utils/app-url";
 import { getServiceClient } from "@/lib/supabase/service";
 import { getServerActorFromSession, SessionAuthError } from "@/lib/auth/server-session";
 import { parseCanonicalRole } from "@/lib/auth/role-contract";
+import { isTrafficOperatorRole } from "@/lib/auth/ptc-invitations";
+
+const GENERIC_INVITATION_MARKER = "generic_invitation_v1";
 
 type UserAction =
   | "resend_invite"
@@ -18,6 +21,7 @@ type ProfileRow = {
   role: string | null;
   status: string | null;
   company_id: string | null;
+  is_owner: boolean | null;
 };
 
 function isUuidLike(value: string): boolean {
@@ -66,8 +70,83 @@ function assertCanManageTarget(actor: Awaited<ReturnType<typeof getServerActorFr
   }
 }
 
-async function sendInviteEmail(params: {
-  request: NextRequest;
+async function ensureGenericInviteProvenance(params: {
+  profile: ProfileRow;
+  supabase: ReturnType<typeof getServiceClient>;
+}) {
+  const { profile, supabase } = params;
+  const role = parseCanonicalRole(profile.role);
+  if (isTrafficOperatorRole(role)) return;
+  if (!role || !isUuidLike(String(profile.company_id || ""))) {
+    throw new Error("Pending invitation has no valid company or role");
+  }
+  if (profile.is_owner === true && role !== "company_admin") {
+    throw new Error("Pending invitation has an invalid owner role");
+  }
+
+  const { data, error } = await supabase.auth.admin.getUserById(profile.id);
+  const user = data?.user;
+  if (error || !user) throw new Error(`Invitation identity check failed: ${errorToText(error)}`);
+
+  const profileEmail = normalizeEmail(profile.email);
+  if (!profileEmail || normalizeEmail(user.email) !== profileEmail) {
+    throw new Error("Invitation identity email does not match the pending profile");
+  }
+
+  const appMetadata = user.app_metadata ?? {};
+  const existing = appMetadata[GENERIC_INVITATION_MARKER];
+  if (Object.prototype.hasOwnProperty.call(appMetadata, "ptc_invitation_v1")) {
+    throw new Error("Invitation identity belongs to a traffic operator flow");
+  }
+  if (existing !== undefined) {
+    if (!existing || typeof existing !== "object" || Array.isArray(existing)
+      || ((existing as any).state !== "provisioning" && (existing as any).state !== "ready")
+      || String((existing as any).company_id || "") !== profile.company_id
+      || String((existing as any).role || "") !== role
+      || typeof (existing as any).is_owner !== "boolean"
+      || (existing as any).is_owner !== (profile.is_owner === true)
+      || ((existing as any).is_owner === true && role !== "company_admin")) {
+      throw new Error("Invitation provenance conflicts with the pending profile");
+    }
+    // create-company grants ownership before changing this marker to ready.
+    // Never let a generic resend turn an incomplete owner grant into an
+    // activatable non-owner company administrator.
+    if ((existing as any).state === "provisioning"
+      && role === "company_admin"
+      && profile.is_owner !== true) {
+      throw new Error("Company owner provisioning is incomplete");
+    }
+  }
+
+  const { data: markerData, error: markerError } = await supabase.auth.admin.updateUserById(profile.id, {
+    app_metadata: {
+      ...appMetadata,
+      [GENERIC_INVITATION_MARKER]: {
+        state: "ready",
+        company_id: profile.company_id,
+        role,
+        is_owner: profile.is_owner === true,
+      },
+    },
+  });
+  const updatedAppMetadata = markerData.user?.app_metadata ?? {};
+  const updatedMarker = updatedAppMetadata[GENERIC_INVITATION_MARKER];
+  const markerMatches = Boolean(
+    updatedMarker
+    && typeof updatedMarker === "object"
+    && !Array.isArray(updatedMarker)
+    && (updatedMarker as any).state === "ready"
+    && (updatedMarker as any).company_id === profile.company_id
+    && (updatedMarker as any).role === role
+    && (updatedMarker as any).is_owner === (profile.is_owner === true)
+    && !Object.prototype.hasOwnProperty.call(updatedAppMetadata, "ptc_invitation_v1")
+  );
+  if (markerError || !markerData.user?.id || !markerMatches) {
+    throw new Error(`Invitation provenance update failed: ${errorToText(markerError)}`);
+  }
+}
+
+async function sendRecoveryInvite(params: {
   profile: ProfileRow;
   supabase: ReturnType<typeof getServiceClient>;
 }) {
@@ -76,29 +155,6 @@ async function sendInviteEmail(params: {
   if (!email) throw new Error("Target user email is missing");
 
   const setPasswordRedirectTo = getInviteSetPasswordRedirectTo();
-  const role = parseCanonicalRole(profile.role) || "specialist";
-
-  const { error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email, {
-    redirectTo: setPasswordRedirectTo,
-    data: {
-      role,
-      invited_by_company: profile.company_id,
-      full_name: profile.full_name || email,
-    },
-  });
-
-  if (!inviteError) return { method: "invite" };
-
-  const inviteText = errorToText(inviteError).toLowerCase();
-  const canFallbackToRecovery =
-    inviteText.includes("already") ||
-    inviteText.includes("registered") ||
-    inviteText.includes("exists") ||
-    inviteText.includes("duplicate");
-
-  if (!canFallbackToRecovery) {
-    throw new Error(`Invite email failed: ${errorToText(inviteError)}`);
-  }
 
   const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: setPasswordRedirectTo,
@@ -159,7 +215,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     const { data: target, error: targetError } = await supabase
       .from("profiles")
-      .select("id,full_name,email,role,status,company_id")
+      .select("id,full_name,email,role,status,company_id,is_owner")
       .eq("id", targetProfileId)
       .maybeSingle();
 
@@ -185,7 +241,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       if (status !== "pending") {
         return NextResponse.json({ success: false, message: "Only pending invitations can be resent" }, { status: 400 });
       }
-      const result = await sendInviteEmail({ request, profile: targetProfile, supabase });
+      await ensureGenericInviteProvenance({ profile: targetProfile, supabase });
+      const result = await sendRecoveryInvite({ profile: targetProfile, supabase });
       await supabase.from("profiles").update({ updated_at: new Date().toISOString() }).eq("id", targetProfileId);
       return NextResponse.json({ success: true, method: result.method });
     }
@@ -194,6 +251,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       if (status !== "pending") {
         return NextResponse.json({ success: false, message: "Setup link is available only for pending invitations" }, { status: 400 });
       }
+      await ensureGenericInviteProvenance({ profile: targetProfile, supabase });
       const actionLink = await generateSetupLink({ request, profile: targetProfile, supabase });
       return NextResponse.json({ success: true, action_link: actionLink });
     }

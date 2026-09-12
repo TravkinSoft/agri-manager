@@ -216,7 +216,8 @@ export default function WarehousesPage() {
   const role = String(profile?.role || "");
   const canStockOperate = ["warehouse", "warehouse_operator", "global_admin"].includes(role);
   const canManageWarehouses = ["company_admin", "global_admin"].includes(role);
-  const isReadOnlyRole = ["weighman", "agronomist", "director", "legal_operator"].includes(role);
+  const canViewOperationalSummary = ["weighman", "agronomist", "director", "accountant"].includes(role);
+  const isReadOnlyRole = canViewOperationalSummary || role === "legal_operator";
   const canView = canStockOperate || canManageWarehouses || isReadOnlyRole;
 
   const loadWarehouseList = async ({
