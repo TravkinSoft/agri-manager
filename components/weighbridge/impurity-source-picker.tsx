@@ -69,7 +69,6 @@ export function ImpuritySourcePicker({
     [draftValue, optionByKey]
   );
   const selectedContainsLegacyFallback = draftOptions.some((option) => !option.supportsSharedSelection);
-  const hasIncompleteSharedSelection = draftOptions.length === 1 && draftOptions[0].supportsSharedSelection;
 
   const toggle = (option: ImpuritySourcePickerOption) => {
     if (draftValue.includes(option.key)) {
@@ -127,7 +126,7 @@ export function ImpuritySourcePicker({
           <SheetHeader className="border-b px-4 pb-4 pt-5 pr-12 text-left sm:px-6">
             <SheetTitle>Участки / партии урожая</SheetTitle>
             <SheetDescription>
-              Для одного источника выберите всю партию. Точные участки можно объединить в один физический талон набором от двух.
+              Можно выбрать один точный участок или объединить несколько участков в один физический талон.
             </SheetDescription>
           </SheetHeader>
 
@@ -147,7 +146,7 @@ export function ImpuritySourcePicker({
           <div className="travkin-scrollbar min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-4 py-3 sm:px-6">
             {options.length ? (
               <p className="mb-3 border-l-2 border-amber-400 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                «Вся партия» — одиночный режим. Точные участки выбираются только совместно, минимум два.
+                «Вся партия» списывает общую партию. Точный участок ограничивает списание источниками этого участка.
               </p>
             ) : null}
             {groupedOptions.length === 0 ? (
@@ -190,15 +189,9 @@ export function ImpuritySourcePicker({
           </div>
 
           <div className="border-t bg-card px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-6">
-            {hasIncompleteSharedSelection ? (
-              <p className="mb-2 text-sm font-medium text-amber-900" role="alert">
-                Для одного источника выберите партию целиком или добавьте второй участок
-              </p>
-            ) : null}
             <Button
               type="button"
               className="min-h-12 w-full touch-manipulation"
-              disabled={hasIncompleteSharedSelection}
               onClick={() => {
                 onChange(draftValue);
                 setOpen(false);

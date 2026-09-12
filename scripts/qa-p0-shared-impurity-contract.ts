@@ -27,6 +27,19 @@ async function findMigration(): Promise<Artifact> {
   return matches[0]!;
 }
 
+async function findExactSourceMigration(): Promise<Artifact> {
+  const directory = join(process.cwd(), "supabase", "migrations");
+  const matches: Artifact[] = [];
+  for (const name of await readdir(directory)) {
+    if (!name.endsWith(".sql")) continue;
+    const path = join("supabase", "migrations", name);
+    const artifact = await load(path);
+    if (artifact.text.includes("P0 exact impurity source scope V1")) matches.push(artifact);
+  }
+  assert.equal(matches.length, 1, "exactly one exact-source extension migration must exist");
+  return matches[0]!;
+}
+
 function tableColumns(sql: string, table: string) {
   const match = sql.match(new RegExp(
     `create\\s+table\\s+public\\.${table}\\s*\\(([\\s\\S]*?)\\n\\);`,
@@ -55,6 +68,7 @@ function selectedColumns(source: string, table: string) {
 async function main() {
   const [
     migration,
+    exactSourceMigration,
     createRoute,
     finalizeRoute,
     correctionRoute,
@@ -66,6 +80,7 @@ async function main() {
     service,
   ] = await Promise.all([
     findMigration(),
+    findExactSourceMigration(),
     load("app/api/weighbridge/tickets/route.ts"),
     load("app/api/weighbridge/tickets/[id]/finalize/route.ts"),
     load("app/api/weighbridge/tickets/[id]/correction/route.ts"),
@@ -133,12 +148,21 @@ async function main() {
     }
   });
 
-  check("create API requires two exact, unique crop-structure sources", () => {
-    assert.match(createRoute.text, /sources\.length\s*<\s*2/);
+  check("create API accepts one or more exact, unique crop-structure sources", () => {
+    assert.match(createRoute.text, /sources\.length\s*<\s*1/);
     assert.match(createRoute.text, /harvest_lot_id/);
     assert.match(createRoute.text, /crop_structure_id/);
     assert.match(createRoute.text, /new Set\(sources\.map\(\(source\) => source\.crop_structure_id\)\)\.size !== sources\.length/);
     assert.match(createRoute.text, /Один и тот же участок нельзя выбрать дважды/);
+  });
+
+  check("exact-source extension relaxes only the atomic pool minimum", () => {
+    assert.match(exactSourceMigration.text, /P0 exact impurity source scope V1/);
+    assert.match(exactSourceMigration.text, /jsonb_array_length\(composition_snapshot\) >= 1/);
+    assert.match(exactSourceMigration.text, /cardinality\(v_ids\) < 1/);
+    assert.match(exactSourceMigration.text, /v_source_count < 1/);
+    assert.match(exactSourceMigration.text, /v_member_count < 1/);
+    assert.doesNotMatch(exactSourceMigration.text, /\b(?:drop\s+table|truncate)\b/i);
   });
 
   check("shared create uses one atomic RPC with every required argument", () => {
@@ -214,15 +238,17 @@ async function main() {
     assert.match(service.text, /\.\.\.\(impuritySourceScope \? \{ impurity_source_scope: impuritySourceScope \} : \{\}\)/);
   });
 
-  check("UI preserves whole-party legacy mode and separates exact multi-source mode", () => {
+  check("UI preserves whole-party legacy mode and supports exact single or multi-source mode", () => {
     assert.match(page.text, /key: `legacy:\$\{batch\.id\}`/);
     assert.match(page.text, /label: `Вся партия/);
     assert.match(page.text, /supportsSharedSelection: false/);
     assert.match(page.text, /supportsSharedSelection: true/);
-    assert.match(page.text, /Источник общей примеси · остаток показан по партии, не по участку/);
-    assert.match(page.text, /hasIncompleteSharedImpuritySelection/);
+    assert.match(page.text, /Точный участок · остаток показан по связанной партии/);
+    assert.match(page.text, /hasExactImpuritySourceScope/);
+    assert.match(page.text, /hasMultipleExactImpuritySources/);
     assert.match(page.text, /hasDuplicateImpurityCropStructureSources/);
-    assert.match(page.text, /selectedImpuritySourceOptions\.length > 1/);
+    assert.match(page.text, /selectedImpuritySourceOptions\.every\(\(source\) => source\.supportsSharedSelection\)/);
+    assert.match(page.text, /usesExactImpuritySourceScope/);
   });
 
   check("UI closes shared impurity tickets through the atomic finalizer", () => {
@@ -236,12 +262,12 @@ async function main() {
     );
   });
 
-  check("picker prevents mixing whole-party and exact-source modes and blocks one exact source", () => {
+  check("picker accepts one exact source and prevents whole-party/exact mixing", () => {
     assert.match(picker.text, /selectedContainsLegacyFallback/);
-    assert.match(picker.text, /hasIncompleteSharedSelection/);
-    assert.match(picker.text, /disabled=\{hasIncompleteSharedSelection\}/);
-    assert.match(picker.text, /Для одного источника выберите партию целиком или добавьте второй участок/);
-    assert.match(picker.text, /Точные участки выбираются только совместно, минимум два/);
+    assert.doesNotMatch(picker.text, /hasIncompleteSharedSelection/);
+    assert.doesNotMatch(picker.text, /disabled=\{hasIncompleteSharedSelection\}/);
+    assert.match(picker.text, /Можно выбрать один точный участок/);
+    assert.match(picker.text, /Точный участок ограничивает списание источниками этого участка/);
   });
 
   check("open cards, journal, preview and paper expose unresolved shared provenance", () => {

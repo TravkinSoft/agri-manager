@@ -55,8 +55,8 @@ function normalizeSharedImpurityScope(value: unknown): {
       crop_structure_id: String(source.crop_structure_id || "").trim().toLowerCase(),
     };
   });
-  if (sources.length < 2) {
-    return { scope: null, error: "Для общей примеси выберите минимум два участка." };
+  if (sources.length < 1) {
+    return { scope: null, error: "Выберите хотя бы один точный участок." };
   }
   if (sources.some((source) => !UUID_RE.test(source.harvest_lot_id) || !UUID_RE.test(source.crop_structure_id))) {
     return { scope: null, error: "Один из источников общей примеси указан некорректно." };

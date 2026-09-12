@@ -3766,7 +3766,7 @@ export default function WeighbridgeOperationsPage() {
         pushOption({
           key: `${harvestLotId}:${cropStructureId}`,
           label: identityParts.join(" · "),
-          description: "Источник общей примеси · остаток показан по партии, не по участку",
+          description: "Точный участок · остаток показан по связанной партии",
           groupLabel: fieldName,
           supportsSharedSelection: true,
           batchId: batch.id,
@@ -3801,9 +3801,10 @@ export default function WeighbridgeOperationsPage() {
       .filter((option): option is ImpuritySourceOption => Boolean(option)),
     [impuritySourceOptionByKey, impuritySourceSelectionKeys]
   );
-  const hasSharedImpuritySources = impuritySourceSelectionKeys.length > 1;
-  const hasIncompleteSharedImpuritySelection = selectedImpuritySourceOptions.length === 1
-    && selectedImpuritySourceOptions[0].supportsSharedSelection;
+  const hasExactImpuritySourceScope = selectedImpuritySourceOptions.length > 0
+    && selectedImpuritySourceOptions.every((source) => source.supportsSharedSelection);
+  const hasMultipleExactImpuritySources = hasExactImpuritySourceScope
+    && selectedImpuritySourceOptions.length > 1;
   const hasDuplicateImpurityCropStructureSources = selectedImpuritySourceOptions.length > 1
     && new Set(selectedImpuritySourceOptions.map((source) => source.cropStructureId)).size !== selectedImpuritySourceOptions.length;
   const changeImpuritySources = (keys: string[]) => {
@@ -3832,7 +3833,7 @@ export default function WeighbridgeOperationsPage() {
     if (
       form.operationType !== "impurity_removal"
       || !profile?.company_id
-      || hasSharedImpuritySources
+      || hasExactImpuritySourceScope
       || !selectedHarvestBatch?.aggregateLotId
 	      || selectedHarvestBatch.detailLevel === "full"
 	    ) {
@@ -3892,7 +3893,7 @@ export default function WeighbridgeOperationsPage() {
 	    };
   }, [
     form.operationType,
-    hasSharedImpuritySources,
+    hasExactImpuritySourceScope,
     profile?.company_id,
     selectedHarvestBatch?.id,
     selectedHarvestBatch?.warehouseId,
@@ -4242,10 +4243,7 @@ export default function WeighbridgeOperationsPage() {
       if (selectedImpuritySourceOptions.some((source) => source.warehouseId !== form.warehouseFromId)) {
         return "Один из источников не принадлежит выбранному складу";
       }
-      if (hasIncompleteSharedImpuritySelection) {
-        return "Для одного источника выберите партию целиком или добавьте второй участок";
-      }
-      if (hasSharedImpuritySources) {
+      if (hasExactImpuritySourceScope) {
         if (selectedImpuritySourceOptions.some((source) => !source.harvestLotId || !source.cropStructureId)) {
           return "Совместный выбор доступен только для партий, связанных со структурой посевов";
         }
@@ -4340,9 +4338,11 @@ export default function WeighbridgeOperationsPage() {
     ) return;
     if (!(await siteConfirm({
       title: "Создать талон",
-      description: hasSharedImpuritySources
+      description: hasMultipleExactImpuritySources
         ? `Будет создан один физический талон для ${sourceCountLabel(impuritySourceSelectionKeys.length)}. Общий вес по участкам не распределяется.`
-        : "Проверьте данные и подтвердите создание талона.",
+        : hasExactImpuritySourceScope
+          ? `Будет создан талон только для выбранного участка: ${selectedImpuritySourceOptions[0]?.label || "участок"}.`
+          : "Проверьте данные и подтвердите создание талона.",
       actionLabel: "Создать",
     }))) return;
     if (!profile?.company_id || !profile?.id) return;
@@ -4352,8 +4352,8 @@ export default function WeighbridgeOperationsPage() {
     const isShipment = form.operationType === "shipment_outbound";
     const isDisposal = form.operationType === "disposal_writeoff";
     const isImpurityRemoval = form.operationType === "impurity_removal";
-    const usesSharedImpurityScope = isImpurityRemoval && selectedImpuritySourceOptions.length > 1;
-    const impuritySourceScope: ImpuritySourceScopeInput | undefined = usesSharedImpurityScope
+    const usesExactImpuritySourceScope = isImpurityRemoval && hasExactImpuritySourceScope;
+    const impuritySourceScope: ImpuritySourceScopeInput | undefined = usesExactImpuritySourceScope
       ? {
           allocation_mode: "unresolved_total",
           sources: selectedImpuritySourceOptions.map((source) => ({
@@ -4415,11 +4415,11 @@ export default function WeighbridgeOperationsPage() {
     const ticketMeta = meta;
     const ticket: TicketInput = {
       company_id: profile.company_id,
-      batch_id: isImpurityRemoval && !usesSharedImpurityScope && !selectedHarvestBatch?.aggregateLot ? form.sourceBatchId : null,
+      batch_id: isImpurityRemoval && !usesExactImpuritySourceScope && !selectedHarvestBatch?.aggregateLot ? form.sourceBatchId : null,
       harvest_lot_id: isProcessingOutput
         ? processingOutputContext?.harvestLotId || null
         : isImpurityRemoval
-        ? usesSharedImpurityScope ? null : selectedHarvestBatch?.aggregateLotId || null
+        ? usesExactImpuritySourceScope ? null : selectedHarvestBatch?.aggregateLotId || null
         : selectedTransferStock?.harvest_lot_id || null,
       linked_processing_id: isProcessingOutput ? processingOutputContext?.transformationId || null : null,
       processing_output_role: isProcessingOutput ? form.processingOutputRole || null : null,
@@ -4520,7 +4520,7 @@ export default function WeighbridgeOperationsPage() {
       lot_id: isProcessingOutput
         ? processingOutputContext?.harvestLotId || null
         : isImpurityRemoval
-        ? usesSharedImpurityScope ? null : selectedHarvestBatch?.aggregateLotId || selectedHarvestBatch?.batchCode || null
+        ? usesExactImpuritySourceScope ? null : selectedHarvestBatch?.aggregateLotId || selectedHarvestBatch?.batchCode || null
         : form.operationType === "supplier_receipt"
           ? form.supplierLot.trim() || null
           : (form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal)
@@ -4530,7 +4530,7 @@ export default function WeighbridgeOperationsPage() {
       batch_id: isProcessingOutput
         ? null
         : isImpurityRemoval
-        ? usesSharedImpurityScope ? null : selectedHarvestBatch?.aggregateLot ? null : selectedHarvestBatch?.id || null
+        ? usesExactImpuritySourceScope ? null : selectedHarvestBatch?.aggregateLot ? null : selectedHarvestBatch?.id || null
         : (form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal) && isUuidLike(selectedTransferStock?.batch_id)
           ? selectedTransferStock?.batch_id || null
           : null,
@@ -4539,9 +4539,9 @@ export default function WeighbridgeOperationsPage() {
         : isImpurityRemoval
         ? "commodity"
         : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.batch_class || null : null,
-      variety_id: isProcessingOutput ? processingOutputContext?.varietyId || null : isImpurityRemoval ? usesSharedImpurityScope ? null : selectedHarvestBatch?.varietyId || null : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.variety_id || null : form.operationType === "harvest_incoming" ? form.varietyId || null : null,
-      reproduction_id: isProcessingOutput ? processingOutputContext?.reproductionId || null : isImpurityRemoval ? usesSharedImpurityScope ? null : selectedHarvestBatch?.reproductionId || null : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.reproduction_id || null : form.operationType === "harvest_incoming" ? form.reproductionId || null : null,
-      operation_line_id: isImpurityRemoval ? usesSharedImpurityScope ? null : selectedHarvestBatch?.operationLineId || null : isFieldIssue ? form.linkedOperationLineId || null : null,
+      variety_id: isProcessingOutput ? processingOutputContext?.varietyId || null : isImpurityRemoval ? usesExactImpuritySourceScope ? null : selectedHarvestBatch?.varietyId || null : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.variety_id || null : form.operationType === "harvest_incoming" ? form.varietyId || null : null,
+      reproduction_id: isProcessingOutput ? processingOutputContext?.reproductionId || null : isImpurityRemoval ? usesExactImpuritySourceScope ? null : selectedHarvestBatch?.reproductionId || null : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.reproduction_id || null : form.operationType === "harvest_incoming" ? form.reproductionId || null : null,
+      operation_line_id: isImpurityRemoval ? usesExactImpuritySourceScope ? null : selectedHarvestBatch?.operationLineId || null : isFieldIssue ? form.linkedOperationLineId || null : null,
       composition_hash: processingOutputContext?.compositionHash || selectedTransferStock?.composition_hash || null,
       composition_snapshot: processingOutputContext?.compositionSnapshot || selectedTransferStock?.composition_snapshot || [],
       is_mixed_harvest: processingOutputContext?.isMixedHarvest || Boolean(selectedTransferStock?.is_mixed_harvest),
@@ -5885,15 +5885,11 @@ export default function WeighbridgeOperationsPage() {
 	                      </div>
 	                    ) : null}
 	                  </div>
-                  {hasIncompleteSharedImpuritySelection ? (
-                    <div className="border-l-4 border-amber-400 bg-amber-50 px-3 py-3 text-sm font-medium text-amber-950" role="alert">
-                      Для одного источника выберите партию целиком или добавьте второй участок
-                    </div>
-                  ) : hasDuplicateImpurityCropStructureSources ? (
+                  {hasDuplicateImpurityCropStructureSources ? (
                     <div className="border-l-4 border-red-400 bg-red-50 px-3 py-3 text-sm font-medium text-red-900" role="alert">
                       Один и тот же участок выбран несколько раз. Оставьте только один источник этого участка.
                     </div>
-                  ) : hasSharedImpuritySources ? (
+                  ) : hasMultipleExactImpuritySources ? (
                     <div className="border-l-4 border-amber-400 bg-amber-50 px-3 py-3 text-sm text-amber-950" role="status" aria-live="polite">
                       <div className="font-semibold">
                         Один физический талон связан с {sourceCountLabel(impuritySourceSelectionKeys.length)}.
@@ -5904,6 +5900,11 @@ export default function WeighbridgeOperationsPage() {
                           {selectedImpuritySourceOptions.map((source) => source.label).join("; ")}
                         </div>
                       ) : null}
+                    </div>
+                  ) : hasExactImpuritySourceScope ? (
+                    <div className="border-l-4 border-emerald-500 bg-emerald-50 px-3 py-3 text-sm text-emerald-950" role="status" aria-live="polite">
+                      <div className="font-semibold">Выбран точный участок.</div>
+                      <div className="mt-1">Талон и списание будут связаны только с источниками этого участка.</div>
                     </div>
                   ) : selectedHarvestBatch?.detailLevel === "full" ? (
                     <div className={`${formDataStripClass} text-xs sm:grid-cols-3`}>
