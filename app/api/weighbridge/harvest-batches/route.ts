@@ -120,6 +120,160 @@ function processingLabel(value: unknown): string {
   return "Обработка";
 }
 
+async function loadSharedImpurityPoolSummaries(
+  supabase: any,
+  harvestStockSupabase: any,
+  companyId: string,
+  warehouseId: string | null
+) {
+  let groupsQuery = supabase
+    .from("weighbridge_shared_impurity_groups")
+    .select("id,ticket_id,source_warehouse_id,season_id,crop_id,product_id,display_name,pool_inventory_batch_id,source_total_kg,impurity_weight_kg,clean_total_kg,created_at,finalized_at")
+    .eq("company_id", companyId)
+    .eq("state", "finalized")
+    .not("pool_inventory_batch_id", "is", null)
+    .order("finalized_at", { ascending: false });
+  if (warehouseId) groupsQuery = groupsQuery.eq("source_warehouse_id", warehouseId);
+  const { data: rawGroups, error: groupsError } = await groupsQuery;
+  if (groupsError) {
+    if (String(groupsError.code || "") === "42P01") return [];
+    throw groupsError;
+  }
+  const groups = (rawGroups || []) as any[];
+  if (!groups.length) return [];
+
+  const groupIds = ids(groups.map((group) => group.id));
+  const batchIds = ids(groups.map((group) => group.pool_inventory_batch_id));
+  const cropIds = ids(groups.map((group) => group.crop_id));
+  const productIds = ids(groups.map((group) => group.product_id));
+  const warehouseIds = ids(groups.map((group) => group.source_warehouse_id));
+  const seasonIds = ids(groups.map((group) => group.season_id));
+  const [batches, membersResult, cropsResult, productsResult, warehousesResult, seasonsResult] = await Promise.all([
+    loadInChunks<any>(batchIds, (chunk) => harvestStockSupabase
+      .from("inventory_batches")
+      .select("id,batch_code,warehouse_id,product_id,crop_id,current_quantity,current_weight_kg,mass_kg,uom,batch_class,physical_state,origin_type,display_name")
+      .eq("company_id", companyId)
+      .in("id", chunk)),
+    supabase
+      .from("weighbridge_shared_impurity_members")
+      .select("group_id,crop_structure_id,field_id,identity_snapshot")
+      .eq("company_id", companyId)
+      .in("group_id", groupIds)
+      .order("created_at", { ascending: true }),
+    cropIds.length
+      ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug,category,subcategory,crop_subcategory").in("id", cropIds)
+      : Promise.resolve({ data: [], error: null }),
+    productIds.length
+      ? supabase.from("products").select("id,name,trade_name,normalized_name").in("id", productIds)
+      : Promise.resolve({ data: [], error: null }),
+    warehouseIds.length
+      ? supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en").eq("company_id", companyId).in("id", warehouseIds)
+      : Promise.resolve({ data: [], error: null }),
+    seasonIds.length
+      ? supabase.from("seasons").select("id,name,year").eq("company_id", companyId).in("id", seasonIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  const firstError = [membersResult, cropsResult, productsResult, warehousesResult, seasonsResult]
+    .map((result: any) => result.error)
+    .find(Boolean);
+  if (firstError) throw firstError;
+
+  const byId = (rows: any[]) => new Map(rows.map((row) => [String(row.id), row]));
+  const batchesById = byId(batches);
+  const cropsById = byId(cropsResult.data || []);
+  const productsById = byId(productsResult.data || []);
+  const warehousesById = byId(warehousesResult.data || []);
+  const seasonsById = byId(seasonsResult.data || []);
+  const membersByGroup = new Map<string, any[]>();
+  for (const member of membersResult.data || []) {
+    const key = String(member.group_id || "");
+    membersByGroup.set(key, [...(membersByGroup.get(key) || []), member]);
+  }
+  const uniqueText = (values: unknown[]) => Array.from(new Set(
+    values.map((value) => String(value || "").trim()).filter(Boolean)
+  )).sort((left, right) => left.localeCompare(right, "ru"));
+
+  return groups.flatMap((group) => {
+    const batch = batchesById.get(String(group.pool_inventory_batch_id || ""));
+    if (!batch
+      || String(batch.origin_type || "") !== "shared_impurity_pool"
+      || String(batch.batch_class || "") !== "commodity"
+      || String(batch.physical_state || "SOURCE") !== "SOURCE"
+      || String(batch.warehouse_id || "") !== String(group.source_warehouse_id || "")) return [];
+    const currentWeightKg = Number(batch.current_weight_kg ?? batch.current_quantity ?? batch.mass_kg ?? 0);
+    if (!Number.isFinite(currentWeightKg) || currentWeightKg <= 0.0001) return [];
+
+    const members = membersByGroup.get(String(group.id)) || [];
+    const snapshots = members.map((member) => (
+      member.identity_snapshot && typeof member.identity_snapshot === "object"
+        ? member.identity_snapshot as Record<string, unknown>
+        : {}
+    ));
+    const fieldNames = uniqueText(snapshots.map((snapshot) => snapshot.field_name));
+    const fieldIds = uniqueText(members.map((member) => member.field_id));
+    const varietyNames = uniqueText(snapshots.map((snapshot) => snapshot.variety_name));
+    const reproductionNames = uniqueText(snapshots.map((snapshot) => snapshot.reproduction_name));
+    const crop = cropsById.get(String(group.crop_id || ""));
+    const product = productsById.get(String(group.product_id || ""));
+    const warehouse = warehousesById.get(String(group.source_warehouse_id || ""));
+    const season = seasonsById.get(String(group.season_id || ""));
+    const cropName = localizedName(crop, "ru") || "Культура не уточнена";
+    const memberLabels = snapshots.map((snapshot) => [
+      String(snapshot.field_name || "").trim(),
+      String(snapshot.variety_name || "").trim(),
+      String(snapshot.reproduction_name || "").trim(),
+      Number(snapshot.area_ha) > 0 ? `${Number(snapshot.area_ha).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га` : "",
+    ].filter(Boolean).join(" · "));
+    const sourceTotalKg = Number(group.source_total_kg || 0);
+    const removedKg = Math.max(sourceTotalKg - currentWeightKg, 0);
+    return [{
+      id: String(batch.id),
+      batchCode: String(batch.batch_code || group.display_name || "Общая партия после примеси"),
+      warehouseId: String(group.source_warehouse_id || ""),
+      warehouseName: localizedName(warehouse, "ru", ["name"]) || "Склад урожая",
+      productId: String(group.product_id || batch.product_id || ""),
+      productIds: [String(group.product_id || batch.product_id || "")].filter(Boolean),
+      productName: brandName(product) || cropName,
+      cropId: group.crop_id ? String(group.crop_id) : batch.crop_id ? String(batch.crop_id) : null,
+      cropName,
+      cropCategorySlug: String(crop?.category || ""),
+      processingEligible: false,
+      detailLevel: "summary" as const,
+      varietyId: null,
+      varietyName: varietyNames.join(" + "),
+      reproductionId: null,
+      reproductionName: reproductionNames.join(" + "),
+      fieldId: fieldIds.length === 1 ? fieldIds[0] : null,
+      fieldName: fieldNames.join(", ") || "Поля не уточнены",
+      operationLineId: null,
+      cropStructureLabel: `Общая партия после примеси: ${memberLabels.join("; ")}`,
+      seasonLabel: String(season?.year || season?.name || "Сезон не уточнён"),
+      seasonId: group.season_id ? String(group.season_id) : null,
+      operationName: "Общая партия после вывоза примесей",
+      firstReceivedAt: group.created_at || null,
+      lastReceivedAt: group.finalized_at || group.created_at || null,
+      receivedKg: sourceTotalKg,
+      removedKg,
+      cleanMassKg: currentWeightKg,
+      impurityPercent: sourceTotalKg > 0 ? (removedKg / sourceTotalKg) * 100 : 0,
+      harvestedAreaHa: null,
+      grossYieldTPerHa: null,
+      cleanYieldTPerHa: null,
+      aggregateLot: false,
+      aggregateLotId: null,
+      sharedImpurityPool: true,
+      tripCount: 0,
+      stockComponents: [{ batchClass: "commodity", physicalState: "SOURCE", quantityKg: currentWeightKg, tripCount: 0 }],
+      reviewState: "confirmed" as const,
+      reviewReasons: [],
+      cropStructureSources: [],
+      fieldSummaries: [],
+      tripBatches: [],
+      outgoingDocuments: [],
+    }];
+  });
+}
+
 async function loadAggregateHarvestLotSummaries(
   supabase: any,
   harvestStockSupabase: any,
@@ -1357,10 +1511,16 @@ export async function GET(request: NextRequest) {
       // base-table RLS policies through the view can exceed the DB statement
       // timeout even when the underlying aggregate itself takes only milliseconds.
       const harvestStockSupabase = getServiceClient();
-      const lots = request.nextUrl.searchParams.get("detail") === "summary"
-        ? await loadAggregateHarvestLotSummaries(supabase, harvestStockSupabase, companyId, warehouseId, lotId)
-        : await loadAggregateHarvestLots(supabase, harvestStockSupabase, companyId, warehouseId, lotId);
-      if (lots !== null) return NextResponse.json({ batches: lots });
+      const summaryOnly = request.nextUrl.searchParams.get("detail") === "summary";
+      const [lots, sharedImpurityPools] = await Promise.all([
+        summaryOnly
+          ? loadAggregateHarvestLotSummaries(supabase, harvestStockSupabase, companyId, warehouseId, lotId)
+          : loadAggregateHarvestLots(supabase, harvestStockSupabase, companyId, warehouseId, lotId),
+        summaryOnly && !lotId
+          ? loadSharedImpurityPoolSummaries(supabase, harvestStockSupabase, companyId, warehouseId)
+          : Promise.resolve([]),
+      ]);
+      if (lots !== null) return NextResponse.json({ batches: [...sharedImpurityPools, ...lots] });
     }
 
     let batchQuery = supabase

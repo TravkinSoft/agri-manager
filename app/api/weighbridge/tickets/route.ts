@@ -1134,28 +1134,46 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: error instanceof Error ? error.message : "Общая партия урожая недоступна." }, { status: 400 });
         }
       } else {
-        const [{ data: exactBatch, error: batchError }, { data: harvestTicket, error: harvestTicketError }] = await Promise.all([
-          supabase
-            .from("inventory_batches")
-            .select("id,batch_code,product_id,crop_id,variety_id,reproduction_id,batch_class,source_ticket_id,origin_type")
-            .eq("company_id", companyId)
-            .eq("id", ticket.batch_id)
-            .eq("origin_type", "harvest")
-            .maybeSingle(),
-          supabase
-            .from("tickets")
-            .select("id")
-            .eq("company_id", companyId)
-            .eq("batch_id", ticket.batch_id)
-            .eq("op_type", "harvest_incoming")
-            .eq("warehouse_to_id", ticket.warehouse_from_id)
-            .eq("status", "finalized")
-            .eq("is_finalized", true)
-            .eq("is_voided", false)
-            .limit(1)
-            .maybeSingle(),
-        ]);
-        if (batchError || !exactBatch?.id || harvestTicketError || !harvestTicket?.id) {
+        const { data: exactBatch, error: batchError } = await supabase
+          .from("inventory_batches")
+          .select("id,batch_code,product_id,crop_id,variety_id,reproduction_id,batch_class,source_ticket_id,origin_type,warehouse_id")
+          .eq("company_id", companyId)
+          .eq("id", ticket.batch_id)
+          .in("origin_type", ["harvest", "shared_impurity_pool"])
+          .maybeSingle();
+        let hasAcceptedOrigin = false;
+        let originError: any = null;
+        if (exactBatch?.id && String(exactBatch.warehouse_id || "") === String(ticket.warehouse_from_id || "")) {
+          if (exactBatch.origin_type === "harvest") {
+            const { data: harvestTicket, error: harvestTicketError } = await supabase
+              .from("tickets")
+              .select("id")
+              .eq("company_id", companyId)
+              .eq("batch_id", ticket.batch_id)
+              .eq("op_type", "harvest_incoming")
+              .eq("warehouse_to_id", ticket.warehouse_from_id)
+              .eq("status", "finalized")
+              .eq("is_finalized", true)
+              .eq("is_voided", false)
+              .limit(1)
+              .maybeSingle();
+            originError = harvestTicketError;
+            hasAcceptedOrigin = Boolean(harvestTicket?.id);
+          } else if (exactBatch.origin_type === "shared_impurity_pool") {
+            const { data: pool, error: poolError } = await supabase
+              .from("weighbridge_shared_impurity_groups")
+              .select("id")
+              .eq("company_id", companyId)
+              .eq("pool_inventory_batch_id", exactBatch.id)
+              .eq("source_warehouse_id", ticket.warehouse_from_id)
+              .eq("state", "finalized")
+              .limit(1)
+              .maybeSingle();
+            originError = poolError;
+            hasAcceptedOrigin = Boolean(pool?.id);
+          }
+        }
+        if (batchError || !exactBatch?.id || originError || !hasAcceptedOrigin) {
           return NextResponse.json({ error: "Партия не была принята на выбранный склад закрытым талоном урожая." }, { status: 400 });
         }
         batch = exactBatch;

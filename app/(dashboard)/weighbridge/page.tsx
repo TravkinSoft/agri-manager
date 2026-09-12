@@ -3746,7 +3746,9 @@ export default function WeighbridgeOperationsPage() {
       pushOption({
         key: `legacy:${batch.id}`,
         label: `Вся партия · ${buildHarvestLotOptionLabel(batch)}`,
-        description: `Одиночный режим · доступно в партии: ${formatWeightKg(batch.cleanMassKg)}`,
+        description: batch.sharedImpurityPool
+          ? `Общая физическая партия после примеси · доступно: ${formatWeightKg(batch.cleanMassKg)}`
+          : `Одиночный режим · доступно в партии: ${formatWeightKg(batch.cleanMassKg)}`,
         groupLabel: "Партия целиком",
         supportsSharedSelection: false,
         batchId: batch.id,

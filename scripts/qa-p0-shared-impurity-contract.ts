@@ -78,6 +78,7 @@ async function main() {
     picker,
     paper,
     service,
+    harvestBatchesRoute,
   ] = await Promise.all([
     findMigration(),
     findExactSourceMigration(),
@@ -90,6 +91,7 @@ async function main() {
     load("components/weighbridge/impurity-source-picker.tsx"),
     load("components/weighbridge/weighbridge-ticket-paper.tsx"),
     load("lib/services/weighbridge.ts"),
+    load("app/api/weighbridge/harvest-batches/route.ts"),
   ]);
 
   let passed = 0;
@@ -249,6 +251,16 @@ async function main() {
     assert.match(page.text, /hasDuplicateImpurityCropStructureSources/);
     assert.match(page.text, /selectedImpuritySourceOptions\.every\(\(source\) => source\.supportsSharedSelection\)/);
     assert.match(page.text, /usesExactImpuritySourceScope/);
+  });
+
+  check("finalized shared pool remains selectable for repeated physical impurity trips", () => {
+    assert.match(harvestBatchesRoute.text, /loadSharedImpurityPoolSummaries/);
+    assert.match(harvestBatchesRoute.text, /origin_type[^]*shared_impurity_pool/);
+    assert.match(harvestBatchesRoute.text, /sharedImpurityPool:\s*true/);
+    assert.match(createRoute.text, /\.in\("origin_type", \["harvest", "shared_impurity_pool"\]\)/);
+    assert.match(createRoute.text, /pool_inventory_batch_id/);
+    assert.match(createRoute.text, /\.eq\("state", "finalized"\)/);
+    assert.match(page.text, /Общая физическая партия после примеси/);
   });
 
   check("UI closes shared impurity tickets through the atomic finalizer", () => {

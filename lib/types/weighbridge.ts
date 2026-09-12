@@ -329,6 +329,7 @@ export interface HarvestBatchSummary {
   cleanYieldTPerHa: number | null;
   aggregateLot?: boolean;
   aggregateLotId?: string | null;
+  sharedImpurityPool?: boolean;
   originState?: "ticket_lineage" | "ticket_lineage_absent";
   tripCount?: number;
   stockComponents?: Array<{
