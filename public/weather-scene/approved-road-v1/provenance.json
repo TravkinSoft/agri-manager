@@ -1,0 +1,7 @@
+{
+  "source": "wheat-panorama-approved-road-v1.html",
+  "sha256": "28d1ec4def96c153c4e740af3b35d0f60d4e29bfe39223d71cb1989819c92772",
+  "assets": 5,
+  "geometry": "unchanged",
+  "integration": "forecast time, rainfall, cloud cover, wind, pause, lifecycle"
+}

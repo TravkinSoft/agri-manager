@@ -1,0 +1,22 @@
+import assert from "node:assert/strict";
+import { weatherSceneState } from "../lib/weather/scene-state";
+import type { NormalizedWeather, WeatherPoint } from "../lib/weather/types";
+
+const point = { time: "2026-09-13T07:00:00+05:00", windMs: 4, precipitationRateMmH: 0, precipitationProbabilityPct: 100, cloudCoverPct: 80 } as WeatherPoint;
+const weather = { providerMeta: { timezone: "Asia/Almaty", utcOffsetMinutes: 300 }, sun: [{ date: "2026-09-13", sunrise: "2026-09-13T07:00:00+05:00", sunset: "2026-09-13T20:00:00+05:00" }] } as NormalizedWeather;
+const state = (patch: Partial<WeatherPoint> = {}) => weatherSceneState(weather, { ...point, ...patch })!;
+assert.equal(state().hour, 6);
+assert.equal(state({ time: "2026-09-13T20:00:00+05:00" }).hour, 18);
+assert.equal(state({ time: "2026-09-13T13:30:00+05:00" }).hour, 12);
+assert(state({ time: "2026-09-13T19:30:00+05:00" }).hour < 18);
+assert.equal(state().rain, 0, "probability must not cause rain");
+assert.equal(state().cloud, .8, "cloud cover independent of rain");
+assert.equal(state({ precipitationRateMmH: 10 }).rain, 1);
+assert.equal(state({ precipitationRateMmH: 1 }).rain, Math.sqrt(.1));
+assert.equal(state({ precipitationType: "snow", precipitationRateMmH: 8 }).rain, 0);
+assert.equal(state({ windMs: 0 }).wind, 0);
+assert.equal(state({ windMs: 40 }).wind, 16);
+assert.equal(weatherSceneState(weather, { ...point, time: "invalid" }), null);
+assert.equal(weatherSceneState({ ...weather, sun: [] }, point)!.hour, 7);
+assert.equal(weatherSceneState({ ...weather, sun: [], providerMeta: { ...weather.providerMeta, timezone: "invalid" } }, point)!.hour, 7);
+console.log("Weather scene data mapping: 14 checks passed");

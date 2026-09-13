@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { WeatherPanorama } from "./weather-panorama";
 import {
   AlertTriangle,
   ChevronLeft,
@@ -846,6 +847,7 @@ export function WeatherLab({
           </section>
 
           <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
+            <WeatherPanorama weather={weather} point={selectedHour?.point || current} />
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border p-3 sm:p-4">
               <div>
                 <SectionTitle icon={Wind}>Рабочее окно</SectionTitle>

@@ -1,0 +1,23 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Погода · TravkinFlow</title><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#191b17}#tf-wheat-light .controls,#tf-wheat-light>p{display:none!important}#tf-wheat-light .view{height:100%;aspect-ratio:21/9}#tf-wheat-light{height:100%}</style></head><body><div id="tf-wheat-light">
+ <style>
+ #tf-wheat-light .view{width:100%;aspect-ratio:21/9;position:relative;overflow:hidden}
+ #tf-wheat-light canvas{display:block;width:100%;height:100%}
+ #tf-wheat-light .view>img{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:cover;z-index:1}
+ #tf-wheat-light .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:14px}
+ #tf-wheat-light .wind{flex:1 1 210px;min-width:0}
+ #tf-wheat-light .label{display:flex;justify-content:space-between;gap:10px;margin-bottom:8px}
+ #tf-wheat-light output{font-variant-numeric:tabular-nums}
+ #tf-wheat-light [hidden]{display:none!important}
+ </style>
+ <div class="view" role="img" aria-label="Трёхмерное пшеничное поле на закате и дерево справа. Стебли и ветви реагируют на ветер."><img src="./asset-0.jpeg" alt="Пшеничное поле и дерево на закате" width="1680" height="720"></div>
+ <p class="text-small" role="status">Подготовка 3D-сцены…</p>
+ <div class="controls"><div class="wind"><div class="label"><label for="sun-time-slider">Время суток</label><output for="sun-time-slider" aria-live="polite">17:15</output></div><input class="form-range" id="sun-time-slider" type="range" min="0" max="24" step="0.05" value="17.25" aria-valuetext="17:15"></div></div>
+ <div class="controls"><div class="wind"><div class="label"><label for="rain-light-amount">Дождь</label><output for="rain-light-amount" aria-live="polite">Нет</output></div><input class="form-range" id="rain-light-amount" type="range" min="0" max="100" step="1" value="0" aria-valuetext="Нет"></div></div>
+ <div class="controls">
+  <div class="wind"><div class="label"><label for="wind-light-speed">Ветер</label><output for="wind-light-speed" aria-live="polite">4 м/с</output></div><input class="form-range" id="wind-light-speed" type="range" min="0" max="16" step="0.5" value="4" disabled></div>
+  <button class="btn" type="button" data-action="close" aria-pressed="false" disabled>Колосья ближе</button>
+  <button class="btn" type="button" data-action="pause" aria-pressed="false" disabled>Пауза</button>
+ </div>
+ <script src="./scene.js"></script>
+</div>
+</body></html>
