@@ -61,9 +61,10 @@ check("zero-route form has no blocking active-harvest banner", () => {
   assert.doesNotMatch(page, /Добавьте или выберите активную уборку над формой/);
 });
 
-check("missing harvest fields only disable the CTA", () => {
-  assert.match(page, /disabled=\{submitting \|\| Boolean\(currentValidationError\)/);
-  assert.doesNotMatch(page, /form\.operationType === "harvest_incoming" && !loading && currentValidationError/);
+check("harvest CTA reports missing requirements instead of silently disabling", () => {
+  assert.match(page, /disabled=\{submitting \|\| \(canUseOperatorSession && !operatorState\.unlocked\)\}/);
+  assert.match(page, /form\.operationType === "harvest_incoming" && canOperate/);
+  assert.match(page, /currentValidationError[\s\S]*Форма готова — можно открыть талон/);
 });
 
 check("original field and warehouse row is restored", () => {

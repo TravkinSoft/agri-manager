@@ -146,7 +146,7 @@ export function ImpuritySourcePicker({
           <div className="travkin-scrollbar min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-4 py-3 sm:px-6">
             {options.length ? (
               <p className="mb-3 border-l-2 border-amber-400 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                «Вся партия» списывает общую партию. Точный участок ограничивает списание источниками этого участка.
+                Отметьте галочками одну или несколько точных партий. Несколько партий будут оформлены одним талоном примеси.
               </p>
             ) : null}
             {groupedOptions.length === 0 ? (

@@ -3758,22 +3758,28 @@ export default function WeighbridgeOperationsPage() {
 
     availableHarvestBatches.forEach((batch) => {
       const sources = Array.isArray(batch.cropStructureSources) ? batch.cropStructureSources : [];
-      pushOption({
-        key: `legacy:${batch.id}`,
-        label: `Вся партия · ${buildHarvestLotOptionLabel(batch)}`,
-        description: batch.sharedImpurityPool
-          ? `Общая физическая партия после примеси · доступно: ${formatWeightKg(batch.cleanMassKg)}`
-          : `Одиночный режим · доступно в партии: ${formatWeightKg(batch.cleanMassKg)}`,
-        groupLabel: "Партия целиком",
-        supportsSharedSelection: false,
-        batchId: batch.id,
-        harvestLotId: batch.aggregateLotId || null,
-        cropStructureId: null,
-        warehouseId: batch.warehouseId,
-        productId: batch.productId,
-        cropId: batch.cropId || null,
-        cleanMassKg: Number(batch.cleanMassKg || 0),
-      });
+      // Exact source rows are the normal weighman path and support combining
+      // several field lots in one impurity ticket. Showing an additional
+      // single-select "whole lot" row for the same stock made the first click
+      // silently block the second lot (most visibly on field 49-2).
+      if (sources.length === 0) {
+        pushOption({
+          key: `legacy:${batch.id}`,
+          label: `Вся партия · ${buildHarvestLotOptionLabel(batch)}`,
+          description: batch.sharedImpurityPool
+            ? `Общая физическая партия после примеси · доступно: ${formatWeightKg(batch.cleanMassKg)}`
+            : `Одиночный режим · доступно в партии: ${formatWeightKg(batch.cleanMassKg)}`,
+          groupLabel: "Партия без точной привязки",
+          supportsSharedSelection: false,
+          batchId: batch.id,
+          harvestLotId: batch.aggregateLotId || null,
+          cropStructureId: null,
+          warehouseId: batch.warehouseId,
+          productId: batch.productId,
+          cropId: batch.cropId || null,
+          cleanMassKg: Number(batch.cleanMassKg || 0),
+        });
+      }
 
       sources.forEach((source) => {
         const harvestLotId = String(source.harvestLotId || batch.aggregateLotId || "").trim();
@@ -6235,12 +6241,27 @@ export default function WeighbridgeOperationsPage() {
                     <Button
                       className="h-10 w-full font-semibold"
                       onClick={() => void create()}
-                      disabled={submitting || Boolean(currentValidationError) || !activeShift || (canUseOperatorSession && !operatorState.unlocked)}
+                      disabled={submitting || (canUseOperatorSession && !operatorState.unlocked)}
                     >
                       {submitting ? "Открытие..." : "Открыть талон"}
                     </Button>
                   ) : null}
                 </div>
+                {form.operationType === "harvest_incoming" && canOperate ? (
+                  <div className="mt-2 min-h-5 text-xs" role="status" aria-live="polite">
+                    {!activeShift
+                      ? <span className="text-amber-800">Смена закрыта: нажмите «Открыть талон», чтобы увидеть действие для продолжения.</span>
+                      : canUseOperatorSession && !operatorState.unlocked
+                        ? (
+                          <button type="button" className="font-medium text-amber-800 underline underline-offset-2" onClick={openShiftAction}>
+                            Терминал заблокирован: введите PIN весовщика.
+                          </button>
+                        )
+                        : currentValidationError
+                          ? <span className="text-amber-800">{currentValidationError}</span>
+                          : <span className="text-emerald-800">Форма готова — можно открыть талон.</span>}
+                  </div>
+                ) : null}
               </div>
               </section>
             ) : null}

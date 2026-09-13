@@ -255,17 +255,20 @@ async function main() {
     assert.match(service.text, /\.\.\.\(impuritySourceScope \? \{ impurity_source_scope: impuritySourceScope \} : \{\}\)/);
   });
 
-  check("UI preserves whole-party legacy mode and supports exact single or multi-source mode", () => {
+  check("UI hides the single-select legacy duplicate when exact multi-source rows exist", () => {
+    assert.match(page.text, /if \(sources\.length === 0\)/);
     assert.match(page.text, /key: `legacy:\$\{batch\.id\}`/);
     assert.match(page.text, /label: `Вся партия/);
     assert.match(page.text, /supportsSharedSelection: false/);
     assert.match(page.text, /supportsSharedSelection: true/);
+    assert.match(page.text, /Партия без точной привязки/);
     assert.match(page.text, /Точный участок · остаток показан по связанной партии/);
     assert.match(page.text, /hasExactImpuritySourceScope/);
     assert.match(page.text, /hasMultipleExactImpuritySources/);
     assert.match(page.text, /hasDuplicateImpurityCropStructureSources/);
     assert.match(page.text, /selectedImpuritySourceOptions\.every\(\(source\) => source\.supportsSharedSelection\)/);
     assert.match(page.text, /usesExactImpuritySourceScope/);
+    assert.match(picker.text, /одну или несколько точных партий/);
   });
 
   check("only an unresolved legacy pool can appear as a combined stock card", () => {
@@ -317,12 +320,12 @@ async function main() {
     );
   });
 
-  check("picker accepts one exact source and prevents whole-party/exact mixing", () => {
+  check("picker accepts one or several exact sources and prevents legacy/exact mixing", () => {
     assert.match(picker.text, /selectedContainsLegacyFallback/);
     assert.doesNotMatch(picker.text, /hasIncompleteSharedSelection/);
     assert.doesNotMatch(picker.text, /disabled=\{hasIncompleteSharedSelection\}/);
     assert.match(picker.text, /Можно выбрать один точный участок/);
-    assert.match(picker.text, /Точный участок ограничивает списание источниками этого участка/);
+    assert.match(picker.text, /Несколько партий будут оформлены одним талоном примеси/);
   });
 
   check("open cards, journal, preview and paper expose unresolved shared provenance", () => {
