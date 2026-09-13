@@ -772,12 +772,12 @@ test("direct OpenAI has credential priority and keeps the direct model unchanged
   const result = await planQuestion("Урожайность", {
     apiKey: "direct-fixture-secret",
     oidcToken: "oidc-fixture-secret",
-    model: "gpt-5.4-mini",
+    model: "gpt-5.6-terra",
     transport: async (url, init) => {
       calls++;
       assert.equal(url, "https://api.openai.com/v1/responses");
       assert.equal(new Headers(init.headers).get("authorization"), "Bearer direct-fixture-secret");
-      assert.equal(JSON.parse(String(init.body)).model, "gpt-5.4-mini");
+      assert.equal(JSON.parse(String(init.body)).model, "gpt-5.6-terra");
       assert.equal(String(init.body).includes("fixture-secret"), false);
       assert.equal(init.redirect, "error");
       return modelResponse('{"intent":"yield","asksWrite":false}');
@@ -786,14 +786,14 @@ test("direct OpenAI has credential priority and keeps the direct model unchanged
   assert.equal(calls, 1);
   assert.deepEqual(result, { state: "model", intent: "yield" });
   assert.equal(plannerTransport({ apiKey: "a", oidcToken: "b" }), "openai_direct");
-  assert.equal(plannerModel({ apiKey: "a" }), "gpt-5.4-mini");
+  assert.equal(plannerModel({ apiKey: "a" }), "gpt-5.6-terra");
 });
 
 test("OIDC calls only Gateway with provider-qualified model and no token in body/result", async () => {
   for (const [model, expected] of [
-    [undefined, "openai/gpt-5.4-mini"],
-    ["gpt-5.4-mini", "openai/gpt-5.4-mini"],
-    ["openai/gpt-5.4-mini", "openai/gpt-5.4-mini"],
+    [undefined, "openai/gpt-5.6-terra"],
+    ["gpt-5.6-terra", "openai/gpt-5.6-terra"],
+    ["openai/gpt-5.6-terra", "openai/gpt-5.6-terra"],
     ["provider/custom-model", "provider/custom-model"],
   ]) {
     const result = await planQuestion("Урожайность", {
@@ -815,6 +815,25 @@ test("OIDC calls only Gateway with provider-qualified model and no token in body
   }
   assert.equal(plannerTransport({ oidcToken: "b" }), "vercel_gateway_oidc");
   assert.equal(plannerModel({ apiKey: "a", model: "provider/custom-model" }), "provider/custom-model");
+});
+
+test("Terra defaults never fall back to 5.4-mini on provider rejection", async () => {
+  for (const [credentials, expected] of [
+    [{ apiKey: "direct", oidcToken: "oidc" }, "gpt-5.6-terra"],
+    [{ oidcToken: "oidc" }, "openai/gpt-5.6-terra"],
+  ] as const) {
+    const models: string[] = [];
+    const result = await planQuestion("Урожайность", {
+      ...credentials,
+      transport: async (_url, init) => {
+        models.push(JSON.parse(String(init.body)).model);
+        return new Response("billing rejected", { status: 403 });
+      },
+    });
+    assert.equal(result.state, "unavailable");
+    assert.deepEqual(models, [expected]);
+    assert.equal(models.some((model) => model.includes("5.4-mini")), false);
+  }
 });
 
 test("provider errors neither leak token nor retry credentials against another origin", async () => {
@@ -885,6 +904,8 @@ test("health exposes only transport enum and credential presence", async () => {
       const response = assistHealth();
       const body = await response.json();
       assert.equal(body.aiTransport, expected);
+      assert.equal(body.aiDefaultModel, expected === "vercel_gateway_oidc" ? "openai/gpt-5.6-terra" : "gpt-5.6-terra");
+      assert.equal(body.aiModelOverridden, Boolean(process.env.OPENAI_ASSISTANT_MODEL));
       assert.equal(body.aiConfigured, expected !== "none");
       assert.equal(body.aiAvailability, "not_checked");
       assert.equal(JSON.stringify(body).includes("fixture-secret"), false);
@@ -921,15 +942,24 @@ test("deployment smoke uses a fixed synthetic question and logs only safe verifi
   const r = await deploymentModelSmoke(deploymentEnv, async (message, config) => {
     assert.equal(message, "Какая урожайность картофеля в тоннах на гектар?");
     assert.equal(config.oidcToken, "oidc-fixture-secret");
+    assert.equal(plannerModel(config), "openai/gpt-5.6-terra");
     return { state: "model", intent: "yield" };
   });
   assert.equal(r.status, "passed");
+  assert.equal(r.defaultModel, "openai/gpt-5.6-terra");
+  assert.equal(r.modelOverridden, false);
   assert.equal(JSON.stringify(r).includes("fixture-secret"), false);
   assert.equal(JSON.stringify(r).includes("картофеля"), false);
   const missing = await deploymentModelSmoke({ ...deploymentEnv, VERCEL_OIDC_TOKEN: "" });
   assert.equal(missing.status, "failed");
   const wrong = await deploymentModelSmoke(deploymentEnv, async () => ({ state: "model", intent: "fleet" }));
   assert.equal(wrong.status, "failed");
+  const override = await deploymentModelSmoke({ ...deploymentEnv, OPENAI_ASSISTANT_MODEL: "override-fixture-secret" }, async (_message, config) => {
+    assert.equal(plannerModel(config), "openai/override-fixture-secret");
+    return { state: "model", intent: "yield" };
+  });
+  assert.equal(override.modelOverridden, true);
+  assert.equal(JSON.stringify(override).includes("fixture-secret"), false);
 });
 
 test("deployment error diagnostics return fixed categories and never raw provider text or token", () => {

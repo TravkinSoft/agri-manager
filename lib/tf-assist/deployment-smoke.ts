@@ -1,4 +1,4 @@
-import { planQuestion, plannerTransport, type PlannerConfig } from "./planner";
+import { planQuestion, plannerTransport, plannerModel, type PlannerConfig } from "./planner";
 import { previewEnabled } from "./preview-gate";
 
 // Map provider text to a fixed vocabulary; never log arbitrary response content.
@@ -45,6 +45,8 @@ export async function deploymentModelSmoke(
     status: result.state === "model" && result.intent === "yield" ? "passed" : "failed",
     sha,
     transport,
+    defaultModel: plannerModel({ ...config, model: undefined }),
+    modelOverridden: Boolean(config.model),
     state: result.state,
     intent: result.intent,
     code: result.code,

@@ -35,7 +35,7 @@ export function plannerTransport(config: PlannerConfig): AiTransport {
 }
 
 export function plannerModel(config: PlannerConfig): string {
-  const model = config.model || "gpt-5.4-mini";
+  const model = config.model || "gpt-5.6-terra";
   return plannerTransport(config) === "vercel_gateway_oidc" && !model.includes("/")
     ? `openai/${model}`
     : model;
