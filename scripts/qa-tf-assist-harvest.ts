@@ -21,6 +21,7 @@ import { answerQuestion } from "../lib/tf-assist/service";
 import { QuestionSchema, classifyQuestion } from "../lib/tf-assist/question";
 import { businessTime } from "../lib/tf-assist/business-time";
 import { planQuestion } from "../lib/tf-assist/planner";
+import { previewEnabled, PREVIEW_BRANCH } from "../lib/tf-assist/preview-gate";
 
 const id = (n: number): string =>
   `00000000-0000-4000-8000-${n.toString().padStart(12, "0")}`;
@@ -699,4 +700,51 @@ test("a malicious model cannot override the server write-command veto", async ()
     /не выполняет/,
   );
   assert.equal(calls, 0);
+});
+test("unresolved, merged, or conflicting harvest lot blocks source confirmation", () => {
+  const s = fixture();
+  list(s, "harvest_lot_batches").push({
+    company_id: companyId,
+    id: id(3000),
+    source_ticket_id: id(100),
+    crop_structure_id: sourceId,
+    harvest_lot_id: id(3001),
+  });
+  list(s, "harvest_lots").push({
+    company_id: companyId,
+    id: id(3001),
+    review_state: "requires_review",
+    status: "active",
+  });
+  assert.equal(ticketSource(s, list(s, "tickets")[0]), null);
+  list(s, "harvest_lots")[0].review_state = "confirmed";
+  assert.equal(ticketSource(s, list(s, "tickets")[0]), sourceId);
+  list(s, "harvest_lots")[0].reproduction_id = id(53);
+  assert.equal(ticketSource(s, list(s, "tickets")[0]), null);
+});
+test("substring of a different variety cannot select Gala", () => {
+  const s = fixture();
+  list(s, "varieties")[0].name = "Гала";
+  const a = buildAnswer(
+    s,
+    { companyId, seasonId, message: "Урожай Галактики" },
+    "harvest",
+  );
+  assert.ok(a.choices);
+  assert.equal(a.sourceId, undefined);
+});
+test("only the approved QA Preview branch auto-enables; explicit off wins and Production is always off", () => {
+  const env = {
+    VERCEL_ENV: "preview",
+    VERCEL_GIT_COMMIT_REF: PREVIEW_BRANCH,
+    NEXT_PUBLIC_SUPABASE_URL: QA_ORIGIN,
+  };
+  assert.equal(previewEnabled(env), true);
+  for (const patch of [
+    { VERCEL_ENV: "production", TF_ASSIST_HARVEST_V1: "1" },
+    { VERCEL_GIT_COMMIT_REF: "master" },
+    { NEXT_PUBLIC_SUPABASE_URL: "https://bhsemlvmkikpntabctml.supabase.co" },
+    { TF_ASSIST_HARVEST_V1: "0" },
+  ])
+    assert.equal(previewEnabled({ ...env, ...patch }), false);
 });

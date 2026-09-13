@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
+const { previewEnabled } = require('./lib/tf-assist/preview-gate');
 const nextConfig = {
+  env: {
+    NEXT_PUBLIC_TF_ASSIST_HARVEST_V1: previewEnabled(process.env) ? '1' : '0',
+  },
   eslint: {
     ignoreDuringBuilds: true,
   },

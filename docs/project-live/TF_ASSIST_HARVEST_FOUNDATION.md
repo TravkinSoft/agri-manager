@@ -88,3 +88,11 @@
 - Real readonly QA check `npx --no-install tsx scripts/audit/tf-assist-readonly.ts`: **26/26 sources complete for each of two isolated QA companies**. Artifact: `tf-assist-qa-readonly-evidence.json`. QA shared impurity is V1; source clean figures are withheld. No data/schema writes.
 - CEO confirmed existing AI env in remote Preview; no new key. LLM local tests use injected transport only. Vercel publish path is commit/push of isolated branch. Common QA alias remains untouched.
 - Remote deployment, AI env boolean preflight and authenticated browser UI proof: **PENDING**. Full readiness for real use is not claimed.
+
+### Remote Preview preflight and follow-up
+
+- Initial immutable Preview `dpl_9116mgUFHQDa89fYMCvdVQaJbzmr`, `agri-manager-dg5ohrebz-travkin-ais-projects.vercel.app`: READY, Git SHA `53814317a54f788cec8ebf5debc5ccb1ca2ee93d`.
+- Boolean HTTP preflight succeeded using connector-issued temporary Vercel access. `qaBound=true`, `sourceCredentialConfigured=true`, `productionLocked=false`, `aiConfigured=false`. Missing model variable: **OPENAI_API_KEY**. No secret values inspected/exposed.
+- Initial feature flags absent. Follow-up uses one reviewed shared gate for the exact approved Preview branch + QA origin. Explicit off wins; all Production builds/functions remain off. No remote environment/secret changes required, no QA alias reassignment.
+- Follow-up tightens lot identity (requires_review/merged/conflicting reproduction) and prevents a variety substring from selecting another variety. Added denied-request audit event. Tests now **41/41 PASS**.
+- Browser preflight encountered Vercel login / ERR_BLOCKED_BY_CLIENT; server HTTP preflight succeeded independently. A positive authenticated QA browser test is still unproven. Final Preview verification will use the follow-up SHA, not the initial deployment.

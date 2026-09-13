@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
 import { QA_ORIGIN } from "@/lib/tf-assist/policy";
+import { previewEnabled } from "@/lib/tf-assist/preview-gate";
 export const dynamic = "force-dynamic";
 export function GET() {
   // Boolean-only preflight. No keys, URLs, users or business data are exposed.
   const qaBound =
     process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "") === QA_ORIGIN;
-  const enabled =
-    process.env.TF_ASSIST_HARVEST_V1 === "1" &&
-    process.env.VERCEL_ENV !== "production" &&
-    qaBound;
+  const enabled = previewEnabled(process.env);
   return NextResponse.json(
     {
       feature: "tf-assist-harvest-v1",

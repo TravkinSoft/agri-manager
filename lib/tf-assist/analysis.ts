@@ -30,7 +30,11 @@ export const effective = (t: Row): boolean =>
   !t.replacement_ticket_id;
 const ev = (table: SourceName, row: Row, value?: string): Evidence => ({
   table,
-  id: str(row, "id") || str(row, "vehicle_id") || str(row, "company_id"),
+  id:
+    str(row, "id") ||
+    str(row, "vehicle_id") ||
+    str(row, "operator_user_id") ||
+    str(row, "company_id"),
   status:
     str(row, "status") ||
     str(row, "state") ||
@@ -40,6 +44,8 @@ const ev = (table: SourceName, row: Row, value?: string): Evidence => ({
     str(row, "occurred_at") ||
     str(row, "updated_at") ||
     str(row, "since") ||
+    str(row, "changed_at") ||
+    str(row, "opened_at") ||
     undefined,
   value,
 });
@@ -47,6 +53,15 @@ const index = (s: Snapshot, t: SourceName) =>
   new Map(rows(s, t).map((r) => [str(r, "id"), r]));
 const norm = (v: string): string =>
   v.toLocaleLowerCase("ru-RU").replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+const mentions = (message: string, name: string): boolean => {
+  const escaped = norm(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (
+    name.length > 2 &&
+    new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}($|[^\\p{L}\\p{N}])`, "u").test(
+      message,
+    )
+  );
+};
 
 export function sourceChoices(s: Snapshot, seasonId: string): Choice[] {
   const fields = index(s, "fields"),
@@ -88,6 +103,24 @@ export function ticketSource(s: Snapshot, ticket: Row): string | null {
     (ticket.season_id && source.season_id !== ticket.season_id)
   )
     return null;
+  for (const link of rows(s, "harvest_lot_batches").filter(
+    (r) => r.source_ticket_id === ticket.id,
+  )) {
+    const lot = rows(s, "harvest_lots").find(
+      (r) => r.id === link.harvest_lot_id,
+    );
+    if (
+      !lot ||
+      lot.review_state !== "confirmed" ||
+      lot.merged_into_lot_id ||
+      lot.status === "merged" ||
+      (lot.source_field_id && lot.source_field_id !== source.field_id) ||
+      ["season_id", "crop_id", "variety_id", "reproduction_id"].some(
+        (k) => lot[k] && lot[k] !== source[k],
+      )
+    )
+      return null;
+  }
   const lines = rows(s, "ticket_lines").filter(
     (l) => l.ticket_id === ticket.id,
   );
@@ -116,14 +149,10 @@ function pickSource(
     reps = index(s, "seed_reproductions");
   const fieldNumber = /пол[еяю]\s*№?\s*(\d+[а-яa-z]?)/i.exec(message)?.[1];
   const namedVarieties = rows(s, "varieties").filter((r) =>
-    [str(r, "name"), str(r, "name_ru")].some(
-      (n) => n.length > 2 && message.includes(norm(n)),
-    ),
+    [str(r, "name"), str(r, "name_ru")].some((n) => mentions(message, n)),
   );
   const namedReps = rows(s, "seed_reproductions").filter((r) =>
-    [str(r, "name"), str(r, "name_ru")].some(
-      (n) => n.length > 2 && message.includes(norm(n)),
-    ),
+    [str(r, "name"), str(r, "name_ru")].some((n) => mentions(message, n)),
   );
   if (!fieldNumber && !namedVarieties.length && !namedReps.length)
     return q.sourceId ? choices.find((c) => c.id === q.sourceId) : undefined;

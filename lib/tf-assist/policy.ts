@@ -1,4 +1,5 @@
 import type { Scope } from "./contracts";
+import { previewEnabled } from "./preview-gate";
 
 export class AssistError extends Error {
   constructor(
@@ -14,7 +15,7 @@ export const UUID =
 export const QA_ORIGIN = "https://gsglkmudcwkdetqtocae.supabase.co";
 
 export function assertRuntime(env: Record<string, string | undefined>): void {
-  if (env.TF_ASSIST_HARVEST_V1 !== "1" || env.VERCEL_ENV === "production")
+  if (!previewEnabled(env))
     throw new AssistError("TF Assist ещё не включён.", 404);
   if (env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "") !== QA_ORIGIN)
     throw new AssistError(

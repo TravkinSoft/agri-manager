@@ -99,8 +99,12 @@ export async function POST(request: NextRequest) {
     });
     return json(answer);
   } catch (error) {
-    if (error instanceof AssistError || error instanceof SessionAuthError)
+    if (error instanceof AssistError || error instanceof SessionAuthError) {
+      console.info(
+        JSON.stringify({ event: "tf_assist_denied", status: error.status }),
+      );
       return json({ error: error.message }, error.status);
+    }
     if (error instanceof ZodError)
       return json(
         { error: "Проверьте вопрос, компанию и параметры площади." },
