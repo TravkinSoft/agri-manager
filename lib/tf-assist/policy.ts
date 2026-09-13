@@ -5,6 +5,7 @@ export class AssistError extends Error {
   constructor(
     message: string,
     public status = 400,
+    public code?: "AI_UNAVAILABLE",
   ) {
     super(message);
     this.name = "AssistError";

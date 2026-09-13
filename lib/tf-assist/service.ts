@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { buildAnswer } from "./analysis";
 import type { Answer, Intent, Scope, Snapshot } from "./contracts";
-import { QuestionSchema, classifyQuestion, isWriteRequest } from "./question";
+import { QuestionSchema, isWriteRequest } from "./question";
 import { AssistError, sameScope } from "./policy";
 import type { PlanResult } from "./planner";
 
@@ -25,16 +25,16 @@ export async function answerQuestion(
       "TF Assist не выполняет команды изменения данных.",
       422,
     );
-  const baseline = classifyQuestion(question.message);
   const plan = dependencies.plan
     ? await dependencies.plan(question.message)
     : undefined;
-  const intent =
-    plan?.state === "model"
-      ? plan.intent
-      : plan?.state === "rejected"
-        ? null
-        : baseline;
+  if (!plan || plan.state === "unavailable")
+    throw new AssistError(
+      "AI временно недоступен. Ответ не сформирован; повторите запрос позже.",
+      503,
+      "AI_UNAVAILABLE",
+    );
+  const intent = plan.state === "model" ? plan.intent : null;
   if (!intent)
     throw new AssistError(
       "TF Assist читает уборку, партии, склады и ПТЦ. Уточните вопрос; команды изменения данных не выполняются.",
@@ -44,10 +44,6 @@ export async function answerQuestion(
   try {
     const snapshot = await dependencies.load(scope.companyId, intent);
     const answer = buildAnswer(snapshot, question, intent);
-    if (plan?.state === "unavailable")
-      answer.warnings.push(
-        "Модельный разбор недоступен; вопрос обработан ограниченными правилами чтения. Расчёты выполнены сервером.",
-      );
     sameScope(scope, await dependencies.authorize(question.companyId));
     decision = "answered";
     dependencies.audit({

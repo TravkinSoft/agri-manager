@@ -104,7 +104,10 @@ export async function POST(request: NextRequest) {
       console.info(
         JSON.stringify({ event: "tf_assist_denied", status: error.status }),
       );
-      return json({ error: error.message }, error.status);
+      return json({
+        error: error.message,
+        ...(error instanceof AssistError && error.code ? { code: error.code } : {}),
+      }, error.status);
     }
     if (error instanceof ZodError)
       return json(

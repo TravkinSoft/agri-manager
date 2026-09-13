@@ -109,3 +109,7 @@
 ### Gateway OIDC continuation (2026-09-13)
 
 CEO authorized existing Vercel OIDC Gateway without creating/storing a new key. OPENAI_API_KEY keeps direct priority; absent direct key selects Gateway with VERCEL_OIDC_TOKEN. Provider prefix mapping is Gateway-only. Health exposes safe transport enum. Internal exact-Preview-only build smoke calls the real classifier with one synthetic question, no business data or public endpoint. 48 tests PASS + existing GA10/10 PASS. Remote proof follows the next immutable deployment; historical missing-key blocker remains historical until live verification. Positive authenticated UI still needs the existing QA session. Production/master/DB/migrations/remote env/qa.travkinflow.com alias remain outside scope.
+
+### CEO decision after Gateway403 (2026-09-13)
+
+Real Gateway OIDC calls on ca6a3f7 and f1c22c3 returned403; safe category billing_or_budget. No successful model answer. CEO authorized separating build readiness from the external model gate: internal smoke retains exit1 and logs qaExitCode=1/blockingBuild=false, wrapper permits Preview deployment. Query now fails closed before all source reads with HTTP503/code AI_UNAVAILABLE whenever planner/credential/model is unavailable; deterministic fallback removed. Health aiConfigured only means credential presence; aiAvailability=not_checked; model smoke reported separately. 50/50 tests +10GA PASS; no purchases, budget/env/DB/alias/Production changes.

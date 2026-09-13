@@ -20,6 +20,8 @@ export function GET() {
       uiEnabled: process.env.NEXT_PUBLIC_TF_ASSIST_HARVEST_V1 === "1",
       aiConfigured: aiTransport !== "none",
       aiTransport,
+      // Credential presence is not proof of live provider availability.
+      aiAvailability: "not_checked",
       sourceCredentialConfigured: Boolean(
         process.env.SUPABASE_SERVICE_ROLE_KEY,
       ),

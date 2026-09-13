@@ -551,6 +551,7 @@ test("concurrent company or user switch prevents returning the completed answer"
   await assert.rejects(
     () =>
       answerQuestion(q, {
+        plan: async () => ({ state: "model", intent: "yield" }),
         authorize: async () => ({
           userId: id(20),
           companyId: ++n === 1 ? companyId : id(2),
@@ -565,6 +566,7 @@ test("service audits IDs/digests, not prompts, rows, personal names or credentia
   const audit: unknown[] = [];
   const input = { ...q, message: "Урожайность SECRET_PROMPT" };
   const a = await answerQuestion(input, {
+    plan: async () => ({ state: "model", intent: "yield" }),
     authorize: async () => ({ userId: id(20), companyId }),
     load: async () => fixture(),
     audit: (r) => audit.push(r),
@@ -665,21 +667,21 @@ test("model refusals, fabricated numbers, SQL tools and invalid output are rejec
   });
   assert.equal(tool.state, "rejected");
 });
-test("missing key makes zero network calls; service can run deterministic read-only independently", async () => {
+test("missing credentials make zero network calls and query fails closed before reading data", async () => {
   const r = await planQuestion("Урожайность", {
     transport: async () => {
       throw new Error("MUST NOT CALL");
     },
   });
   assert.equal(r.code, "AI_CREDENTIAL_MISSING");
-  const a = await answerQuestion(q, {
+  let reads = 0;
+  await assert.rejects(() => answerQuestion(q, {
     authorize: async () => ({ userId: id(20), companyId }),
-    load: async () => fixture(),
+    load: async () => { reads++; return fixture(); },
     audit: () => {},
     plan: async () => r,
-  });
-  assert.ok(a.metrics.length);
-  assert.ok(a.warnings.some((w) => w.includes("Модельный разбор недоступен")));
+  }), (error: { status?: number; code?: string }) => error.status === 503 && error.code === "AI_UNAVAILABLE");
+  assert.equal(reads, 0);
 });
 test("a malicious model cannot override the server write-command veto", async () => {
   let calls = 0;
@@ -848,6 +850,7 @@ test("health exposes only transport enum and credential presence", async () => {
       const body = await response.json();
       assert.equal(body.aiTransport, expected);
       assert.equal(body.aiConfigured, expected !== "none");
+      assert.equal(body.aiAvailability, "not_checked");
       assert.equal(JSON.stringify(body).includes("fixture-secret"), false);
       assert.equal(response.headers.get("cache-control"), "no-store, private");
     }
@@ -901,4 +904,19 @@ test("deployment error diagnostics return fixed categories and never raw provide
     ["access_denied SECRET", "access_denied"],
     ["arbitrary SECRET bearer-token", "unclassified"],
   ]) assert.equal(smokeFailureKind(text), expected);
+});
+
+test("query refuses missing planner, billing rejection and timeout without a deterministic fallback", async () => {
+  for (const plan of [undefined,
+    async () => ({ state: "unavailable" as const, intent: null, code: "MODEL_HTTP_403" }),
+    async () => ({ state: "unavailable" as const, intent: null, code: "MODEL_UNAVAILABLE" }),
+  ]) {
+    let reads = 0;
+    await assert.rejects(() => answerQuestion(q, {
+      authorize: async () => ({ userId: id(20), companyId }),
+      load: async () => { reads++; return fixture(); },
+      audit: () => {}, plan,
+    }), (error: { status?: number; code?: string }) => error.status === 503 && error.code === "AI_UNAVAILABLE");
+    assert.equal(reads, 0);
+  }
 });
