@@ -436,6 +436,7 @@ test("runtime cannot be enabled in Production or against the Production database
   const env = {
     TF_ASSIST_HARVEST_V1: "1",
     VERCEL_ENV: "preview",
+    VERCEL_GIT_COMMIT_REF: PREVIEW_BRANCH,
     NEXT_PUBLIC_SUPABASE_URL: QA_ORIGIN,
   };
   assert.doesNotThrow(() => assertRuntime(env));
@@ -747,4 +748,16 @@ test("only the approved QA Preview branch auto-enables; explicit off wins and Pr
     { TF_ASSIST_HARVEST_V1: "0" },
   ])
     assert.equal(previewEnabled({ ...env, ...patch }), false);
+});
+
+test("explicit opt-in never bypasses Preview branch approval; local QA remains available", () => {
+  const env = {
+    VERCEL_ENV: "preview",
+    TF_ASSIST_HARVEST_V1: "1",
+    NEXT_PUBLIC_SUPABASE_URL: QA_ORIGIN,
+  };
+  assert.equal(previewEnabled(env), false);
+  assert.equal(previewEnabled({ ...env, VERCEL_GIT_COMMIT_REF: "unapproved" }), false);
+  assert.equal(previewEnabled({ ...env, VERCEL_GIT_COMMIT_REF: PREVIEW_BRANCH }), true);
+  assert.equal(previewEnabled({ ...env, VERCEL_ENV: "development" }), true);
 });

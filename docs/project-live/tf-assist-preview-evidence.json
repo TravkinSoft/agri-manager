@@ -1,0 +1,25 @@
+{
+  "sha": "7f540746aebce8572285126325846fd3f9278235",
+  "deployment": "dpl_93g8knUnYDQmPhuwXdTwwbKuARuR",
+  "checkedAt": "2026-09-13T17:07:47.8361312Z",
+  "landingStatus": 200,
+  "preflight": {
+    "feature": "tf-assist-harvest-v1",
+    "enabled": true,
+    "qaBound": true,
+    "uiEnabled": true,
+    "aiConfigured": false,
+    "sourceCredentialConfigured": true,
+    "productionLocked": false
+  },
+  "health": {
+    "ok": true,
+    "environment": "preview",
+    "deployment": "agri-manager-ia6ji02ch-travkin-ais-projects.vercel.app",
+    "commit": "7f540746aebc",
+    "generatedAt": "2026-09-13T17:07:45.768Z"
+  },
+  "unauthenticatedStatus": 401,
+  "unauthenticatedBody": "{\"error\":\"Missing authorization token\"}",
+  "foreignOriginStatus": 403
+}

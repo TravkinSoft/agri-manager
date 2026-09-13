@@ -1,6 +1,6 @@
 # TF Assist — первая рабочая основа уборочной кампании
 
-Статус: IN PROGRESS, 2026-09-13. Владелец задачи: специалист TF Assist; решения по интеграции и Production: CEO tf.
+Статус: IMPLEMENTED; AI runtime и положительный UI gate BLOCKED BY QA ENV, 2026-09-13. Владелец задачи: специалист TF Assist; решения по интеграции и Production: CEO tf.
 
 ## Авторизация и живой baseline
 
@@ -19,11 +19,11 @@
 | 1. Приёмка | Проверить master/health, старые dirty trees, изоляцию и правила; сохранить план | Точная чистая база, список чужих изменений, границы | DONE |
 | 2. Gap audit | Прочитать current assistant entrypoints, auth, данные harvest/ledger/PTC, физическую схему QA; классифицировать reuse/rewrite/exclude | Матрица источников, ограничения и принятый контракт | DONE |
 | 3. Read contract | Фиксированный набор только читающих источников; серверные company/role guards; минимальные DTO; provenance | Нет generic SQL, URL, RPC или mutation capability у модели | DONE |
-| 4. Детерминированное ядро | Массы в целых минимальных единицах; отдельные source identities; effective tickets; примеси; площади; диапазоны | Граничные и исторические тесты PASS | DONE (38 tests) |
-| 5. Вертикальный срез | Global Admin chat, выбор компании, вопрос → разрешённый план → чтение → расчёт → ответ с источниками | Уборка/поле/партия/склад/PTC/техника/урожайность в одном безопасном потоке | IMPLEMENTED; remote gate pending |
+| 4. Детерминированное ядро | Массы в целых минимальных единицах; отдельные source identities; effective tickets; примеси; площади; диапазоны | Граничные и исторические тесты PASS | DONE (42 tests) |
+| 5. Вертикальный срез | Global Admin chat, выбор компании, вопрос → разрешённый план → чтение → расчёт → ответ с источниками | Уборка/поле/партия/склад/PTC/техника/урожайность в одном безопасном потоке | IMPLEMENTED; readonly Preview PASS; model/UI blocked |
 | 6. Безопасность и контекст | Изоляция пользователя/компании, refresh scopes, injection boundaries, audit без секретов, отказ при неоднозначности | Негативные tenant/role/write/injection тесты PASS | DONE (mock/server tests) |
-| 7. Проверка | Unit + integration + browser; полный typecheck/build; проверка immutable Preview и привязки QA | Воспроизводимые доказательства, нет Production writes | IN PROGRESS |
-| 8. Передача | Записать SHA, файлы, команды, результаты, ограничения; обновить handoff и сообщить CEO | Подготовленный Preview для отдельного release-решения | TODO |
+| 7. Проверка | Unit + integration + browser; полный typecheck/build; проверка immutable Preview и привязки QA | Воспроизводимые доказательства, нет Production writes | Code/build/negative HTTP PASS; positive UI blocked |
+| 8. Передача | Записать SHA, файлы, команды, результаты, ограничения; обновить handoff и сообщить CEO | Подготовленный Preview для отдельного release-решения | Evidence saved; final CEO handoff follows Preview |
 
 После каждого существенного этапа обновить этот документ и общий handoff. Не завершать работу на плане. Ошибка gate возвращает в соответствующий этап; ложный PASS недопустим.
 
@@ -96,3 +96,13 @@
 - Initial feature flags absent. Follow-up uses one reviewed shared gate for the exact approved Preview branch + QA origin. Explicit off wins; all Production builds/functions remain off. No remote environment/secret changes required, no QA alias reassignment.
 - Follow-up tightens lot identity (requires_review/merged/conflicting reproduction) and prevents a variety substring from selecting another variety. Added denied-request audit event. Tests now **41/41 PASS**.
 - Browser preflight encountered Vercel login / ERR_BLOCKED_BY_CLIENT; server HTTP preflight succeeded independently. A positive authenticated QA browser test is still unproven. Final Preview verification will use the follow-up SHA, not the initial deployment.
+
+### Final source/security gate, 2026-09-13
+
+- Immutable `7f540746aebce8572285126325846fd3f9278235` Preview READY: `https://agri-manager-ia6ji02ch-travkin-ais-projects.vercel.app`, deployment `dpl_93g8knUnYDQmPhuwXdTwwbKuARuR`.
+- HTTP: root 200; enabled/qaBound/uiEnabled/sourceCredentialConfigured=true; aiConfigured=false; unauthenticated query 401; foreign Origin 403. Evidence in `tf-assist-preview-evidence.json`.
+- Browser: exact Preview root and login rendered; no saved session. Chrome `qa.travkinflow.com/auth/login` also displayed empty login form. Positive Global Admin/company-switch/evidence UI scenario NOT RUN; no credential reset or alias change.
+- Model runtime **BLOCKED BY QA ENV**: required `OPENAI_API_KEY` absent. Existing code names-only inspection found no alternative approved credential; model/base-URL options are not credentials. Missing-key mock produces explicit model-unavailable warning and no network call; deterministic reader remains independently testable.
+- Security diff scan `dffceafa-563d-4bba-a428-e8d11afa6271`: complete, 18 source/config/test files + 3 docs, 0 reportable findings. Scope `452cd1d0..7f540746`; report and SARIF retained in task handoff evidence. Daybreak not_granted; token usage unavailable.
+- Small post-scan follow-up makes exact branch mandatory for every Vercel Preview activation, even server flag 1. Production/off/non-QA vetoes and local QA opt-in remain. Supplementary independent source review PASS; **42/42 tests PASS**, targeted ESLint PASS. Sealed scan remains bound to `7f540746` and is not represented as a scan of a later commit.
+- Final remote deployment for this stricter gate and final handoff are recorded in the task report. Full feature acceptance/release remains blocked by missing QA AI configuration and positive authenticated UI proof.
