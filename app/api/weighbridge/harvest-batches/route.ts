@@ -7,7 +7,10 @@ import {
 } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { calculateHarvestBatchMetrics } from "@/lib/weighbridge/harvest-batch-math";
-import { calculateHarvestLotAccounting } from "@/lib/weighbridge/harvest-lot-accounting";
+import {
+  calculateHarvestLotAccounting,
+  isHarvestIncomingLedgerReason,
+} from "@/lib/weighbridge/harvest-lot-accounting";
 import {
   hasCompleteHarvestTicketLineage,
   lineageTicketIds,
@@ -1331,7 +1334,11 @@ async function loadAggregateHarvestLots(
       });
       const warehouseMemberBatchIds = ids([
         ...stockBearingBatchIds,
-        ...warehouseLedgerEntries.map((entry) => resolveLedgerBatchId(entry)),
+        ...warehouseLedgerEntries.flatMap((entry) => (
+          isHarvestIncomingLedgerReason(entry.reason_type)
+            ? []
+            : [resolveLedgerBatchId(entry)]
+        )),
       ]);
       const accountingEvidenceComplete = hasCompleteHarvestTicketLineage(
         memberLineage,

@@ -31,6 +31,10 @@ function isWriteoffReason(reason: string): boolean {
     .some((token) => reason.includes(token));
 }
 
+export function isHarvestIncomingLedgerReason(reason: unknown): boolean {
+  return String(reason || "").trim().toLowerCase().includes("harvest_incoming");
+}
+
 export function calculateHarvestLotAccounting(input: {
   receivedKg: number;
   voidedKg?: number;
@@ -54,7 +58,7 @@ export function calculateHarvestLotAccounting(input: {
 
     // Active receipts are represented by the finalized, non-voided trips.
     // Their original and storno ledger rows must not be counted a second time.
-    if (reason.includes("harvest_incoming")) continue;
+    if (isHarvestIncomingLedgerReason(reason)) continue;
 
     if (reason.includes("impurit")) {
       impurityKg -= delta;

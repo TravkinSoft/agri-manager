@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { calculateHarvestLotAccounting } from "../lib/weighbridge/harvest-lot-accounting";
+import {
+  calculateHarvestLotAccounting,
+  isHarvestIncomingLedgerReason,
+} from "../lib/weighbridge/harvest-lot-accounting";
 import {
   hasCompleteHarvestTicketLineage,
   isEffectiveFinalizedHarvestTicket,
@@ -128,7 +131,8 @@ check("warehouse detail and dashboard use one lineage resolver", () => {
   assert.match(harvestBatchRoute, /resolveHarvestTicketIdsByBatch\(lineage, ticketRows\)/);
   assert.match(harvestBatchRoute, /hasCompleteHarvestTicketLineage\(/);
   assert.match(harvestBatchRoute, /warehouseMemberBatchIds/);
-  assert.match(harvestBatchRoute, /warehouseMemberBatchIds = ids\(\[[\s\S]*?stockBearingBatchIds[\s\S]*?warehouseLedgerEntries\.map\(\(entry\) => resolveLedgerBatchId\(entry\)\)/);
+  assert.match(harvestBatchRoute, /warehouseMemberBatchIds = ids\(\[[\s\S]*?stockBearingBatchIds[\s\S]*?warehouseLedgerEntries\.flatMap/);
+  assert.match(harvestBatchRoute, /isHarvestIncomingLedgerReason\(entry\.reason_type\)/);
   assert.match(harvestBatchRoute, /reconciliationState:[\s\S]*?incomplete_lineage/);
   assert.match(dashboardRoute, /resolveHarvestLotTicketLineage/);
   assert.match(dashboardRoute, /while \(parentFrontier\.length\)/);
@@ -159,6 +163,12 @@ check("only effective finalized harvest tickets can reconcile warehouse accounti
     id: "ticket-replaced",
     replacement_ticket_id: "replacement",
   }), false);
+});
+
+check("voided receipt and storno rows do not make lineage look incomplete", () => {
+  assert.equal(isHarvestIncomingLedgerReason("harvest_incoming_in"), true);
+  assert.equal(isHarvestIncomingLedgerReason("storno_harvest_incoming_in"), true);
+  assert.equal(isHarvestIncomingLedgerReason("shared_impurity_out"), false);
 });
 
 check("complete legacy lineage does not create a false accounting mismatch", () => {
