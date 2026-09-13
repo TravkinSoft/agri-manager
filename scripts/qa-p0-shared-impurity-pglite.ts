@@ -118,6 +118,19 @@ async function findMemberSettlementMigration() {
   return candidates[0]!;
 }
 
+async function findSourceReleaseMigration() {
+  const migrationDirectory = join(process.cwd(), "supabase", "migrations");
+  const candidates: Array<{ path: string; sql: string }> = [];
+  for (const fileName of await readdir(migrationDirectory)) {
+    if (!fileName.endsWith(".sql")) continue;
+    const path = join(migrationDirectory, fileName);
+    const sql = await readFile(path, "utf8");
+    if (sql.includes("SHARED_IMPURITY_V3_SETTLED_SOURCE_NOT_RELEASED")) candidates.push({ path, sql });
+  }
+  assert.equal(candidates.length, 1, "exactly one settled-source release migration must exist");
+  return candidates[0]!;
+}
+
 async function bootstrap(db: PGlite) {
   await db.exec(`
     create role anon nologin;
@@ -844,6 +857,7 @@ async function main() {
   const migration = await findSharedImpurityMigration();
   const exactSourceMigration = await findExactSourceMigration();
   const memberSettlementMigration = await findMemberSettlementMigration();
+  const sourceReleaseMigration = await findSourceReleaseMigration();
   await check("migration is discovered by contract marker, not timestamp", () => {
     assert.match(migration.sql, /source OUT \(-S\) \+ pool IN \(\+S\) \+ impurity OUT \(-I\)/);
     assert.match(migration.sql, /Existing one-lot impurity functions and their signatures are not replaced/);
@@ -868,6 +882,8 @@ async function main() {
     await check("exact single-source extension compiles after the shared-pool migration", () => undefined);
     await db.exec(memberSettlementMigration.sql);
     await check("member-settlement migration compiles after both shared-source migrations", () => undefined);
+    await db.exec(sourceReleaseMigration.sql);
+    await check("settled-source release migration compiles after member settlement", () => undefined);
 
     await check("legacy single-lot RPC definition remains byte-for-byte unchanged and callable", async () => {
       const legacyDefinitionAfter = await scalar<string>(
@@ -1358,6 +1374,39 @@ async function main() {
       `, [created.ticket_id]), 9);
     });
 
+    await check("finalized sources are released and can enter the next shared ticket", async () => {
+      const released = await rows(db, `
+        select inventory_batch_id::text, state
+        from public.weighbridge_shared_impurity_source_batches
+        where group_id=$1::uuid
+        order by inventory_batch_id
+      `, [created.pool_id]);
+      assert.deepEqual(released, [
+        { inventory_batch_id: ID.batchA, state: "released" },
+        { inventory_batch_id: ID.batchB, state: "released" },
+      ]);
+
+      const nextCreated = await createShared(ID.secondSharedCreateKey, ID.vehicle2, ID.driver2);
+      assert.equal(nextCreated.ok, true);
+      assert.equal(Number(nextCreated.source_total_kg), 185);
+      assert.equal(Number(nextCreated.source_batch_count), 2);
+      assert.equal(await scalar<number>(db, `
+        select count(*)::int
+        from public.weighbridge_shared_impurity_source_batches
+        where group_id=$1::uuid and state='selected'
+      `, [nextCreated.pool_id]), 2);
+      assert.equal(await scalar<string>(db, `
+        select status from public.tickets where id=$1::uuid
+      `, [created.ticket_id]), "finalized");
+
+      await asAuthenticated(db, () => scalar<string>(db, `
+        select public.void_ticket_with_storno_v2($1::uuid,$2::uuid,$3::text)
+      `, [nextCreated.ticket_id, ID.actor, "QA release repeated selection"]));
+      assert.equal(await scalar<number>(db, `
+        select count(*)::int from public.stock_ledger_entries where ticket_id=$1::uuid
+      `, [nextCreated.ticket_id]), 0);
+    });
+
     await check("canonical void/storno restores sources, zeros pool, and reconciles group state", async () => {
       const voided = await asAuthenticated(db, () => scalar<string>(db, `
         select public.void_ticket_with_storno_v2($1::uuid,$2::uuid,$3::text)
@@ -1494,6 +1543,7 @@ async function main() {
         `, [legacyFinalized.pool_inventory_batch_id])), 185);
 
         await legacyDb.exec(memberSettlementMigration.sql);
+        await legacyDb.exec(sourceReleaseMigration.sql);
         const repaired = await rows(legacyDb, `
           select id::text, current_quantity::text
           from public.inventory_batches
@@ -1515,6 +1565,11 @@ async function main() {
           from public.stock_ledger_entries
           where ticket_id=$1::uuid and not is_storno
         `, [legacyCreated.ticket_id]), 9);
+        assert.equal(await scalar<number>(legacyDb, `
+          select count(*)::int
+          from public.weighbridge_shared_impurity_source_batches
+          where group_id=$1::uuid and state='released'
+        `, [legacyCreated.pool_id]), 2);
       } finally {
         await legacyDb.close();
       }
@@ -1524,6 +1579,7 @@ async function main() {
     console.log(`Migration: ${migration.path}`);
     console.log(`Exact source extension: ${exactSourceMigration.path}`);
     console.log(`Member settlement: ${memberSettlementMigration.path}`);
+    console.log(`Settled source release: ${sourceReleaseMigration.path}`);
   } finally {
     await db.close();
   }
