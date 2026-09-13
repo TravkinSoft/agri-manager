@@ -113,3 +113,5 @@ CEO authorized existing Vercel OIDC Gateway without creating/storing a new key. 
 ### CEO decision after Gateway403 (2026-09-13)
 
 Real Gateway OIDC calls on ca6a3f7 and f1c22c3 returned403; safe category billing_or_budget. No successful model answer. CEO authorized separating build readiness from the external model gate: internal smoke retains exit1 and logs qaExitCode=1/blockingBuild=false, wrapper permits Preview deployment. Query now fails closed before all source reads with HTTP503/code AI_UNAVAILABLE whenever planner/credential/model is unavailable; deterministic fallback removed. Health aiConfigured only means credential presence; aiAvailability=not_checked; model smoke reported separately. 50/50 tests +10GA PASS; no purchases, budget/env/DB/alias/Production changes.
+
+Runtime OIDC follow-up: Preview 9887b56 выявил aiConfigured=false при наличии build OIDC. Исправлено получение текущего токена через официальный @vercel/oidc request context; direct OpenAI сохраняет приоритет. 52 regression tests включают ротацию request context и отсутствие утечки токена. Env/доступы Vercel не изменялись.

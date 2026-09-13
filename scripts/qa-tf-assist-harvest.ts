@@ -23,6 +23,7 @@ import { businessTime } from "../lib/tf-assist/business-time";
 import { planQuestion, plannerTransport, plannerModel } from "../lib/tf-assist/planner";
 import { deploymentModelSmoke, smokeFailureKind } from "../lib/tf-assist/deployment-smoke";
 import { GET as assistHealth } from "../app/api/tf-assist/health/route";
+import { runtimePlannerConfig } from "../lib/tf-assist/runtime-planner-config";
 import { previewEnabled, PREVIEW_BRANCH } from "../lib/tf-assist/preview-gate";
 
 const id = (n: number): string =>
@@ -833,6 +834,41 @@ test("provider errors neither leak token nor retry credentials against another o
       transport: async () => { throw new Error("Bearer oidc-secret direct-secret"); },
     });
     assert.equal(JSON.stringify(failed).includes("secret"), false);
+  }
+});
+
+test("runtime credentials prefer direct key and safely handle missing OIDC context", () => {
+  const fail = () => { throw new Error("oidc-fixture-secret"); };
+  assert.equal(runtimePlannerConfig({ VERCEL: "1", OPENAI_API_KEY: "direct" }, fail).apiKey, "direct");
+  assert.equal(plannerTransport(runtimePlannerConfig({ VERCEL: "1" }, fail)), "none");
+  assert.equal(runtimePlannerConfig({ VERCEL: "1", VERCEL_OIDC_TOKEN: "env" }, fail).oidcToken, "env");
+  assert.equal(runtimePlannerConfig({ VERCEL: "0" }, () => { throw new Error("MUST_NOT_CALL"); }).oidcToken, undefined);
+});
+
+test("runtime health uses current Vercel request context without exposing or caching tokens", async () => {
+  const symbol = Symbol.for("@vercel/request-context");
+  const previous = Reflect.get(globalThis, symbol);
+  const saved = { VERCEL: process.env.VERCEL, OPENAI_API_KEY: process.env.OPENAI_API_KEY, VERCEL_OIDC_TOKEN: process.env.VERCEL_OIDC_TOKEN };
+  try {
+    process.env.VERCEL = "1";
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.VERCEL_OIDC_TOKEN;
+    for (const token of ["first-fixture-secret", "second-fixture-secret"]) {
+      Reflect.set(globalThis, symbol, { get: () => ({ headers: { "x-vercel-oidc-token": token } }) });
+      assert.equal(runtimePlannerConfig().oidcToken, token);
+      const body = await assistHealth().json();
+      assert.equal(body.aiConfigured, true);
+      assert.equal(body.aiTransport, "vercel_gateway_oidc");
+      assert.equal(body.aiAvailability, "not_checked");
+      assert.equal(JSON.stringify(body).includes("fixture-secret"), false);
+    }
+  } finally {
+    if (previous === undefined) Reflect.deleteProperty(globalThis, symbol);
+    else Reflect.set(globalThis, symbol, previous);
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 });
 

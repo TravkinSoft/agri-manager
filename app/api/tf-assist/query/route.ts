@@ -11,6 +11,7 @@ import {
 } from "@/lib/tf-assist/read-only";
 import { answerQuestion } from "@/lib/tf-assist/service";
 import { planQuestion } from "@/lib/tf-assist/planner";
+import { runtimePlannerConfig } from "@/lib/tf-assist/runtime-planner-config";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -48,11 +49,7 @@ export async function POST(request: NextRequest) {
     }
     const answer = await answerQuestion(input, {
       plan: (message) =>
-        planQuestion(message, {
-          apiKey: process.env.OPENAI_API_KEY,
-          oidcToken: process.env.VERCEL_OIDC_TOKEN,
-          model: process.env.OPENAI_ASSISTANT_MODEL,
-        }),
+        planQuestion(message, runtimePlannerConfig()),
       authorize: async (companyId) => {
         const scope = authorize(
           await getServerActorFromSession(request, { skipCache: true }),
