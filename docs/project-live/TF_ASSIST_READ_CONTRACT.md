@@ -6,7 +6,7 @@
 
 Тело запроса строго проверяется Zod: `companyId`, `message`, необязательные `seasonId`, `sourceId`, `harvestedHa`, `remainingHa`. Неизвестные ключи отвергаются. Лимиты: 2000 символов вопроса, 12000 байт тела, один одновременный запрос на user/company в экземпляре сервера; это локальный ограничитель, не распределённая квота. Роль/компания проверяются без actor cache до чтения и перед возвратом. Смена пользователя/компании отменяет ответ. Ответы имеют private/no-store и Vary Authorization/Cookie.
 
-`GET /api/tf-assist/health` — только булевы признаки enabled/qaBound/uiEnabled/aiConfigured/sourceCredentialConfigured/productionLocked. Не возвращает секреты, имена пользователей, выбранную компанию или строки БД. Позволяет проверить удалённую конфигурацию без вызова модели.
+`GET /api/tf-assist/health` — булевы признаки enabled/qaBound/uiEnabled/aiConfigured/sourceCredentialConfigured/productionLocked и безопасный enum aiTransport (openai_direct/vercel_gateway_oidc/none). Не возвращает секреты, имена пользователей, выбранную компанию или строки БД. Позволяет проверить удалённую конфигурацию без вызова модели.
 
 ## Read-only capability
 
@@ -18,7 +18,7 @@
 
 ## Модель и доказательства
 
-`planner.ts` — отдельный Responses adapter с injectable transport для mock-тестов. Использует существующие OPENAI_API_KEY и OPENAI_ASSISTANT_MODEL (default соответствует текущему project default gpt-5.4-mini). В API передаются только системный контракт и текущий вопрос; `store=false`, tools отсутствуют. История чата, данные БД, компания и идентификаторы источников модели не передаются. Строгая схема ответа разрешает только intent и asksWrite. Числа, SQL, tool calls, лишние поля, отказ модели и неподдерживаемая тема не исполняются. Server veto команд записи применяется до вызова модели.
+`planner.ts` — отдельный Responses adapter с injectable transport для mock-тестов. При наличии OPENAI_API_KEY использует прямой OpenAI Responses endpoint и модель gpt-5.4-mini по умолчанию. Если прямого ключа нет, используется автоматически выданный VERCEL_OIDC_TOKEN только для https://ai-gateway.vercel.sh/v1/responses; default openai/gpt-5.4-mini. OPENAI_ASSISTANT_MODEL без provider prefix дополняется openai/ только для Gateway; готовый provider/model сохраняется. Наличие прямого ключа имеет приоритет; ошибка прямого вызова не пересылает его Gateway. Если обе credential отсутствуют, возвращается AI_CREDENTIAL_MISSING. Токены читаются из server env на каждом запросе и не попадают в DTO/логи/клиент. В API передаются только системный контракт и текущий вопрос; `store=false`, tools отсутствуют. История чата, данные БД, компания и идентификаторы источников модели не передаются. Строгая схема ответа разрешает только intent и asksWrite. Числа, SQL, tool calls, лишние поля, отказ модели и неподдерживаемая тема не исполняются. Server veto команд записи применяется до вызова модели.
 
 При недоступном ключе/сетевой ошибке остаются ограниченные локальные правила разбора известных вопросов с явным предупреждением. Это независимый режим чтения, а не доказательство работоспособности OpenAI. Успешный mock не заменяет реальный remote model gate.
 
@@ -47,3 +47,9 @@
 ## Сознательные границы первой основы
 
 Дневной произвольный период, статистическая модель доверия, подтверждение чистоты вне проверенного shared-impurity V2, persistent memory/aliases, резервирование, полноценная диагностика простоев и самостоятельные агрономические рекомендации не выдаются как реализованные. В этих ситуациях ответ обозначает границу доказательства или просит точный источник. Перед реальным включением нужны remote env gate и положительная браузерная QA-сессия Global Admin; unit tests и отсутствие auth сами по себе этот gate не заменяют.
+
+## Gateway OIDC deployment smoke
+
+После успешного Next build запускается внутренний `scripts/qa-tf-assist-model-deployment.ts`. Он делает ровно один реальный вызов `planQuestion` с фиксированным синтетическим вопросом только при VERCEL=1, VERCEL_ENV=preview и полном разрешённом branch/QA gate. На Production, других Preview-ветках, при explicit0 и локально — skip без вызова. Никаких DB reads/writes, прикладной авторизации или HTTP debug endpoint в smoke нет. Только действующий Git/deployment pipeline может запускать этот тест. Failed/missing/rejected/wrong-intent result блокирует Preview build; bounded log содержит SHA, transport, state/intent/code, без raw response, prompt и credential. Это deployment-side model proof, а не положительный Global Admin UI E2E.
+
+Источники проверены 2026-09-13: [Gateway Responses API](https://vercel.com/docs/ai-gateway/sdks-and-apis/responses), [OIDC authentication](https://vercel.com/docs/ai-gateway/authentication-and-byok/oidc). Публичный Gateway catalog подтвердил openai/gpt-5.4-mini. Новые ключи, local env pull, remote env changes и dependency install не требовались.

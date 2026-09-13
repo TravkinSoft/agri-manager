@@ -20,7 +20,9 @@ import { createReadOnlySourceReader } from "../lib/tf-assist/read-only";
 import { answerQuestion } from "../lib/tf-assist/service";
 import { QuestionSchema, classifyQuestion } from "../lib/tf-assist/question";
 import { businessTime } from "../lib/tf-assist/business-time";
-import { planQuestion } from "../lib/tf-assist/planner";
+import { planQuestion, plannerTransport, plannerModel } from "../lib/tf-assist/planner";
+import { deploymentModelSmoke } from "../lib/tf-assist/deployment-smoke";
+import { GET as assistHealth } from "../app/api/tf-assist/health/route";
 import { previewEnabled, PREVIEW_BRANCH } from "../lib/tf-assist/preview-gate";
 
 const id = (n: number): string =>
@@ -669,7 +671,7 @@ test("missing key makes zero network calls; service can run deterministic read-o
       throw new Error("MUST NOT CALL");
     },
   });
-  assert.equal(r.code, "OPENAI_API_KEY_MISSING");
+  assert.equal(r.code, "AI_CREDENTIAL_MISSING");
   const a = await answerQuestion(q, {
     authorize: async () => ({ userId: id(20), companyId }),
     load: async () => fixture(),
@@ -760,4 +762,133 @@ test("explicit opt-in never bypasses Preview branch approval; local QA remains a
   assert.equal(previewEnabled({ ...env, VERCEL_GIT_COMMIT_REF: "unapproved" }), false);
   assert.equal(previewEnabled({ ...env, VERCEL_GIT_COMMIT_REF: PREVIEW_BRANCH }), true);
   assert.equal(previewEnabled({ ...env, VERCEL_ENV: "development" }), true);
+});
+
+test("direct OpenAI has credential priority and keeps the direct model unchanged", async () => {
+  let calls = 0;
+  const result = await planQuestion("Урожайность", {
+    apiKey: "direct-fixture-secret",
+    oidcToken: "oidc-fixture-secret",
+    model: "gpt-5.4-mini",
+    transport: async (url, init) => {
+      calls++;
+      assert.equal(url, "https://api.openai.com/v1/responses");
+      assert.equal(new Headers(init.headers).get("authorization"), "Bearer direct-fixture-secret");
+      assert.equal(JSON.parse(String(init.body)).model, "gpt-5.4-mini");
+      assert.equal(String(init.body).includes("fixture-secret"), false);
+      assert.equal(init.redirect, "error");
+      return modelResponse('{"intent":"yield","asksWrite":false}');
+    },
+  });
+  assert.equal(calls, 1);
+  assert.deepEqual(result, { state: "model", intent: "yield" });
+  assert.equal(plannerTransport({ apiKey: "a", oidcToken: "b" }), "openai_direct");
+  assert.equal(plannerModel({ apiKey: "a" }), "gpt-5.4-mini");
+});
+
+test("OIDC calls only Gateway with provider-qualified model and no token in body/result", async () => {
+  for (const [model, expected] of [
+    [undefined, "openai/gpt-5.4-mini"],
+    ["gpt-5.4-mini", "openai/gpt-5.4-mini"],
+    ["openai/gpt-5.4-mini", "openai/gpt-5.4-mini"],
+    ["provider/custom-model", "provider/custom-model"],
+  ]) {
+    const result = await planQuestion("Урожайность", {
+      oidcToken: "oidc-fixture-secret",
+      model,
+      transport: async (url, init) => {
+        assert.equal(url, "https://ai-gateway.vercel.sh/v1/responses");
+        assert.equal(new Headers(init.headers).get("authorization"), "Bearer oidc-fixture-secret");
+        const body = JSON.parse(String(init.body));
+        assert.equal(body.model, expected);
+        assert.equal(body.store, false);
+        assert.equal(body.tools, undefined);
+        assert.equal(String(init.body).includes("oidc-fixture-secret"), false);
+        assert.equal(init.redirect, "error");
+        return modelResponse('{"intent":"yield","asksWrite":false}');
+      },
+    });
+    assert.deepEqual(result, { state: "model", intent: "yield" });
+  }
+  assert.equal(plannerTransport({ oidcToken: "b" }), "vercel_gateway_oidc");
+  assert.equal(plannerModel({ apiKey: "a", model: "provider/custom-model" }), "provider/custom-model");
+});
+
+test("provider errors neither leak token nor retry credentials against another origin", async () => {
+  for (const credentials of [{ apiKey: "direct-secret", oidcToken: "oidc-secret" }, { oidcToken: "oidc-secret" }]) {
+    let calls = 0;
+    const result = await planQuestion("Урожайность", {
+      ...credentials,
+      transport: async () => {
+        calls++;
+        return new Response('Bearer oidc-secret direct-secret', { status: 401 });
+      },
+    });
+    assert.equal(calls, 1);
+    assert.deepEqual(result, { state: "unavailable", intent: null, code: "MODEL_HTTP_401" });
+    const failed = await planQuestion("Урожайность", {
+      ...credentials,
+      transport: async () => { throw new Error("Bearer oidc-secret direct-secret"); },
+    });
+    assert.equal(JSON.stringify(failed).includes("secret"), false);
+  }
+});
+
+test("health exposes only transport enum and credential presence", async () => {
+  const savedKey = process.env.OPENAI_API_KEY;
+  const savedOidc = process.env.VERCEL_OIDC_TOKEN;
+  try {
+    for (const [direct, oidc, expected] of [
+      ["", "", "none"], ["", "oidc-fixture-secret", "vercel_gateway_oidc"],
+      ["direct-fixture-secret", "oidc-fixture-secret", "openai_direct"],
+    ]) {
+      process.env.OPENAI_API_KEY = direct;
+      process.env.VERCEL_OIDC_TOKEN = oidc;
+      const response = assistHealth();
+      const body = await response.json();
+      assert.equal(body.aiTransport, expected);
+      assert.equal(body.aiConfigured, expected !== "none");
+      assert.equal(JSON.stringify(body).includes("fixture-secret"), false);
+      assert.equal(response.headers.get("cache-control"), "no-store, private");
+    }
+  } finally {
+    if (savedKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = savedKey;
+    if (savedOidc === undefined) delete process.env.VERCEL_OIDC_TOKEN;
+    else process.env.VERCEL_OIDC_TOKEN = savedOidc;
+  }
+});
+
+const deploymentEnv = {
+  VERCEL: "1", VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: PREVIEW_BRANCH,
+  NEXT_PUBLIC_SUPABASE_URL: QA_ORIGIN, VERCEL_OIDC_TOKEN: "oidc-fixture-secret",
+  VERCEL_GIT_COMMIT_SHA: "a".repeat(40),
+};
+
+test("deployment smoke cannot call a model from Production, local, unapproved branch or disabled QA", async () => {
+  for (const patch of [
+    { VERCEL: "0" }, { VERCEL_ENV: "production" }, { VERCEL_ENV: "development" },
+    { VERCEL_GIT_COMMIT_REF: "master" }, { TF_ASSIST_HARVEST_V1: "0" },
+    { NEXT_PUBLIC_SUPABASE_URL: "https://foreign.invalid" },
+  ]) {
+    const r = await deploymentModelSmoke({ ...deploymentEnv, ...patch }, async () => {
+      throw new Error("MUST_NOT_CALL");
+    });
+    assert.equal(r.status, "skipped");
+  }
+});
+
+test("deployment smoke uses a fixed synthetic question and logs only safe verified result", async () => {
+  const r = await deploymentModelSmoke(deploymentEnv, async (message, config) => {
+    assert.equal(message, "Какая урожайность картофеля в тоннах на гектар?");
+    assert.equal(config.oidcToken, "oidc-fixture-secret");
+    return { state: "model", intent: "yield" };
+  });
+  assert.equal(r.status, "passed");
+  assert.equal(JSON.stringify(r).includes("fixture-secret"), false);
+  assert.equal(JSON.stringify(r).includes("картофеля"), false);
+  const missing = await deploymentModelSmoke({ ...deploymentEnv, VERCEL_OIDC_TOKEN: "" });
+  assert.equal(missing.status, "failed");
+  const wrong = await deploymentModelSmoke(deploymentEnv, async () => ({ state: "model", intent: "fleet" }));
+  assert.equal(wrong.status, "failed");
 });

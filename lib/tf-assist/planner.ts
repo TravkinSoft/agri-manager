@@ -20,32 +20,56 @@ export type PlanResult = {
   code?: string;
 };
 
+export type PlannerConfig = {
+  apiKey?: string;
+  oidcToken?: string;
+  model?: string;
+  transport?: Transport;
+};
+export type AiTransport = "openai_direct" | "vercel_gateway_oidc" | "none";
+
+// Safe metadata only: never return a credential to health, answers or logs.
+export function plannerTransport(config: PlannerConfig): AiTransport {
+  if (config.apiKey) return "openai_direct";
+  return config.oidcToken ? "vercel_gateway_oidc" : "none";
+}
+
+export function plannerModel(config: PlannerConfig): string {
+  const model = config.model || "gpt-5.4-mini";
+  return plannerTransport(config) === "vercel_gateway_oidc" && !model.includes("/")
+    ? `openai/${model}`
+    : model;
+}
+
 /** The model sees the user's current question only. It cannot receive credentials,
  * choose a company, request a table, invoke tools, or generate business numbers. */
 export async function planQuestion(
   message: string,
-  config: { apiKey?: string; model?: string; transport?: Transport },
+  config: PlannerConfig,
 ): Promise<PlanResult> {
-  if (!config.apiKey)
+  const aiTransport = plannerTransport(config);
+  if (aiTransport === "none")
     return {
       intent: null,
       state: "unavailable",
-      code: "OPENAI_API_KEY_MISSING",
+      code: "AI_CREDENTIAL_MISSING",
     };
   try {
     const response = await (config.transport || fetch)(
-      "https://api.openai.com/v1/responses",
+      aiTransport === "openai_direct"
+        ? "https://api.openai.com/v1/responses"
+        : "https://ai-gateway.vercel.sh/v1/responses",
       {
         method: "POST",
         redirect: "error",
         cache: "no-store",
         signal: AbortSignal.timeout(15000),
         headers: {
-          Authorization: `Bearer ${config.apiKey}`,
+          Authorization: `Bearer ${aiTransport === "openai_direct" ? config.apiKey : config.oidcToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: config.model || "gpt-5.4-mini",
+          model: plannerModel(config),
           store: false,
           max_output_tokens: 256,
           instructions:

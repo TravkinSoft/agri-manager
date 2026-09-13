@@ -50,6 +50,7 @@ export async function POST(request: NextRequest) {
       plan: (message) =>
         planQuestion(message, {
           apiKey: process.env.OPENAI_API_KEY,
+          oidcToken: process.env.VERCEL_OIDC_TOKEN,
           model: process.env.OPENAI_ASSISTANT_MODEL,
         }),
       authorize: async (companyId) => {

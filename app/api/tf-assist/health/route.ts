@@ -1,19 +1,25 @@
 import { NextResponse } from "next/server";
 import { QA_ORIGIN } from "@/lib/tf-assist/policy";
 import { previewEnabled } from "@/lib/tf-assist/preview-gate";
+import { plannerTransport } from "@/lib/tf-assist/planner";
 export const dynamic = "force-dynamic";
 export function GET() {
-  // Boolean-only preflight. No keys, URLs, users or business data are exposed.
+  // Safe preflight metadata. No keys, URLs, users or business data are exposed.
   const qaBound =
     process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "") === QA_ORIGIN;
   const enabled = previewEnabled(process.env);
+  const aiTransport = plannerTransport({
+    apiKey: process.env.OPENAI_API_KEY,
+    oidcToken: process.env.VERCEL_OIDC_TOKEN,
+  });
   return NextResponse.json(
     {
       feature: "tf-assist-harvest-v1",
       enabled,
       qaBound,
       uiEnabled: process.env.NEXT_PUBLIC_TF_ASSIST_HARVEST_V1 === "1",
-      aiConfigured: Boolean(process.env.OPENAI_API_KEY),
+      aiConfigured: aiTransport !== "none",
+      aiTransport,
       sourceCredentialConfigured: Boolean(
         process.env.SUPABASE_SERVICE_ROLE_KEY,
       ),
