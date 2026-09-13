@@ -5,6 +5,7 @@ import { AssistantChatPane } from "@/components/assistant/assistant-chat-pane";
 import type { AssistantPanelEngineConfig } from "@/lib/assistant/panel-engine";
 import { defaultAssistantPanelEngine } from "@/lib/assistant/panel-engine";
 import { useAssistantShell } from "@/components/assistant/assistant-shell-provider";
+import { TfAssistHarvestPane } from "@/components/assistant/tf-assist-harvest-pane";
 
 export function AssistantConversationHost({
   engine = defaultAssistantPanelEngine,
@@ -12,6 +13,8 @@ export function AssistantConversationHost({
   engine?: AssistantPanelEngineConfig;
 }) {
   const { runtimeContext, session, access } = useAssistantShell();
+
+  if (process.env.NEXT_PUBLIC_TF_ASSIST_HARVEST_V1 === '1') return <TfAssistHarvestPane />;
 
   if (engine.surface === "tool_first_panel") {
     return (

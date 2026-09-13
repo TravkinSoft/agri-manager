@@ -1,0 +1,386 @@
+[
+  {
+    "companyId": "8a0f2c0e-6638-4a31-99a8-cab4237d287d",
+    "from": "2026-09-13T16:54:00.266Z",
+    "to": "2026-09-13T16:54:05.217Z",
+    "sources": [
+      {
+        "table": "seasons",
+        "state": "complete",
+        "count": 1,
+        "schema": "base",
+        "digest": "7e6ca8388fb582ded156c7eccc6b9799816b9a0eb40c2f5c4c7c93661fc20f20"
+      },
+      {
+        "table": "fields",
+        "state": "complete",
+        "count": 114,
+        "schema": "base",
+        "digest": "931059ece0e654495e8ecddb58a66ac578b85866a78546ce2c1ca27c923cc996"
+      },
+      {
+        "table": "crop_structure",
+        "state": "complete",
+        "count": 23,
+        "schema": "base",
+        "digest": "f1255403f4ba42607b4348b27c5eef995911129e39d23da9add3b12e75477da6"
+      },
+      {
+        "table": "crops",
+        "state": "complete",
+        "count": 70,
+        "schema": "base",
+        "digest": "98808c2b734d886712b899b3effbaa7ed07f0af39aceaea4a9d37099c72d96ea"
+      },
+      {
+        "table": "varieties",
+        "state": "complete",
+        "count": 600,
+        "schema": "base",
+        "digest": "70e7a53ac5729e976520df4db36161581506f09dd6e246fca0db11e51edf0b21"
+      },
+      {
+        "table": "seed_reproductions",
+        "state": "complete",
+        "count": 9,
+        "schema": "base",
+        "digest": "a55744e02f10c50c747efbd7fe07dbfb9204521c0060dc2500c0005d68d74c9c"
+      },
+      {
+        "table": "tickets",
+        "state": "complete",
+        "count": 147,
+        "schema": "base",
+        "digest": "9567495cb4ebaf2fd40850b84192271793d0f04239aa1a7f395b9bdfa7a2786f"
+      },
+      {
+        "table": "ticket_lines",
+        "state": "complete",
+        "count": 159,
+        "schema": "base",
+        "digest": "bd5c39e3656a6098e40041375438dcec41ff9370e62aaba4965dc309a2e3d0f0"
+      },
+      {
+        "table": "harvest_lots",
+        "state": "complete",
+        "count": 22,
+        "schema": "base",
+        "digest": "97c0b687ac91b54d035c195f7eea6ec0fb1e4cb46a8a9a73f00ccad1575c54b5"
+      },
+      {
+        "table": "harvest_lot_batches",
+        "state": "complete",
+        "count": 113,
+        "schema": "base",
+        "digest": "7545260bb9a68b5c59250609746f3263a839bef6590c97d9d63bc11659aebe77"
+      },
+      {
+        "table": "inventory_batches",
+        "state": "complete",
+        "count": 131,
+        "schema": "base",
+        "digest": "32972a9060fe110fb5152a4c3608704545e370260c8d9b85e59e3a32f21d0f50"
+      },
+      {
+        "table": "stock_ledger_entries",
+        "state": "complete",
+        "count": 316,
+        "schema": "base",
+        "digest": "3d02b64e6824f455024a0f7b3282b6d7df99f1902a6ee31410df7a55382285ae"
+      },
+      {
+        "table": "warehouses",
+        "state": "complete",
+        "count": 16,
+        "schema": "base",
+        "digest": "0c867c59989b0f3b9b0eb818850ae1cfe515643eb143d90974dfb2d59e744a07"
+      },
+      {
+        "table": "weighbridge_shared_impurity_groups",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "weighbridge_shared_impurity_members",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "weighbridge_shared_impurity_source_batches",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "reference_vehicles",
+        "state": "complete",
+        "count": 3,
+        "schema": "base",
+        "digest": "b8cdb9cc0bc04f78eb5cd78504e80e43c50c45dfedf6fdb835e962686bdafe21"
+      },
+      {
+        "table": "reference_machines",
+        "state": "complete",
+        "count": 1,
+        "schema": "base",
+        "digest": "34c6c6c1412632371e73d08aa9c6515dfcc21e6a99e62b2fee3819ca1998161a"
+      },
+      {
+        "table": "reference_specialists",
+        "state": "complete",
+        "count": 7,
+        "schema": "base",
+        "digest": "e6d1f26e9954ae5b8e14f0e2a23dfac74ac07c75e6128f33c25a4edd2410b131"
+      },
+      {
+        "table": "company_people",
+        "state": "complete",
+        "count": 10,
+        "schema": "base",
+        "digest": "6fde11629c3a68ad87fec3de4e1d0abcd555fdab42804b802ba58fcce6892523"
+      },
+      {
+        "table": "ptc_flows",
+        "state": "complete",
+        "count": 1,
+        "schema": "base",
+        "digest": "7a0463c949468cbc3c96cdab04834b7587aec20a76423b02901a606c6a0ac040"
+      },
+      {
+        "table": "ptc_vehicle_states",
+        "state": "complete",
+        "count": 1,
+        "schema": "base",
+        "digest": "e880b61ec903216c3c05c9d8f77236cbecd387fdc2de2e7aec79c01254c96208"
+      },
+      {
+        "table": "ptc_events",
+        "state": "complete",
+        "count": 13,
+        "schema": "base",
+        "digest": "423f8c3844fd5e4d9fc43f285c27e492514423a27a8cf9abd45bb964bb255717"
+      },
+      {
+        "table": "ptc_combine_shifts",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "ptc_combine_operator_statuses",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "fleet_vehicle_repairs",
+        "state": "complete",
+        "count": 1,
+        "schema": "base",
+        "digest": "6361fc7e4ced8e642131bf3326ee07b7ca8add3687089190717349b2f24b923d"
+      }
+    ],
+    "analysis": {
+      "conclusion": "9 · Картофель · Гала · 1 репродукция, сезон 2026 QA (TZ-176): подтверждённые поступления за весь сезон и состояние источника.",
+      "metricCount": 8,
+      "warningCount": 4
+    }
+  },
+  {
+    "companyId": "4e65767a-9527-4e7f-afea-ec2426ec0193",
+    "from": "2026-09-13T16:54:05.242Z",
+    "to": "2026-09-13T16:54:09.242Z",
+    "sources": [
+      {
+        "table": "seasons",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "fields",
+        "state": "complete",
+        "count": 3,
+        "schema": "base",
+        "digest": "be5ec77220437f587f953ee277ab7465eaa65cf85374196575898fafe17bdb49"
+      },
+      {
+        "table": "crop_structure",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "crops",
+        "state": "complete",
+        "count": 70,
+        "schema": "base",
+        "digest": "98808c2b734d886712b899b3effbaa7ed07f0af39aceaea4a9d37099c72d96ea"
+      },
+      {
+        "table": "varieties",
+        "state": "complete",
+        "count": 600,
+        "schema": "base",
+        "digest": "70e7a53ac5729e976520df4db36161581506f09dd6e246fca0db11e51edf0b21"
+      },
+      {
+        "table": "seed_reproductions",
+        "state": "complete",
+        "count": 9,
+        "schema": "base",
+        "digest": "a55744e02f10c50c747efbd7fe07dbfb9204521c0060dc2500c0005d68d74c9c"
+      },
+      {
+        "table": "tickets",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "ticket_lines",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "harvest_lots",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "harvest_lot_batches",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "inventory_batches",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "stock_ledger_entries",
+        "state": "complete",
+        "count": 1,
+        "schema": "base",
+        "digest": "b83cb85f19f9f2057bf99a10fbfd732c1b535a10445a049847ad0cb753ee7039"
+      },
+      {
+        "table": "warehouses",
+        "state": "complete",
+        "count": 1,
+        "schema": "base",
+        "digest": "e5ae943e525daa08df4f7a1bb5f8bb6e58f45d123401ad73c406e4216b54461d"
+      },
+      {
+        "table": "weighbridge_shared_impurity_groups",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "weighbridge_shared_impurity_members",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "weighbridge_shared_impurity_source_batches",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "reference_vehicles",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "reference_machines",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "reference_specialists",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "company_people",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "ptc_flows",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "ptc_vehicle_states",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "ptc_events",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "ptc_combine_shifts",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "ptc_combine_operator_statuses",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "table": "fleet_vehicle_repairs",
+        "state": "complete",
+        "count": 0,
+        "schema": "base",
+        "digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      }
+    ],
+    "analysis": null
+  }
+]

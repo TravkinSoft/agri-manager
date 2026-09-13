@@ -133,7 +133,8 @@
     "qa:glbd:component-discovery": "npx tsx scripts/qa-glbd-component-discovery.ts",
     "cleanup:users": "node scripts/cleanup-users-keep-admin.mjs",
     "import:structure2026:dry": "node scripts/import-structure-2026.mjs --mode dry-run",
-    "import:structure2026:execute": "node scripts/import-structure-2026.mjs --mode execute --confirm-reset true"
+    "import:structure2026:execute": "node scripts/import-structure-2026.mjs --mode execute --confirm-reset true",
+    "qa:tf-assist:harvest": "tsx scripts/qa-tf-assist-harvest.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
