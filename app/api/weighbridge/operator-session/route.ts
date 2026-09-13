@@ -53,11 +53,15 @@ function normalizeInitialWorkspace(
   payload: Record<string, any> | null | undefined,
   assignmentBridges: Record<string, any>[] = [],
   machineSourceRows: Record<string, any>[] = [],
+  machineProjectionRows: Record<string, any>[] = [],
   resourceErrors: Record<string, string>[] = [],
 ) {
   if (!payload) return null;
+  const machineProjectionIds = new Set(
+    machineProjectionRows.map((row: any) => String(row.id || "")).filter(Boolean),
+  );
   const rawVehicles = (Array.isArray(payload.vehicles) ? payload.vehicles : [])
-    .filter((row: any) => !row?.source_machine_id);
+    .filter((row: any) => !row?.source_machine_id && !machineProjectionIds.has(String(row?.id || "")));
   const vehicleRows = rawVehicles.map((row: any) => {
     const transportModel = Array.isArray(row.transport_model)
       ? row.transport_model[0]
@@ -78,6 +82,15 @@ function normalizeInitialWorkspace(
         : null,
     };
   });
+  const machinePersonnelById = new Map<string, string>();
+  machineProjectionRows.forEach((row: any) => {
+    if (row.source_machine_id && row.primary_responsible_personnel_id) {
+      machinePersonnelById.set(
+        String(row.source_machine_id),
+        String(row.primary_responsible_personnel_id),
+      );
+    }
+  });
   const machineRows = machineSourceRows.map((row: any) => {
     const globalModel = Array.isArray(row.global_model)
       ? row.global_model[0]
@@ -96,7 +109,7 @@ function normalizeInitialWorkspace(
       fleetType: String(row.machinery_type || row.type || ""),
       transportCategory: String(globalModel?.category || row.category || ""),
       source: "reference_machines" as const,
-      primaryPersonnelId: null,
+      primaryPersonnelId: machinePersonnelById.get(String(row.id)) || null,
     };
   });
 
@@ -132,7 +145,7 @@ function normalizeInitialWorkspace(
     if (row.id) personnelRoleById.set(String(row.id), String(row.role_type || ""));
   });
   const byDriver = new Map<string, string[]>();
-  vehicleRows.forEach((vehicle) => {
+  [...vehicleRows, ...machineRows].forEach((vehicle) => {
     if (!vehicle.primaryPersonnelId) return;
     const bridge = legacyPersonById.get(vehicle.primaryPersonnelId);
     if (!bridge) return;
@@ -230,21 +243,12 @@ export async function GET(request: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: error.code === "42501" ? 403 : 400 });
     const payload = (data || {}) as Record<string, any>;
     const initialWorkspace = payload.initial_workspace as Record<string, any> | null | undefined;
-    const initialVehicles = initialWorkspace && Array.isArray(initialWorkspace.vehicles)
-      ? initialWorkspace.vehicles
-      : [];
-    const assignmentBridgeIds = Array.from(new Set(
-      initialVehicles
-        .map((row: any) => String(row?.primary_responsible_personnel_id || ""))
-        .filter(Boolean),
-    ));
     const bridgesStartedAt = performance.now();
-    const bridgePromise = assignmentBridgeIds.length > 0
+    const bridgePromise = initialWorkspace
       ? supabase
         .from("reference_specialists")
         .select("id,person_id,personnel_type,status,archived")
         .eq("company_id", requestedCompanyId)
-        .in("id", assignmentBridgeIds)
       : Promise.resolve({ data: [], error: null });
     const machinesStartedAt = performance.now();
     const machinePromise = initialWorkspace
@@ -256,7 +260,20 @@ export async function GET(request: NextRequest) {
         .eq("archived", false)
         .order("name", { ascending: true })
       : Promise.resolve({ data: [], error: null });
-    const [bridgeResult, machineResult] = await Promise.all([bridgePromise, machinePromise]);
+    const projectionPromise = initialWorkspace
+      ? supabase
+        .from("reference_vehicles")
+        .select("id,source_machine_id,primary_responsible_personnel_id")
+        .eq("company_id", requestedCompanyId)
+        .not("source_machine_id", "is", null)
+        .eq("is_active", true)
+        .eq("archived", false)
+      : Promise.resolve({ data: [], error: null });
+    const [bridgeResult, machineResult, projectionResult] = await Promise.all([
+      bridgePromise,
+      machinePromise,
+      projectionPromise,
+    ]);
     const bridgesMs = performance.now() - bridgesStartedAt;
     const machinesMs = performance.now() - machinesStartedAt;
     if (bridgeResult.error) {
@@ -267,19 +284,26 @@ export async function GET(request: NextRequest) {
     }
     const assignmentBridges = (bridgeResult.data || []) as Record<string, any>[];
     const initialMachines = (machineResult.data || []) as Record<string, any>[];
-    const initialResourceErrors = machineResult.error
-      ? [{
+    const initialMachineProjections = (projectionResult.data || []) as Record<string, any>[];
+    const initialResourceErrors = [
+      ...(machineResult.error ? [{
           resource: "reference_machines",
           code: "WB_RESOURCES_MACHINES",
           message: "Не удалось загрузить тракторы и технику. Остальные данные сохранены.",
-        }]
-      : [];
+        }] : []),
+      ...(projectionResult.error ? [{
+          resource: "reference_vehicles",
+          code: "WB_RESOURCES_VEHICLES",
+          message: "Не удалось загрузить привязки техники PTC. Остальные данные сохранены.",
+        }] : []),
+    ];
     const response = NextResponse.json({
       ...(payload.operator_state || {}),
       initial_workspace: normalizeInitialWorkspace(
         initialWorkspace,
         assignmentBridges,
         initialMachines,
+        initialMachineProjections,
         initialResourceErrors,
       ),
     });

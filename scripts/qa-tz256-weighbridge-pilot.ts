@@ -38,7 +38,8 @@ check("machine operator can be chosen manually for truck", () => assert.equal(pe
 check("resources use current company vehicles", () => assert.match(resources, /from\("reference_vehicles"\)[\s\S]*eq\("company_id", companyId\)/));
 check("resources include active agricultural machines without PTC proxy duplicates", () => {
   assert.match(resources, /from\("reference_machines"\)/);
-  assert.match(resources, /is\("source_machine_id", null\)/);
+  assert.match(resources, /const machineProjectionRows = allVehicleSourceRows\.filter/);
+  assert.match(resources, /machinePersonnelById\.get\(String\(row\.id\)\)/);
   assert.match(resources, /source: "reference_machines"/);
 });
 check("resources split trailers", () => assert.match(resources, /const trailers = vehicleRows\.filter/));

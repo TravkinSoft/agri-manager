@@ -65,9 +65,8 @@ export async function GET(request: NextRequest) {
     const settled = await Promise.allSettled([
       supabase
         .from("reference_vehicles")
-        .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name,type,fleet_type,primary_responsible_personnel_id,is_active,archived,transport_model:transport_model_id(full_name,category)")
+        .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name,type,fleet_type,source_machine_id,primary_responsible_personnel_id,is_active,archived,transport_model:transport_model_id(full_name,category)")
         .eq("company_id", companyId)
-        .is("source_machine_id", null)
         .eq("is_active", true)
         .eq("archived", false)
         .order("name", { ascending: true }),
@@ -138,7 +137,9 @@ export async function GET(request: NextRequest) {
       return (result.value.data || []) as any[];
     };
 
-    const vehicleSourceRows = readRows(0);
+    const allVehicleSourceRows = readRows(0);
+    const vehicleSourceRows = allVehicleSourceRows.filter((row: any) => !row.source_machine_id);
+    const machineProjectionRows = allVehicleSourceRows.filter((row: any) => row.source_machine_id);
     const machineSourceRows = readRows(1);
     const peopleRows = readRows(2);
     const legacyDriverRows = readRows(3);
@@ -166,6 +167,15 @@ export async function GET(request: NextRequest) {
           : null,
       };
     });
+    const machinePersonnelById = new Map<string, string>();
+    machineProjectionRows.forEach((row: any) => {
+      if (row.source_machine_id && row.primary_responsible_personnel_id) {
+        machinePersonnelById.set(
+          String(row.source_machine_id),
+          String(row.primary_responsible_personnel_id),
+        );
+      }
+    });
     const machineRows = machineSourceRows.map((row: any) => {
       const globalModel = Array.isArray(row.global_model)
         ? row.global_model[0]
@@ -184,7 +194,7 @@ export async function GET(request: NextRequest) {
         fleetType: String(row.machinery_type || row.type || ""),
         transportCategory: String(globalModel?.category || row.category || ""),
         source: "reference_machines" as const,
-        primaryPersonnelId: null,
+        primaryPersonnelId: machinePersonnelById.get(String(row.id)) || null,
       };
     });
     const vehicles = [...vehicleRows.filter((row) => !isTrailerTransport(row)), ...machineRows]
@@ -212,7 +222,7 @@ export async function GET(request: NextRequest) {
     });
 
     const byDriver = new Map<string, string[]>();
-    vehicleRows.forEach((vehicle) => {
+    [...vehicleRows, ...machineRows].forEach((vehicle) => {
       if (!vehicle.primaryPersonnelId) return;
       const bridge = legacyPersonById.get(vehicle.primaryPersonnelId);
       if (!bridge || (bridge.personnelType === "machine_operator" &&

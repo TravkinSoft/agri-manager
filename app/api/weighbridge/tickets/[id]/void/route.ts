@@ -27,7 +27,7 @@ export async function POST(
     const validationStartedAt = Date.now();
     const { data: ticketBefore, error: ticketBeforeError } = await supabase
       .from("tickets")
-      .select("id, company_id, vehicle_id")
+      .select("id")
       .eq("id", id)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -57,24 +57,6 @@ export async function POST(
       .eq("id", id)
       .maybeSingle();
 
-    if (ticketBefore.vehicle_id) {
-      const { data: stillActive } = await supabase
-        .from("tickets")
-        .select("id")
-        .eq("company_id", ticketBefore.company_id)
-        .eq("vehicle_id", ticketBefore.vehicle_id)
-        .in("status", ["draft", "active", "ready_to_close"])
-        .neq("id", id)
-        .limit(1);
-
-      if ((stillActive || []).length === 0) {
-        await supabase
-          .from("reference_vehicles")
-          .update({ status: "free" })
-          .eq("id", ticketBefore.vehicle_id)
-          .eq("company_id", ticketBefore.company_id);
-      }
-    }
     timing.dbMs = Date.now() - dbStartedAt;
     if (operatorSession) {
       await recordWeighbridgeOperatorActivity(request, { companyId, supabase }, "ticket_void");

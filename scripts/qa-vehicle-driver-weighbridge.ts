@@ -217,11 +217,19 @@ async function checkCurrentResourceAssignmentBridges() {
       status: "active", deleted_at: null,
     })),
     reference_vehicles: bridges.map((_, index) => ({
-      id: `vehicle-${index}`, company_id: "company", name: index === 1 ? "МТЗ" : "KAMAZ",
-      type: index === 1 ? "tractor" : "truck", fleet_type: index === 1 ? "tractor" : "truck",
-      primary_responsible_personnel_id: `bridge-${index}`, source_machine_id: null, is_active: true, archived: false,
+      id: index === 2 ? "projection-2" : `vehicle-${index}`,
+      company_id: "company", name: index === 1 || index === 2 ? "МТЗ" : "KAMAZ",
+      type: index === 1 || index === 2 ? "tractor" : "truck",
+      fleet_type: index === 1 || index === 2 ? "tractor" : "truck",
+      primary_responsible_personnel_id: `bridge-${index}`,
+      source_machine_id: index === 2 ? "machine-2" : null,
+      is_active: true, archived: false,
     })),
-    reference_machines: [], profiles: [], fields: [], warehouses: [],
+    reference_machines: [{
+      id: "machine-2", company_id: "company", name: "МТЗ PTC", type: "tractor",
+      machinery_type: "tractor", primary_responsible_personnel_id: null,
+      is_active: true, archived: false,
+    }], profiles: [], fields: [], warehouses: [],
   };
   const db = {
     from(table: string) {
@@ -264,7 +272,11 @@ async function checkCurrentResourceAssignmentBridges() {
   const result = await loaded.exports.GET({});
   check("resource route accepts machine-operator bridge only for a concrete tractor", () => {
     assert.deepEqual(JSON.parse(JSON.stringify(result.drivers.map((driver: any) => driver.assignedVehicleIds))),
-      [["vehicle-0"], ["vehicle-1"], [], [], [], [], [], []]);
+      [["vehicle-0"], ["vehicle-1"], ["machine-2"], [], [], [], [], []]);
+  });
+  check("resource route hides PTC mirror and transfers its driver assignment to the machine", () => {
+    assert.equal(result.vehicles.some((vehicle: any) => vehicle.id === "projection-2"), false);
+    assert.equal(result.vehicles.some((vehicle: any) => vehicle.id === "machine-2"), true);
   });
   check("resource route keeps historical names for inactive, archived and non-driver bridges", () => {
     bridges.forEach((_, index) => assert.equal(result.driverNames[`bridge-${index}`], `Historical ${index}`));
@@ -279,7 +291,7 @@ async function checkInitialWorkspaceAssignmentBridges() {
     vehicles: [
       { id: "truck-driver", name: "KAMAZ", type: "truck", fleet_type: "truck", primary_responsible_personnel_id: "bridge-driver" },
       { id: "truck-mechanic", name: "KAMAZ", type: "truck", fleet_type: "truck", primary_responsible_personnel_id: "bridge-mechanic-truck" },
-      { id: "tractor-mechanic", name: "МТЗ", type: "tractor", fleet_type: "tractor", primary_responsible_personnel_id: "bridge-mechanic-tractor" },
+      { id: "tractor-projection", name: "МТЗ mirror", type: "tractor", fleet_type: "tractor", primary_responsible_personnel_id: "bridge-mechanic-tractor" },
       { id: "truck-inactive", name: "KAMAZ", type: "truck", fleet_type: "truck", primary_responsible_personnel_id: "bridge-inactive" },
       { id: "truck-archived", name: "KAMAZ", type: "truck", fleet_type: "truck", primary_responsible_personnel_id: "bridge-archived" },
       { id: "truck-wrong-type", name: "KAMAZ", type: "truck", fleet_type: "truck", primary_responsible_personnel_id: "bridge-wrong-type" },
@@ -307,7 +319,6 @@ async function checkInitialWorkspaceAssignmentBridges() {
     { id: "bridge-wrong-type", person_id: "person-driver", personnel_type: "specialist", status: "active", archived: false },
   ];
   const headers = new Map<string, string>();
-  let requestedBridgeIds: string[] = [];
   let bridgeFailure: { code: string } | null = null;
   const db = {
     rpc: async (name: string, args: Record<string, unknown>) => {
@@ -321,7 +332,22 @@ async function checkInitialWorkspaceAssignmentBridges() {
         const query: any = {
           select() { return query; }, eq() { return query; }, order() { return query; },
           then(done: (value: unknown) => unknown, failed: (reason: unknown) => unknown) {
-            return Promise.resolve({ data: [], error: null }).then(done, failed);
+            return Promise.resolve({ data: [{
+              id: "tractor-machine", name: "МТЗ", type: "tractor", machinery_type: "tractor",
+              is_active: true, archived: false,
+            }], error: null }).then(done, failed);
+          },
+        };
+        return query;
+      }
+      if (table === "reference_vehicles") {
+        const query: any = {
+          select() { return query; }, eq() { return query; }, not() { return query; },
+          then(done: (value: unknown) => unknown, failed: (reason: unknown) => unknown) {
+            return Promise.resolve({ data: [{
+              id: "tractor-projection", source_machine_id: "tractor-machine",
+              primary_responsible_personnel_id: "bridge-mechanic-tractor",
+            }], error: null }).then(done, failed);
           },
         };
         return query;
@@ -330,10 +356,9 @@ async function checkInitialWorkspaceAssignmentBridges() {
       const query: any = {
         select(fields: string) { assert.equal(fields, "id,person_id,personnel_type,status,archived"); return query; },
         eq(key: string, value: unknown) { assert.equal(key, "company_id"); assert.equal(value, "company"); return query; },
-        in(key: string, value: string[]) { assert.equal(key, "id"); requestedBridgeIds = value; return query; },
         then(done: (value: unknown) => unknown, failed: (reason: unknown) => unknown) {
           return Promise.resolve({
-            data: bridgeFailure ? null : assignmentBridges.filter((row) => requestedBridgeIds.includes(row.id)),
+            data: bridgeFailure ? null : assignmentBridges,
             error: bridgeFailure,
           }).then(done, failed);
         },
@@ -382,10 +407,12 @@ async function checkInitialWorkspaceAssignmentBridges() {
     assert.deepEqual(JSON.parse(JSON.stringify(assignments["person-driver"])), ["truck-driver"]);
   });
   check("initial workspace assigns mechanic only to a concrete tractor", () => {
-    assert.deepEqual(JSON.parse(JSON.stringify(assignments["person-mechanic"])), ["tractor-mechanic"]);
+    assert.deepEqual(JSON.parse(JSON.stringify(assignments["person-mechanic"])), ["tractor-machine"]);
   });
-  check("initial workspace verifies only referenced specialist IDs", () => {
-    assert.deepEqual([...requestedBridgeIds].sort(), assignmentBridges.map((row) => row.id).sort());
+  check("initial workspace hides the PTC mirror and keeps the canonical machine", () => {
+    const ids = response.initial_workspace.resources.vehicles.map((vehicle: any) => vehicle.id);
+    assert.equal(ids.includes("tractor-projection"), false);
+    assert.equal(ids.includes("tractor-machine"), true);
   });
   check("initial workspace rejects inactive, archived and incompatible bridges", () => {
     assert.equal(assignments["person-driver"].includes("truck-inactive"), false);

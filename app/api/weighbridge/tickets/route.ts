@@ -31,6 +31,7 @@ import {
   type TicketHistoryCursor,
 } from "@/lib/weighbridge/ticket-history-cursor";
 import { sanitizeClientTicketAuditJson } from "@/lib/weighbridge/ticket-audit";
+import { getServiceClient } from "@/lib/supabase/service";
 
 function buildTicketNo(companyId: string): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -115,17 +116,6 @@ async function cleanupCreatedHarvestProduct(supabase: SupabaseClient, productId:
     .eq("id", productId)
     .eq("is_derived_inventory", true)
     .like("derived_identity_key", "harvest-crop-v1:%");
-}
-
-async function cleanupCreatedTicket(
-  supabase: SupabaseClient,
-  ticketId: string,
-  createdHarvestProductId: string | null = null
-) {
-  await supabase.from("ticket_weighings").delete().eq("ticket_id", ticketId);
-  await supabase.from("ticket_lines").delete().eq("ticket_id", ticketId);
-  await supabase.from("tickets").delete().eq("id", ticketId);
-  await cleanupCreatedHarvestProduct(supabase, createdHarvestProductId);
 }
 
 async function resolveActiveSeasonId(
@@ -508,18 +498,19 @@ export async function POST(request: NextRequest) {
       weighing.measured_weight_kg = parsed.value;
     }
     const rawIdempotencyKey = String(request.headers.get("Idempotency-Key") || "").trim();
-    if (rawIdempotencyKey && !UUID_RE.test(rawIdempotencyKey)) {
+    if (!rawIdempotencyKey) {
+      return NextResponse.json({ error: "Idempotency-Key is required" }, { status: 400 });
+    }
+    if (!UUID_RE.test(rawIdempotencyKey)) {
       return NextResponse.json({ error: "Idempotency-Key must be a UUID" }, { status: 400 });
     }
-    const idempotencyKey = rawIdempotencyKey || null;
-    const requestFingerprint = idempotencyKey
-      ? createHash("sha256").update(JSON.stringify({
-          ticket: rawTicket,
-          lines,
-          weighings,
-          impurity_source_scope: sharedImpurityScope,
-        })).digest("hex")
-      : null;
+    const idempotencyKey = rawIdempotencyKey;
+    const requestFingerprint = createHash("sha256").update(JSON.stringify({
+      ticket: rawTicket,
+      lines,
+      weighings,
+      impurity_source_scope: sharedImpurityScope,
+    })).digest("hex");
 
     if (idempotencyKey && !sharedImpurityScope) {
       const { data: existingTicket, error: existingTicketError } = await measure("idempotency_lookup", () => supabase
@@ -2106,30 +2097,19 @@ export async function POST(request: NextRequest) {
       timing.steps.company_lookup = Date.now() - companyLookupStartedAt;
     });
 
-    const { data: createdTicket, error: ticketError } = await measure("ticket_insert", () => supabase
-      .from("tickets")
-      .insert({
+    const ticketInsertPayload = {
         ...ticket,
-        ...(idempotencyKey ? { id: idempotencyKey } : {}),
+        id: idempotencyKey,
         ...(paperBackfill ? { created_at: paperBackfill.recordedAt, updated_at: paperBackfill.recordedAt } : {}),
-        audit_json: idempotencyKey
-          ? {
-              ...(((ticket as any).audit_json || {}) as Record<string, unknown>),
-              idempotency_key: idempotencyKey,
-              request_fingerprint: requestFingerprint,
-            }
-          : (ticket as any).audit_json || null,
+        audit_json: {
+          ...(((ticket as any).audit_json || {}) as Record<string, unknown>),
+          idempotency_key: idempotencyKey,
+          request_fingerprint: requestFingerprint,
+        },
         shift_id: ticket.shift_id || activeShiftId,
         ticket_no: ticketNo,
         status: isDirectSupplierReceipt ? "ready_to_close" : "active",
-      })
-      .select("*")
-      .single());
-
-    if (ticketError || !createdTicket?.id) {
-      await cleanupCreatedHarvestProduct(supabase, createdHarvestProductId);
-      return NextResponse.json({ error: ticketError?.message || "Failed to create ticket" }, { status: 400 });
-    }
+      };
 
     const productsMap = new Map<string, string>();
     const varietiesMap = new Map<string, string>();
@@ -2150,7 +2130,7 @@ export async function POST(request: NextRequest) {
     }
 
     const linesPayload = lines.map((line) => ({
-      ticket_id: createdTicket.id,
+      ticket_id: idempotencyKey,
       company_id: ticket.company_id,
       product_id: line.product_id,
       crop_id: line.crop_id ?? null,
@@ -2194,7 +2174,7 @@ export async function POST(request: NextRequest) {
     }));
 
     const weighingsPayload = weighings.map((item) => ({
-        ticket_id: createdTicket.id,
+        ticket_id: idempotencyKey,
         company_id: ticket.company_id,
         weighing_no: item.weighing_no,
         measured_weight_kg: Number(item.measured_weight_kg || 0),
@@ -2205,24 +2185,42 @@ export async function POST(request: NextRequest) {
         weighbridge_shift_id: operatorSession?.shift.id || activeShiftId || null,
         comment: item.comment || null,
       }));
-    const [linesInsertResult, weighingsInsertResult] = await Promise.all([
-      measure("ticket_line_insert", () => supabase.from("ticket_lines").insert(linesPayload)),
-      weighingsPayload.length > 0
-        ? measure("gross_event_insert", () => supabase.from("ticket_weighings").insert(weighingsPayload))
-        : Promise.resolve({ error: null } as any),
-      ticket.vehicle_id && selectedVehicle?.source === "reference_vehicles"
-        ? measure("vehicle_status_update", () => supabase
-            .from("reference_vehicles")
-            .update({ status: "in_trip" })
-            .eq("id", ticket.vehicle_id)
-            .eq("company_id", ticket.company_id))
-        : Promise.resolve({ error: null } as any),
-    ]);
-    const linesError = linesInsertResult.error;
-    const weighingsError = weighingsInsertResult.error;
-    if (linesError || weighingsError) {
-      await cleanupCreatedTicket(supabase, createdTicket.id, createdHarvestProductId);
-      return NextResponse.json({ error: linesError?.message || weighingsError?.message || "Failed to create ticket details" }, { status: 400 });
+    const serviceClient = getServiceClient();
+    const { data: atomicCreate, error: atomicCreateError } = await measure("ticket_atomic_create", () => serviceClient.rpc(
+      "create_weighbridge_ticket_atomic_v1",
+      {
+        p_company_id: ticket.company_id,
+        p_actor_user_id: actor.id,
+        p_idempotency_key: idempotencyKey,
+        p_request_fingerprint: requestFingerprint,
+        p_ticket: ticketInsertPayload,
+        p_lines: linesPayload,
+        p_weighings: weighingsPayload,
+      },
+    ));
+    if (atomicCreateError || !(atomicCreate as any)?.ok) {
+      await cleanupCreatedHarvestProduct(supabase, createdHarvestProductId);
+      const rawMessage = String(atomicCreateError?.message || "Failed to create ticket");
+      const conflict = rawMessage.includes("WEIGHBRIDGE_CREATE_VEHICLE_BUSY")
+        || rawMessage.includes("WEIGHBRIDGE_CREATE_DRIVER_BUSY")
+        || rawMessage.includes("WEIGHBRIDGE_CREATE_TRAILER_BUSY")
+        || rawMessage.includes("WEIGHBRIDGE_IDEMPOTENCY_PAYLOAD_MISMATCH");
+      return NextResponse.json(
+        { error: weighbridgeUserError(rawMessage), code: conflict ? "weighbridge_create_conflict" : "weighbridge_create_failed" },
+        { status: conflict ? 409 : 400 },
+      );
+    }
+    const { data: createdTicket, error: createdTicketError } = await supabase
+      .from("tickets")
+      .select("*")
+      .eq("id", idempotencyKey)
+      .eq("company_id", ticket.company_id)
+      .single();
+    if (createdTicketError || !createdTicket?.id) {
+      return NextResponse.json(
+        { error: createdTicketError?.message || "Ticket was created but could not be reloaded" },
+        { status: 500 },
+      );
     }
     if (paperBackfill) {
       const backfill = paperBackfill;
@@ -2243,10 +2241,13 @@ export async function POST(request: NextRequest) {
       ));
       const closePayload = (closeResult || {}) as Record<string, unknown>;
       if (closeError || closePayload.ok !== true) {
-        await cleanupCreatedTicket(supabase, createdTicket.id, createdHarvestProductId);
         return NextResponse.json(
-          { error: weighbridgeUserError(closeError?.message || "Не удалось провести бумажный рейс.") },
-          { status: 400 }
+          {
+            error: weighbridgeUserError(closeError?.message || "Талон создан, но бумажный рейс не удалось закрыть."),
+            code: "paper_trip_created_not_finalized",
+            ticket: createdTicket,
+          },
+          { status: 409 }
         );
       }
       const { data: finalizedTicket, error: finalizedTicketError } = await supabase
@@ -2285,8 +2286,11 @@ export async function POST(request: NextRequest) {
       timing.rpcMs = Date.now() - rpcStartedAt;
 
       if (finalizeError) {
-        await cleanupCreatedTicket(supabase, createdTicket.id, createdHarvestProductId);
-        return NextResponse.json({ error: weighbridgeUserError(finalizeError.message) }, { status: 400 });
+        return NextResponse.json({
+          error: weighbridgeUserError(finalizeError.message),
+          code: "ticket_created_not_finalized",
+          ticket: createdTicket,
+        }, { status: 409 });
       }
 
       const { data: finalizedTicket } = await supabase

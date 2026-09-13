@@ -413,8 +413,9 @@ export async function createTicket(
   },
   impuritySourceScope?: ImpuritySourceScopeInput
 ) {
-  const headers: Record<string, string> = {};
-  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+  const headers: Record<string, string> = {
+    "Idempotency-Key": idempotencyKey || crypto.randomUUID(),
+  };
   const response = await fetchWithClientAuth("/api/weighbridge/tickets", {
     method: "POST",
     headers,
