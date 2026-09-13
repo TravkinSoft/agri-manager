@@ -2,7 +2,7 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),
 const root=path.join(__dirname,'..'),out=path.join(__dirname,'output/weather-scene');fs.mkdirSync(out,{recursive:true});
 const entry=`import React from 'react';import{createRoot}from'react-dom/client';import{WeatherPanorama}from'./components/weather/weather-panorama';
 const point={time:'2026-09-13T12:00:00+05:00',windMs:4,precipitationRateMmH:0,cloudCoverPct:35};
-const weather={sun:[],providerMeta:{timezone:'Asia/Almaty',utcOffsetMinutes:300}};
+const weather={sun:['2026-09-12','2026-09-13','2026-09-14'].map(date=>({date,sunrise:date+'T06:00:00+05:00',sunset:date+'T18:00:00+05:00'})),providerMeta:{timezone:'Asia/Almaty',utcOffsetMinutes:300}};
 function App(){const[p,set]=React.useState(point);window.updateWeather=patch=>set(v=>({...v,...patch}));return <WeatherPanorama weather={weather} point={p}/>;}createRoot(document.getElementById('app')).render(<App/>);`;
 require('esbuild').buildSync({stdin:{contents:entry,resolveDir:root,loader:'tsx'},bundle:true,jsx:'automatic',outfile:path.join(out,'app.js'),define:{'process.env.NODE_ENV':'"production"'},tsconfig:path.join(root,'tsconfig.json')});
 const cssDir=path.join(root,'.next/static/css');

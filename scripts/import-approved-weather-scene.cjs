@@ -34,21 +34,35 @@ replace("root.dataset.state='failed';", "root.dataset.state='failed';if(view.que
 replace("view.querySelector('img')?.remove();", "if(view.querySelector('img'))view.querySelector('img').hidden=true;");
 replace("skyMaterial.uniforms.uRain=rainUniforms.uRain;", "skyMaterial.uniforms.uRain={value:0};");
 // Cloud amount drives the sky independently; rain still exclusively drives drops and puddles.
-replace("function applySolar(h){", "function applySolar(h){const overcast=Math.max(rain,cloud);skyMaterial.uniforms.uRain.value=overcast;");
+replace("function applySolar(h){", "function applySolar(h){h=((h%24)+24)%24;const overcast=Math.max(rain,cloud);skyMaterial.uniforms.uRain.value=overcast;");
 replace("*(1.-rain*.94)", "*(1.-overcast*.94)");
-replace("*(1.-rain*.75)", "*(1.-overcast*.75)");
-replace("multiplyScalar(1.-rain*.24);sunlight.intensity*=1.-rain*.87;ambient.intensity*=1.-rain*.24;", "multiplyScalar(1.-overcast*.24);sunlight.intensity*=1.-overcast*.87;ambient.intensity*=1.-overcast*.24;");
+replace("*(1.-rain*.75)", "*(1.-overcast*(.65-.25*moonBlend))");
+replace("multiplyScalar(1.-rain*.24);sunlight.intensity*=1.-rain*.87;ambient.intensity*=1.-rain*.24;", "multiplyScalar(1.-overcast*(.18-.08*moonBlend));sunlight.intensity*=1.-overcast*(.80-.35*moonBlend);ambient.intensity*=1.-overcast*.12;");
+// Lift moonlit materials and diffuse sky fill, keeping a blue night palette.
+replace(".48*moonBlend", ".65*moonBlend");
+replace("setRGB(.43+day*.57,.55+day*.45,.83+day*.17)", "setRGB(.82+day*.34,.98+day*.18,1.24-day*.06)");
+replace("+.85*moonBlend;ambient.intensity=.65+day*.50;ambient.color.setRGB(.38+day*.24,.49+day*.21,.75+day*.06)", "+1.15*moonBlend;ambient.intensity=.98+day*.30;ambient.color.setRGB(.55+day*.12,.66+day*.10,.90-day*.04)");
+replace("vec3(.065,.105,.18),vec3(.009,.021,.058)", "vec3(.10,.16,.26),vec3(.023,.045,.105)");
+replace("vec3(.14,.18,.25),vec3(.065,.09,.14)", "vec3(.18,.24,.33),vec3(.12,.17,.25)");
+replace("vec3(.31,.43,.65)", "vec3(.52,.69,.95)");
+replace("vec3(.085,.14,.24),sky,uDay", "vec3(.12,.20,.33),sky,uDay");
 replace("let rain=Number(rainInput.value)/100", "let cloud=productState.cloud,targetCloud=cloud,cloudFrom=cloud,cloudChanged=performance.now()-1000;let rain=Number(rainInput.value)/100");
 replace("speed=4,target=4,windFrom=4", "speed=productState.wind,target=productState.wind,windFrom=productState.wind");
 replace("paused=false,near=false", "paused=productState.paused,near=false");
 replace("root.dataset.cloudShift=", "root.dataset.cloud=cloud.toFixed(3);root.dataset.paused=String(paused);root.dataset.cloudShift=");
-replace("const dt=last?", "const dt=last?");
+// Interpolate across midnight on the short circular arc, never through noon.
+replace("function leafUpdate(){", `function setHour(value){
+ const next=hour+(((value-hour+12)%24+24)%24-12);
+ if(Math.abs(targetHour-next)>1e-7){hourFrom=hour;targetHour=next;hourChanged=performance.now();}
+}
+function leafUpdate(){`);
+replace("hourFrom=hour;targetHour=Number(clockInput.value);hourChanged=performance.now();", "setHour(Number(clockInput.value));");
 replace("const rt=Math.min", "if(cloud!==targetCloud){const ct=Math.min(1,Math.max(0,(now-cloudChanged)/650));cloud=ct===1?targetCloud:cloudFrom+(targetCloud-cloudFrom)*ct*ct*(3-2*ct);applySolar(hour);dirty=true;}const rt=Math.min");
 replace("if(hour!==targetHour||rain!==targetRain||(!paused", "if(cloud!==targetCloud||hour!==targetHour||rain!==targetRain||(!paused");
 replace("visible&&!document.hidden)raf=", "visible&&productState.active&&!document.hidden)raf=");
 replace("const reduced=matchMedia", `applyProduct=()=>{
    const p=productState;
-   if(targetHour!==p.hour){hourFrom=hour;targetHour=p.hour;hourChanged=performance.now();}
+   setHour(p.hour);
    if(targetRain!==p.rain){rainFrom=rain;targetRain=p.rain;rainChanged=performance.now();}
    if(target!==p.wind){windFrom=speed;target=p.wind;windChanged=performance.now();if(p.paused)speed=target;}
    if(targetCloud!==p.cloud){cloudFrom=cloud;targetCloud=p.cloud;cloudChanged=performance.now();}paused=p.paused;dirty=true;labels();
