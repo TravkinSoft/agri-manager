@@ -138,6 +138,7 @@ async function loadSharedImpurityPoolSummaries(
     .select("id,ticket_id,source_warehouse_id,season_id,crop_id,product_id,display_name,pool_inventory_batch_id,source_total_kg,impurity_weight_kg,clean_total_kg,created_at,finalized_at")
     .eq("company_id", companyId)
     .eq("state", "finalized")
+    .eq("settlement_mode", "legacy_pool_unresolved")
     .not("pool_inventory_batch_id", "is", null)
     .order("finalized_at", { ascending: false });
   if (warehouseId) groupsQuery = groupsQuery.eq("source_warehouse_id", warehouseId);

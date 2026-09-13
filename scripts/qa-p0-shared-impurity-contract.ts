@@ -40,6 +40,19 @@ async function findExactSourceMigration(): Promise<Artifact> {
   return matches[0]!;
 }
 
+async function findMemberSettlementMigration(): Promise<Artifact> {
+  const directory = join(process.cwd(), "supabase", "migrations");
+  const matches: Artifact[] = [];
+  for (const name of await readdir(directory)) {
+    if (!name.endsWith(".sql")) continue;
+    const path = join("supabase", "migrations", name);
+    const artifact = await load(path);
+    if (artifact.text.includes("P0 shared impurity member settlement V2")) matches.push(artifact);
+  }
+  assert.equal(matches.length, 1, "exactly one member-settlement migration must exist");
+  return matches[0]!;
+}
+
 function tableColumns(sql: string, table: string) {
   const match = sql.match(new RegExp(
     `create\\s+table\\s+public\\.${table}\\s*\\(([\\s\\S]*?)\\n\\);`,
@@ -69,6 +82,7 @@ async function main() {
   const [
     migration,
     exactSourceMigration,
+    memberSettlementMigration,
     createRoute,
     finalizeRoute,
     correctionRoute,
@@ -82,6 +96,7 @@ async function main() {
   ] = await Promise.all([
     findMigration(),
     findExactSourceMigration(),
+    findMemberSettlementMigration(),
     load("app/api/weighbridge/tickets/route.ts"),
     load("app/api/weighbridge/tickets/[id]/finalize/route.ts"),
     load("app/api/weighbridge/tickets/[id]/correction/route.ts"),
@@ -253,16 +268,28 @@ async function main() {
     assert.match(page.text, /usesExactImpuritySourceScope/);
   });
 
-  check("finalized shared pool remains selectable for repeated physical impurity trips", () => {
+  check("only an unresolved legacy pool can appear as a combined stock card", () => {
     assert.match(harvestBatchesRoute.text, /loadSharedImpurityPoolSummaries/);
     assert.match(harvestBatchesRoute.text, /let groupsQuery = harvestStockSupabase/);
     assert.match(harvestBatchesRoute.text, /harvestStockSupabase[\s\S]*\.from\("weighbridge_shared_impurity_members"\)/);
     assert.match(harvestBatchesRoute.text, /origin_type[^]*shared_impurity_pool/);
     assert.match(harvestBatchesRoute.text, /sharedImpurityPool:\s*true/);
+    assert.match(harvestBatchesRoute.text, /\.eq\("settlement_mode", "legacy_pool_unresolved"\)/);
     assert.match(createRoute.text, /\.in\("origin_type", \["harvest", "shared_impurity_pool"\]\)/);
     assert.match(createRoute.text, /pool_inventory_batch_id/);
     assert.match(createRoute.text, /\.eq\("state", "finalized"\)/);
     assert.match(page.text, /Общая физическая партия после примеси/);
+  });
+
+  check("shared impurity V2 preserves member stock identities", () => {
+    assert.doesNotMatch(memberSettlementMigration.text, /\b(?:delete\s+from|truncate|drop\s+table)\b/i);
+    assert.match(memberSettlementMigration.text, /proportional_by_source_balance/);
+    assert.match(memberSettlementMigration.text, /harvest_pool_source_restore_in/);
+    assert.match(memberSettlementMigration.text, /weighbridge_impurities_shared_member/);
+    assert.match(memberSettlementMigration.text, /harvest_pool_split_out/);
+    assert.match(memberSettlementMigration.text, /private\.settle_shared_impurity_members_v2/);
+    assert.match(memberSettlementMigration.text, /where g\.state = 'finalized'[\s\S]*settlement_mode = 'legacy_pool_unresolved'/);
+    assert.match(memberSettlementMigration.text, /SHARED_IMPURITY_V2_VISIBLE_POOL_REMAINS/);
   });
 
   check("warehouse detail resolves a shared pool by its physical batch id", () => {

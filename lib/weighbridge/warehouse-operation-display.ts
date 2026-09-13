@@ -13,6 +13,13 @@ type WarehouseOperationLabelInput = {
 
 const normalize = (value: unknown) => String(value || "").trim().toLowerCase();
 
+const TECHNICAL_SHARED_IMPURITY_REASONS = new Set([
+  "harvest_pool_reclass_in",
+  "harvest_pool_reclass_out",
+  "harvest_pool_source_restore_in",
+  "harvest_pool_split_out",
+]);
+
 const processingLabel = (value: unknown, destinationPlaceType?: unknown) => {
   const type = normalize(value);
   const destination = String(destinationPlaceType || "").trim().toUpperCase();
@@ -91,8 +98,10 @@ export function selectActiveWarehouseOperationEntries<T extends WarehouseOperati
   const reversedIds = new Set(entries.map((entry) => String(entry.storno_of_entry_id || "")).filter(Boolean));
   return entries.filter((entry) => {
     const delta = Number(entry.delta_qty_signed || 0);
+    const reason = normalize(entry.reason_type);
     return Number.isFinite(delta) && Math.abs(delta) > 0.000001
-      && !entry.is_storno && !normalize(entry.reason_type).startsWith("storno_")
+      && !entry.is_storno && !reason.startsWith("storno_")
+      && !TECHNICAL_SHARED_IMPURITY_REASONS.has(reason)
       && !reversedIds.has(String(entry.id || ""));
   });
 }

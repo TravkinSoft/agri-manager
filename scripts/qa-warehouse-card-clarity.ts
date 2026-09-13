@@ -26,12 +26,15 @@ const entries = [
   { id: "cancelled", delta_qty_signed: 999 },
   { id: "storno", delta_qty_signed: -999, is_storno: true, storno_of_entry_id: "cancelled" },
   { id: "legacy-storno", delta_qty_signed: 10, reason_type: "storno_warehouse_transfer_out" },
+  { id: "pool-out", delta_qty_signed: -200, reason_type: "harvest_pool_reclass_out" },
+  { id: "source-restore", delta_qty_signed: 200, reason_type: "harvest_pool_source_restore_in" },
+  { id: "member-impurity", delta_qty_signed: -15, reason_type: "weighbridge_impurities_shared_member" },
   { id: "zero", delta_qty_signed: 0 },
   { id: "invalid", delta_qty_signed: "bad" },
 ];
 const active = selectActiveWarehouseOperationEntries(entries);
-assert.deepEqual(active.map((row) => row.id), ["in-a", "in-b", "out"]);
-assert.equal(active.reduce((sum, row) => sum + Number(row.delta_qty_signed), 0), 5_100);
+assert.deepEqual(active.map((row) => row.id), ["in-a", "in-b", "out", "member-impurity"]);
+assert.equal(active.reduce((sum, row) => sum + Number(row.delta_qty_signed), 0), 5_085);
 assert.equal(selectActiveWarehouseOperationEntries([{ id: "harvest", delta_qty_signed: 100, reason_type: "harvest_incoming_in" }]).length, 1);
 assert.equal(selectActiveWarehouseOperationEntries([{ id: "processing", delta_qty_signed: 100, reason_type: "processing_output_in" }]).length, 1);
 assert.equal(warehouseOperationLabel({ direction: "in", reasonType: "unclassified" }), "Поступление");
@@ -39,14 +42,18 @@ assert.equal(warehouseOperationLabel({ direction: "in", reasonType: "warehouse_o
 assert.equal(warehouseOperationLabel({ direction: "in", operationType: "supplier_incoming" }), "Приход от поставщика");
 
 const collapsed = collapseOperationDocuments(active.map((entry) => ({
-  id: entry.id, label: "Перемещение", warehouseName: "Номер 1",
+  id: entry.id, label: warehouseOperationLabel({
+    reasonType: entry.reason_type,
+    direction: Number(entry.delta_qty_signed) > 0 ? "in" : "out",
+  }), warehouseName: "Номер 1",
   quantityKg: Math.abs(Number(entry.delta_qty_signed)),
   direction: Number(entry.delta_qty_signed) > 0 ? "in" as const : "out" as const,
   sourceType: "weighbridge_ticket" as const, sourceId: "same-ticket", ticketId: "same-ticket",
 })));
-assert.equal(collapsed.length, 2, "in/out must never collapse into one signed operation");
+assert.equal(collapsed.length, 3, "business operations and directions must stay distinct");
 assert.equal(collapsed.find((doc) => doc.direction === "in")?.quantityKg, 10_100);
-assert.equal(collapsed.find((doc) => doc.direction === "out")?.quantityKg, 5_000);
+assert.equal(collapsed.find((doc) => doc.label === "Отгрузка")?.quantityKg, 5_000);
+assert.equal(collapsed.find((doc) => doc.label === "Вывоз примеси")?.quantityKg, 15);
 
 const route = readFileSync(new URL("../app/api/weighbridge/harvest-batches/route.ts", import.meta.url), "utf8");
 const dialog = readFileSync(new URL("../components/warehouses/harvest-batch-dialog.tsx", import.meta.url), "utf8");

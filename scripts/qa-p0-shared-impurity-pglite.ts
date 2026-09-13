@@ -105,6 +105,19 @@ async function findExactSourceMigration() {
   return candidates[0]!;
 }
 
+async function findMemberSettlementMigration() {
+  const migrationDirectory = join(process.cwd(), "supabase", "migrations");
+  const candidates: Array<{ path: string; sql: string }> = [];
+  for (const fileName of await readdir(migrationDirectory)) {
+    if (!fileName.endsWith(".sql")) continue;
+    const path = join(migrationDirectory, fileName);
+    const sql = await readFile(path, "utf8");
+    if (sql.includes("P0 shared impurity member settlement V2")) candidates.push({ path, sql });
+  }
+  assert.equal(candidates.length, 1, "exactly one member-settlement migration must exist");
+  return candidates[0]!;
+}
+
 async function bootstrap(db: PGlite) {
   await db.exec(`
     create role anon nologin;
@@ -830,6 +843,7 @@ async function main() {
 
   const migration = await findSharedImpurityMigration();
   const exactSourceMigration = await findExactSourceMigration();
+  const memberSettlementMigration = await findMemberSettlementMigration();
   await check("migration is discovered by contract marker, not timestamp", () => {
     assert.match(migration.sql, /source OUT \(-S\) \+ pool IN \(\+S\) \+ impurity OUT \(-I\)/);
     assert.match(migration.sql, /Existing one-lot impurity functions and their signatures are not replaced/);
@@ -852,6 +866,8 @@ async function main() {
     await check("exact migration compiles on the canonical minimal schema", () => undefined);
     await db.exec(exactSourceMigration.sql);
     await check("exact single-source extension compiles after the shared-pool migration", () => undefined);
+    await db.exec(memberSettlementMigration.sql);
+    await check("member-settlement migration compiles after both shared-source migrations", () => undefined);
 
     await check("legacy single-lot RPC definition remains byte-for-byte unchanged and callable", async () => {
       const legacyDefinitionAfter = await scalar<string>(
@@ -1224,7 +1240,7 @@ async function main() {
     });
 
     let finalized: Row = {};
-    await check("finalize posts source OUT + pool IN + impurity OUT with exact mass invariant", async () => {
+    await check("finalize keeps one shared document but settles original stock identities", async () => {
       finalized = await asAuthenticated(db, () => scalar<Row>(db, `
         select public.finalize_weighbridge_shared_impurity_pool_ticket_v1(
           $1::uuid, $2::text, $3::numeric, $4::boolean, $5::uuid
@@ -1236,6 +1252,10 @@ async function main() {
       assert.equal(Number(finalized.impurity_weight_kg), 15);
       assert.equal(Number(finalized.clean_total_kg), 185);
       assert.equal(Number(finalized.ledger_count), 4);
+      assert.equal(finalized.settlement_mode, "proportional_members_v2");
+      assert.equal(Number(finalized.allocated_impurity_kg), 15);
+      assert.equal(Number(finalized.source_restore_count), 2);
+      assert.equal(Number(finalized.member_impurity_entry_count), 2);
 
       const ledger = await rows(db, `
         select reason_type, count(*)::int entry_count,
@@ -1248,7 +1268,10 @@ async function main() {
       assert.deepEqual(ledger, [
         { reason_type: "harvest_pool_reclass_in", entry_count: 1, signed_kg: "200.000000" },
         { reason_type: "harvest_pool_reclass_out", entry_count: 2, signed_kg: "-200.000000" },
+        { reason_type: "harvest_pool_source_restore_in", entry_count: 2, signed_kg: "200.000000" },
+        { reason_type: "harvest_pool_split_out", entry_count: 1, signed_kg: "-185.000000" },
         { reason_type: "weighbridge_impurities_shared", entry_count: 1, signed_kg: "-15.000000" },
+        { reason_type: "weighbridge_impurities_shared_member", entry_count: 2, signed_kg: "-15.000000" },
       ]);
       assert.equal(Number(await scalar<string>(db, `
         select round(sum(delta_qty_signed),6)::text
@@ -1256,47 +1279,55 @@ async function main() {
       `, [created.ticket_id])), -15);
     });
 
-    await check("source batches become zero and the pool holds the exact 185 kg clean total", async () => {
+    await check("source batches keep separate clean balances and the technical pool becomes zero", async () => {
       const balances = await rows(db, `
         select id::text, current_quantity::text, current_weight_kg::text, mass_kg::text
         from public.inventory_batches
         where id in ($1::uuid,$2::uuid,$3::uuid)
       `, [ID.batchA, ID.batchB, finalized.pool_inventory_batch_id]);
       const balanceById = new Map(balances.map((row) => [String(row.id), row]));
-      for (const sourceBatchId of [ID.batchA, ID.batchB]) {
-        const source = balanceById.get(sourceBatchId);
-        assert.ok(source, `source batch ${sourceBatchId} must remain addressable`);
-        assert.equal(Number(source.current_quantity), 0);
-        assert.equal(Number(source.current_weight_kg), 0);
-        assert.equal(Number(source.mass_kg), 0);
-      }
+      assert.equal(Number(balanceById.get(ID.batchA)?.current_quantity), 111);
+      assert.equal(Number(balanceById.get(ID.batchA)?.current_weight_kg), 111);
+      assert.equal(Number(balanceById.get(ID.batchA)?.mass_kg), 111);
+      assert.equal(Number(balanceById.get(ID.batchB)?.current_quantity), 74);
+      assert.equal(Number(balanceById.get(ID.batchB)?.current_weight_kg), 74);
+      assert.equal(Number(balanceById.get(ID.batchB)?.mass_kg), 74);
       const poolBatchId = String(finalized.pool_inventory_batch_id || "");
       assert.ok(poolBatchId, "shared pool batch id must be returned");
       const pool = balanceById.get(poolBatchId);
       assert.ok(pool, "shared pool batch must be addressable");
-      assert.equal(Number(pool.current_quantity), 185);
-      assert.equal(Number(pool.current_weight_kg), 185);
-      assert.equal(Number(pool.mass_kg), 185);
+      assert.equal(Number(pool.current_quantity), 0);
+      assert.equal(Number(pool.current_weight_kg), 0);
+      assert.equal(Number(pool.mass_kg), 0);
     });
 
-    await check("no per-source clean kilograms, impurity allocation, or yield are invented", async () => {
-      const forbiddenColumns = await rows(db, `
-        select column_name
-        from information_schema.columns
-        where table_schema='public'
-          and table_name='weighbridge_shared_impurity_members'
-          and column_name in (
-            'clean_mass_kg','clean_weight_kg','clean_yield_t_ha',
-            'yield_t_ha','impurity_weight_kg','impurity_allocation_kg'
-          )
-      `);
-      assert.deepEqual(forbiddenColumns, []);
+    await check("proportional allocation is explicit and exact for every member", async () => {
       const group = (await rows(db, `
-        select member_resolution_status, composition_snapshot
+        select member_resolution_status, settlement_mode, composition_snapshot
         from public.weighbridge_shared_impurity_groups
         where id=$1::uuid
       `, [created.pool_id]))[0]!;
-      assert.equal(group.member_resolution_status, "unresolved");
+      assert.equal(group.member_resolution_status, "proportional");
+      assert.equal(group.settlement_mode, "proportional_members_v2");
+      const members = await rows(db, `
+        select crop_structure_id::text, source_total_snapshot_kg::text,
+               allocated_impurity_kg::text, clean_total_kg::text,
+               clean_balance_status, yield_status
+        from public.weighbridge_shared_impurity_members
+        where group_id=$1::uuid
+        order by crop_structure_id
+      `, [created.pool_id]);
+      assert.deepEqual(members.map((row) => [
+        row.crop_structure_id,
+        Number(row.source_total_snapshot_kg),
+        Number(row.allocated_impurity_kg),
+        Number(row.clean_total_kg),
+        row.clean_balance_status,
+        row.yield_status,
+      ]), [
+        [ID.structureA, 120, 9, 111, "proportional", "proportional"],
+        [ID.structureB, 80, 6, 74, "proportional", "proportional"],
+      ]);
       const snapshot = group.composition_snapshot as Row[];
       assert.equal(snapshot.length, 2);
       for (const source of snapshot) {
@@ -1324,7 +1355,7 @@ async function main() {
       assert.equal(await scalar<number>(db, `
         select count(*)::int from public.stock_ledger_entries
         where ticket_id=$1::uuid and not is_storno
-      `, [created.ticket_id]), 4);
+      `, [created.ticket_id]), 9);
     });
 
     await check("canonical void/storno restores sources, zeros pool, and reconciles group state", async () => {
@@ -1347,7 +1378,7 @@ async function main() {
         ticket_status: "voided",
         is_voided: true,
         pool_state: "voided",
-        member_resolution_status: "unresolved",
+        member_resolution_status: "proportional",
         released_count: 2,
       });
       assert.equal(Number(await scalar<string>(db, `
@@ -1357,7 +1388,7 @@ async function main() {
       assert.equal(await scalar<number>(db, `
         select count(*)::int from public.stock_ledger_entries
         where ticket_id=$1::uuid and is_storno
-      `, [created.ticket_id]), 4);
+      `, [created.ticket_id]), 9);
       const restored = await rows(db, `
         select id::text, current_quantity::text
         from public.inventory_batches
@@ -1416,9 +1447,9 @@ async function main() {
       const balanceById = new Map(
         balances.map((row) => [String(row.id), Number(row.current_quantity)]),
       );
-      assert.equal(balanceById.get(ID.batchA), 0);
+      assert.equal(balanceById.get(ID.batchA), 105);
       assert.equal(balanceById.get(ID.batchB), 80);
-      assert.equal(balanceById.get(String(exactFinalized.pool_inventory_batch_id)), 105);
+      assert.equal(balanceById.get(String(exactFinalized.pool_inventory_batch_id)), 0);
       assert.equal(await scalar<number>(db, `
         select count(*)::int
         from public.weighbridge_shared_impurity_members
@@ -1426,9 +1457,73 @@ async function main() {
       `, [exactCreated.pool_id]), 1);
     });
 
+    await check("migration repairs an already-finalized legacy pool without deleting history", async () => {
+      const legacyDb = new PGlite();
+      try {
+        await bootstrap(legacyDb);
+        await seed(legacyDb);
+        await legacyDb.exec(migration.sql);
+        await legacyDb.exec(exactSourceMigration.sql);
+        const legacyCreated = await asAuthenticated(legacyDb, () => scalar<Row>(legacyDb, `
+          select public.create_weighbridge_shared_impurity_pool_ticket_v1(
+            $1::uuid, $2::uuid, $3::jsonb, $4::uuid, $5::uuid,
+            $6::numeric, $7::text, $8::text, $9::text, $10::uuid
+          )
+        `, [
+          ID.company,
+          ID.warehouse,
+          JSON.stringify([
+            { harvest_lot_id: ID.lotA, crop_structure_id: ID.structureA },
+            { harvest_lot_id: ID.lotB, crop_structure_id: ID.structureB },
+          ]),
+          ID.vehicle,
+          ID.driver,
+          25,
+          "soil_and_trash",
+          "Legacy finalized pool repair",
+          SESSION_TOKEN,
+          ID.createKey,
+        ]));
+        const legacyFinalized = await asAuthenticated(legacyDb, () => scalar<Row>(legacyDb, `
+          select public.finalize_weighbridge_shared_impurity_pool_ticket_v1(
+            $1::uuid, $2::text, $3::numeric, $4::boolean, $5::uuid
+          )
+        `, [legacyCreated.ticket_id, SESSION_TOKEN, 10, false, ID.finalizeKey]));
+        assert.equal(Number(await scalar(legacyDb, `
+          select current_quantity from public.inventory_batches where id=$1::uuid
+        `, [legacyFinalized.pool_inventory_batch_id])), 185);
+
+        await legacyDb.exec(memberSettlementMigration.sql);
+        const repaired = await rows(legacyDb, `
+          select id::text, current_quantity::text
+          from public.inventory_batches
+          where id in ($1::uuid,$2::uuid,$3::uuid)
+        `, [ID.batchA, ID.batchB, legacyFinalized.pool_inventory_batch_id]);
+        const repairedById = new Map(
+          repaired.map((row) => [String(row.id), Number(row.current_quantity)]),
+        );
+        assert.equal(repairedById.get(ID.batchA), 111);
+        assert.equal(repairedById.get(ID.batchB), 74);
+        assert.equal(repairedById.get(String(legacyFinalized.pool_inventory_batch_id)), 0);
+        assert.equal(await scalar<string>(legacyDb, `
+          select settlement_mode
+          from public.weighbridge_shared_impurity_groups
+          where id=$1::uuid
+        `, [legacyCreated.pool_id]), "proportional_members_v2");
+        assert.equal(await scalar<number>(legacyDb, `
+          select count(*)::int
+          from public.stock_ledger_entries
+          where ticket_id=$1::uuid and not is_storno
+        `, [legacyCreated.ticket_id]), 9);
+      } finally {
+        await legacyDb.close();
+      }
+    });
+
     console.log(`P0 SHARED IMPURITY PGLITE ${passed}/${passed} PASS`);
     console.log(`Migration: ${migration.path}`);
     console.log(`Exact source extension: ${exactSourceMigration.path}`);
+    console.log(`Member settlement: ${memberSettlementMigration.path}`);
   } finally {
     await db.close();
   }
