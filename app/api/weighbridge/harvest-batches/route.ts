@@ -122,7 +122,8 @@ function processingLabel(value: unknown): string {
 async function loadSharedImpurityPoolSummaries(
   harvestStockSupabase: any,
   companyId: string,
-  warehouseId: string | null
+  warehouseId: string | null,
+  poolBatchId: string | null = null,
 ) {
   // The request session and company access are already verified by
   // resolveWeighbridgeSession. Read the complete pool projection through the
@@ -137,6 +138,7 @@ async function loadSharedImpurityPoolSummaries(
     .not("pool_inventory_batch_id", "is", null)
     .order("finalized_at", { ascending: false });
   if (warehouseId) groupsQuery = groupsQuery.eq("source_warehouse_id", warehouseId);
+  if (poolBatchId) groupsQuery = groupsQuery.eq("pool_inventory_batch_id", poolBatchId);
   const { data: rawGroups, error: groupsError } = await groupsQuery;
   if (groupsError) {
     if (String(groupsError.code || "") === "42P01") return [];
@@ -144,6 +146,7 @@ async function loadSharedImpurityPoolSummaries(
   }
   const groups = (rawGroups || []) as any[];
   if (!groups.length) return [];
+  const detailed = Boolean(poolBatchId);
 
   const groupIds = ids(groups.map((group) => group.id));
   const batchIds = ids(groups.map((group) => group.pool_inventory_batch_id));
@@ -159,7 +162,7 @@ async function loadSharedImpurityPoolSummaries(
       .in("id", chunk)),
     harvestStockSupabase
       .from("weighbridge_shared_impurity_members")
-      .select("group_id,crop_structure_id,field_id,identity_snapshot")
+      .select("group_id,crop_structure_id,field_id,source_total_snapshot_kg,identity_snapshot")
       .eq("company_id", companyId)
       .in("group_id", groupIds)
       .order("created_at", { ascending: true }),
@@ -181,6 +184,52 @@ async function loadSharedImpurityPoolSummaries(
     .find(Boolean);
   if (firstError) throw firstError;
 
+  const sourceBatchRows = detailed
+    ? await loadInChunks<any>(groupIds, (chunk) => harvestStockSupabase
+        .from("weighbridge_shared_impurity_source_batches")
+        .select("group_id,crop_structure_id,source_ticket_id,inventory_batch_id,source_balance_snapshot_kg,state")
+        .eq("company_id", companyId)
+        .in("group_id", chunk)
+        .order("inventory_batch_id", { ascending: true }))
+    : [];
+  const traceTicketIds = detailed
+    ? ids([
+        ...groups.map((group) => group.ticket_id),
+        ...sourceBatchRows.map((source) => source.source_ticket_id),
+      ])
+    : [];
+  const traceTickets = traceTicketIds.length
+    ? await loadInChunks<any>(traceTicketIds, (chunk) => harvestStockSupabase
+        .from("tickets")
+        .select("id,ticket_no,op_type,field_id,vehicle_id,driver_id,warehouse_from_id,warehouse_to_id,audit_json,net_weight_kg,status,is_finalized,is_voided,replacement_ticket_id,created_at,finalized_at,disposal_category")
+        .eq("company_id", companyId)
+        .in("id", chunk)
+        .order("id", { ascending: true }))
+    : [];
+  const traceVehicleIds = ids(traceTickets.map((ticket) => ticket.vehicle_id));
+  const traceDriverIds = ids(traceTickets.map((ticket) => ticket.driver_id));
+  const [traceVehiclesResult, traceMachinesResult, tracePeopleResult, traceSpecialistsResult, traceProfilesResult] = await Promise.all([
+    traceVehicleIds.length
+      ? harvestStockSupabase.from("reference_vehicles").select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name").eq("company_id", companyId).in("id", traceVehicleIds)
+      : Promise.resolve({ data: [], error: null }),
+    traceVehicleIds.length
+      ? harvestStockSupabase.from("reference_machines").select("id,name,full_name,brand,model,series,license_plate,source_raw_name").eq("company_id", companyId).in("id", traceVehicleIds)
+      : Promise.resolve({ data: [], error: null }),
+    traceDriverIds.length
+      ? harvestStockSupabase.from("company_people").select("id,full_name").eq("company_id", companyId).in("id", traceDriverIds)
+      : Promise.resolve({ data: [], error: null }),
+    traceDriverIds.length
+      ? harvestStockSupabase.from("reference_specialists").select("id,full_name,name_ru,name_kz,name_en").eq("company_id", companyId).in("id", traceDriverIds)
+      : Promise.resolve({ data: [], error: null }),
+    traceDriverIds.length
+      ? harvestStockSupabase.from("profiles").select("id,full_name,email").eq("company_id", companyId).in("id", traceDriverIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  const traceError = [traceVehiclesResult, traceMachinesResult, tracePeopleResult, traceSpecialistsResult, traceProfilesResult]
+    .map((result: any) => result.error)
+    .find(Boolean);
+  if (traceError) throw traceError;
+
   const byId = (rows: any[]) => new Map(rows.map((row) => [String(row.id), row]));
   const batchesById = byId(batches);
   const cropsById = byId(cropsResult.data || []);
@@ -192,6 +241,14 @@ async function loadSharedImpurityPoolSummaries(
     const key = String(member.group_id || "");
     membersByGroup.set(key, [...(membersByGroup.get(key) || []), member]);
   }
+  const sourceBatchesByGroup = new Map<string, any[]>();
+  for (const source of sourceBatchRows) {
+    const key = String(source.group_id || "");
+    sourceBatchesByGroup.set(key, [...(sourceBatchesByGroup.get(key) || []), source]);
+  }
+  const traceTicketsById = byId(traceTickets);
+  const traceVehiclesById = byId([...(traceVehiclesResult.data || []), ...(traceMachinesResult.data || [])]);
+  const traceDriversById = byId([...(tracePeopleResult.data || []), ...(traceSpecialistsResult.data || []), ...(traceProfilesResult.data || [])]);
   const uniqueText = (values: unknown[]) => Array.from(new Set(
     values.map((value) => String(value || "").trim()).filter(Boolean)
   )).sort((left, right) => left.localeCompare(right, "ru"));
@@ -229,6 +286,76 @@ async function loadSharedImpurityPoolSummaries(
     ].filter(Boolean).join(" · "));
     const sourceTotalKg = Number(group.source_total_kg || 0);
     const removedKg = Math.max(sourceTotalKg - currentWeightKg, 0);
+    const membersByCropStructureId = new Map(members.map((member) => [String(member.crop_structure_id || ""), member]));
+    const groupSources = sourceBatchesByGroup.get(String(group.id)) || [];
+    const tripBatches = groupSources.map((source) => {
+      const ticket = traceTicketsById.get(String(source.source_ticket_id || "")) || {};
+      const member = membersByCropStructureId.get(String(source.crop_structure_id || "")) || {};
+      const snapshot = member.identity_snapshot && typeof member.identity_snapshot === "object"
+        ? member.identity_snapshot as Record<string, unknown>
+        : {};
+      const sourceIdentityId = String(source.crop_structure_id || member.field_id || "") || null;
+      const sourceIdentityName = [snapshot.field_name, snapshot.variety_name, snapshot.reproduction_name]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+        .join(" · ") || "Источник не уточнён";
+      const vehicle = traceVehiclesById.get(String(ticket.vehicle_id || ""));
+      const driver = traceDriversById.get(String(ticket.driver_id || ""));
+      const transportAudit = (ticket.audit_json?.transport || {}) as Record<string, unknown>;
+      const transportIdentity = resolveTransportIdentity({
+        ...(vehicle || {}),
+        name: vehicle?.name || transportAudit.vehicle_name_snapshot,
+        plate: vehicle?.plate_number || vehicle?.license_plate || transportAudit.vehicle_plate_snapshot,
+      });
+      return {
+        id: String(source.inventory_batch_id),
+        batchCode: String(ticket.ticket_no || "Рейс"),
+        ticketId: ticket.id ? String(ticket.id) : null,
+        ticketNo: String(ticket.ticket_no || "—"),
+        fieldId: sourceIdentityId,
+        fieldName: sourceIdentityName,
+        netWeightKg: Number(ticket.net_weight_kg ?? source.source_balance_snapshot_kg ?? 0),
+        moisturePercent: null,
+        vehicleName: transportIdentity.label || null,
+        driverName: String(driver?.full_name || driver?.name_ru || driver?.name_en || driver?.name_kz || driver?.email || "") || null,
+        status: ticket.is_voided || ticket.status === "voided" ? "voided" : String(ticket.status || source.state || "unknown"),
+        occurredAt: ticket.finalized_at || ticket.created_at || null,
+      };
+    });
+    const activeTrips = tripBatches.filter((trip) => trip.status !== "voided");
+    const fieldSummaries = members.map((member) => {
+      const snapshot = member.identity_snapshot && typeof member.identity_snapshot === "object"
+        ? member.identity_snapshot as Record<string, unknown>
+        : {};
+      const sourceIdentityId = String(member.crop_structure_id || member.field_id || "") || null;
+      const sourceIdentityName = [snapshot.field_name, snapshot.variety_name, snapshot.reproduction_name]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+        .join(" · ") || "Источник не уточнён";
+      const sourceTrips = activeTrips.filter((trip) => trip.fieldId === sourceIdentityId);
+      return {
+        fieldId: sourceIdentityId,
+        fieldName: sourceIdentityName,
+        netWeightKg: Number(member.source_total_snapshot_kg || 0),
+        tripCount: sourceTrips.length,
+      };
+    });
+    const impurityTicket = traceTicketsById.get(String(group.ticket_id || ""));
+    const impurityVehicle = traceVehiclesById.get(String(impurityTicket?.vehicle_id || ""));
+    const impurityDriver = traceDriversById.get(String(impurityTicket?.driver_id || ""));
+    const impurityTransportAudit = (impurityTicket?.audit_json?.transport || {}) as Record<string, unknown>;
+    const impurityTransport = resolveTransportIdentity({
+      ...(impurityVehicle || {}),
+      name: impurityVehicle?.name || impurityTransportAudit.vehicle_name_snapshot,
+      plate: impurityVehicle?.plate_number || impurityVehicle?.license_plate || impurityTransportAudit.vehicle_plate_snapshot,
+    });
+    const sourceTickets = tripBatches.filter((trip) => trip.ticketId).map((trip) => ({
+      id: String(trip.ticketId),
+      ticketNo: trip.ticketNo,
+      operation: "harvest_incoming" as const,
+      netWeightKg: trip.netWeightKg,
+      occurredAt: trip.occurredAt,
+    }));
     return [{
       id: String(batch.id),
       batchCode: String(batch.batch_code || group.display_name || "Общая партия после примеси"),
@@ -241,7 +368,7 @@ async function loadSharedImpurityPoolSummaries(
       cropName,
       cropCategorySlug: String(crop?.category || ""),
       processingEligible: false,
-      detailLevel: "summary" as const,
+      detailLevel: detailed ? "full" as const : "summary" as const,
       varietyId: null,
       varietyName: varietyNames.join(" + "),
       reproductionId: null,
@@ -265,14 +392,42 @@ async function loadSharedImpurityPoolSummaries(
       aggregateLot: false,
       aggregateLotId: null,
       sharedImpurityPool: true,
-      tripCount: 0,
-      stockComponents: [{ batchClass: "commodity", physicalState: "SOURCE", quantityKg: currentWeightKg, tripCount: 0 }],
+      tripCount: activeTrips.length,
+      originState: sourceTickets.length > 0 ? "ticket_lineage" as const : "ticket_lineage_absent" as const,
+      stockComponents: [{ batchClass: "commodity", physicalState: "SOURCE", quantityKg: currentWeightKg, tripCount: activeTrips.length }],
       reviewState: "confirmed" as const,
       reviewReasons: [],
       cropStructureSources: [],
-      fieldSummaries: [],
-      tripBatches: [],
-      outgoingDocuments: [],
+      fieldSummaries: detailed ? fieldSummaries : [],
+      tripBatches: detailed ? tripBatches : [],
+      outgoingDocuments: detailed && impurityTicket ? [{
+        id: String(impurityTicket.id),
+        label: impurityCategoryLabel(impurityTicket.disposal_category) || "Вывоз примесей",
+        detailLabel: "Общая примесь",
+        quantityKg: Number(group.impurity_weight_kg || removedKg),
+        occurredAt: impurityTicket.finalized_at || impurityTicket.created_at || group.finalized_at || null,
+        warehouseName: localizedName(warehouse, "ru", ["name"]) || "Склад урожая",
+        actorName: null,
+        sourceType: "weighbridge_ticket" as const,
+        sourceId: String(impurityTicket.id),
+        documentNo: String(impurityTicket.ticket_no || ""),
+        ticketId: String(impurityTicket.id),
+        ticketNo: String(impurityTicket.ticket_no || ""),
+        vehicleName: impurityTransport.label || null,
+        driverName: String(impurityDriver?.full_name || impurityDriver?.name_ru || impurityDriver?.name_en || impurityDriver?.name_kz || impurityDriver?.email || "") || null,
+        notes: null,
+        direction: "out" as const,
+        processingDocument: null,
+      }] : [],
+      tickets: sourceTickets,
+      movements: sourceTickets.map((ticket) => ({
+        id: ticket.id,
+        label: `Рейс ${ticket.ticketNo}`,
+        quantityKg: ticket.netWeightKg,
+        direction: "in" as const,
+        occurredAt: ticket.occurredAt,
+        ticketNo: ticket.ticketNo,
+      })),
     }];
   });
 }
@@ -1515,6 +1670,17 @@ export async function GET(request: NextRequest) {
       // timeout even when the underlying aggregate itself takes only milliseconds.
       const harvestStockSupabase = getServiceClient();
       const summaryOnly = request.nextUrl.searchParams.get("detail") === "summary";
+      if (lotId) {
+        const sharedImpurityPool = await loadSharedImpurityPoolSummaries(
+          harvestStockSupabase,
+          companyId,
+          warehouseId,
+          lotId,
+        );
+        if (sharedImpurityPool.length) {
+          return NextResponse.json({ batches: sharedImpurityPool });
+        }
+      }
       const [lots, sharedImpurityPools] = await Promise.all([
         summaryOnly
           ? loadAggregateHarvestLotSummaries(supabase, harvestStockSupabase, companyId, warehouseId, lotId)

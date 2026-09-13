@@ -265,6 +265,14 @@ async function main() {
     assert.match(page.text, /Общая физическая партия после примеси/);
   });
 
+  check("warehouse detail resolves a shared pool by its physical batch id", () => {
+    assert.match(harvestBatchesRoute.text, /\.eq\("pool_inventory_batch_id", poolBatchId\)/);
+    assert.match(harvestBatchesRoute.text, /\.from\("weighbridge_shared_impurity_source_batches"\)/);
+    assert.match(harvestBatchesRoute.text, /detailLevel: detailed \? "full" as const : "summary" as const/);
+    assert.match(harvestBatchesRoute.text, /if \(lotId\) \{[\s\S]*loadSharedImpurityPoolSummaries[\s\S]*return NextResponse\.json\(\{ batches: sharedImpurityPool \}\)/);
+    assert.match(harvestBatchesRoute.text, /tripBatches: detailed \? tripBatches : \[\]/);
+  });
+
   check("shared pool lifecycle invalidates an already open impurity picker", () => {
     assert.match(page.text, /"weighbridge_shared_impurity_groups"/);
     assert.match(page.text, /"weighbridge_shared_impurity_members"/);
