@@ -67,6 +67,13 @@ import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { buildHarvestLotOptionLabel } from "@/lib/weighbridge/harvest-lot-option-label";
 import { ImpuritySourcePicker, type ImpuritySourcePickerOption } from "@/components/weighbridge/impurity-source-picker";
 import {
+  createTicketSubmissionFingerprint,
+  parsePersistedCreateTicketAttempt,
+  resolveCreateTicketAttempt,
+  serializePersistedCreateTicketAttempt,
+  type PersistedCreateTicketAttempt,
+} from "@/lib/weighbridge/create-ticket-idempotency";
+import {
   UNIVERSAL_WORKSPACE_MAX_TABS,
   UNIVERSAL_WORKSPACE_SCHEMA_VERSION,
   createUniversalWorkspace,
@@ -977,7 +984,7 @@ export default function WeighbridgeOperationsPage() {
   const [coreDataReady, setCoreDataReady] = useState(false);
   const [ticketsLoading, setTicketsLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const createTicketIdempotencyRef = useRef<string | null>(null);
+  const createTicketIdempotencyRef = useRef<PersistedCreateTicketAttempt | null>(null);
   const finalizeTicketIdempotencyRef = useRef<{ ticketId: string; key: string } | null>(null);
   const finalizingRef = useRef(false);
   const [finalizing, setFinalizing] = useState(false);
@@ -2402,7 +2409,10 @@ export default function WeighbridgeOperationsPage() {
 
   useEffect(() => {
     if (!idempotencyPersistKey) return;
-    createTicketIdempotencyRef.current = localStorage.getItem(idempotencyPersistKey) || null;
+    const rawAttempt = localStorage.getItem(idempotencyPersistKey);
+    const restoredAttempt = parsePersistedCreateTicketAttempt(rawAttempt);
+    createTicketIdempotencyRef.current = restoredAttempt;
+    if (rawAttempt && !restoredAttempt) localStorage.removeItem(idempotencyPersistKey);
   }, [idempotencyPersistKey]);
 
   useEffect(() => {
@@ -4619,11 +4629,57 @@ export default function WeighbridgeOperationsPage() {
       };
     });
 
+    const paperRecordedDate = form.externalDocumentNo.trim() && form.paperRecordedAt
+      ? new Date(form.paperRecordedAt)
+      : null;
+    const paperDayStart = paperRecordedDate
+      ? new Date(paperRecordedDate.getFullYear(), paperRecordedDate.getMonth(), paperRecordedDate.getDate())
+      : null;
+    const paperBackfill = paperRecordedDate && paperDayStart
+      ? {
+          recorded_at: paperRecordedDate.toISOString(),
+          day_start: paperDayStart.toISOString(),
+          day_end: new Date(paperDayStart.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+          tare_weight_kg: Number(form.paperTareKg),
+          moisture_percent: form.harvestMoisture.trim() ? Number(form.harvestMoisture.replace(",", ".")) : null,
+        }
+      : undefined;
+    const createPayloadFingerprint = createTicketSubmissionFingerprint(
+      isTransferDirect && selectedTransferStock
+        ? {
+            operation: "warehouse_transfer",
+            company_id: profile.company_id,
+            warehouse_from_id: form.warehouseFromId,
+            destination_warehouse_id: form.warehouseToId,
+            product_id: selectedTransferStock.product_id,
+            harvest_lot_id: selectedTransferStock.harvest_lot_id || null,
+            source_physical_state: selectedTransferStock.source_physical_state || null,
+            quantity: Number(form.quantityKg),
+            vehicle_id: form.vehicleId,
+            driver_id: form.driverId,
+            notes: form.notes.trim() || null,
+          }
+        : {
+            ticket,
+            lines: linesToCreate,
+            weighings: [],
+            paperBackfill,
+            impurity_source_scope: impuritySourceScope || null,
+          }
+    );
+
     setSubmitting(true);
     try {
-      const idempotencyKey = createTicketIdempotencyRef.current || crypto.randomUUID();
-      createTicketIdempotencyRef.current = idempotencyKey;
-      if (idempotencyPersistKey) localStorage.setItem(idempotencyPersistKey, idempotencyKey);
+      const createAttempt = resolveCreateTicketAttempt(
+        createTicketIdempotencyRef.current,
+        createPayloadFingerprint,
+        () => crypto.randomUUID()
+      );
+      const idempotencyKey = createAttempt.key;
+      createTicketIdempotencyRef.current = createAttempt;
+      if (idempotencyPersistKey) {
+        localStorage.setItem(idempotencyPersistKey, serializePersistedCreateTicketAttempt(createAttempt));
+      }
       if (isTransferDirect && selectedTransferStock) {
         await createWarehouseTransfer(profile.company_id, form.warehouseFromId, {
           destination_warehouse_id: form.warehouseToId,
@@ -4664,26 +4720,12 @@ export default function WeighbridgeOperationsPage() {
           lines: buildLocalLines(`pending-${idempotencyKey}`),
         });
       }
-      const paperRecordedDate = form.externalDocumentNo.trim() && form.paperRecordedAt
-        ? new Date(form.paperRecordedAt)
-        : null;
-      const paperDayStart = paperRecordedDate
-        ? new Date(paperRecordedDate.getFullYear(), paperRecordedDate.getMonth(), paperRecordedDate.getDate())
-        : null;
       const result = await createTicket(
         ticket,
         linesToCreate,
         [],
         idempotencyKey,
-        paperRecordedDate && paperDayStart
-          ? {
-              recorded_at: paperRecordedDate.toISOString(),
-              day_start: paperDayStart.toISOString(),
-              day_end: new Date(paperDayStart.getTime() + 24 * 60 * 60 * 1000).toISOString(),
-              tare_weight_kg: Number(form.paperTareKg),
-              moisture_percent: form.harvestMoisture.trim() ? Number(form.harvestMoisture.replace(",", ".")) : null,
-            }
-          : undefined,
+        paperBackfill,
         impuritySourceScope
       );
       createTicketIdempotencyRef.current = null;
@@ -4794,7 +4836,17 @@ export default function WeighbridgeOperationsPage() {
         });
       }, 1_500);
     } catch (e: any) {
-      toast({ title: "Ошибка создания", description: e?.message || "Не удалось создать талон", variant: "destructive" });
+      if (e?.status === 409 && String(e?.message || "").includes("Idempotency-Key was already used")) {
+        createTicketIdempotencyRef.current = null;
+        if (idempotencyPersistKey) localStorage.removeItem(idempotencyPersistKey);
+        toast({
+          title: "Данные талона изменились",
+          description: "Защитный ключ обновлён. Проверьте, нет ли уже созданного талона для этой машины, затем повторите открытие.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Ошибка создания", description: e?.message || "Не удалось создать талон", variant: "destructive" });
+      }
     } finally {
       setPendingOpenTicket(null);
       setSubmitting(false);

@@ -87,8 +87,9 @@ check("31 stale shift guard exists", () => assert(has(bootstrapRoute, ["shiftGua
 check("32 resources and allocations load in parallel", () => assert(has(page, ["getWeighbridgeResources(companyId", "loadHarvestAllocations(companyId, requestSignal)"])));
 check("33 gross idempotency survives refresh inside the selected workspace", () => {
   assert.match(page, /travkin\.weighbridge\.workspaceIdempotency\.v1\.\$\{profile\.company_id\}\.\$\{selectedWorkspaceId\}/);
-  assert.match(page, /createTicketIdempotencyRef\.current = localStorage\.getItem\(idempotencyPersistKey\) \|\| null/);
-  assert.match(page, /localStorage\.setItem\(idempotencyPersistKey, idempotencyKey\)/);
+  assert.match(page, /parsePersistedCreateTicketAttempt\(rawAttempt\)/);
+  assert.match(page, /resolveCreateTicketAttempt\([\s\S]*createPayloadFingerprint/);
+  assert.match(page, /localStorage\.setItem\(idempotencyPersistKey, serializePersistedCreateTicketAttempt\(createAttempt\)\)/);
   assert.match(page, /localStorage\.removeItem\(idempotencyPersistKey\)/);
 });
 check("34 tare API accepts moisture", () => assert(service.includes("moisture_percent?: number")));
