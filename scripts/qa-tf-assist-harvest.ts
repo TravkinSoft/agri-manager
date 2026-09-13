@@ -21,7 +21,7 @@ import { answerQuestion } from "../lib/tf-assist/service";
 import { QuestionSchema, classifyQuestion } from "../lib/tf-assist/question";
 import { businessTime } from "../lib/tf-assist/business-time";
 import { planQuestion, plannerTransport, plannerModel } from "../lib/tf-assist/planner";
-import { deploymentModelSmoke } from "../lib/tf-assist/deployment-smoke";
+import { deploymentModelSmoke, smokeFailureKind } from "../lib/tf-assist/deployment-smoke";
 import { GET as assistHealth } from "../app/api/tf-assist/health/route";
 import { previewEnabled, PREVIEW_BRANCH } from "../lib/tf-assist/preview-gate";
 
@@ -891,4 +891,14 @@ test("deployment smoke uses a fixed synthetic question and logs only safe verifi
   assert.equal(missing.status, "failed");
   const wrong = await deploymentModelSmoke(deploymentEnv, async () => ({ state: "model", intent: "fleet" }));
   assert.equal(wrong.status, "failed");
+});
+
+test("deployment error diagnostics return fixed categories and never raw provider text or token", () => {
+  for (const [text, expected] of [
+    ['{"error":{"code":"model_not_available_on_plan"}}', "model_plan_restricted"],
+    ["Error verifying OIDC token SECRET", "oidc_rejected"],
+    ["Insufficient credits SECRET", "billing_or_budget"],
+    ["access_denied SECRET", "access_denied"],
+    ["arbitrary SECRET bearer-token", "unclassified"],
+  ]) assert.equal(smokeFailureKind(text), expected);
 });
