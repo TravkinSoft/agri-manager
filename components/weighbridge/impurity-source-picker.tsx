@@ -25,12 +25,44 @@ export type ImpuritySourcePickerOption = {
   supportsSharedSelection: boolean;
 };
 
+export type ImpuritySourcePickerOptionsStatus = "idle" | "loading" | "refreshing" | "ready" | "stale" | "error";
+
+export type ImpuritySourcePickerDraftIssue = "unavailable" | "incompatible" | null;
+
+export function reconcileImpuritySourcePickerDraft(
+  value: string[],
+  options: Pick<ImpuritySourcePickerOption, "key" | "supportsSharedSelection">[],
+  preserveUnavailable: boolean
+): string[] {
+  const uniqueValue = Array.from(new Set(value));
+  return preserveUnavailable
+    ? uniqueValue
+    : normalizeImpuritySourceSelection(uniqueValue, options);
+}
+
+export function getImpuritySourcePickerDraftIssue(
+  value: string[],
+  options: Pick<ImpuritySourcePickerOption, "key" | "supportsSharedSelection">[]
+): ImpuritySourcePickerDraftIssue {
+  const uniqueValue = Array.from(new Set(value));
+  const optionByKey = new Map(options.map((option) => [option.key, option]));
+  if (uniqueValue.some((key) => !optionByKey.has(key))) return "unavailable";
+  if (
+    uniqueValue.length > 1
+    && uniqueValue.some((key) => !optionByKey.get(key)?.supportsSharedSelection)
+  ) {
+    return "incompatible";
+  }
+  return null;
+}
+
 type ImpuritySourcePickerProps = {
   options: ImpuritySourcePickerOption[];
   value: string[];
   onChange: (keys: string[]) => void;
   disabled?: boolean;
   placeholder?: string;
+  optionsStatus?: ImpuritySourcePickerOptionsStatus;
 };
 
 export function ImpuritySourcePicker({
@@ -39,6 +71,7 @@ export function ImpuritySourcePicker({
   onChange,
   disabled = false,
   placeholder = "Выберите участки или партии урожая",
+  optionsStatus = "ready",
 }: ImpuritySourcePickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -69,11 +102,43 @@ export function ImpuritySourcePicker({
     return Array.from(groups.entries());
   }, [filteredOptions]);
   const availableDraftValue = useMemo(
-    () => normalizeImpuritySourceSelection(draftValue, options),
-    [draftValue, options]
+    () => reconcileImpuritySourcePickerDraft(draftValue, options, open),
+    [draftValue, open, options]
   );
+  const draftIssue = useMemo(
+    () => open ? getImpuritySourcePickerDraftIssue(availableDraftValue, options) : null,
+    [availableDraftValue, open, options]
+  );
+  const draftHasUnavailableKeys = draftIssue === "unavailable";
+  const draftHasIncompatibleSelection = draftIssue === "incompatible";
+  const optionsAreRefreshing = optionsStatus === "loading" || optionsStatus === "refreshing";
+  const unavailableSourceIsConfirmed = draftHasUnavailableKeys && optionsStatus === "ready";
+
+  const openPicker = () => {
+    setDraftValue(reconcileImpuritySourcePickerDraft(value, options, false));
+    setQuery("");
+    setOpen(true);
+  };
+
+  const cancelPicker = () => {
+    setDraftValue(value);
+    setQuery("");
+    setOpen(false);
+  };
+
+  const commitPicker = () => {
+    if (getImpuritySourcePickerDraftIssue(availableDraftValue, options)) return;
+    onChange(reconcileImpuritySourcePickerDraft(availableDraftValue, options, false));
+    setQuery("");
+    setOpen(false);
+  };
+
+  const removeUnavailableSources = () => {
+    setDraftValue(reconcileImpuritySourcePickerDraft(availableDraftValue, options, false));
+  };
 
   const toggle = (option: ImpuritySourcePickerOption) => {
+    if (draftHasUnavailableKeys) return;
     if (availableDraftValue.includes(option.key)) {
       setDraftValue(availableDraftValue.filter((key) => key !== option.key));
       return;
@@ -97,10 +162,7 @@ export function ImpuritySourcePicker({
         disabled={disabled}
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => {
-          setDraftValue(normalizeImpuritySourceSelection(value, options));
-          setOpen(true);
-        }}
+        onClick={openPicker}
       >
         <span className={selectedOptions.length ? "min-w-0 truncate text-foreground" : "min-w-0 truncate text-muted-foreground"}>
           {triggerLabel}
@@ -111,18 +173,23 @@ export function ImpuritySourcePicker({
       <Sheet
         open={open}
         onOpenChange={(nextOpen) => {
-          setOpen(nextOpen);
-          if (nextOpen) setDraftValue(normalizeImpuritySourceSelection(value, options));
-          else setQuery("");
+          if (nextOpen) openPicker();
         }}
       >
-        <SheetContent side="bottom" showClose={false} className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden rounded-t-2xl p-0 sm:left-1/2 sm:right-auto sm:w-[calc(100vw-2rem)] sm:max-w-3xl sm:-translate-x-1/2 sm:p-0">
+        <SheetContent
+          side="bottom"
+          showClose={false}
+          className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden rounded-t-2xl p-0 sm:left-1/2 sm:right-auto sm:w-[calc(100vw-2rem)] sm:max-w-3xl sm:-translate-x-1/2 sm:p-0"
+          onPointerDownOutside={(event) => event.preventDefault()}
+          onInteractOutside={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => event.preventDefault()}
+        >
           <Button
             type="button"
             variant="ghost"
             className="absolute right-2 top-2 z-10 h-12 w-12 touch-manipulation p-0"
             aria-label="Закрыть выбор участков"
-            onClick={() => setOpen(false)}
+            onClick={cancelPicker}
           >
             <X className="h-5 w-5" aria-hidden="true" />
           </Button>
@@ -163,20 +230,21 @@ export function ImpuritySourcePicker({
                   {groupOptions.map((option) => {
                     const checked = availableDraftValue.includes(option.key);
                     const selectionBlocked = isImpuritySourceSelectionBlocked(availableDraftValue, option, options);
+                    const interactionBlocked = draftHasUnavailableKeys || selectionBlocked;
                     const checkboxId = `impurity-source-${option.key.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
                     return (
-                      <div key={option.key} className={`flex min-h-12 touch-manipulation items-center gap-3 px-3 ${selectionBlocked ? "opacity-50" : ""}`}>
+                      <div key={option.key} className={`flex min-h-12 touch-manipulation items-center gap-3 px-3 ${interactionBlocked ? "opacity-50" : ""}`}>
                         <Checkbox
                           id={checkboxId}
                           checked={checked}
-                          disabled={selectionBlocked}
+                          disabled={interactionBlocked}
                           onCheckedChange={() => toggle(option)}
                           className="h-5 w-5"
                           aria-label={option.label}
                         />
                         <label
                           htmlFor={checkboxId}
-                          className={`flex min-h-12 min-w-0 flex-1 flex-col justify-center py-2 ${selectionBlocked ? "cursor-not-allowed" : "cursor-pointer"}`}
+                          className={`flex min-h-12 min-w-0 flex-1 flex-col justify-center py-2 ${interactionBlocked ? "cursor-not-allowed" : "cursor-pointer"}`}
                         >
                           <span className="text-sm font-medium leading-snug text-foreground">{option.label}</span>
                           {option.description ? <span className="mt-0.5 text-xs text-muted-foreground">{option.description}</span> : null}
@@ -190,16 +258,45 @@ export function ImpuritySourcePicker({
           </div>
 
           <div className="border-t bg-card px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-6">
+            {draftHasUnavailableKeys ? (
+              <div className="mb-2 space-y-2 text-center text-xs" role={unavailableSourceIsConfirmed ? "alert" : "status"} aria-live="polite">
+                <p className={unavailableSourceIsConfirmed ? "text-amber-800" : "text-muted-foreground"}>
+                  {optionsAreRefreshing
+                    ? "Список источников обновляется. Выбранные участки сохранены — дождитесь завершения обновления."
+                    : unavailableSourceIsConfirmed
+                      ? "Один из выбранных источников больше недоступен. Уберите его или отмените изменения."
+                      : "Не удалось подтвердить выбранные источники. Отмените изменения и повторите обновление списка."}
+                </p>
+                {unavailableSourceIsConfirmed ? (
+                  <Button type="button" size="sm" variant="outline" onClick={removeUnavailableSources}>
+                    Убрать недоступные
+                  </Button>
+                ) : null}
+              </div>
+            ) : draftHasIncompatibleSelection ? (
+              <p className="mb-2 text-center text-xs text-amber-800" role="alert">
+                Нельзя объединять целую партию с точными участками. Снимите лишний выбор.
+              </p>
+            ) : null}
             <Button
               type="button"
               className="min-h-12 w-full touch-manipulation"
-              onClick={() => {
-                onChange(availableDraftValue);
-                setOpen(false);
-              }}
+              disabled={Boolean(draftIssue)}
+              onClick={commitPicker}
             >
-              {availableDraftValue.length ? `Выбрано ${availableDraftValue.length} · Готово` : "Готово"}
+              {draftHasUnavailableKeys
+                ? optionsAreRefreshing ? "Обновляем список…" : "Список изменился"
+                : draftHasIncompatibleSelection
+                  ? "Исправьте выбор"
+                : availableDraftValue.length
+                  ? `Выбрано ${availableDraftValue.length} · Готово`
+                  : "Готово"}
             </Button>
+            {draftHasUnavailableKeys ? (
+              <Button type="button" variant="ghost" className="mt-1 min-h-10 w-full" onClick={cancelPicker}>
+                Отменить изменения и закрыть
+              </Button>
+            ) : null}
           </div>
         </SheetContent>
       </Sheet>

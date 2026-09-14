@@ -62,7 +62,7 @@ check("movement card keeps driver and vehicle above route and product", () => {
 });
 
 check("ticket number is secondary small text", () => {
-  assert.match(openTickets, /text-\[10px\] text-slate-600[\s\S]*?• № \{t\.ticket_no\}/);
+  assert.match(openTickets, /text-\[10px\] text-muted-foreground[\s\S]*?• № \{t\.ticket_no\}/);
 });
 
 check("session verification uses non-modal fail-closed skeleton", () => {

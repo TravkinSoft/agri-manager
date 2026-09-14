@@ -36,6 +36,13 @@ const LINEAGE_QUERY_CONCURRENCY = 4;
 const LINEAGE_QUERY_PAGE_SIZE = 1000;
 const HARVEST_STOCK_VIEW = "v_harvest_lot_stock_v2";
 const HARVEST_STOCK_READ_ATTEMPTS = 2;
+const HARVEST_BATCH_LEDGER_SUMMARY_RPC = "weighbridge_batch_ledger_summary_v1";
+
+type HarvestBatchLedgerSummaryRow = {
+  inventory_batch_id: string;
+  balance_kg: number | string | null;
+  has_invalid_uom: boolean | null;
+};
 
 function isTransientHarvestStockReadError(error: unknown) {
   if (!error || typeof error !== "object") return false;
@@ -66,6 +73,48 @@ async function readHarvestStockWithRetry<T>(read: () => PromiseLike<{ data: T[] 
     await new Promise((resolve) => globalThis.setTimeout(resolve, 120));
   }
   throw lastError;
+}
+
+function isMissingHarvestBatchLedgerSummaryRpc(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown; details?: unknown };
+  const code = String(candidate.code || "").toUpperCase();
+  const message = `${String(candidate.message || "")} ${String(candidate.details || "")}`.toLowerCase();
+  return code === "PGRST202"
+    || code === "42883"
+    || (
+      message.includes(HARVEST_BATCH_LEDGER_SUMMARY_RPC)
+      && /could not find|does not exist|schema cache/.test(message)
+    );
+}
+
+async function loadHarvestBatchLedgerSummary(
+  harvestStockSupabase: any,
+  companyId: string,
+  warehouseId: string | null,
+  batchIds: string[],
+): Promise<HarvestBatchLedgerSummaryRow[] | null> {
+  if (!batchIds.length) return [];
+  try {
+    return await loadInChunks<HarvestBatchLedgerSummaryRow>(
+      batchIds,
+      (chunk) => harvestStockSupabase.rpc(
+        HARVEST_BATCH_LEDGER_SUMMARY_RPC,
+        {
+          p_company_id: companyId,
+          p_warehouse_id: warehouseId,
+          p_inventory_batch_ids: chunk,
+        },
+      ),
+      { retryTransientStockRead: true },
+    );
+  } catch (error) {
+    // The route and migration can briefly be on different revisions during a
+    // rollout. Preserve the existing paginated reads only for a missing RPC;
+    // every real database error still fails loudly.
+    if (isMissingHarvestBatchLedgerSummaryRpc(error)) return null;
+    throw error;
+  }
 }
 
 async function loadInChunks<T>(
@@ -506,6 +555,10 @@ async function loadAggregateHarvestLotSummaries(
     ...links.map((row) => row.source_ticket_id),
     ...batches.map((row: any) => row.source_ticket_id),
   ]);
+  const eligibilityBatches = warehouseId
+    ? batches.filter((batch: any) => String(batch.warehouse_id || "") === warehouseId)
+    : batches;
+  const eligibilityBatchIds = ids(eligibilityBatches.map((batch: any) => batch.id));
   const cropStructureIds = ids([
     ...links.map((row) => row.crop_structure_id),
     ...batches.map((row: any) => row.crop_structure_id),
@@ -565,79 +618,94 @@ async function loadAggregateHarvestLotSummaries(
   // would be ambiguous. Existing reservations/processing allocations also
   // remove the complete source pair from the picker.
   const ledgerSelect = "id,inventory_batch_id,batch_id_text,batch_id,ticket_id,warehouse_id,delta_qty_signed,uom";
-  const [ledgerByInventory, ledgerByText, ledgerByLegacyBatch, legacyTicketLedger, reservationRows, allocationRows] = await Promise.all([
-    batchIds.length
-      ? loadInChunks<any>(batchIds, (chunk) => harvestStockSupabase
-          .from("stock_ledger_entries")
-          .select(ledgerSelect)
-          .eq("company_id", companyId)
-          .in("inventory_batch_id", chunk)
-          .order("id", { ascending: true }))
-      : Promise.resolve([]),
-    batchIds.length
-      ? loadInChunks<any>(batchIds, (chunk) => harvestStockSupabase
-          .from("stock_ledger_entries")
-          .select(ledgerSelect)
-          .eq("company_id", companyId)
-          .in("batch_id_text", chunk)
-          .order("id", { ascending: true }))
-      : Promise.resolve([]),
-    batchIds.length
-      ? loadInChunks<any>(batchIds, (chunk) => harvestStockSupabase
-          .from("stock_ledger_entries")
-          .select(ledgerSelect)
-          .eq("company_id", companyId)
-          .in("batch_id", chunk)
-          .order("id", { ascending: true }))
-      : Promise.resolve([]),
+  const scopeToWarehouse = (query: any) => warehouseId ? query.eq("warehouse_id", warehouseId) : query;
+  const loadLedgerFallback = () => Promise.all([
+    loadInChunks<any>(eligibilityBatchIds, (chunk) => scopeToWarehouse(harvestStockSupabase
+      .from("stock_ledger_entries")
+      .select(ledgerSelect)
+      .eq("company_id", companyId)
+      .in("inventory_batch_id", chunk))
+      .order("id", { ascending: true })),
+    loadInChunks<any>(eligibilityBatchIds, (chunk) => scopeToWarehouse(harvestStockSupabase
+      .from("stock_ledger_entries")
+      .select(ledgerSelect)
+      .eq("company_id", companyId)
+      .is("inventory_batch_id", null)
+      .in("batch_id_text", chunk))
+      .order("id", { ascending: true })),
+    loadInChunks<any>(eligibilityBatchIds, (chunk) => scopeToWarehouse(harvestStockSupabase
+      .from("stock_ledger_entries")
+      .select(ledgerSelect)
+      .eq("company_id", companyId)
+      .is("inventory_batch_id", null)
+      .is("batch_id_text", null)
+      .in("batch_id", chunk))
+      .order("id", { ascending: true })),
+  ]);
+  const [ledgerSummaryRows, legacyTicketLedger, reservationRows, allocationRows] = await Promise.all([
+    loadHarvestBatchLedgerSummary(harvestStockSupabase, companyId, warehouseId, eligibilityBatchIds),
     sourceTicketIds.length
-      ? loadInChunks<any>(sourceTicketIds, (chunk) => harvestStockSupabase
+      ? loadInChunks<any>(sourceTicketIds, (chunk) => scopeToWarehouse(harvestStockSupabase
           .from("stock_ledger_entries")
           .select("id,ticket_id,inventory_batch_id,batch_id_text,batch_id")
           .eq("company_id", companyId)
           .is("inventory_batch_id", null)
-          .in("ticket_id", chunk)
+          .in("ticket_id", chunk))
           .order("id", { ascending: true }))
       : Promise.resolve([]),
-    batchIds.length
-      ? loadInChunks<any>(batchIds, (chunk) => harvestStockSupabase
+    eligibilityBatchIds.length
+      ? loadInChunks<any>(eligibilityBatchIds, (chunk) => scopeToWarehouse(harvestStockSupabase
           .from("v_weighbridge_open_ticket_reservations_v1")
           .select("ticket_id,warehouse_id,batch_id,reserved_kg")
           .eq("company_id", companyId)
-          .in("batch_id", chunk)
+          .in("batch_id", chunk))
           .order("batch_id", { ascending: true })
           .order("ticket_id", { ascending: true }))
       : Promise.resolve([]),
-    batchIds.length
-      ? loadInChunks<any>(batchIds, (chunk) => harvestStockSupabase
+    eligibilityBatchIds.length
+      ? loadInChunks<any>(eligibilityBatchIds, (chunk) => scopeToWarehouse(harvestStockSupabase
           .from("v_processing_active_allocations_v1")
           .select("transformation_id,warehouse_id,batch_id,allocated_kg")
           .eq("company_id", companyId)
-          .in("batch_id", chunk)
+          .in("batch_id", chunk))
           .order("batch_id", { ascending: true })
           .order("transformation_id", { ascending: true }))
       : Promise.resolve([]),
   ]);
 
-  const explicitLedgerById = new Map<string, any>();
-  for (const row of [...ledgerByInventory, ...ledgerByText, ...ledgerByLegacyBatch]) {
-    explicitLedgerById.set(String(row.id), row);
-  }
-  const eligibilityBatchById = new Map(batches.map((row: any) => [String(row.id), row]));
+  const eligibilityBatchById = new Map(eligibilityBatches.map((row: any) => [String(row.id), row]));
   const exactBalanceByBatchId = new Map<string, number>();
   const invalidUomBatchIds = new Set<string>();
-  const candidateBatchIds = new Set(batchIds);
-  for (const row of Array.from(explicitLedgerById.values())) {
-    const exactBatchId = String(row.inventory_batch_id || row.batch_id_text || row.batch_id || "").trim();
-    if (!candidateBatchIds.has(exactBatchId)) continue;
-    const batch = eligibilityBatchById.get(exactBatchId);
-    if (!batch || String(batch.warehouse_id || "") !== String(row.warehouse_id || "")) continue;
-    exactBalanceByBatchId.set(
-      exactBatchId,
-      (exactBalanceByBatchId.get(exactBatchId) || 0) + Number(row.delta_qty_signed || 0)
-    );
-    if (!["kg", "кг", "g", "г", "gr"].includes(String(row.uom || "").trim().toLowerCase())) {
-      invalidUomBatchIds.add(exactBatchId);
+  const candidateBatchIds = new Set(eligibilityBatchIds);
+  if (ledgerSummaryRows !== null) {
+    for (const row of ledgerSummaryRows) {
+      const batchId = String(row.inventory_batch_id || "");
+      if (!candidateBatchIds.has(batchId)) continue;
+      exactBalanceByBatchId.set(batchId, Number(row.balance_kg || 0));
+      if (row.has_invalid_uom === true || String(row.has_invalid_uom) === "true") {
+        invalidUomBatchIds.add(batchId);
+      }
+    }
+  } else {
+    const [ledgerByInventory, ledgerByText, ledgerByLegacyBatch] = eligibilityBatchIds.length
+      ? await loadLedgerFallback()
+      : [[], [], []];
+    const explicitLedgerById = new Map<string, any>();
+    for (const row of [...ledgerByInventory, ...ledgerByText, ...ledgerByLegacyBatch]) {
+      explicitLedgerById.set(String(row.id), row);
+    }
+    for (const row of Array.from(explicitLedgerById.values())) {
+      const exactBatchId = String(row.inventory_batch_id || row.batch_id_text || row.batch_id || "").trim();
+      if (!candidateBatchIds.has(exactBatchId)) continue;
+      const batch = eligibilityBatchById.get(exactBatchId);
+      if (!batch || String(batch.warehouse_id || "") !== String(row.warehouse_id || "")) continue;
+      exactBalanceByBatchId.set(
+        exactBatchId,
+        (exactBalanceByBatchId.get(exactBatchId) || 0) + Number(row.delta_qty_signed || 0)
+      );
+      if (!["kg", "кг", "g", "г", "gr"].includes(String(row.uom || "").trim().toLowerCase())) {
+        invalidUomBatchIds.add(exactBatchId);
+      }
     }
   }
   const committedBatchIds = new Set<string>();
@@ -1663,15 +1731,40 @@ async function loadAggregateHarvestLots(
 }
 
 export async function GET(request: NextRequest) {
+  const startedAt = Date.now();
+  const timing = { authMs: 0, aggregateMs: 0, totalMs: 0 };
+  let logCompanyId = "";
+  const timedJson = (body: unknown, init?: ResponseInit) => {
+    timing.totalMs = Date.now() - startedAt;
+    const response = NextResponse.json(body, init);
+    response.headers.set(
+      "Server-Timing",
+      `auth;dur=${timing.authMs}, aggregate;dur=${timing.aggregateMs}, total;dur=${timing.totalMs}`
+    );
+    if (timing.totalMs >= 2_000) {
+      console.info("[weighbridge/harvest-batches] slow read", {
+        companyId: logCompanyId || null,
+        warehouseId: String(request.nextUrl.searchParams.get("warehouseId") || "") || null,
+        lotId: String(request.nextUrl.searchParams.get("lotId") || "") || null,
+        summaryOnly: request.nextUrl.searchParams.get("detail") === "summary",
+        ...timing,
+      });
+    }
+    return response;
+  };
   try {
+    const authStartedAt = Date.now();
     const { companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_HARVEST_READ_ROLES,
       serverProfileRead: true,
     });
+    timing.authMs = Date.now() - authStartedAt;
+    logCompanyId = companyId;
     const warehouseId = String(request.nextUrl.searchParams.get("warehouseId") || "").trim() || null;
     const lotId = String(request.nextUrl.searchParams.get("lotId") || "").trim() || null;
     const aggregateLots = request.nextUrl.searchParams.get("view") === "lots";
     if (aggregateLots) {
+      const aggregateStartedAt = Date.now();
       // Access and company context are verified above. Use the server-only client
       // only for this explicitly company-scoped aggregate view: evaluating all
       // base-table RLS policies through the view can exceed the DB statement
@@ -1686,7 +1779,8 @@ export async function GET(request: NextRequest) {
           lotId,
         );
         if (sharedImpurityPool.length) {
-          return NextResponse.json({ batches: sharedImpurityPool });
+          timing.aggregateMs = Date.now() - aggregateStartedAt;
+          return timedJson({ batches: sharedImpurityPool });
         }
       }
       const [lots, sharedImpurityPools] = await Promise.all([
@@ -1697,7 +1791,8 @@ export async function GET(request: NextRequest) {
           ? loadSharedImpurityPoolSummaries(harvestStockSupabase, companyId, warehouseId)
           : Promise.resolve([]),
       ]);
-      if (lots !== null) return NextResponse.json({ batches: [...sharedImpurityPools, ...lots] });
+      timing.aggregateMs = Date.now() - aggregateStartedAt;
+      if (lots !== null) return timedJson({ batches: [...sharedImpurityPools, ...lots] });
     }
 
     let batchQuery = supabase
@@ -1712,7 +1807,7 @@ export async function GET(request: NextRequest) {
     if (batchError) throw batchError;
 
     const batches = batchRows || [];
-    if (!batches.length) return NextResponse.json({ batches: [] });
+    if (!batches.length) return timedJson({ batches: [] });
 
     const batchIds = ids(batches.map((row: any) => row.id));
     const sourceTicketIds = ids(batches.map((row: any) => row.source_ticket_id));
@@ -1891,10 +1986,10 @@ export async function GET(request: NextRequest) {
       }];
     });
 
-    return NextResponse.json({ batches: summaries });
+    return timedJson({ batches: summaries });
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
-    if (sessionError) return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    if (sessionError) return timedJson({ error: sessionError.error }, { status: sessionError.status });
     const traceId = randomUUID();
     const candidate = error && typeof error === "object"
       ? error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown }
@@ -1906,7 +2001,7 @@ export async function GET(request: NextRequest) {
       details: String(candidate?.details || ""),
       hint: String(candidate?.hint || ""),
     });
-    return NextResponse.json(
+    return timedJson(
       {
         error: error instanceof Error
           ? error.message

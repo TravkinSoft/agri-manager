@@ -174,10 +174,6 @@ export async function GET(
       (legacyDriverRes as any)?.data ||
       (driverProfileRes as any)?.data ||
       null;
-    timing.dbMs = Date.now() - dbStartedAt;
-    timing.renderMs = Date.now() - startedAt - timing.authMs - timing.dbMs;
-    timing.totalMs = Date.now() - startedAt;
-
     const enrichedLines = (lines || []).map((line: any) => ({
       ...line,
       product_name: line.product_name_snapshot || brandName(productById.get(String(line.product_id))) || "-",
@@ -209,13 +205,21 @@ export async function GET(
       }], { includeTechnicalAudit: actor.role === "global_admin" });
     const [combinedTicket] = await enrichTicketCombineOperators(supabase, companyId, [attributedTicket]);
     const [enrichedTicket] = await enrichSharedImpurityScopes(supabase, companyId, [combinedTicket]);
+    timing.dbMs = Date.now() - dbStartedAt;
+    timing.renderMs = Date.now() - startedAt - timing.authMs - timing.dbMs;
+    timing.totalMs = Date.now() - startedAt;
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       ticket: enrichedTicket,
       lines: enrichedLines,
       weighings: weighings || [],
       debug: timing,
     });
+    response.headers.set(
+      "Server-Timing",
+      `auth;dur=${timing.authMs}, db;dur=${timing.dbMs}, render;dur=${timing.renderMs}, total;dur=${timing.totalMs}`
+    );
+    return response;
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) {
@@ -270,6 +274,28 @@ export async function PATCH(
       }
       if (parsed.value <= 0) return NextResponse.json({ error: "Брутто должно быть больше нуля." }, { status: 400 });
       patch.gross_weight_kg = parsed.value;
+    }
+
+    if (ticket.op_type === "weighbridge_impurities" && patch.gross_weight_kg !== undefined) {
+      const { data: sharedImpurityGroup, error: sharedImpurityGroupError } = await supabase
+        .from("weighbridge_shared_impurity_groups")
+        .select("id")
+        .eq("company_id", companyId)
+        .eq("ticket_id", id)
+        .limit(1)
+        .maybeSingle();
+      if (sharedImpurityGroupError) {
+        return NextResponse.json(
+          { error: "Не удалось проверить связь общего талона примеси." },
+          { status: 503 }
+        );
+      }
+      if (sharedImpurityGroup?.id) {
+        return NextResponse.json({
+          error: "Брутто общего талона примеси нельзя менять после открытия. Аннулируйте талон и откройте новый с правильным весом.",
+          code: "SHARED_IMPURITY_GROSS_EDIT_REQUIRES_REOPEN",
+        }, { status: 409 });
+      }
     }
 
     if (body?.tare_weight_kg !== undefined) {

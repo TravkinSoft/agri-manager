@@ -86,6 +86,21 @@ async function main() {
     /\.from\("inventory_batches"\)[\s\S]*?\.in\("id", batchIds\)/,
     "aggregate summaries must not put every inventory batch ID into one PostgREST URL",
   );
+  assert.match(
+    aggregateSource,
+    /const eligibilityBatches = warehouseId[\s\S]*?batch\.warehouse_id[\s\S]*?const eligibilityBatchIds/,
+    "picker eligibility reads must be limited to batches at the requested warehouse",
+  );
+  assert.match(
+    aggregateSource,
+    /\.in\("inventory_batch_id", chunk\)[\s\S]*?\.is\("inventory_batch_id", null\)\s*\.in\("batch_id_text", chunk\)[\s\S]*?\.is\("inventory_batch_id", null\)\s*\.is\("batch_id_text", null\)\s*\.in\("batch_id", chunk\)/,
+    "canonical and legacy ledger identity branches must be mutually exclusive",
+  );
+  assert.match(
+    aggregateSource,
+    /scopeToWarehouse[\s\S]*?\.eq\("warehouse_id", warehouseId\)/,
+    "ledger, reservation and allocation reads must stay warehouse-scoped",
+  );
 
   const detailSource = aggregateDetailSource();
   assert.match(

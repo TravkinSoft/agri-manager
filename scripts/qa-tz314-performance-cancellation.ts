@@ -79,8 +79,8 @@ check("rapid mode revisits share catalog and harvest requests instead of restart
   const secondaryEffect = page.slice(effectStart, effectEnd);
   assert.match(secondaryEffect, /return \(\) => window\.clearTimeout\(timer\)/);
   assert.doesNotMatch(secondaryEffect, /controller\.abort\(\)|secondaryCatalogRequestsRef\.current\.delete/);
-  assert.match(page, /if \(harvestBatchesRequestRef\.current\) return harvestBatchesRequestRef\.current/);
-  assert.match(page, /form\.operationType !== "impurity_removal"[\s\S]*?refreshHarvestBatches\(\)/);
+  assert.match(page, /if \(harvestBatchesRequestRef\.current && harvestBatchesRequestKeyRef\.current === requestKey\)[\s\S]*?return harvestBatchesRequestRef\.current/);
+  assert.match(page, /form\.operationType !== "impurity_removal"[\s\S]*?refreshHarvestBatches\(\{ warehouseId: form\.warehouseFromId \}\)/);
 });
 
 check("mode-specific and lazy loading boundaries remain intact", () => {
@@ -89,7 +89,7 @@ check("mode-specific and lazy loading boundaries remain intact", () => {
   assert.match(modes, /issue_to_field/);
   assert.match(modes, /shipment_outbound/);
   assert.doesNotMatch(modes, /transfer_between_warehouses|disposal_writeoff|impurity_removal/);
-  assert.match(page, /form\.operationType !== "impurity_removal"[\s\S]*?refreshHarvestBatches\(\)/);
+  assert.match(page, /form\.operationType !== "impurity_removal"[\s\S]*?refreshHarvestBatches\(\{ warehouseId: form\.warehouseFromId \}\)/);
   assert.match(page, /summaryOnly:\s*true/);
   assert.match(page, /selectedHarvestBatch\?\.aggregateLotId[\s\S]*?lotId: selectedHarvestBatch\.aggregateLotId/);
 });

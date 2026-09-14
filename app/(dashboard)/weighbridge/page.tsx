@@ -1133,6 +1133,7 @@ export default function WeighbridgeOperationsPage() {
 	  const harvestBatchesRequestRef = useRef<Promise<void> | null>(null);
 	  const harvestBatchesAbortRef = useRef<AbortController | null>(null);
 	  const harvestBatchesRequestKeyRef = useRef("");
+	  const harvestBatchesTrailingRefreshRef = useRef<{ requestKey: string; warehouseId: string } | null>(null);
 	  const harvestBatchesReadyRef = useRef("");
 	  const harvestBatchesGenerationRef = useRef(0);
 	  const harvestBatchesCacheRef = useRef(new Map<string, HarvestBatchSummary[]>());
@@ -1655,6 +1656,7 @@ export default function WeighbridgeOperationsPage() {
 	    const companyId = profile.company_id;
 	    const warehouseId = String(options.warehouseId || "").trim();
 	    if (!warehouseId) {
+	      harvestBatchesTrailingRefreshRef.current = null;
 	      setHarvestBatches([]);
 	      setHarvestBatchOptionsStatus("idle");
 	      setHarvestBatchOptionsError("");
@@ -1663,9 +1665,13 @@ export default function WeighbridgeOperationsPage() {
 	    const requestKey = `${companyId}:${warehouseId}`;
 	    if (!options.force && harvestBatchesReadyRef.current === requestKey) return;
 	    if (harvestBatchesRequestRef.current && harvestBatchesRequestKeyRef.current === requestKey) {
+	      if (options.force) {
+	        harvestBatchesTrailingRefreshRef.current = { requestKey, warehouseId };
+	      }
 	      return harvestBatchesRequestRef.current;
 	    }
 	    if (harvestBatchesRequestRef.current) {
+	      harvestBatchesTrailingRefreshRef.current = null;
 	      harvestBatchesGenerationRef.current += 1;
 	      harvestBatchesAbortRef.current?.abort();
 	      harvestBatchesRequestRef.current = null;
@@ -1716,10 +1722,29 @@ export default function WeighbridgeOperationsPage() {
     })().finally(() => {
 	      window.clearTimeout(timeoutId);
 	      options.signal?.removeEventListener("abort", abortFromParent);
-	      if (harvestBatchesRequestRef.current === request) harvestBatchesRequestRef.current = null;
+	      const wasCurrentRequest = harvestBatchesRequestRef.current === request;
+	      if (wasCurrentRequest) harvestBatchesRequestRef.current = null;
 	      if (harvestBatchesAbortRef.current === controller) {
 	        harvestBatchesAbortRef.current = null;
 	        harvestBatchesRequestKeyRef.current = "";
+	      }
+	      const trailingRefresh = harvestBatchesTrailingRefreshRef.current;
+	      if (trailingRefresh?.requestKey === requestKey) {
+	        harvestBatchesTrailingRefreshRef.current = null;
+	        const shouldRunTrailingRefresh = wasCurrentRequest
+	          && resourceCompanyRef.current === companyId
+	          && !options.signal?.aborted
+	          && (!controller.signal.aborted || requestTimedOut);
+	        if (shouldRunTrailingRefresh) {
+	          void refreshHarvestBatches({
+	            force: true,
+	            warehouseId: trailingRefresh.warehouseId,
+	          }).catch((error) => {
+	            if (error?.name !== "AbortError") {
+	              console.error("Trailing harvest batch refresh failed", error);
+	            }
+	          });
+	        }
 	      }
 	    });
     harvestBatchesRequestRef.current = request;
@@ -1728,6 +1753,7 @@ export default function WeighbridgeOperationsPage() {
 
   const selectImpurityWarehouse = (warehouseFromId: string) => {
     if (warehouseFromId === form.warehouseFromId) return;
+	    harvestBatchesTrailingRefreshRef.current = null;
     harvestBatchesGenerationRef.current += 1;
     harvestBatchesAbortRef.current?.abort();
     harvestBatchesAbortRef.current = null;
@@ -1948,7 +1974,7 @@ export default function WeighbridgeOperationsPage() {
       "weighbridge_shared_impurity_source_batches",
     ].some((name) => changedTables.has(name));
     const cropStructureChanged = refreshAllForegroundData || changedTables.has("crop_structure");
-    const transportResourcesChanged = isResourcePoll || refreshAllForegroundData || [
+    const transportResourcesChanged = refreshAllForegroundData || [
       "reference_vehicles",
       "reference_specialists",
       "reference_machines",
@@ -1956,10 +1982,16 @@ export default function WeighbridgeOperationsPage() {
     ].some((name) => changedTables.has(name));
     if (stockChanged) stockIdentityCacheRef.current.clear();
     const tasks: Promise<unknown>[] = [];
-    if (transportResourcesChanged) {
+    if (isResourcePoll) {
+      // Poll only the compact live assignment projection. Static resources and
+      // crop allocations already have realtime subscriptions and are refreshed
+      // on foreground resume; periodically reloading all of them created a
+      // permanent request storm on the weighbridge workstation.
+      tasks.push(refreshTransportPickerData());
+    } else if (transportResourcesChanged) {
       tasks.push(load(undefined, true));
     }
-    if (cropStructureChanged) {
+    if (cropStructureChanged && !transportResourcesChanged) {
       tasks.push(refreshHarvestAllocations());
     }
     if (ticketChanged) {
@@ -1982,8 +2014,9 @@ export default function WeighbridgeOperationsPage() {
     onRefresh: refreshLiveData,
     companyId: profile?.company_id,
     tables: LIVE_REFRESH_TABLES.weighbridge,
-    intervalMs: 30_000,
-    minRefreshIntervalMs: 5_000,
+    intervalMs: 60_000,
+    debounceMs: 1_000,
+    minRefreshIntervalMs: 10_000,
   });
 
   useEffect(() => {
@@ -2115,6 +2148,7 @@ export default function WeighbridgeOperationsPage() {
     harvestBatchesAbortRef.current = null;
 	    harvestBatchesRequestRef.current = null;
 	    harvestBatchesRequestKeyRef.current = "";
+	    harvestBatchesTrailingRefreshRef.current = null;
 	    harvestBatchesReadyRef.current = "";
 	    harvestBatchesCacheRef.current.clear();
 	    setHarvestBatches([]);
@@ -2191,6 +2225,7 @@ export default function WeighbridgeOperationsPage() {
     return () => {
       if (refreshTimer != null) window.clearTimeout(refreshTimer);
       controller.abort();
+	      harvestBatchesTrailingRefreshRef.current = null;
       harvestAllocationsGenerationRef.current += 1;
       harvestAllocationsAbortRef.current?.abort();
       harvestAllocationsAbortRef.current = null;
@@ -4885,6 +4920,14 @@ export default function WeighbridgeOperationsPage() {
 
   const openActiveTicketEditor = () => {
     if (!activeTicket || finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return;
+    if (activeTicket.impurity_source_scope?.allocation_mode === "unresolved_total") {
+      toast({
+        title: "Общий талон примеси нельзя менять на месте",
+        description: "Чтобы не нарушить связь с исходными взвешиваниями, аннулируйте талон и откройте новый с правильным брутто.",
+        variant: "destructive",
+      });
+      return;
+    }
     setEditGrossKg(activeTicket.gross_weight_kg == null ? "" : String(activeTicket.gross_weight_kg));
     setEditTareKg(activeTicket.tare_weight_kg == null ? "" : String(activeTicket.tare_weight_kg));
     setEditReason("");
@@ -5117,13 +5160,18 @@ export default function WeighbridgeOperationsPage() {
         message: "Запись принята. Сверяем талон и складское движение.",
       });
       const responseTicket = (finalizeResponse?.ticket || null) as WeighbridgeTicket | null;
-      let canonicalTicket: WeighbridgeTicket | null = null;
-      try {
+      let canonicalTicket: WeighbridgeTicket | null = !finalizeResponse?.refresh_required
+        && !finalizeResponse?.idempotent_replay
+        && isCanonicallyClosed(responseTicket)
+        ? {
+            ...closingTicket,
+            ...responseTicket,
+            lines: responseTicket?.lines || closingTicket.lines || [],
+          }
+        : null;
+      if (!canonicalTicket) {
         const canonical = await getTicketDetails(closingTicket.id, profile.id);
         canonicalTicket = (canonical?.ticket || null) as WeighbridgeTicket | null;
-      } catch (reconciliationError) {
-        if (!isCanonicallyClosed(responseTicket)) throw reconciliationError;
-        canonicalTicket = responseTicket;
       }
       if (!isCanonicallyClosed(canonicalTicket)) {
         throw new Error("Сервер пока не подтвердил закрытие талона.");
@@ -5814,6 +5862,7 @@ export default function WeighbridgeOperationsPage() {
                         options={impuritySourceOptions}
                         value={impuritySourceSelectionKeys}
                         onChange={changeImpuritySources}
+                        optionsStatus={harvestBatchOptionsStatus}
                         disabled={!form.warehouseFromId || submitting || harvestBatchOptionsStatus === "idle" || harvestBatchOptionsStatus === "loading" || harvestBatchOptionsStatus === "error"}
                         placeholder={!form.warehouseFromId
                           ? "Сначала выберите склад"
@@ -6592,7 +6641,7 @@ export default function WeighbridgeOperationsPage() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      {canCorrectTicket ? <DropdownMenuItem disabled={ticketCloseLocked} onSelect={openActiveTicketEditor}><Pencil className="mr-2 h-4 w-4" />Исправить</DropdownMenuItem> : null}
+                      {canCorrectTicket && activeTicket.impurity_source_scope?.allocation_mode !== "unresolved_total" ? <DropdownMenuItem disabled={ticketCloseLocked} onSelect={openActiveTicketEditor}><Pencil className="mr-2 h-4 w-4" />Исправить</DropdownMenuItem> : null}
                       <DropdownMenuItem onSelect={() => { if (profile?.id) void downloadTicketPdf(activeTicket.id, profile.id); }}><FileDown className="mr-2 h-4 w-4" />PDF</DropdownMenuItem>
                       {canCorrectTicket ? <DropdownMenuSeparator /> : null}
                       {canCorrectTicket ? <DropdownMenuItem disabled={ticketCloseLocked} className="text-red-600 focus:text-red-600" onSelect={() => setVoidReasonOpen(true)}><Trash2 className="mr-2 h-4 w-4" />Аннулировать</DropdownMenuItem> : null}
