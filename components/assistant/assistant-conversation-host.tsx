@@ -14,27 +14,36 @@ export function AssistantConversationHost({
   engine?: AssistantPanelEngineConfig;
 }) {
   const { runtimeContext, session, access } = useAssistantShell();
-  const [tfAssistEnabled, setTfAssistEnabled] = useState(false);
+  const [tfAssistState, setTfAssistState] = useState<"loading" | "enabled" | "unavailable">("loading");
 
   useEffect(() => {
     let cancelled = false;
     fetch("/api/tf-assist/health", { cache: "no-store" })
       .then((response) => response.ok ? response.json() : null)
       .then((body) => {
-        if (!cancelled) setTfAssistEnabled(body?.enabled === true);
+        if (!cancelled) setTfAssistState(body?.enabled === true ? "enabled" : "unavailable");
       })
-      .catch(() => { if (!cancelled) setTfAssistEnabled(false); });
+      .catch(() => { if (!cancelled) setTfAssistState("unavailable"); });
     return () => { cancelled = true; };
   }, []);
 
   if (
-    tfAssistEnabled &&
+    tfAssistState === "enabled" &&
     access.status === "ready" &&
     access.role === "global_admin" &&
     access.active &&
     !access.isImpersonating &&
     !access.roleIsLegacyAlias
   ) return <TfAssistHarvestPane />;
+
+  const isTfAssistCandidate = access.role === "global_admin" && !access.isImpersonating && !access.roleIsLegacyAlias;
+  if (isTfAssistCandidate) {
+    return <div className="flex h-full items-center justify-center rounded-lg border border-border bg-card px-4 text-center text-sm text-muted-foreground">
+      {tfAssistState === "loading" || access.status === "loading"
+        ? "Загружаем защищённый режим TF Assist…"
+        : "TF Assist временно недоступен. Обновите страницу и повторите запрос."}
+    </div>;
+  }
 
   if (engine.surface === "tool_first_panel") {
     return (

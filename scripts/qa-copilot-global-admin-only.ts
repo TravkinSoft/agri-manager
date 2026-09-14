@@ -41,6 +41,7 @@ const settingsTypes = read("lib/assistant/settings-types.ts");
 const settingsForm = read("components/assistant/assistant-platform-settings-form.tsx");
 const tfAssistHost = read("components/assistant/assistant-conversation-host.tsx");
 const assistantContextRoute = read("app/api/assistant/context/route.ts");
+const assistantQueryRoute = read("app/api/assistant/query/route.ts");
 
 check("client shell is enabled only for global_admin", () => {
   assert.equal(canUseAssistantShell("global_admin"), true);
@@ -91,6 +92,10 @@ check("TF Assist pane requires an active non-impersonating global_admin server c
   assert.match(tfAssistHost, /!access\.roleIsLegacyAlias/);
   assert.match(assistantContextRoute, /isImpersonating: actor\.isImpersonating/);
   assert.match(assistantContextRoute, /roleIsLegacyAlias: actor\.roleIsLegacyAlias/);
+  assert.match(tfAssistHost, /tfAssistState === "loading"/);
+  assert.match(tfAssistHost, /TF Assist временно недоступен/);
+  assert.match(assistantQueryRoute, /TF_ASSIST_CLIENT_REFRESH_REQUIRED/);
+  assert.match(assistantQueryRoute, /previewEnabled\(process\.env\)/);
 });
 
 check("mobile navigation has no Copilot entry point", () => {

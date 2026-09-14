@@ -41,6 +41,7 @@ import {
   getServerActorFromSession,
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
+import { previewEnabled } from "@/lib/tf-assist/preview-gate";
 
 export const runtime = "nodejs";
 
@@ -752,6 +753,21 @@ export async function POST(request: NextRequest) {
     assertA107RuntimeGuardWhenConfigured();
     const actor = await getServerActorFromSession(request);
     ensureAssistantRole(actor);
+    if (
+      previewEnabled(process.env) &&
+      actor.role === "global_admin" &&
+      actor.status === "active" &&
+      !actor.isImpersonating &&
+      !actor.roleIsLegacyAlias
+    ) {
+      return NextResponse.json(
+        {
+          error: "TF Assist обновлён. Обновите страницу и повторите вопрос.",
+          code: "TF_ASSIST_CLIENT_REFRESH_REQUIRED",
+        },
+        { status: 409, headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
     role = actor.role;
     actorId = actor.id;
     authUserId = actor.authUserId;
