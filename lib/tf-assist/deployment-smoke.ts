@@ -23,7 +23,7 @@ export async function deploymentModelSmoke(
   const config: PlannerConfig = {
     apiKey: env.OPENAI_API_KEY,
     oidcToken: env.VERCEL_OIDC_TOKEN,
-    model: env.OPENAI_ASSISTANT_MODEL,
+    model: env.VERCEL_ENV === "production" ? undefined : env.OPENAI_ASSISTANT_MODEL,
   };
   // Only a validated commit and enum metadata may enter build logs.
   const sha = /^[a-f0-9]{40}$/.test(env.VERCEL_GIT_COMMIT_SHA || "")

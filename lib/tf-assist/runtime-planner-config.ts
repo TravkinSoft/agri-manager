@@ -9,7 +9,9 @@ export function runtimePlannerConfig(
 ): PlannerConfig {
   const config: PlannerConfig = {
     apiKey: env.OPENAI_API_KEY,
-    model: env.OPENAI_ASSISTANT_MODEL,
+    // Production is pinned to the approved Terra default. A stale dashboard
+    // override must not silently select an unavailable model for this release.
+    model: env.VERCEL_ENV === "production" ? undefined : env.OPENAI_ASSISTANT_MODEL,
   };
   if (config.apiKey) return config;
   if (env.VERCEL === "1") {

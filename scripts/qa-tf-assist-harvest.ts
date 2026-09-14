@@ -891,6 +891,15 @@ test("runtime credentials prefer direct key and safely handle missing OIDC conte
   assert.equal(plannerTransport(runtimePlannerConfig({ VERCEL: "1" }, fail)), "none");
   assert.equal(runtimePlannerConfig({ VERCEL: "1", VERCEL_OIDC_TOKEN: "env" }, fail).oidcToken, "env");
   assert.equal(runtimePlannerConfig({ VERCEL: "0" }, () => { throw new Error("MUST_NOT_CALL"); }).oidcToken, undefined);
+  assert.equal(
+    runtimePlannerConfig({
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      OPENAI_API_KEY: "direct",
+      OPENAI_ASSISTANT_MODEL: "stale-production-override",
+    }).model,
+    undefined,
+  );
 });
 
 test("runtime health uses current Vercel request context without exposing or caching tokens", async () => {
@@ -975,9 +984,11 @@ test("deployment smoke permits an enabled Production runtime without a QA origin
     NEXT_PUBLIC_SUPABASE_URL: "https://bhsemlvmkikpntabctml.supabase.co",
     OPENAI_API_KEY: "direct-fixture-secret",
     VERCEL_OIDC_TOKEN: "",
+    OPENAI_ASSISTANT_MODEL: "stale-production-override",
   };
   const result = await deploymentModelSmoke(production, async (_message, config) => {
     assert.equal(plannerTransport(config), "openai_direct");
+    assert.equal(plannerModel(config), "gpt-5.6-terra");
     return { state: "model", intent: "yield" };
   });
   assert.equal(result.status, "passed");
