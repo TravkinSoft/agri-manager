@@ -1,5 +1,5 @@
 import type { Scope } from "./contracts";
-import { previewEnabled } from "./preview-gate";
+import { previewEnabled, QA_ORIGIN as QA_SOURCE_ORIGIN, sourceOrigin } from "./preview-gate";
 
 export class AssistError extends Error {
   constructor(
@@ -13,16 +13,18 @@ export class AssistError extends Error {
 }
 export const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-export const QA_ORIGIN = "https://gsglkmudcwkdetqtocae.supabase.co";
+export const QA_ORIGIN = QA_SOURCE_ORIGIN;
 
-export function assertRuntime(env: Record<string, string | undefined>): void {
+export function assertRuntime(env: Record<string, string | undefined>): string {
   if (!previewEnabled(env))
     throw new AssistError("TF Assist ещё не включён.", 404);
-  if (env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "") !== QA_ORIGIN)
+  const origin = sourceOrigin(env.NEXT_PUBLIC_SUPABASE_URL);
+  if (!origin)
     throw new AssistError(
-      "TF Assist разрешён только в проверенном QA окружении.",
+      "Источник данных TF Assist не настроен.",
       503,
     );
+  return origin;
 }
 
 export function authorize(

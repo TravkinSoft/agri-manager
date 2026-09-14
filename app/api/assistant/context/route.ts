@@ -71,6 +71,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         allowed: true,
         role: actor.role,
+        active: actor.status === "active",
+        isImpersonating: actor.isImpersonating,
+        roleIsLegacyAlias: actor.roleIsLegacyAlias,
         company: null,
         season: null,
         requiresCompanySelection: true,
@@ -93,6 +96,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       allowed: true,
       role: actor.role,
+      active: actor.status === "active",
+      isImpersonating: actor.isImpersonating,
+      roleIsLegacyAlias: actor.roleIsLegacyAlias,
       company: {
         id: companyId,
         name: String(companyRes.data?.name || "").trim() || companyId,

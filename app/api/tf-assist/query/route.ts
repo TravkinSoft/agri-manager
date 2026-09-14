@@ -30,7 +30,7 @@ const json = (data: unknown, status = 200) =>
 export async function POST(request: NextRequest) {
   let lockKey = "";
   try {
-    assertRuntime(process.env);
+    const sourceOrigin = assertRuntime(process.env);
     if (
       request.headers.get("origin") !== request.nextUrl.origin ||
       request.headers.get("sec-fetch-site") === "cross-site"
@@ -77,6 +77,8 @@ export async function POST(request: NextRequest) {
           createReadOnlySourceReader(
             companyId,
             process.env.SUPABASE_SERVICE_ROLE_KEY || "",
+            undefined,
+            sourceOrigin,
           ),
           intent === "traffic" || intent === "fleet"
             ? [

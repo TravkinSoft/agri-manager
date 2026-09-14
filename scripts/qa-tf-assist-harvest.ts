@@ -435,20 +435,28 @@ test("only active GA without impersonation and with matching explicit context is
     assert.throws(() => authorize({ ...actor, ...patch }, companyId));
   assert.throws(() => authorize(actor, id(2)));
 });
-test("runtime cannot be enabled in Production or against the Production database", () => {
+test("runtime preserves the exact QA Preview branch and enables Production only with the server kill switch", () => {
   const env = {
     TF_ASSIST_HARVEST_V1: "1",
     VERCEL_ENV: "preview",
     VERCEL_GIT_COMMIT_REF: PREVIEW_BRANCH,
     NEXT_PUBLIC_SUPABASE_URL: QA_ORIGIN,
   };
-  assert.doesNotThrow(() => assertRuntime(env));
+  assert.equal(assertRuntime(env), QA_ORIGIN);
   for (const patch of [
     { TF_ASSIST_HARVEST_V1: "0" },
-    { VERCEL_ENV: "production" },
     { NEXT_PUBLIC_SUPABASE_URL: "https://bhsemlvmkikpntabctml.supabase.co" },
   ])
     assert.throws(() => assertRuntime({ ...env, ...patch }));
+  const production = {
+    VERCEL_ENV: "production",
+    TF_ASSIST_HARVEST_V1: "1",
+    NEXT_PUBLIC_SUPABASE_URL: "https://bhsemlvmkikpntabctml.supabase.co",
+  };
+  assert.equal(assertRuntime(production), production.NEXT_PUBLIC_SUPABASE_URL);
+  assert.throws(() => assertRuntime({ ...production, TF_ASSIST_HARVEST_V1: "0" }));
+  assert.throws(() => assertRuntime({ ...production, TF_ASSIST_HARVEST_V1: undefined }));
+  assert.throws(() => assertRuntime({ ...production, NEXT_PUBLIC_SUPABASE_URL: "http://foreign.invalid" }));
 });
 test("GET-only reader enforces projection/tenant/origin and strips injected data fields", async () => {
   const seen: string[] = [];
@@ -481,6 +489,22 @@ test("GET-only reader enforces projection/tenant/origin and strips injected data
   assert.equal(result.rows[0].password, undefined);
   assert.equal((await read("rpc/write" as SourceName)).state, "unavailable");
   assert.equal(seen.length, 1);
+});
+test("read-only reader accepts the runtime Production origin but rejects malformed origins", async () => {
+  const productionOrigin = "https://bhsemlvmkikpntabctml.supabase.co";
+  const read = createReadOnlySourceReader(
+    companyId,
+    "fixture",
+    async (url) => {
+      assert.equal(new URL(url).origin, productionOrigin);
+      return new Response("[]", { headers: { "content-range": "*/0" } });
+    },
+    productionOrigin,
+  );
+  assert.equal((await read("fields")).state, "complete");
+  for (const origin of ["http://foreign.invalid", "https://user@foreign.invalid", "https://foreign.invalid/rest"]) {
+    assert.throws(() => createReadOnlySourceReader(companyId, "fixture", fetch, origin));
+  }
 });
 test("reader rejects foreign company rows and does not return partial data", async () => {
   const read = createReadOnlySourceReader(
@@ -739,7 +763,7 @@ test("substring of a different variety cannot select Gala", () => {
   assert.ok(a.choices);
   assert.equal(a.sourceId, undefined);
 });
-test("only the approved QA Preview branch auto-enables; explicit off wins and Production is always off", () => {
+test("only the approved QA Preview branch auto-enables; Production needs its server kill switch", () => {
   const env = {
     VERCEL_ENV: "preview",
     VERCEL_GIT_COMMIT_REF: PREVIEW_BRANCH,
@@ -747,12 +771,17 @@ test("only the approved QA Preview branch auto-enables; explicit off wins and Pr
   };
   assert.equal(previewEnabled(env), true);
   for (const patch of [
-    { VERCEL_ENV: "production", TF_ASSIST_HARVEST_V1: "1" },
+    { VERCEL_ENV: "production" },
     { VERCEL_GIT_COMMIT_REF: "master" },
     { NEXT_PUBLIC_SUPABASE_URL: "https://bhsemlvmkikpntabctml.supabase.co" },
     { TF_ASSIST_HARVEST_V1: "0" },
   ])
     assert.equal(previewEnabled({ ...env, ...patch }), false);
+  assert.equal(previewEnabled({
+    VERCEL_ENV: "production",
+    TF_ASSIST_HARVEST_V1: "1",
+    NEXT_PUBLIC_SUPABASE_URL: "https://bhsemlvmkikpntabctml.supabase.co",
+  }), true);
 });
 
 test("explicit opt-in never bypasses Preview branch approval; local QA remains available", () => {
@@ -925,9 +954,9 @@ const deploymentEnv = {
   VERCEL_GIT_COMMIT_SHA: "a".repeat(40),
 };
 
-test("deployment smoke cannot call a model from Production, local, unapproved branch or disabled QA", async () => {
+test("deployment smoke cannot call a model outside an enabled approved runtime", async () => {
   for (const patch of [
-    { VERCEL: "0" }, { VERCEL_ENV: "production" }, { VERCEL_ENV: "development" },
+    { VERCEL: "0" }, { VERCEL_ENV: "development" },
     { VERCEL_GIT_COMMIT_REF: "master" }, { TF_ASSIST_HARVEST_V1: "0" },
     { NEXT_PUBLIC_SUPABASE_URL: "https://foreign.invalid" },
   ]) {
@@ -936,6 +965,23 @@ test("deployment smoke cannot call a model from Production, local, unapproved br
     });
     assert.equal(r.status, "skipped");
   }
+});
+
+test("deployment smoke permits an enabled Production runtime without a QA origin", async () => {
+  const production = {
+    ...deploymentEnv,
+    VERCEL_ENV: "production",
+    TF_ASSIST_HARVEST_V1: "1",
+    NEXT_PUBLIC_SUPABASE_URL: "https://bhsemlvmkikpntabctml.supabase.co",
+    OPENAI_API_KEY: "direct-fixture-secret",
+    VERCEL_OIDC_TOKEN: "",
+  };
+  const result = await deploymentModelSmoke(production, async (_message, config) => {
+    assert.equal(plannerTransport(config), "openai_direct");
+    return { state: "model", intent: "yield" };
+  });
+  assert.equal(result.status, "passed");
+  assert.equal(result.transport, "openai_direct");
 });
 
 test("deployment smoke uses a fixed synthetic question and logs only safe verified result", async () => {

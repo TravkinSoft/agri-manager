@@ -18,7 +18,7 @@ export async function deploymentModelSmoke(
   env: Record<string, string | undefined>,
   plan: typeof planQuestion = planQuestion,
 ) {
-  if (env.VERCEL !== "1" || env.VERCEL_ENV !== "preview" || !previewEnabled(env))
+  if (env.VERCEL !== "1" || !previewEnabled(env))
     return { event: "tf_assist_model_smoke", status: "skipped" } as const;
   const config: PlannerConfig = {
     apiKey: env.OPENAI_API_KEY,

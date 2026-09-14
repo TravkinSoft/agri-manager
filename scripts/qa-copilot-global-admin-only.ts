@@ -39,6 +39,8 @@ const settingsRoute = read("app/api/assistant/settings/route.ts");
 const settingsStore = read("lib/assistant/settings-store.ts");
 const settingsTypes = read("lib/assistant/settings-types.ts");
 const settingsForm = read("components/assistant/assistant-platform-settings-form.tsx");
+const tfAssistHost = read("components/assistant/assistant-conversation-host.tsx");
+const assistantContextRoute = read("app/api/assistant/context/route.ts");
 
 check("client shell is enabled only for global_admin", () => {
   assert.equal(canUseAssistantShell("global_admin"), true);
@@ -78,6 +80,17 @@ check("desktop shell cannot render Copilot for non-global roles", () => {
   assert.match(dashboardLayout, /assistantEnabled = canUseAssistantShell\(profile\?\.role\)/);
   assert.match(dashboardLayout, /assistantEnabled \? <AssistantLauncher \/>/);
   assert.match(dashboardLayout, /assistantEnabled \? <AssistantPanel \/>/);
+});
+
+check("TF Assist pane requires an active non-impersonating global_admin server context", () => {
+  assert.match(tfAssistHost, /fetch\("\/api\/tf-assist\/health"/);
+  assert.match(tfAssistHost, /access\.status === "ready"/);
+  assert.match(tfAssistHost, /access\.role === "global_admin"/);
+  assert.match(tfAssistHost, /access\.active/);
+  assert.match(tfAssistHost, /!access\.isImpersonating/);
+  assert.match(tfAssistHost, /!access\.roleIsLegacyAlias/);
+  assert.match(assistantContextRoute, /isImpersonating: actor\.isImpersonating/);
+  assert.match(assistantContextRoute, /roleIsLegacyAlias: actor\.roleIsLegacyAlias/);
 });
 
 check("mobile navigation has no Copilot entry point", () => {

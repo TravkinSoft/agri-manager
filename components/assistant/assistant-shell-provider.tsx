@@ -15,6 +15,9 @@ type AssistantAccessStatus = "loading" | "ready" | "missing_company" | "denied" 
 type AssistantAccessState = {
   status: AssistantAccessStatus;
   role: string | null;
+  active: boolean;
+  isImpersonating: boolean;
+  roleIsLegacyAlias: boolean;
   message: string | null;
   debugSource: {
     role?: string;
@@ -62,6 +65,9 @@ const AssistantShellContext = createContext<AssistantShellContextValue | undefin
 type AssistantServerContextPayload = {
   allowed?: boolean;
   role?: string;
+  active?: boolean;
+  isImpersonating?: boolean;
+  roleIsLegacyAlias?: boolean;
   season?: string | null;
   requiresCompanySelection?: boolean;
   source?: {
@@ -213,6 +219,9 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
   const [access, setAccess] = useState<AssistantAccessState>({
     status: enabled ? "loading" : "denied",
     role: profile?.role || null,
+    active: false,
+    isImpersonating: false,
+    roleIsLegacyAlias: Boolean(profile?.role_is_legacy_alias),
     message: initialAccessMessage,
     debugSource: null,
     debugDetails: null,
@@ -308,6 +317,9 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
         setAccess({
           status: "denied",
           role: profile?.role || null,
+          active: false,
+          isImpersonating: false,
+          roleIsLegacyAlias: Boolean(profile?.role_is_legacy_alias),
           message: profile?.role_is_legacy_alias
             ? "Обнаружена устаревшая роль пользователя. Обновите роль через администратора."
             : "Ассистент недоступен для текущей роли.",
@@ -321,6 +333,9 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
         ...prev,
         status: "loading",
         role: profile?.role || null,
+        active: false,
+        isImpersonating: false,
+        roleIsLegacyAlias: Boolean(profile?.role_is_legacy_alias),
         message: "Загрузка контекста ассистента...",
       }));
 
@@ -347,6 +362,9 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
           setAccess({
             status: mapAccessStatus(code),
             role: resolvedRole,
+            active: false,
+            isImpersonating: Boolean(payload.isImpersonating),
+            roleIsLegacyAlias: Boolean(payload.roleIsLegacyAlias || profile?.role_is_legacy_alias),
             message: mapContextErrorMessage(code, payload.error || null),
             debugSource: payload.source || null,
             debugDetails: payload.debug || null,
@@ -359,6 +377,9 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
           setAccess({
             status: "missing_company",
             role: payload.role || profile?.role || null,
+            active: Boolean(payload.active),
+            isImpersonating: Boolean(payload.isImpersonating),
+            roleIsLegacyAlias: Boolean(payload.roleIsLegacyAlias),
             message: "Выберите компанию в верхнем переключателе, чтобы использовать ассистента.",
             debugSource: payload.source || null,
             debugDetails: payload.debug || null,
@@ -369,6 +390,9 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
         setAccess({
           status: "ready",
           role: payload.role || profile?.role || null,
+          active: Boolean(payload.active),
+          isImpersonating: Boolean(payload.isImpersonating),
+          roleIsLegacyAlias: Boolean(payload.roleIsLegacyAlias),
           message: null,
           debugSource: payload.source || null,
           debugDetails: payload.debug || null,
@@ -379,6 +403,9 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
         setAccess({
           status: "error",
           role: profile?.role || null,
+          active: false,
+          isImpersonating: false,
+          roleIsLegacyAlias: Boolean(profile?.role_is_legacy_alias),
           message:
             error instanceof Error && error.message === "SESSION_EXPIRED"
               ? "Сессия истекла. Обновите страницу и войдите снова."

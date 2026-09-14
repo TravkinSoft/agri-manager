@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { PersistentChatInterface } from "@/components/specialist/persistent-chat-interface";
 import { AssistantChatPane } from "@/components/assistant/assistant-chat-pane";
 import type { AssistantPanelEngineConfig } from "@/lib/assistant/panel-engine";
@@ -13,8 +14,27 @@ export function AssistantConversationHost({
   engine?: AssistantPanelEngineConfig;
 }) {
   const { runtimeContext, session, access } = useAssistantShell();
+  const [tfAssistEnabled, setTfAssistEnabled] = useState(false);
 
-  if (process.env.NEXT_PUBLIC_TF_ASSIST_HARVEST_V1 === '1') return <TfAssistHarvestPane />;
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/tf-assist/health", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((body) => {
+        if (!cancelled) setTfAssistEnabled(body?.enabled === true);
+      })
+      .catch(() => { if (!cancelled) setTfAssistEnabled(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (
+    tfAssistEnabled &&
+    access.status === "ready" &&
+    access.role === "global_admin" &&
+    access.active &&
+    !access.isImpersonating &&
+    !access.roleIsLegacyAlias
+  ) return <TfAssistHarvestPane />;
 
   if (engine.surface === "tool_first_panel") {
     return (

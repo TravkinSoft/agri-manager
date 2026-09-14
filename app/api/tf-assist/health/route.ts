@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { QA_ORIGIN } from "@/lib/tf-assist/policy";
-import { previewEnabled } from "@/lib/tf-assist/preview-gate";
+import { previewEnabled, sourceOrigin } from "@/lib/tf-assist/preview-gate";
 import { plannerTransport, plannerModel } from "@/lib/tf-assist/planner";
 import { runtimePlannerConfig } from "@/lib/tf-assist/runtime-planner-config";
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export function GET() {
       feature: "tf-assist-harvest-v1",
       enabled,
       qaBound,
-      uiEnabled: process.env.NEXT_PUBLIC_TF_ASSIST_HARVEST_V1 === "1",
+      uiEnabled: enabled,
       aiConfigured: aiTransport !== "none",
       aiTransport,
       aiDefaultModel: plannerModel({ ...config, model: undefined }),
@@ -26,7 +26,9 @@ export function GET() {
       sourceCredentialConfigured: Boolean(
         process.env.SUPABASE_SERVICE_ROLE_KEY,
       ),
-      productionLocked: process.env.VERCEL_ENV === "production",
+      productionLocked: process.env.VERCEL_ENV === "production" && !enabled,
+      productionEnabled: process.env.VERCEL_ENV === "production" && enabled,
+      sourceConfigured: Boolean(sourceOrigin(process.env.NEXT_PUBLIC_SUPABASE_URL)),
     },
     { headers: { "Cache-Control": "no-store, private" } },
   );

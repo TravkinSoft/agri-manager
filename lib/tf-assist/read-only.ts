@@ -32,7 +32,16 @@ export function createReadOnlySourceReader(
   companyId: string,
   credential: string,
   transport: Transport = fetch,
+  sourceOrigin = QA_ORIGIN,
 ) {
+  let origin: string;
+  try {
+    const url = new URL(sourceOrigin);
+    if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/") throw new Error("invalid origin");
+    origin = url.origin;
+  } catch {
+    throw new AssistError("Источник данных TF Assist не настроен.", 503);
+  }
   if (!UUID.test(companyId) || !credential)
     throw new AssistError("Источник данных не настроен.", 503);
   const deadline = Date.now() + 35000;
@@ -43,7 +52,7 @@ export function createReadOnlySourceReader(
   ): Promise<Response> {
     if (!Object.prototype.hasOwnProperty.call(SOURCES, table))
       throw new AssistError("Источник запрещён.", 403);
-    const url = new URL(`/rest/v1/${table}`, QA_ORIGIN);
+    const url = new URL(`/rest/v1/${table}`, origin);
     url.searchParams.set(
       "select",
       SOURCES[table] + (v2 ? V2[table] || "" : ""),
