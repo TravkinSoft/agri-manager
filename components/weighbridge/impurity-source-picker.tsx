@@ -12,6 +12,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  isImpuritySourceSelectionBlocked,
+  normalizeImpuritySourceSelection,
+} from "@/lib/weighbridge/impurity-source-selection";
 
 export type ImpuritySourcePickerOption = {
   key: string;
@@ -64,19 +68,18 @@ export function ImpuritySourcePicker({
     });
     return Array.from(groups.entries());
   }, [filteredOptions]);
-  const draftOptions = useMemo(
-    () => draftValue.map((key) => optionByKey.get(key)).filter((option): option is ImpuritySourcePickerOption => Boolean(option)),
-    [draftValue, optionByKey]
+  const availableDraftValue = useMemo(
+    () => normalizeImpuritySourceSelection(draftValue, options),
+    [draftValue, options]
   );
-  const selectedContainsLegacyFallback = draftOptions.some((option) => !option.supportsSharedSelection);
 
   const toggle = (option: ImpuritySourcePickerOption) => {
-    if (draftValue.includes(option.key)) {
-      setDraftValue(draftValue.filter((key) => key !== option.key));
+    if (availableDraftValue.includes(option.key)) {
+      setDraftValue(availableDraftValue.filter((key) => key !== option.key));
       return;
     }
-    if (draftValue.length > 0 && (!option.supportsSharedSelection || selectedContainsLegacyFallback)) return;
-    setDraftValue([...draftValue, option.key]);
+    if (isImpuritySourceSelectionBlocked(availableDraftValue, option, options)) return;
+    setDraftValue([...availableDraftValue, option.key]);
   };
 
   const triggerLabel = selectedOptions.length === 0
@@ -95,7 +98,7 @@ export function ImpuritySourcePicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => {
-          setDraftValue(value);
+          setDraftValue(normalizeImpuritySourceSelection(value, options));
           setOpen(true);
         }}
       >
@@ -109,7 +112,7 @@ export function ImpuritySourcePicker({
         open={open}
         onOpenChange={(nextOpen) => {
           setOpen(nextOpen);
-          if (nextOpen) setDraftValue(value);
+          if (nextOpen) setDraftValue(normalizeImpuritySourceSelection(value, options));
           else setQuery("");
         }}
       >
@@ -158,10 +161,8 @@ export function ImpuritySourcePicker({
                 <div className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group}</div>
                 <div className="divide-y rounded-lg border bg-background">
                   {groupOptions.map((option) => {
-                    const checked = draftValue.includes(option.key);
-                    const selectionBlocked = !checked
-                      && draftValue.length > 0
-                      && (!option.supportsSharedSelection || selectedContainsLegacyFallback);
+                    const checked = availableDraftValue.includes(option.key);
+                    const selectionBlocked = isImpuritySourceSelectionBlocked(availableDraftValue, option, options);
                     const checkboxId = `impurity-source-${option.key.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
                     return (
                       <div key={option.key} className={`flex min-h-12 touch-manipulation items-center gap-3 px-3 ${selectionBlocked ? "opacity-50" : ""}`}>
@@ -193,11 +194,11 @@ export function ImpuritySourcePicker({
               type="button"
               className="min-h-12 w-full touch-manipulation"
               onClick={() => {
-                onChange(draftValue);
+                onChange(availableDraftValue);
                 setOpen(false);
               }}
             >
-              {draftValue.length ? `Выбрано ${draftValue.length} · Готово` : "Готово"}
+              {availableDraftValue.length ? `Выбрано ${availableDraftValue.length} · Готово` : "Готово"}
             </Button>
           </div>
         </SheetContent>

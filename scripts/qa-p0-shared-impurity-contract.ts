@@ -90,6 +90,7 @@ async function main() {
     types,
     page,
     picker,
+    selectionPolicy,
     paper,
     service,
     harvestBatchesRoute,
@@ -104,6 +105,7 @@ async function main() {
     load("lib/types/weighbridge.ts"),
     load("app/(dashboard)/weighbridge/page.tsx"),
     load("components/weighbridge/impurity-source-picker.tsx"),
+    load("lib/weighbridge/impurity-source-selection.ts"),
     load("components/weighbridge/weighbridge-ticket-paper.tsx"),
     load("lib/services/weighbridge.ts"),
     load("app/api/weighbridge/harvest-batches/route.ts"),
@@ -321,7 +323,8 @@ async function main() {
   });
 
   check("picker accepts one or several exact sources and prevents legacy/exact mixing", () => {
-    assert.match(picker.text, /selectedContainsLegacyFallback/);
+    assert.match(picker.text, /isImpuritySourceSelectionBlocked/);
+    assert.match(selectionPolicy.text, /selectedContainsLegacyFallback/);
     assert.doesNotMatch(picker.text, /hasIncompleteSharedSelection/);
     assert.doesNotMatch(picker.text, /disabled=\{hasIncompleteSharedSelection\}/);
     assert.match(picker.text, /Можно выбрать один точный участок/);
