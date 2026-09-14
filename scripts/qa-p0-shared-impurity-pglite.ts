@@ -131,6 +131,21 @@ async function findSourceReleaseMigration() {
   return candidates[0]!;
 }
 
+async function findFinalizeScaleMigration() {
+  const migrationDirectory = join(process.cwd(), "supabase", "migrations");
+  const candidates: Array<{ path: string; sql: string }> = [];
+  for (const fileName of await readdir(migrationDirectory)) {
+    if (!fileName.endsWith(".sql")) continue;
+    const path = join(migrationDirectory, fileName);
+    const sql = await readFile(path, "utf8");
+    if (sql.includes("SHARED_IMPURITY_V4_PATCH_VERIFICATION_FAILED")) {
+      candidates.push({ path, sql });
+    }
+  }
+  assert.equal(candidates.length, 1, "exactly one finalize-scale migration must exist");
+  return candidates[0]!;
+}
+
 async function bootstrap(db: PGlite) {
   await db.exec(`
     create role anon nologin;
@@ -858,6 +873,7 @@ async function main() {
   const exactSourceMigration = await findExactSourceMigration();
   const memberSettlementMigration = await findMemberSettlementMigration();
   const sourceReleaseMigration = await findSourceReleaseMigration();
+  const finalizeScaleMigration = await findFinalizeScaleMigration();
   await check("migration is discovered by contract marker, not timestamp", () => {
     assert.match(migration.sql, /source OUT \(-S\) \+ pool IN \(\+S\) \+ impurity OUT \(-I\)/);
     assert.match(migration.sql, /Existing one-lot impurity functions and their signatures are not replaced/);
@@ -883,6 +899,7 @@ async function main() {
     await db.exec(memberSettlementMigration.sql);
     await check("member-settlement migration compiles after both shared-source migrations", () => undefined);
     await db.exec(sourceReleaseMigration.sql);
+    await db.exec(finalizeScaleMigration.sql);
     await check("settled-source release migration compiles after member settlement", () => undefined);
 
     await check("legacy single-lot RPC definition remains byte-for-byte unchanged and callable", async () => {
@@ -1506,6 +1523,134 @@ async function main() {
       `, [exactCreated.pool_id]), 1);
     });
 
+    await check("208 physical trip batches finalize within the production timeout budget", async () => {
+      const generatedIds = await rows(db, `
+        select gen_random_uuid()::text field_a,
+               gen_random_uuid()::text field_b,
+               gen_random_uuid()::text structure_a,
+               gen_random_uuid()::text structure_b,
+               gen_random_uuid()::text lot_a,
+               gen_random_uuid()::text lot_b,
+               gen_random_uuid()::text create_key,
+               gen_random_uuid()::text finalize_key
+      `);
+      const scale = generatedIds[0]!;
+      await db.query(`
+        insert into public.fields(id,company_id,name)
+        values ($1::uuid,$2::uuid,'49-scale-A'),($3::uuid,$2::uuid,'49-scale-B')
+      `, [scale.field_a, ID.company, scale.field_b]);
+      await db.query(`
+        insert into public.crop_structure(
+          id,company_id,field_id,season_id,crop_id,variety_id,reproduction_id,area
+        ) values
+          ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,$6::uuid,$7::uuid,23),
+          ($8::uuid,$2::uuid,$9::uuid,$4::uuid,$5::uuid,$6::uuid,$10::uuid,7)
+      `, [
+        scale.structure_a, ID.company, scale.field_a, ID.season, ID.crop,
+        ID.varietyA, ID.reproductionA, scale.structure_b, scale.field_b,
+        ID.reproductionB,
+      ]);
+      await db.query(`
+        insert into public.harvest_lots(id,company_id,season_id,crop_id,status)
+        values
+          ($1::uuid,$2::uuid,$3::uuid,$4::uuid,'active'),
+          ($5::uuid,$2::uuid,$3::uuid,$4::uuid,'active')
+      `, [
+        scale.lot_a, ID.company, ID.season, ID.crop, scale.lot_b,
+      ]);
+      await db.query(`
+        with source_rows as (
+          select gen_random_uuid() id,
+                 series,
+                 case when series <= 141 then $1::uuid else $2::uuid end structure_id,
+                 case when series <= 141 then $3::uuid else $4::uuid end lot_id,
+                 case when series <= 141 then $5::uuid else $6::uuid end reproduction_id
+          from generate_series(1,208) series
+        ), inserted_batches as (
+          insert into public.inventory_batches(
+            id,company_id,season_id,product_id,crop_id,variety_id,reproduction_id,
+            batch_code,status,initial_weight_kg,current_weight_kg,batch_class,
+            origin_type,initial_quantity,current_quantity,uom,mass_kg,unit_source,
+            unit_contract_version,crop_structure_id,warehouse_id,source_type,
+            physical_state
+          )
+          select id,$7::uuid,$8::uuid,$9::uuid,$10::uuid,$11::uuid,reproduction_id,
+                 'scale-trip-' || series,'commodity',10,10,'commodity',
+                 'harvest',10,10,'kg',10,'qa_scale',2,structure_id,$12::uuid,
+                 'harvest','SOURCE'
+          from source_rows
+          returning id,crop_structure_id,reproduction_id
+        ), linked_lots as (
+          insert into public.harvest_lot_batches(
+            company_id,harvest_lot_id,inventory_batch_id,crop_structure_id
+          )
+          select $7::uuid,
+                 case when crop_structure_id=$1::uuid then $3::uuid else $4::uuid end,
+                 id,crop_structure_id
+          from inserted_batches
+          returning inventory_batch_id
+        )
+        insert into public.stock_ledger_entries(
+          company_id,product_id,crop_id,variety_id,reproduction_id,warehouse_id,
+          inventory_batch_id,batch_id,batch_id_text,batch_class,direction,
+          quantity,uom,delta_qty_signed,mass_kg,unit_source,unit_contract_version,
+          reason_type,reason_ref_id,created_by
+        )
+        select $7::uuid,$9::uuid,$10::uuid,$11::uuid,batch.reproduction_id,$12::uuid,
+               batch.id,batch.id::text,batch.id::text,'commodity','in',10,'kg',10,10,
+               'qa_scale',2,'harvest_incoming_in',batch.id,$13::uuid
+        from inserted_batches batch
+        join linked_lots linked on linked.inventory_batch_id=batch.id;
+      `, [
+        scale.structure_a, scale.structure_b, scale.lot_a, scale.lot_b,
+        ID.reproductionA, ID.reproductionB, ID.company, ID.season,
+        ID.product, ID.crop, ID.varietyA, ID.warehouse, ID.actor,
+      ]);
+
+      const scaleCreated = await asAuthenticated(db, () => scalar<Row>(db, `
+        select public.create_weighbridge_shared_impurity_pool_ticket_v1(
+          $1::uuid,$2::uuid,$3::jsonb,$4::uuid,$5::uuid,
+          $6::numeric,$7::text,$8::text,$9::text,$10::uuid
+        )
+      `, [
+        ID.company,
+        ID.warehouse,
+        JSON.stringify([
+          { harvest_lot_id: scale.lot_a, crop_structure_id: scale.structure_a },
+          { harvest_lot_id: scale.lot_b, crop_structure_id: scale.structure_b },
+        ]),
+        ID.vehicle,
+        ID.driver,
+        500,
+        "soil_and_trash",
+        "QA 208 source scale",
+        SESSION_TOKEN,
+        scale.create_key,
+      ]));
+      assert.equal(Number(scaleCreated.source_batch_count), 208);
+      assert.equal(Number(scaleCreated.source_total_kg), 2080);
+
+      const startedAt = performance.now();
+      const scaleFinalized = await asAuthenticated(db, () => scalar<Row>(db, `
+        select public.finalize_weighbridge_shared_impurity_pool_ticket_v1(
+          $1::uuid,$2::text,$3::numeric,$4::boolean,$5::uuid
+        )
+      `, [scaleCreated.ticket_id, SESSION_TOKEN, 100, true, scale.finalize_key]));
+      const elapsedMs = performance.now() - startedAt;
+      assert.equal(scaleFinalized.ok, true);
+      assert.ok(elapsedMs < 8_000, `208-source finalize took ${elapsedMs.toFixed(0)}ms`);
+      assert.equal(await scalar<number>(db, `
+        select count(*)::int
+        from public.weighbridge_shared_impurity_source_batches
+        where group_id=$1::uuid and state='released'
+      `, [scaleCreated.pool_id]), 208);
+      assert.equal(Number(await scalar<string>(db, `
+        select round(sum(allocated_impurity_kg),3)::text
+        from public.weighbridge_shared_impurity_source_batches
+        where group_id=$1::uuid
+      `, [scaleCreated.pool_id])), 400);
+    });
+
     await check("migration repairs an already-finalized legacy pool without deleting history", async () => {
       const legacyDb = new PGlite();
       try {
@@ -1544,6 +1689,7 @@ async function main() {
 
         await legacyDb.exec(memberSettlementMigration.sql);
         await legacyDb.exec(sourceReleaseMigration.sql);
+        await legacyDb.exec(finalizeScaleMigration.sql);
         const repaired = await rows(legacyDb, `
           select id::text, current_quantity::text
           from public.inventory_batches
@@ -1580,6 +1726,7 @@ async function main() {
     console.log(`Exact source extension: ${exactSourceMigration.path}`);
     console.log(`Member settlement: ${memberSettlementMigration.path}`);
     console.log(`Settled source release: ${sourceReleaseMigration.path}`);
+    console.log(`Finalize scale: ${finalizeScaleMigration.path}`);
   } finally {
     await db.close();
   }
