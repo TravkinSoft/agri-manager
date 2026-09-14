@@ -1205,6 +1205,8 @@ export default function WeighbridgeOperationsPage() {
     ),
     [profile?.company_id, activeHarvestSeasonId, activeHarvestSeasonYear, workstationId]
   );
+  const hydratedWorkspaceKeyRef = useRef("");
+  const [harvestBatchDetailRequestedKey, setHarvestBatchDetailRequestedKey] = useState("");
   const workspaceReady = Boolean(
     universalWorkspacePersistKey && workspaceHydratedKey === universalWorkspacePersistKey
   );
@@ -2496,8 +2498,15 @@ export default function WeighbridgeOperationsPage() {
   }, [profile?.company_id]);
 
   useEffect(() => {
+    if (!universalWorkspacePersistKey) {
+      hydratedWorkspaceKeyRef.current = "";
+      setWorkspaceHydratedKey("");
+      return;
+    }
+    // A shift refresh must not restore an older localStorage draft over what
+    // the weighman is typing. Legacy shift keys are only migration inputs.
+    if (hydratedWorkspaceKeyRef.current === universalWorkspacePersistKey) return;
     setWorkspaceHydratedKey("");
-    if (!universalWorkspacePersistKey) return;
     const saved = parseUniversalWorkspaceState<FormState, SupplierReceiptLineDraft>(
       localStorage.getItem(universalWorkspacePersistKey),
       INITIAL_FORM
@@ -2526,6 +2535,7 @@ export default function WeighbridgeOperationsPage() {
     if (!saved && migrated) {
       localStorage.setItem(universalWorkspacePersistKey, serializeUniversalWorkspaceState(nextState));
     }
+    hydratedWorkspaceKeyRef.current = universalWorkspacePersistKey;
     setWorkspaceHydratedKey(universalWorkspacePersistKey);
   }, [universalWorkspacePersistKey, legacyHarvestDraftPersistKey]);
 
@@ -3878,8 +3888,11 @@ export default function WeighbridgeOperationsPage() {
     && new Set(selectedImpuritySourceOptions.map((source) => source.cropStructureId)).size !== selectedImpuritySourceOptions.length;
   const changeImpuritySources = (keys: string[]) => {
     const nextSources = keys
-      .map((key) => impuritySourceOptionByKey.get(key))
-      .filter((option): option is ImpuritySourceOption => Boolean(option));
+      .map((key) => impuritySourceOptionByKey.get(key) || persistedImpuritySourceSelections.find((source) =>
+        key === (source.harvestLotId && source.cropStructureId
+          ? `${source.harvestLotId}:${source.cropStructureId}` : `legacy:${source.batchId}`)
+      ))
+      .filter((source): source is ImpuritySourceFormSelection => Boolean(source));
     setForm((previous) => ({
       ...previous,
       sourceBatchId: nextSources[0]?.batchId || "",
@@ -3904,6 +3917,7 @@ export default function WeighbridgeOperationsPage() {
       || !profile?.company_id
       || hasExactImpuritySourceScope
       || !selectedHarvestBatch?.aggregateLotId
+	      || harvestBatchDetailRequestedKey !== `${profile.company_id}:${selectedHarvestBatch.warehouseId}:${selectedHarvestBatch.id}`
 	      || selectedHarvestBatch.detailLevel === "full"
 	    ) {
 	      setHarvestBatchDetailLoading(false);
@@ -3969,6 +3983,7 @@ export default function WeighbridgeOperationsPage() {
 	    selectedHarvestBatch?.aggregateLotId,
 	    selectedHarvestBatch?.detailLevel,
 	    harvestBatchDetailRetry,
+	    harvestBatchDetailRequestedKey,
 	    toast,
   ]);
   const fieldIssueStockOptions = useMemo(() => {
@@ -4329,9 +4344,9 @@ export default function WeighbridgeOperationsPage() {
       } else {
         if (!form.sourceBatchId || !selectedHarvestBatch) return "Выберите партию урожая";
         if (selectedHarvestBatch.warehouseId !== form.warehouseFromId) return "Партия не принадлежит выбранному складу";
-        if (selectedHarvestBatch.detailLevel !== "full") {
-          return harvestBatchDetailLoading ? "Данные партии ещё загружаются" : "Не удалось загрузить полные данные партии";
-        }
+        // The summary contains the canonical lot, product and current balance.
+        // Historical trip details are not a prerequisite for opening a ticket;
+        // the server still validates and locks the source at create/finalize.
         if (selectedHarvestBatch.cleanMassKg <= 0) return "В партии не осталось чистой массы";
       }
       if (!form.impurityType) return "Выберите вид примесей";
@@ -4852,8 +4867,8 @@ export default function WeighbridgeOperationsPage() {
           harvestYear: prev.harvestYear,
           productId: prev.productId,
           stockIdentityKey: prev.stockIdentityKey,
-          sourceBatchId: "",
-          impuritySourceSelections: [],
+          sourceBatchId: prev.operationType === "impurity_removal" ? prev.sourceBatchId : "",
+          impuritySourceSelections: prev.operationType === "impurity_removal" ? prev.impuritySourceSelections : [],
           impurityType: prev.impurityType,
           processingOutputRole: prev.processingOutputRole,
           processingTransformationId: prev.processingTransformationId,
@@ -5942,8 +5957,15 @@ export default function WeighbridgeOperationsPage() {
 	                        </Button>
 	                      </div>
 	                    ) : (
-	                      <div className={`${formRailClass} py-1 text-xs text-muted-foreground`} role="status" aria-live="polite">
-	                        {harvestBatchDetailLoading ? "Загружаем учёт и происхождение партии..." : "Получаем полные данные партии..."}
+	                      <div className={`${formRailClass} space-y-1 py-1 text-xs`}>
+                            <div>Доступно в партии: <span className="font-semibold">{formatWeightKg(selectedHarvestBatch.cleanMassKg)}</span></div>
+                            {harvestBatchDetailLoading ? (
+                              <p className="text-muted-foreground" role="status">Загружаем историю. Можно продолжать заполнение талона.</p>
+                            ) : (
+                              <Button type="button" variant="ghost" size="sm" onClick={() => setHarvestBatchDetailRequestedKey(`${profile?.company_id}:${selectedHarvestBatch.warehouseId}:${selectedHarvestBatch.id}`)}>
+                                Показать приход и вывоз по партии
+                              </Button>
+                            )}
 	                      </div>
 	                    )
 	                  ) : null}

@@ -1,118 +1,39 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import {
-  getImpuritySourcePickerDraftIssue,
-  reconcileImpuritySourcePickerDraft,
-} from "../components/weighbridge/impurity-source-picker";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ImpuritySourcePicker } from "../components/weighbridge/impurity-source-picker";
+import { isImpuritySourceSelectionBlocked } from "../lib/weighbridge/impurity-source-selection";
 
-const root = process.cwd();
-const pickerPath = path.join(root, "components/weighbridge/impurity-source-picker.tsx");
-const picker = fs.readFileSync(pickerPath, "utf8");
+// tsx follows the repository's preserve JSX setting; server markup uses React.
+(globalThis as typeof globalThis & { React: typeof React }).React = React;
 
-const exactA = { key: "lot-a:field-49-elite", supportsSharedSelection: true };
-const exactB = { key: "lot-a:field-49-first", supportsSharedSelection: true };
-const legacy = { key: "legacy:lot-a", supportsSharedSelection: false };
-const stale = "released:first-ticket";
-const options = [exactA, exactB];
-
-const openedDraft = reconcileImpuritySourcePickerDraft(
-  [stale, exactA.key, exactA.key, exactB.key],
-  options,
-  false
-);
-assert.deepEqual(
-  openedDraft,
-  [exactA.key, exactB.key],
-  "opening the picker must remove stale keys and duplicates"
-);
-
-const transientDraft = reconcileImpuritySourcePickerDraft(openedDraft, [], true);
-assert.deepEqual(
-  transientDraft,
-  openedDraft,
-  "an open picker must preserve selected keys while options are transiently empty"
-);
-
-const restoredDraft = reconcileImpuritySourcePickerDraft(transientDraft, options, true);
-assert.deepEqual(
-  restoredDraft,
-  openedDraft,
-  "restoring options must restore the same checked selections"
-);
-
-assert.equal(
-  getImpuritySourcePickerDraftIssue([exactA.key, exactB.key], options),
-  null,
-  "multiple exact sources must remain a valid shared selection"
-);
-assert.equal(
-  getImpuritySourcePickerDraftIssue([legacy.key], [legacy, ...options]),
-  null,
-  "one legacy whole-lot source must remain valid"
-);
-assert.equal(
-  getImpuritySourcePickerDraftIssue([legacy.key, exactA.key], [legacy, ...options]),
-  "incompatible",
-  "a whole-lot source must never be combined with an exact source"
-);
-assert.equal(
-  getImpuritySourcePickerDraftIssue([exactA.key, stale], options),
-  "unavailable",
-  "a missing selected key must block commit instead of being silently dropped"
-);
-
-assert.match(
-  picker,
-  /onPointerDownOutside=\{\(event\) => event\.preventDefault\(\)\}/,
-  "outside pointer interactions must not dismiss the picker"
-);
-assert.match(
-  picker,
-  /onInteractOutside=\{\(event\) => event\.preventDefault\(\)\}/,
-  "outside interactions must not dismiss the picker"
-);
-assert.match(
-  picker,
-  /onEscapeKeyDown=\{\(event\) => event\.preventDefault\(\)\}/,
-  "Escape must not dismiss the picker"
-);
-assert.match(
-  picker,
-  /const cancelPicker = \(\) => \{\s*setDraftValue\(value\);\s*setQuery\(""\);\s*setOpen\(false\);\s*\};/,
-  "the explicit cancel action must close without committing"
-);
-assert.match(
-  picker,
-  /const commitPicker = \(\) => \{[\s\S]*?getImpuritySourcePickerDraftIssue\(availableDraftValue, options\)[\s\S]*?onChange\(reconcileImpuritySourcePickerDraft\(availableDraftValue, options, false\)\);[\s\S]*?setOpen\(false\);/,
-  "Done must validate and commit the preserved draft before closing"
-);
-assert.doesNotMatch(
-  picker,
-  /onOpenChange=\{\(nextOpen\) => \{\s*setOpen\(nextOpen\)/,
-  "implicit Radix close requests must not change controlled open state"
-);
-assert.match(picker, /onClick=\{cancelPicker\}/, "X must use the explicit cancel action");
-assert.match(picker, /onClick=\{commitPicker\}/, "Done must use the explicit commit action");
-assert.match(
-  picker,
-  /const toggle = \(option: ImpuritySourcePickerOption\) => \{\s*if \(draftHasUnavailableKeys\) return;/,
-  "all option toggles must be frozen while a selected source is unavailable"
-);
-assert.match(
-  picker,
-  /const interactionBlocked = draftHasUnavailableKeys \|\| selectionBlocked;[\s\S]*?disabled=\{interactionBlocked\}/,
-  "unavailable draft state must disable the rendered checkboxes"
-);
-assert.match(
-  picker,
-  /if \(getImpuritySourcePickerDraftIssue\(availableDraftValue, options\)\) return;/,
-  "commit must revalidate the current option snapshot"
-);
-assert.match(
-  picker,
-  /unavailableSourceIsConfirmed[\s\S]*?Убрать недоступные[\s\S]*?Отменить изменения и закрыть/,
-  "a ready-but-removed source must expose explicit recovery and cancel actions"
-);
-
-console.log("P0 impurity picker state 19/19 PASS");
+const exactA = { key: "lot-a:field-49-elite", label: "Гала · Элита", supportsSharedSelection: true };
+const exactB = { key: "lot-b:field-49-first", label: "Гала · 1 репродукция", supportsSharedSelection: true };
+const legacy = { key: "legacy:lot-c", label: "Балтик Роуз", supportsSharedSelection: false };
+const options = [exactA, exactB, legacy];
+assert.equal(isImpuritySourceSelectionBlocked([exactA.key], exactB, options), false);
+assert.equal(isImpuritySourceSelectionBlocked([exactA.key], legacy, options), true);
+assert.equal(isImpuritySourceSelectionBlocked([legacy.key], exactA, options), true);
+assert.equal(isImpuritySourceSelectionBlocked([], legacy, options), false);
+const render = (value: string[], rows = options) => renderToStaticMarkup(React.createElement(ImpuritySourcePicker, {options: rows, value, onChange: () => {}}));
+assert.match(render([exactA.key]), /Гала · Элита/);
+assert.match(render([exactA.key, exactB.key]), /Выбрано партий: 2/);
+assert.match(render([exactA.key, exactB.key], []), /Выбрано партий: 2/);
+assert.match(render([exactA.key], []), /Ранее выбранная партия/);
+assert.match(render([exactA.key], []), /Выбор сохранён/);
+assert.doesNotMatch(render([exactA.key], []), /Выберите участки или партии урожая/);
+const picker = fs.readFileSync(path.join(process.cwd(), "components/weighbridge/impurity-source-picker.tsx"), "utf8");
+const page = fs.readFileSync(path.join(process.cwd(), "app/(dashboard)/weighbridge/page.tsx"), "utf8");
+assert.doesNotMatch(picker, /SheetContent|DialogContent|setDraftValue|commitPicker/);
+assert.match(picker, /onChange\(\[\.\.\.selected, option.key\]\)/);
+assert.match(picker, /onChange\(selected.filter/);
+assert.match(picker, /if \(unavailableKeys.length \|\| isImpuritySourceSelectionBlocked/);
+assert.match(page, /hydratedWorkspaceKeyRef.current === universalWorkspacePersistKey\) return/);
+assert.match(page, /impuritySourceSelections: prev.operationType === "impurity_removal" \? prev.impuritySourceSelections : \[\]/);
+assert.match(page, /sourceBatchId: prev.operationType === "impurity_removal" \? prev.sourceBatchId : ""/);
+assert.doesNotMatch(page, /return harvestBatchDetailLoading \? "Данные партии ещё загружаются"/);
+assert.match(page, /selectedImpuritySourceOptions.length !== impuritySourceSelectionKeys.length/);
+assert.match(page, /harvestBatchDetailRequestedKey !==/);
+console.log("P0 impurity controlled selection: 20 checks PASS (browser fixture covers interaction sequence)");

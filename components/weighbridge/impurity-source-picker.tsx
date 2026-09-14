@@ -1,21 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ChevronDown, Search, X } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { ChevronDown, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
-  isImpuritySourceSelectionBlocked,
-  normalizeImpuritySourceSelection,
-} from "@/lib/weighbridge/impurity-source-selection";
+import { isImpuritySourceSelectionBlocked } from "@/lib/weighbridge/impurity-source-selection";
 
 export type ImpuritySourcePickerOption = {
   key: string;
@@ -24,38 +14,7 @@ export type ImpuritySourcePickerOption = {
   groupLabel?: string;
   supportsSharedSelection: boolean;
 };
-
 export type ImpuritySourcePickerOptionsStatus = "idle" | "loading" | "refreshing" | "ready" | "stale" | "error";
-
-export type ImpuritySourcePickerDraftIssue = "unavailable" | "incompatible" | null;
-
-export function reconcileImpuritySourcePickerDraft(
-  value: string[],
-  options: Pick<ImpuritySourcePickerOption, "key" | "supportsSharedSelection">[],
-  preserveUnavailable: boolean
-): string[] {
-  const uniqueValue = Array.from(new Set(value));
-  return preserveUnavailable
-    ? uniqueValue
-    : normalizeImpuritySourceSelection(uniqueValue, options);
-}
-
-export function getImpuritySourcePickerDraftIssue(
-  value: string[],
-  options: Pick<ImpuritySourcePickerOption, "key" | "supportsSharedSelection">[]
-): ImpuritySourcePickerDraftIssue {
-  const uniqueValue = Array.from(new Set(value));
-  const optionByKey = new Map(options.map((option) => [option.key, option]));
-  if (uniqueValue.some((key) => !optionByKey.has(key))) return "unavailable";
-  if (
-    uniqueValue.length > 1
-    && uniqueValue.some((key) => !optionByKey.get(key)?.supportsSharedSelection)
-  ) {
-    return "incompatible";
-  }
-  return null;
-}
-
 type ImpuritySourcePickerProps = {
   options: ImpuritySourcePickerOption[];
   value: string[];
@@ -65,188 +24,96 @@ type ImpuritySourcePickerProps = {
   optionsStatus?: ImpuritySourcePickerOptionsStatus;
 };
 
+/** Every check is saved in the workspace draft; no uncommitted modal copy. */
 export function ImpuritySourcePicker({
-  options,
-  value,
-  onChange,
-  disabled = false,
-  placeholder = "Выберите участки или партии урожая",
-  optionsStatus = "ready",
+  options, value, onChange, disabled = false,
+  placeholder = "Выберите участки или партии урожая", optionsStatus = "ready",
 }: ImpuritySourcePickerProps) {
-  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState("");
-  const [draftValue, setDraftValue] = useState<string[]>(value);
-  const optionByKey = useMemo(
-    () => new Map(options.map((option) => [option.key, option])),
-    [options]
-  );
-  const selectedOptions = useMemo(
-    () => value.map((key) => optionByKey.get(key)).filter((option): option is ImpuritySourcePickerOption => Boolean(option)),
-    [optionByKey, value]
-  );
+  const listId = useId();
+  // Labels may outlive a refresh result; availability may not.
+  const knownLabels = useRef(new Map<string, string>());
+  useEffect(() => {
+    const retained = new Set([...value, ...options.map((option) => option.key)]);
+    knownLabels.current.forEach((_label, key) => {
+      if (!retained.has(key)) knownLabels.current.delete(key);
+    });
+    options.forEach((option) => knownLabels.current.set(option.key, option.label));
+  }, [options, value]);
+  const optionByKey = useMemo(() => new Map(options.map((option) => [option.key, option])), [options]);
+  const selected = Array.from(new Set(value));
+  const unavailableKeys = selected.filter((key) => !optionByKey.has(key));
+  const refreshing = optionsStatus === "loading" || optionsStatus === "refreshing" || optionsStatus === "idle";
+  const labelFor = (key: string) => optionByKey.get(key)?.label || knownLabels.current.get(key) || "Ранее выбранная партия";
   const normalizedQuery = query.trim().toLocaleLowerCase("ru");
-  const filteredOptions = useMemo(() => {
-    if (!normalizedQuery) return options;
-    return options.filter((option) => [option.label, option.description, option.groupLabel]
-      .filter(Boolean)
-      .join(" ")
-      .toLocaleLowerCase("ru")
-      .includes(normalizedQuery));
-  }, [normalizedQuery, options]);
   const groupedOptions = useMemo(() => {
     const groups = new Map<string, ImpuritySourcePickerOption[]>();
-    filteredOptions.forEach((option) => {
+    options.forEach((option) => {
+      if (normalizedQuery && ![option.label, option.description, option.groupLabel].filter(Boolean).join(" ").toLocaleLowerCase("ru").includes(normalizedQuery)) return;
       const group = option.groupLabel?.trim() || "Без поля";
-      groups.set(group, [...(groups.get(group) || []), option]);
+      const items = groups.get(group) || [];
+      items.push(option);
+      groups.set(group, items);
     });
     return Array.from(groups.entries());
-  }, [filteredOptions]);
-  const availableDraftValue = useMemo(
-    () => reconcileImpuritySourcePickerDraft(draftValue, options, open),
-    [draftValue, open, options]
-  );
-  const draftIssue = useMemo(
-    () => open ? getImpuritySourcePickerDraftIssue(availableDraftValue, options) : null,
-    [availableDraftValue, open, options]
-  );
-  const draftHasUnavailableKeys = draftIssue === "unavailable";
-  const draftHasIncompatibleSelection = draftIssue === "incompatible";
-  const optionsAreRefreshing = optionsStatus === "loading" || optionsStatus === "refreshing";
-  const unavailableSourceIsConfirmed = draftHasUnavailableKeys && optionsStatus === "ready";
-
-  const openPicker = () => {
-    setDraftValue(reconcileImpuritySourcePickerDraft(value, options, false));
-    setQuery("");
-    setOpen(true);
-  };
-
-  const cancelPicker = () => {
-    setDraftValue(value);
-    setQuery("");
-    setOpen(false);
-  };
-
-  const commitPicker = () => {
-    if (getImpuritySourcePickerDraftIssue(availableDraftValue, options)) return;
-    onChange(reconcileImpuritySourcePickerDraft(availableDraftValue, options, false));
-    setQuery("");
-    setOpen(false);
-  };
-
-  const removeUnavailableSources = () => {
-    setDraftValue(reconcileImpuritySourcePickerDraft(availableDraftValue, options, false));
-  };
+  }, [options, normalizedQuery]);
 
   const toggle = (option: ImpuritySourcePickerOption) => {
-    if (draftHasUnavailableKeys) return;
-    if (availableDraftValue.includes(option.key)) {
-      setDraftValue(availableDraftValue.filter((key) => key !== option.key));
+    if (disabled) return;
+    if (selected.includes(option.key)) {
+      onChange(selected.filter((key) => key !== option.key));
       return;
     }
-    if (isImpuritySourceSelectionBlocked(availableDraftValue, option, options)) return;
-    setDraftValue([...availableDraftValue, option.key]);
+    if (unavailableKeys.length || isImpuritySourceSelectionBlocked(selected, option, options)) return;
+    onChange([...selected, option.key]);
   };
 
-  const triggerLabel = selectedOptions.length === 0
-    ? placeholder
-    : selectedOptions.length === 1
-      ? selectedOptions[0].label
-      : `Выбрано источников: ${selectedOptions.length}`;
-
   return (
-    <>
-      <Button
-        type="button"
-        variant="outline"
+    <div className="space-y-2" data-testid="impurity-source-picker">
+      <Button type="button" variant="outline"
         className="h-auto min-h-12 w-full touch-manipulation justify-between gap-3 px-3 py-2 text-left font-normal"
-        disabled={disabled}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={openPicker}
-      >
-        <span className={selectedOptions.length ? "min-w-0 truncate text-foreground" : "min-w-0 truncate text-muted-foreground"}>
-          {triggerLabel}
+        disabled={disabled && !selected.length} aria-expanded={expanded} aria-controls={listId}
+        onClick={() => setExpanded((current) => !current)}>
+        <span className={`min-w-0 whitespace-normal break-words ${selected.length ? "text-foreground" : "text-muted-foreground"}`}>
+          {selected.length === 1 ? labelFor(selected[0]) : selected.length ? `Выбрано партий: ${selected.length}` : placeholder}
         </span>
-        <ChevronDown className="h-4 w-4 shrink-0 opacity-60" aria-hidden="true" />
+        <ChevronDown className={`h-4 w-4 shrink-0 opacity-60 ${expanded ? "rotate-180" : ""}`} aria-hidden="true" />
       </Button>
-
-      <Sheet
-        open={open}
-        onOpenChange={(nextOpen) => {
-          if (nextOpen) openPicker();
-        }}
-      >
-        <SheetContent
-          side="bottom"
-          showClose={false}
-          className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden rounded-t-2xl p-0 sm:left-1/2 sm:right-auto sm:w-[calc(100vw-2rem)] sm:max-w-3xl sm:-translate-x-1/2 sm:p-0"
-          onPointerDownOutside={(event) => event.preventDefault()}
-          onInteractOutside={(event) => event.preventDefault()}
-          onEscapeKeyDown={(event) => event.preventDefault()}
-        >
-          <Button
-            type="button"
-            variant="ghost"
-            className="absolute right-2 top-2 z-10 h-12 w-12 touch-manipulation p-0"
-            aria-label="Закрыть выбор участков"
-            onClick={cancelPicker}
-          >
-            <X className="h-5 w-5" aria-hidden="true" />
-          </Button>
-          <SheetHeader className="border-b px-4 pb-4 pt-5 pr-12 text-left sm:px-6">
-            <SheetTitle>Участки / партии урожая</SheetTitle>
-            <SheetDescription>
-              Можно выбрать один точный участок или объединить несколько участков в один физический талон.
-            </SheetDescription>
-          </SheetHeader>
-
-          <div className="border-b px-4 py-3 sm:px-6">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="min-h-12 pl-9 text-base"
-                placeholder="Поиск по полю, культуре, сорту"
-                aria-label="Поиск источника примеси"
-              />
-            </div>
+      {unavailableKeys.length ? (
+        <p role="status" className="text-xs text-amber-800">
+          {refreshing ? "Обновляем остатки. Ваш выбор сохранён." : optionsStatus === "ready"
+            ? "Выбранная партия сейчас недоступна. Выбор сохранён; проверьте склад или уберите эту партию из выбора."
+            : "Не удалось подтвердить остатки. Ваш выбор сохранён; повторите обновление списка."}
+        </p>
+      ) : null}
+      {expanded ? (
+        <div id={listId} role="group" aria-label="Выбор участков и партий урожая" className="space-y-3 rounded-lg border bg-background p-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <Input value={query} onChange={(event) => setQuery(event.target.value)} className="min-h-11 pl-9" placeholder="Поиск по полю, культуре, сорту" aria-label="Поиск источника примеси" />
           </div>
-
-          <div className="travkin-scrollbar min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-4 py-3 sm:px-6">
-            {options.length ? (
-              <p className="mb-3 border-l-2 border-amber-400 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                Отметьте галочками одну или несколько точных партий. Несколько партий будут оформлены одним талоном примеси.
-              </p>
-            ) : null}
-            {groupedOptions.length === 0 ? (
-              <div className="py-8 text-center text-sm text-muted-foreground">
-                {options.length ? "По вашему запросу ничего не найдено" : "На складе нет доступных источников"}
+          <p className="text-xs text-muted-foreground">Выбор сохраняется сразу. Можно выбрать одну или несколько точных партий для одного талона примеси.</p>
+          <div className="travkin-scrollbar max-h-80 space-y-3 overflow-y-auto overscroll-contain">
+            {unavailableKeys.map((key) => (
+              <div key={key} className="flex items-center justify-between gap-2 rounded border border-amber-500/40 p-2 text-sm">
+                <span>{labelFor(key)} · {refreshing ? "проверяем остаток" : "нет в текущем списке"}</span>
+                <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(selected.filter((item) => item !== key))}>Убрать из выбора</Button>
               </div>
-            ) : groupedOptions.map(([group, groupOptions]: [string, ImpuritySourcePickerOption[]]) => (
-              <section key={group} className="mb-4 last:mb-0" aria-label={group}>
-                <div className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group}</div>
-                <div className="divide-y rounded-lg border bg-background">
+            ))}
+            {groupedOptions.map(([group, groupOptions]) => (
+              <section key={group} aria-label={group}>
+                <div className="mb-1 text-xs font-semibold uppercase text-muted-foreground">{group}</div>
+                <div className="divide-y rounded-lg border">
                   {groupOptions.map((option) => {
-                    const checked = availableDraftValue.includes(option.key);
-                    const selectionBlocked = isImpuritySourceSelectionBlocked(availableDraftValue, option, options);
-                    const interactionBlocked = draftHasUnavailableKeys || selectionBlocked;
-                    const checkboxId = `impurity-source-${option.key.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+                    const checked = selected.includes(option.key);
+                    const blocked = disabled || (!checked && (unavailableKeys.length > 0 || isImpuritySourceSelectionBlocked(selected, option, options)));
+                    const checkboxId = `${listId}-${option.key}`;
                     return (
-                      <div key={option.key} className={`flex min-h-12 touch-manipulation items-center gap-3 px-3 ${interactionBlocked ? "opacity-50" : ""}`}>
-                        <Checkbox
-                          id={checkboxId}
-                          checked={checked}
-                          disabled={interactionBlocked}
-                          onCheckedChange={() => toggle(option)}
-                          className="h-5 w-5"
-                          aria-label={option.label}
-                        />
-                        <label
-                          htmlFor={checkboxId}
-                          className={`flex min-h-12 min-w-0 flex-1 flex-col justify-center py-2 ${interactionBlocked ? "cursor-not-allowed" : "cursor-pointer"}`}
-                        >
-                          <span className="text-sm font-medium leading-snug text-foreground">{option.label}</span>
+                      <div key={option.key} className={`flex min-h-12 items-center gap-3 px-3 ${blocked ? "opacity-50" : ""}`}>
+                        <Checkbox id={checkboxId} checked={checked} disabled={blocked} onCheckedChange={() => toggle(option)} className="h-5 w-5" aria-label={option.label} />
+                        <label htmlFor={checkboxId} className={`flex min-h-12 min-w-0 flex-1 flex-col justify-center py-2 ${blocked ? "cursor-not-allowed" : "cursor-pointer"}`}>
+                          <span className="text-sm font-medium leading-snug">{option.label}</span>
                           {option.description ? <span className="mt-0.5 text-xs text-muted-foreground">{option.description}</span> : null}
                         </label>
                       </div>
@@ -255,51 +122,11 @@ export function ImpuritySourcePicker({
                 </div>
               </section>
             ))}
+            {!groupedOptions.length ? <p className="py-3 text-center text-sm text-muted-foreground">{refreshing ? "Загружаем партии…" : options.length ? "По вашему запросу ничего не найдено" : "На складе нет доступных источников"}</p> : null}
           </div>
-
-          <div className="border-t bg-card px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-6">
-            {draftHasUnavailableKeys ? (
-              <div className="mb-2 space-y-2 text-center text-xs" role={unavailableSourceIsConfirmed ? "alert" : "status"} aria-live="polite">
-                <p className={unavailableSourceIsConfirmed ? "text-amber-800" : "text-muted-foreground"}>
-                  {optionsAreRefreshing
-                    ? "Список источников обновляется. Выбранные участки сохранены — дождитесь завершения обновления."
-                    : unavailableSourceIsConfirmed
-                      ? "Один из выбранных источников больше недоступен. Уберите его или отмените изменения."
-                      : "Не удалось подтвердить выбранные источники. Отмените изменения и повторите обновление списка."}
-                </p>
-                {unavailableSourceIsConfirmed ? (
-                  <Button type="button" size="sm" variant="outline" onClick={removeUnavailableSources}>
-                    Убрать недоступные
-                  </Button>
-                ) : null}
-              </div>
-            ) : draftHasIncompatibleSelection ? (
-              <p className="mb-2 text-center text-xs text-amber-800" role="alert">
-                Нельзя объединять целую партию с точными участками. Снимите лишний выбор.
-              </p>
-            ) : null}
-            <Button
-              type="button"
-              className="min-h-12 w-full touch-manipulation"
-              disabled={Boolean(draftIssue)}
-              onClick={commitPicker}
-            >
-              {draftHasUnavailableKeys
-                ? optionsAreRefreshing ? "Обновляем список…" : "Список изменился"
-                : draftHasIncompatibleSelection
-                  ? "Исправьте выбор"
-                : availableDraftValue.length
-                  ? `Выбрано ${availableDraftValue.length} · Готово`
-                  : "Готово"}
-            </Button>
-            {draftHasUnavailableKeys ? (
-              <Button type="button" variant="ghost" className="mt-1 min-h-10 w-full" onClick={cancelPicker}>
-                Отменить изменения и закрыть
-              </Button>
-            ) : null}
-          </div>
-        </SheetContent>
-      </Sheet>
-    </>
+          <Button type="button" variant="ghost" className="min-h-11 w-full" onClick={() => { setExpanded(false); setQuery(""); }}>Свернуть список{selected.length ? ` · выбрано ${selected.length}` : ""}</Button>
+        </div>
+      ) : null}
+    </div>
   );
 }

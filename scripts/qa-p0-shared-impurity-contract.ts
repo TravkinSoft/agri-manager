@@ -327,8 +327,9 @@ async function main() {
     assert.match(selectionPolicy.text, /selectedContainsLegacyFallback/);
     assert.doesNotMatch(picker.text, /hasIncompleteSharedSelection/);
     assert.doesNotMatch(picker.text, /disabled=\{hasIncompleteSharedSelection\}/);
-    assert.match(picker.text, /Можно выбрать один точный участок/);
-    assert.match(picker.text, /Несколько партий будут оформлены одним талоном примеси/);
+    assert.match(picker.text, /Можно выбрать одну или несколько точных партий/);
+    assert.match(picker.text, /для одного талона примеси/);
+    assert.match(picker.text, /Выбор сохраняется сразу/);
   });
 
   check("open cards, journal, preview and paper expose unresolved shared provenance", () => {
