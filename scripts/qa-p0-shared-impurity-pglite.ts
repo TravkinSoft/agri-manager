@@ -146,6 +146,21 @@ async function findFinalizeScaleMigration() {
   return candidates[0]!;
 }
 
+async function findShiftHandoverMigration() {
+  const migrationDirectory = join(process.cwd(), "supabase", "migrations");
+  const candidates: Array<{ path: string; sql: string }> = [];
+  for (const fileName of await readdir(migrationDirectory)) {
+    if (!fileName.endsWith(".sql")) continue;
+    const path = join(migrationDirectory, fileName);
+    const sql = await readFile(path, "utf8");
+    if (sql.includes("SHARED_IMPURITY_V5_PATCH_VERIFICATION_FAILED")) {
+      candidates.push({ path, sql });
+    }
+  }
+  assert.equal(candidates.length, 1, "exactly one shift-handover migration must exist");
+  return candidates[0]!;
+}
+
 async function bootstrap(db: PGlite) {
   await db.exec(`
     create role anon nologin;
@@ -874,6 +889,7 @@ async function main() {
   const memberSettlementMigration = await findMemberSettlementMigration();
   const sourceReleaseMigration = await findSourceReleaseMigration();
   const finalizeScaleMigration = await findFinalizeScaleMigration();
+  const shiftHandoverMigration = await findShiftHandoverMigration();
   await check("migration is discovered by contract marker, not timestamp", () => {
     assert.match(migration.sql, /source OUT \(-S\) \+ pool IN \(\+S\) \+ impurity OUT \(-I\)/);
     assert.match(migration.sql, /Existing one-lot impurity functions and their signatures are not replaced/);
@@ -900,6 +916,7 @@ async function main() {
     await check("member-settlement migration compiles after both shared-source migrations", () => undefined);
     await db.exec(sourceReleaseMigration.sql);
     await db.exec(finalizeScaleMigration.sql);
+    await db.exec(shiftHandoverMigration.sql);
     await check("settled-source release migration compiles after member settlement", () => undefined);
 
     await check("legacy single-lot RPC definition remains byte-for-byte unchanged and callable", async () => {
@@ -1651,6 +1668,93 @@ async function main() {
       `, [scaleCreated.pool_id])), 400);
     });
 
+    await check("same operator closes an open ticket after shift handover", async () => {
+      const ids = (await rows(db, `
+        select gen_random_uuid()::text new_shift,
+               gen_random_uuid()::text new_session,
+               gen_random_uuid()::text create_key,
+               gen_random_uuid()::text finalize_key
+      `))[0]!;
+      const handoverCreated = await asAuthenticated(db, () => scalar<Row>(db, `
+        select public.create_weighbridge_shared_impurity_pool_ticket_v1(
+          $1::uuid,$2::uuid,$3::jsonb,$4::uuid,$5::uuid,
+          $6::numeric,$7::text,$8::text,$9::text,$10::uuid
+        )
+      `, [
+        ID.company,
+        ID.warehouse,
+        JSON.stringify([{ harvest_lot_id: ID.lotA, crop_structure_id: ID.structureA }]),
+        ID.vehicle,
+        ID.driver,
+        40,
+        "soil_and_trash",
+        "QA shift handover",
+        SESSION_TOKEN,
+        ids.create_key,
+      ]));
+
+      const expiredResult = await asAuthenticated(db, () => scalar<Row>(db, `
+        select public.finalize_weighbridge_shared_impurity_pool_ticket_v1(
+          $1::uuid,$2::text,$3::numeric,$4::boolean,$5::uuid
+        )
+      `, [handoverCreated.ticket_id, "wrong-session-token", 10, true, ids.finalize_key]));
+      assert.deepEqual(expiredResult, { ok: false, code: "shift_expired" });
+      assert.equal(await scalar<number>(db, `
+        select count(*)::int from public.stock_ledger_entries where ticket_id=$1::uuid
+      `, [handoverCreated.ticket_id]), 0);
+
+      await db.query(`
+        update public.weighbridge_shifts
+        set status='closed',closed_at=now(),closed_by_person_id=$1::uuid,
+            close_reason='handover'
+        where id=$2::uuid
+      `, [ID.operator, ID.shift]);
+      await db.query(`
+        update private.weighbridge_operator_sessions
+        set status='revoked',revoked_at=now()
+        where id=$1::uuid
+      `, [ID.session]);
+      await db.query(`
+        insert into public.weighbridge_shifts(
+          id,company_id,status,operator_person_id,last_activity_at
+        ) values ($1::uuid,$2::uuid,'open',$3::uuid,now())
+      `, [ids.new_shift, ID.company, ID.operator]);
+      await db.query(`
+        insert into private.weighbridge_operator_sessions(
+          id,company_id,auth_user_id,shift_id,person_id,
+          token_hash,status,expires_at,last_seen_at
+        ) values (
+          $1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,
+          encode(extensions.digest($6::text,'sha256'),'hex'),
+          'active',now()+interval '24 hours',now()
+        )
+      `, [
+        ids.new_session, ID.company, ID.actor, ids.new_shift,
+        ID.operator, SESSION_TOKEN,
+      ]);
+
+      const handoverFinalized = await asAuthenticated(db, () => scalar<Row>(db, `
+        select public.finalize_weighbridge_shared_impurity_pool_ticket_v1(
+          $1::uuid,$2::text,$3::numeric,$4::boolean,$5::uuid
+        )
+      `, [handoverCreated.ticket_id, SESSION_TOKEN, 10, true, ids.finalize_key]));
+      assert.equal(handoverFinalized.ok, true);
+      const attribution = (await rows(db, `
+        select ticket.shift_id::text opening_shift_id,
+               ticket.finalized_by_person_id::text finalized_person_id,
+               weighing.weighbridge_shift_id::text closing_shift_id
+        from public.tickets ticket
+        join public.ticket_weighings weighing
+          on weighing.ticket_id=ticket.id and weighing.weighing_no=2
+        where ticket.id=$1::uuid
+      `, [handoverCreated.ticket_id]))[0]!;
+      assert.deepEqual(attribution, {
+        opening_shift_id: ID.shift,
+        finalized_person_id: ID.operator,
+        closing_shift_id: ids.new_shift,
+      });
+    });
+
     await check("migration repairs an already-finalized legacy pool without deleting history", async () => {
       const legacyDb = new PGlite();
       try {
@@ -1690,6 +1794,7 @@ async function main() {
         await legacyDb.exec(memberSettlementMigration.sql);
         await legacyDb.exec(sourceReleaseMigration.sql);
         await legacyDb.exec(finalizeScaleMigration.sql);
+        await legacyDb.exec(shiftHandoverMigration.sql);
         const repaired = await rows(legacyDb, `
           select id::text, current_quantity::text
           from public.inventory_batches
@@ -1727,6 +1832,7 @@ async function main() {
     console.log(`Member settlement: ${memberSettlementMigration.path}`);
     console.log(`Settled source release: ${sourceReleaseMigration.path}`);
     console.log(`Finalize scale: ${finalizeScaleMigration.path}`);
+    console.log(`Shift handover: ${shiftHandoverMigration.path}`);
   } finally {
     await db.close();
   }
