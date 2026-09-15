@@ -930,7 +930,7 @@ export default function WarehousesPage() {
         <div
           ref={reorderGridRef}
           data-personal-warehouse-order="enabled"
-          className="grid items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-3"
+          className="grid grid-cols-1 items-stretch gap-3 sm:grid-cols-[repeat(auto-fill,240px)]"
         >
           {activeSummaries.map(renderWarehouseCard)}
         </div>
@@ -939,7 +939,7 @@ export default function WarehousesPage() {
       {canManageWarehouses && archivedSummaries.length > 0 ? (
         <section className="space-y-3 border-t border-border pt-5">
           <h2 className="text-base font-semibold text-foreground">Архивные склады</h2>
-          <div className="grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+          <div className="grid grid-cols-1 items-stretch gap-3 sm:grid-cols-[repeat(auto-fill,240px)]">
             {archivedSummaries.map(renderWarehouseCard)}
           </div>
         </section>

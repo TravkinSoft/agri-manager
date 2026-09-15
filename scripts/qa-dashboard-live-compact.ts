@@ -29,5 +29,7 @@ assert.match(dashboard, /Оборот машин · \{trafficVehicles\.filter/);
 assert.doesNotMatch(dashboard, />Последние рейсы|>Размещение|PotatoDriverSummary/);
 assert.match(layout, /isDashboard \|\| isWarehouses \? "pt-1\.5 sm:pt-2 md:pt-3"/);
 assert.match(warehouses, /<div className="space-y-3">/);
+assert.match(warehouses, /sm:grid-cols-\[repeat\(auto-fill,240px\)\]/);
+assert.match(layout, /isWarehouses \? "sticky bottom-0 z-20 mt-auto/);
 
 console.log("Dashboard live compact PASS");
