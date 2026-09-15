@@ -5,7 +5,10 @@ import { ChevronDown, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { isImpuritySourceSelectionBlocked } from "@/lib/weighbridge/impurity-source-selection";
+import {
+  isImpuritySourceSelectionBlocked,
+  normalizeImpuritySourceSelection,
+} from "@/lib/weighbridge/impurity-source-selection";
 
 export type ImpuritySourcePickerOption = {
   key: string;
@@ -65,8 +68,11 @@ export function ImpuritySourcePicker({
       onChange(selected.filter((key) => key !== option.key));
       return;
     }
-    if (unavailableKeys.length || isImpuritySourceSelectionBlocked(selected, option, options)) return;
-    onChange([...selected, option.key]);
+    const availableSelection = normalizeImpuritySourceSelection(selected, options);
+    if (isImpuritySourceSelectionBlocked(availableSelection, option, options)) return;
+    // A source used by the previous ticket can disappear after the canonical
+    // stock refresh. It must not disable every valid source for the next ticket.
+    onChange([...availableSelection, option.key]);
   };
 
   return (
@@ -107,7 +113,7 @@ export function ImpuritySourcePicker({
                 <div className="divide-y rounded-lg border">
                   {groupOptions.map((option) => {
                     const checked = selected.includes(option.key);
-                    const blocked = disabled || (!checked && (unavailableKeys.length > 0 || isImpuritySourceSelectionBlocked(selected, option, options)));
+                    const blocked = disabled || (!checked && isImpuritySourceSelectionBlocked(selected, option, options));
                     const checkboxId = `${listId}-${option.key}`;
                     return (
                       <div key={option.key} className={`flex min-h-12 items-center gap-3 px-3 ${blocked ? "opacity-50" : ""}`}>

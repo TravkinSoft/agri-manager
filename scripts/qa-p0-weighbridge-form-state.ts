@@ -6,10 +6,12 @@ import {
   parseUniversalWorkspaceState,
   serializeUniversalWorkspaceState,
 } from "../lib/weighbridge/universal-workspaces";
+import { parseStrictWeightKg } from "../lib/weighbridge/weight-input";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
+const ticketPatchRoute = read("app/api/weighbridge/tickets/[id]/route.ts");
 const combobox = read("components/weighbridge/searchable-combobox.tsx");
 const driverPicker = read("components/weighbridge/transport-driver-picker.tsx");
 
@@ -87,6 +89,33 @@ check("driver search stays local and covers useful personnel attributes", () => 
   assert.doesNotMatch(driverPicker, /fetch\(|axios|supabase/);
   assert.match(driverPicker, /keywords: \[driver\.name, driver\.position \|\| "", driver\.department \|\| ""\]/);
   assert.match(driverPicker, /searchPlaceholder="Имя или фамилия водителя"/);
+});
+
+check("comma weights keep the exact value shown and submitted", () => {
+  assert.deepEqual(parseStrictWeightKg("15760,5", "Брутто"), {
+    ok: true,
+    value: 15_760.5,
+    normalized: "15760.5",
+  });
+  assert.match(page, /const formWeight = form\.grossKg\.trim\(\) \? parseStrictWeightKg\(form\.grossKg, "Брутто"\) : null/);
+  assert.match(page, /\? toNum\(form\.grossKg\) \?\? 0[\s\S]*?: toNum\(form\.quantityKg\) \?\? 0/);
+  assert.doesNotMatch(page, /Number\(form\.(?:grossKg|quantityKg|paperTareKg)\)/);
+});
+
+check("workspace cannot change while a ticket is being saved or closed", () => {
+  assert.match(page, /const submittingRef = useRef\(false\)/);
+  assert.match(page, /const selectWorkspace = \(workspaceId: string\) => \{[\s\S]*?if \(submittingRef\.current \|\| finalizingRef\.current \|\| ticketCloseStateRef\.current\.phase !== "idle"\) return/);
+  assert.match(page, /submittingRef\.current = true;[\s\S]*?setSubmitting\(true\)/);
+  assert.match(page, /disabled=\{!workspaceReady \|\| submitting \|\| finalizing \|\| ticketCloseLocked\}/);
+});
+
+check("all weight-based open tickets update header, cargo and weighings together", () => {
+  assert.match(ticketPatchRoute, /const requiresAtomicWeightUpdate = ticket\.weigh_method !== "manual_override_with_reason"/);
+  assert.match(ticketPatchRoute, /supabase\.rpc\("update_open_weighbridge_ticket_v1"/);
+  assert.ok(
+    ticketPatchRoute.indexOf("if (requiresAtomicWeightUpdate")
+      < ticketPatchRoute.indexOf("const { data: updated, error: updateError }")
+  );
 });
 
 console.log(`P0 WEIGHBRIDGE FORM STATE ${checks}/${checks} PASS`);

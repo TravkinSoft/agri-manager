@@ -984,6 +984,7 @@ export default function WeighbridgeOperationsPage() {
   const [coreDataReady, setCoreDataReady] = useState(false);
   const [ticketsLoading, setTicketsLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const createTicketIdempotencyRef = useRef<PersistedCreateTicketAttempt | null>(null);
   const finalizeTicketIdempotencyRef = useRef<{ ticketId: string; key: string } | null>(null);
   const finalizingRef = useRef(false);
@@ -3303,6 +3304,7 @@ export default function WeighbridgeOperationsPage() {
   };
 
   const selectWorkspace = (workspaceId: string) => {
+    if (submittingRef.current || finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return;
     if (workspaceId === selectedWorkspaceId) return;
     const next = workspaces.find((workspace) => workspace.id === workspaceId);
     if (!next) return;
@@ -3315,6 +3317,7 @@ export default function WeighbridgeOperationsPage() {
   };
 
   const addWorkspace = (operationType: UniversalWorkspaceOperationType) => {
+    if (submittingRef.current || finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return;
     if (workspaces.length >= UNIVERSAL_WORKSPACE_MAX_TABS) {
       toast({ title: "Можно открыть не более 6 рабочих вкладок." });
       return;
@@ -3330,6 +3333,7 @@ export default function WeighbridgeOperationsPage() {
   };
 
   const removeWorkspace = async (workspaceId: string) => {
+    if (submittingRef.current || finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return;
     const target = workspaces.find((workspace) => workspace.id === workspaceId);
     if (!target) return;
     const targetForm = workspaceForm(target);
@@ -4110,8 +4114,10 @@ export default function WeighbridgeOperationsPage() {
   const grossInputValidation = form.grossKg.trim() ? parseStrictWeightKg(form.grossKg, "Брутто") : null;
   const closingTareValidation = closingTare.trim() ? parseStrictWeightKg(closingTare, "Тара") : null;
   const liveWeightKg = useMemo(() => {
-    if (form.grossKg && Number.isFinite(Number(form.grossKg))) return Number(form.grossKg);
-    if (gross && Number.isFinite(Number(gross))) return Number(gross);
+    const formWeight = form.grossKg.trim() ? parseStrictWeightKg(form.grossKg, "Брутто") : null;
+    if (formWeight?.ok) return formWeight.value;
+    const ticketWeight = gross ? parseStrictWeightKg(gross, "Брутто") : null;
+    if (ticketWeight?.ok) return ticketWeight.value;
     return 0;
   }, [form.grossKg, gross]);
   const nextActionLabel = activeTicket
@@ -4165,7 +4171,7 @@ export default function WeighbridgeOperationsPage() {
     supplierReceiptLines.length > 0;
 
   const selectOperation = async (operationType: OperationType) => {
-    if (!workspaceReady) return false;
+    if (!workspaceReady || submittingRef.current || finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return false;
     if (operationType === form.operationType) return true;
     const automaticHarvestDestinationId = (() => {
       if (
@@ -4233,14 +4239,14 @@ export default function WeighbridgeOperationsPage() {
       if (harvestContext.status !== "ready") {
         return harvestContext.message || "Активная уборка не определена";
       }
-      if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
+      if ((toNum(form.grossKg) ?? 0) <= 0) return "Укажите брутто";
     } else if (form.operationType === "supplier_receipt") {
       if (!form.supplierId) return "Выберите контрагента";
       if (form.supplierReceiptMode === "weighbridge") {
         if (!form.warehouseToId) return "Выберите склад назначения";
         if (!form.productId) return "Выберите номенклатуру";
         if (!weighedSupplierProducts.some((product) => product.id === form.productId)) return "Эта номенклатура не принимается через весовую";
-        if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
+        if ((toNum(form.grossKg) ?? 0) <= 0) return "Укажите брутто";
       } else {
         if (!supplierReceiptGenericLineDrafts.length || supplierReceiptGenericLineDrafts.some((line) => !line.productId)) {
           return "Выберите номенклатуру по каждой строке поставки";
@@ -4251,7 +4257,7 @@ export default function WeighbridgeOperationsPage() {
         if (supplierReceiptGenericLineDrafts.some((line) => !line.warehouseToId)) {
           return "Выберите склад по каждой строке поставки";
         }
-        if (supplierReceiptGenericLineDrafts.some((line) => !toNum(line.quantityKg) || Number(line.quantityKg) <= 0)) {
+        if (supplierReceiptGenericLineDrafts.some((line) => (toNum(line.quantityKg) ?? 0) <= 0)) {
           return "Укажите количество по каждой строке поставки";
         }
       }
@@ -4264,7 +4270,7 @@ export default function WeighbridgeOperationsPage() {
       if (form.fieldIssueMode === "weighbridge") {
         if (!form.driverId) return "Выберите водителя";
         if (!form.vehicleId) return "Выберите машину";
-        if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
+        if ((toNum(form.grossKg) ?? 0) <= 0) return "Укажите брутто";
       } else {
         const qty = toNum(form.quantityKg);
         if (!qty || qty <= 0) return "Укажите количество выдачи";
@@ -4300,7 +4306,7 @@ export default function WeighbridgeOperationsPage() {
       if (!form.driverId) return "Выберите водителя";
       if (!form.vehicleId) return "Выберите машину";
       if (form.transferMode === "weighbridge" || processingOutputContext) {
-        if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
+        if ((toNum(form.grossKg) ?? 0) <= 0) return "Укажите брутто";
       } else {
         const qty = toNum(form.quantityKg);
         if (!qty || qty <= 0) return "Укажите количество перемещения";
@@ -4312,7 +4318,7 @@ export default function WeighbridgeOperationsPage() {
       if (!form.buyerId) return "Выберите контрагента";
       if (!form.driverId) return "Выберите водителя";
       if (!form.vehicleId) return "Выберите машину";
-      if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
+      if ((toNum(form.grossKg) ?? 0) <= 0) return "Укажите брутто";
     } else if (form.operationType === "impurity_removal") {
       if (!form.warehouseFromId) return "Выберите склад";
 	  if (harvestBatchOptionsStatus !== "ready") {
@@ -4353,14 +4359,14 @@ export default function WeighbridgeOperationsPage() {
       if (form.impurityType === "other" && !form.notes.trim()) return "Для вида «Прочее» добавьте комментарий";
       if (!form.driverId) return "Выберите водителя";
       if (!form.vehicleId) return "Выберите машину";
-      if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
+      if ((toNum(form.grossKg) ?? 0) <= 0) return "Укажите брутто";
     } else if (form.operationType === "disposal_writeoff") {
       if (!form.warehouseFromId) return "Выберите склад-источник";
       if (!form.stockIdentityKey || !selectedTransferStock) return "Выберите остаток для списания";
       if (!form.disposalReason.trim()) return "Укажите причину списания";
       if (!form.driverId) return "Выберите водителя";
       if (!form.vehicleId) return "Выберите машину";
-      if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите вес";
+      if ((toNum(form.grossKg) ?? 0) <= 0) return "Укажите вес";
     } else if (form.operationType === "drying") {
       if (!form.warehouseFromId || !form.warehouseToId || !form.processingPointId || !toNum(form.dryingOutputKg)) return "Для сушки заполните все обязательные поля";
     }
@@ -4389,7 +4395,7 @@ export default function WeighbridgeOperationsPage() {
       : validate();
 
   const create = async () => {
-    if (!canOperate || submitting) return;
+    if (!canOperate || submitting || submittingRef.current) return;
     if (!coreDataReady || secondaryModeLoading || Boolean(activeSecondaryCatalogError)) {
       toast({
         title: "Данные ещё загружаются",
@@ -4466,6 +4472,8 @@ export default function WeighbridgeOperationsPage() {
       });
       return;
     }
+    submittingRef.current = true;
+    setSubmitting(true);
     const isSupplierDirect = form.operationType === "supplier_receipt" && form.supplierReceiptMode === "direct";
     const isTransferDirect = isTransfer && form.transferMode === "direct" && !isProcessingOutput;
     const isFieldIssueDirect = isFieldIssue && form.fieldIssueMode === "direct";
@@ -4477,8 +4485,8 @@ export default function WeighbridgeOperationsPage() {
         :
       form.operationType === "harvest_incoming" || (form.operationType === "supplier_receipt" && form.supplierReceiptMode === "weighbridge") || (isTransfer && form.transferMode === "weighbridge") || isFieldIssueWeighbridge || isShipment
         || isDisposal || isImpurityRemoval
-        ? Number(form.grossKg)
-        : Number(form.quantityKg);
+        ? toNum(form.grossKg) ?? 0
+        : toNum(form.quantityKg) ?? 0;
     const supplierNotes = [
       form.operationType === "supplier_receipt" && form.supplierDocumentNo.trim() ? `Документ поставщика: ${form.supplierDocumentNo.trim()}` : "",
       form.operationType === "supplier_receipt" && form.supplierLot.trim() ? `Партия поставщика: ${form.supplierLot.trim()}` : "",
@@ -4492,6 +4500,8 @@ export default function WeighbridgeOperationsPage() {
           ? await resolveSupplierCounterparty(form.supplierId)
           : form.supplierId;
     } catch (e: any) {
+      submittingRef.current = false;
+      setSubmitting(false);
       toast({ title: "Ошибка", description: e?.message || "Не удалось подготовить поставщика", variant: "destructive" });
       return;
     }
@@ -4696,7 +4706,7 @@ export default function WeighbridgeOperationsPage() {
           recorded_at: paperRecordedDate.toISOString(),
           day_start: paperDayStart.toISOString(),
           day_end: new Date(paperDayStart.getTime() + 24 * 60 * 60 * 1000).toISOString(),
-          tare_weight_kg: Number(form.paperTareKg),
+          tare_weight_kg: toNum(form.paperTareKg) ?? 0,
           moisture_percent: form.harvestMoisture.trim() ? Number(form.harvestMoisture.replace(",", ".")) : null,
         }
       : undefined;
@@ -4710,7 +4720,7 @@ export default function WeighbridgeOperationsPage() {
             product_id: selectedTransferStock.product_id,
             harvest_lot_id: selectedTransferStock.harvest_lot_id || null,
             source_physical_state: selectedTransferStock.source_physical_state || null,
-            quantity: Number(form.quantityKg),
+            quantity: toNum(form.quantityKg) ?? 0,
             vehicle_id: form.vehicleId,
             driver_id: form.driverId,
             notes: form.notes.trim() || null,
@@ -4724,7 +4734,6 @@ export default function WeighbridgeOperationsPage() {
           }
     );
 
-    setSubmitting(true);
     try {
       const createAttempt = resolveCreateTicketAttempt(
         createTicketIdempotencyRef.current,
@@ -4742,7 +4751,7 @@ export default function WeighbridgeOperationsPage() {
           product_id: selectedTransferStock.product_id,
           harvest_lot_id: selectedTransferStock.harvest_lot_id || null,
           source_physical_state: selectedTransferStock.source_physical_state || null,
-          quantity: Number(form.quantityKg),
+          quantity: toNum(form.quantityKg) ?? 0,
           vehicle_id: form.vehicleId,
           driver_id: form.driverId,
           notes: form.notes.trim() || null,
@@ -4867,8 +4876,10 @@ export default function WeighbridgeOperationsPage() {
           harvestYear: prev.harvestYear,
           productId: prev.productId,
           stockIdentityKey: prev.stockIdentityKey,
-          sourceBatchId: prev.operationType === "impurity_removal" ? prev.sourceBatchId : "",
-          impuritySourceSelections: prev.operationType === "impurity_removal" ? prev.impuritySourceSelections : [],
+          // The just-created ticket owns/reserves its sources. Reusing that
+          // selection makes the refreshed list look blocked for the next trip.
+          sourceBatchId: "",
+          impuritySourceSelections: [],
           impurityType: prev.impurityType,
           processingOutputRole: prev.processingOutputRole,
           processingTransformationId: prev.processingTransformationId,
@@ -4905,6 +4916,7 @@ export default function WeighbridgeOperationsPage() {
       }
     } finally {
       setPendingOpenTicket(null);
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -5629,7 +5641,7 @@ export default function WeighbridgeOperationsPage() {
       <UniversalWorkspaceTabs
         tabs={workspaceTabs}
         selectedId={selectedWorkspaceId}
-        disabled={!workspaceReady}
+        disabled={!workspaceReady || submitting || finalizing || ticketCloseLocked}
         onSelect={selectWorkspace}
         onAdd={addWorkspace}
         onRemove={(workspaceId) => void removeWorkspace(workspaceId)}

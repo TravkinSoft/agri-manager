@@ -27,12 +27,12 @@ assert.doesNotMatch(render([exactA.key], []), /Выберите участки �
 const picker = fs.readFileSync(path.join(process.cwd(), "components/weighbridge/impurity-source-picker.tsx"), "utf8");
 const page = fs.readFileSync(path.join(process.cwd(), "app/(dashboard)/weighbridge/page.tsx"), "utf8");
 assert.doesNotMatch(picker, /SheetContent|DialogContent|setDraftValue|commitPicker/);
-assert.match(picker, /onChange\(\[\.\.\.selected, option.key\]\)/);
+assert.match(picker, /onChange\(\[\.\.\.availableSelection, option.key\]\)/);
 assert.match(picker, /onChange\(selected.filter/);
-assert.match(picker, /if \(unavailableKeys.length \|\| isImpuritySourceSelectionBlocked/);
+assert.match(picker, /normalizeImpuritySourceSelection\(selected, options\)/);
+assert.doesNotMatch(picker, /unavailableKeys\.length \|\| isImpuritySourceSelectionBlocked/);
 assert.match(page, /hydratedWorkspaceKeyRef.current === universalWorkspacePersistKey\) return/);
-assert.match(page, /impuritySourceSelections: prev.operationType === "impurity_removal" \? prev.impuritySourceSelections : \[\]/);
-assert.match(page, /sourceBatchId: prev.operationType === "impurity_removal" \? prev.sourceBatchId : ""/);
+assert.match(page, /The just-created ticket owns\/reserves its sources[\s\S]*?sourceBatchId: "",\s*impuritySourceSelections: \[\],/);
 assert.doesNotMatch(page, /return harvestBatchDetailLoading \? "Данные партии ещё загружаются"/);
 assert.match(page, /selectedImpuritySourceOptions.length !== impuritySourceSelectionKeys.length/);
 assert.match(page, /harvestBatchDetailRequestedKey !==/);

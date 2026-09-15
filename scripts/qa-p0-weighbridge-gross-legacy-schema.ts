@@ -99,10 +99,9 @@ assert.match(route, /mass_kg: line\.mass_kg/);
 assert.match(route, /: \{\}\),/);
 
 assert.doesNotMatch(page, /Требуется внимание|intakeStatusLabel/);
-assert.match(page, /aria-label="Режим весовой"/);
-assert.match(page, /Сменить операцию/);
-assert.match(page, /activeWeighbridgeMode\.steps\.map/);
-assert.match(page, /WEIGHBRIDGE_MODES\.map/);
+assert.doesNotMatch(page, /aria-label="Режим весовой"/);
+assert.doesNotMatch(page, /Сменить операцию/);
+assert.match(page, /<UniversalWorkspaceTabs/);
 for (const label of [
   "Урожай с поля",
   "От контрагента",

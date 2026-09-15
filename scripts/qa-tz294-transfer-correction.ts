@@ -70,10 +70,10 @@ async function main() {
   assert.match(page, /Исправляется/);
   assert.match(page, /Исходный талон/);
   assert.match(page, /Новое исправление/);
-  assert.match(page, /ticket\?\.correction_of_ticket_id && ticket\?\.net_weight_kg != null/);
+  assert.match(page, /shouldUseCanonicalJournalNet\(ticket\)/);
   assert.match(paper, /displayedLineQuantity/);
   assert.match(paper, /cargoLines\.length === 1 && weightEditor\?\.physicalNetKg != null/);
-  assert.match(ticketPatchRoute, /ticket\.op_type === "harvest_incoming" \|\| Boolean\(ticket\.correction_of_ticket_id\)/);
+  assert.match(ticketPatchRoute, /ticket\.weigh_method !== "manual_override_with_reason"/);
   assert.match(ticketPatchRoute, /update_open_weighbridge_ticket_v1/);
   assert.match(correctionRoute, /findExistingCorrection/);
   assert.match(correctionRoute, /correction_of_ticket_id/);

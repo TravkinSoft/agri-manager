@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 const read = (path: string) => readFileSync(path, "utf8");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
+const impurityPicker = read("components/weighbridge/impurity-source-picker.tsx");
 const batchesRoute = read("app/api/weighbridge/harvest-batches/route.ts");
 const ticketsRoute = read("app/api/weighbridge/tickets/route.ts");
 const finalizeRoute = read("app/api/weighbridge/tickets/[id]/finalize/route.ts");
@@ -31,17 +32,19 @@ check("warehouse changes cannot reuse another warehouse result", () => {
   assert.match(page, /harvestBatchesGenerationRef\.current \+= 1;[\s\S]*?harvestBatchesAbortRef\.current\?\.abort\(\)/);
   assert.match(page, /warehouseFromId,[\s\S]*?sourceBatchId: ""/);
   assert.match(page, /const selectImpurityWarehouse = \(warehouseFromId: string\)/);
-  assert.match(page, /setHarvestBatches\(\[\]\);[\s\S]*?setHarvestBatchOptionsStatus\(warehouseFromId \? "loading" : "idle"\)/);
+  assert.match(page, /const retainedRows = requestKey \? harvestBatchesCacheRef\.current\.get\(requestKey\) \|\| \[\] : \[\];[\s\S]*?setHarvestBatches\(retainedRows\)/);
+  assert.match(page, /setHarvestBatchOptionsStatus\(warehouseFromId \? \(retainedRows\.length \? "refreshing" : "loading"\) : "idle"\)/);
   assert.match(page, /selectedHarvestBatch\.warehouseId !== form\.warehouseFromId/);
 });
 
 check("loading and read errors are never mislabeled as an empty warehouse", () => {
   assert.match(page, /harvestBatchOptionsStatus/);
-  assert.match(page, /setHarvestBatchOptionsStatus\("loading"\)/);
+  assert.match(page, /setHarvestBatchOptionsStatus\(retainedRows\.length \? "refreshing" : "loading"\)/);
   assert.match(page, /setHarvestBatchOptionsStatus\("ready"\)/);
-  assert.match(page, /setHarvestBatchOptionsStatus\("error"\)/);
+  assert.match(page, /setHarvestBatchOptionsStatus\(fallbackRows\.length \? "stale" : "error"\)/);
   assert.match(page, /Не удалось загрузить партии урожая\. Нажмите «Повторить»/);
-  assert.match(page, /harvestBatchOptionsStatus === "ready" && availableHarvestBatches\.length === 0/);
+  assert.match(impurityPicker, /!groupedOptions\.length/);
+  assert.match(impurityPicker, /На складе нет доступных источников/);
   assert.doesNotMatch(page, /На складе нет принятых партий урожая/);
 });
 
@@ -63,15 +66,16 @@ check("server summary reads positive aggregate stock by warehouse", () => {
 
 check("soil lot labels use ticket field names without exposing technical lot codes", () => {
   assert.match(batchesRoute, /\.select\("harvest_lot_id,inventory_batch_id,source_ticket_id"\)/);
-  assert.match(batchesRoute, /\.select\("id,product_id,display_name,source_ticket_id,source_field_id"\)/);
+  assert.match(batchesRoute, /\.select\("id,product_id,display_name,source_ticket_id,source_field_id,/);
   assert.match(batchesRoute, /\.in\("id", chunk\)\)\.catch\(\(\) => \[\]\)/);
   assert.match(batchesRoute, /fieldsResult\.error \? \[\] : fieldsResult\.data \|\| \[\]/);
   assert.match(batchesRoute, /sourceTicketsById[\s\S]*?summarizeAggregateHarvestLotFields[\s\S]*?fieldName: fieldOrigin\.fieldName/);
-  const pickerStart = page.indexOf("availableHarvestBatches.map((batch)");
-  const pickerEnd = page.indexOf("</SelectContent>", pickerStart);
+  const pickerStart = page.indexOf("const impuritySourceOptions");
+  const pickerEnd = page.indexOf("const impuritySourceOptionByKey", pickerStart);
   const picker = pickerStart >= 0 && pickerEnd > pickerStart ? page.slice(pickerStart, pickerEnd) : "";
-  assert.match(picker, /buildHarvestLotOptionLabel\(batch\)/);
-  assert.doesNotMatch(picker, /batch\.batchCode/);
+  assert.match(picker, /label: `Вся партия · \$\{buildHarvestLotOptionLabel\(batch\)\}`/);
+  assert.match(picker, /fieldName,[\s\S]*?cropName,[\s\S]*?varietyName/);
+  assert.doesNotMatch(picker, /label:[^\n]*batch\.batchCode/);
 });
 
 check("authenticated routes isolate the privileged stock read behind verified company scope", () => {
@@ -84,8 +88,8 @@ check("authenticated routes isolate the privileged stock read behind verified co
 });
 
 check("soil ticket binds the selected aggregate lot and warehouse", () => {
-  assert.match(page, /batch_id: isImpurityRemoval && !selectedHarvestBatch\?\.aggregateLot \? form\.sourceBatchId : null/);
-  assert.match(page, /isImpurityRemoval[\s\S]*?selectedHarvestBatch\?\.aggregateLotId \|\| null/);
+  assert.match(page, /batch_id: isImpurityRemoval && !usesExactImpuritySourceScope && !selectedHarvestBatch\?\.aggregateLot \? form\.sourceBatchId : null/);
+  assert.match(page, /isImpurityRemoval[\s\S]*?usesExactImpuritySourceScope \? null : selectedHarvestBatch\?\.aggregateLotId \|\| null/);
   assert.match(ticketsRoute, /resolveAggregateHarvestLotStock\(supabase, \{[\s\S]*?warehouseId: String\(ticket\.warehouse_from_id\),[\s\S]*?harvestLotId: String\(ticket\.harvest_lot_id\)/);
   assert.match(ticketsRoute, /\.eq\("harvest_lot_id", input\.harvestLotId\)/);
   assert.match(ticketsRoute, /\.eq\("warehouse_id", input\.warehouseId\)/);
@@ -102,7 +106,8 @@ check("weighbridge exposes both direct vehicles and company machines without PTC
   assert.match(resourcesRoute, /\.is\("source_machine_id", null\)/);
   assert.match(operatorSessionRoute, /from\("reference_machines"\)/);
   assert.match(page, /source: "reference_vehicles" \| "reference_machines"/);
-  assert.match(page, /selectedVehicle\?\.source === "reference_vehicles"/);
+  assert.match(page, /vehicle\.source === "reference_vehicles" \|\| vehicle\.source === "reference_machines"/);
+  assert.match(page, /vehicle_source: selectedVehicle\?\.source \|\| "reference_vehicles"/);
 });
 
 console.log(`P0 soil and fleet contract PASS: ${passed}/${passed}`);

@@ -8,6 +8,7 @@ import {
 
 const root = process.cwd();
 const page = fs.readFileSync(path.join(root, "app/(dashboard)/weighbridge/page.tsx"), "utf8");
+const picker = fs.readFileSync(path.join(root, "components/weighbridge/impurity-source-picker.tsx"), "utf8");
 
 const exactA = { key: "lot-a:field-49-elite", supportsSharedSelection: true };
 const exactB = { key: "lot-a:field-49-first", supportsSharedSelection: true };
@@ -36,8 +37,18 @@ assert.equal(
 );
 assert.match(
   page,
-  /sourceBatchId: "",\s*impuritySourceSelections: \[\],/,
+  /The just-created ticket owns\/reserves its sources[\s\S]*?sourceBatchId: "",\s*impuritySourceSelections: \[\],/,
   "creating a ticket must reset its consumed source before the next ticket"
 );
+assert.match(
+  picker,
+  /const availableSelection = normalizeImpuritySourceSelection\(selected, options\)[\s\S]*?onChange\(\[\.\.\.availableSelection, option\.key\]\)/,
+  "a stale selection must be discarded when the weighman selects a valid source"
+);
+assert.doesNotMatch(
+  picker,
+  /unavailableKeys\.length \|\| isImpuritySourceSelectionBlocked/,
+  "a stale source must not block the next source"
+);
 
-console.log("P0 repeat impurity ticket 5/5 PASS");
+console.log("P0 repeat impurity ticket 7/7 PASS");
