@@ -7,7 +7,9 @@ export const WEIGHBRIDGE_SERVICE = {
 } as const;
 
 export function isWeighbridgePage(pathname: string) {
-  return pathname === "/weighbridge" || pathname.startsWith("/weighbridge/");
+  // Maintenance hides only the ticket-entry workspace. Operational neighbours
+  // such as /weighbridge/traffic must remain available to the weighman.
+  return pathname === "/weighbridge" || pathname === "/weighbridge/";
 }
 
 export function isBlockedWeighbridgeWrite(pathname: string, method: string, active: boolean) {

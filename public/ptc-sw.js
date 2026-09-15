@@ -1,10 +1,29 @@
 /* Scope: /traffic-operator only. No caches, offline writes, background sync,
  * credentials or authenticated response storage. The ERP worker is untouched. */
+importScripts("/api/traffic/worker-release");
+
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
 });
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil((async () => {
+    await self.clients.claim();
+    const windows = await self.clients.matchAll({
+      type: "window",
+      includeUncontrolled: true,
+    });
+    await Promise.all(windows.map(async (client) => {
+      const url = new URL(client.url);
+      const isCabinet = url.origin === self.location.origin &&
+        (url.pathname === "/traffic-operator" || url.pathname.startsWith("/traffic-operator/"));
+      if (!isCabinet || typeof client.navigate !== "function") return;
+      try {
+        await client.navigate(client.url);
+      } catch {
+        // A closed/background client is harmless; the next open gets the new app.
+      }
+    }));
+  })());
 });
 
 function offlineResponse() {
