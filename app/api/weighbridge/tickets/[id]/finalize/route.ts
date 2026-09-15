@@ -8,6 +8,7 @@ import { enrichSharedImpurityScopes, loadSharedImpurityTicketIds } from "@/lib/s
 
 const CORRECTION_LOT_ERROR = "Не удалось завершить исправление талона. Связь партии не прошла проверку. Исходный талон не изменён.";
 const SHARED_IMPURITY_CORRECTION_ERROR = "Общий талон примесей нельзя исправить копированием. Аннулируйте его и создайте новый талон.";
+const AMBIGUOUS_SHARED_IMPURITY_ERROR = /statement timeout|canceling statement|connection (?:closed|reset|timed out)|fetch failed|network error/i;
 
 function correctionLotErrorResponse(message: string) {
   const traceId = randomUUID();
@@ -58,6 +59,47 @@ function sharedImpurityStockErrorResponse(message: string) {
     code: "shared_impurity_source_committed",
     ...(Number.isFinite(available) ? { available_kg: available } : {}),
   }, { status: 409 });
+}
+
+function isCanonicallyFinalizedTicket(ticket: Record<string, any> | null | undefined) {
+  return Boolean(
+    ticket?.id
+    && ticket.is_finalized
+    && !ticket.is_voided
+    && String(ticket.status || "") === "finalized"
+  );
+}
+
+async function enrichCommittedSharedImpurityTicket(
+  supabase: SupabaseClient,
+  companyId: string,
+  ticketId: string,
+  ticket: Record<string, any>
+) {
+  let enriched = ticket;
+  try {
+    const [attributedTicket] = await enrichTicketOperatorAttribution(supabase, companyId, [enriched]);
+    enriched = (attributedTicket || enriched) as Record<string, any>;
+  } catch (error) {
+    console.error("shared_impurity_finalize_committed_attribution_failed", {
+      traceId: randomUUID(),
+      ticketId,
+      companyId,
+      message: error instanceof Error ? error.message : "Unknown attribution error",
+    });
+  }
+  try {
+    const [scopedTicket] = await enrichSharedImpurityScopes(supabase, companyId, [enriched]);
+    enriched = (scopedTicket || enriched) as Record<string, any>;
+  } catch (error) {
+    console.error("shared_impurity_finalize_committed_scope_failed", {
+      traceId: randomUUID(),
+      ticketId,
+      companyId,
+      message: error instanceof Error ? error.message : "Unknown shared impurity scope error",
+    });
+  }
+  return enriched;
 }
 
 async function loadHarvestClosureState(supabase: SupabaseClient, companyId: string, ticketId: string) {
@@ -194,7 +236,7 @@ export async function POST(
     const dbStartedAt = Date.now();
     const { data: ticketBefore, error: ticketBeforeError } = await supabase
       .from("tickets")
-      .select("id, company_id, linked_request_id, linked_processing_id, processing_output_role, warehouse_from_id, warehouse_to_id, vehicle_id, op_type, direction, weigh_method, is_finalized, status, net_weight_kg, physical_net_kg, explicit_deductions_kg, accepted_weight_kg, correction_of_ticket_id")
+      .select("id, company_id, linked_request_id, linked_processing_id, processing_output_role, warehouse_from_id, warehouse_to_id, vehicle_id, op_type, direction, weigh_method, is_finalized, is_voided, status, gross_weight_kg, tare_weight_kg, net_weight_kg, physical_net_kg, explicit_deductions_kg, accepted_weight_kg, correction_of_ticket_id")
       .eq("id", id)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -252,6 +294,58 @@ export async function POST(
       );
       timing.rpcMs = Date.now() - rpcStartedAt;
       if (finalizeError) {
+        const traceId = randomUUID();
+        const errorMessage = String(finalizeError.message || "");
+        const isAmbiguousFailure = AMBIGUOUS_SHARED_IMPURITY_ERROR.test(errorMessage);
+        console.error("weighbridge_shared_impurity_finalize_rpc_failed", {
+          traceId,
+          ticketId: id,
+          companyId,
+          durationMs: timing.rpcMs,
+          ambiguous: isAmbiguousFailure,
+          code: finalizeError.code || null,
+        });
+        if (isAmbiguousFailure) {
+          const { data: recoveredTicket, error: recoveredTicketError } = await supabase
+            .from("tickets")
+            .select("*, lines:ticket_lines(*)")
+            .eq("id", id)
+            .eq("company_id", companyId)
+            .maybeSingle();
+          if (!recoveredTicketError && isCanonicallyFinalizedTicket(recoveredTicket as Record<string, any> | null)) {
+            const enrichedTicket = await enrichCommittedSharedImpurityTicket(
+              supabase,
+              companyId,
+              id,
+              recoveredTicket as Record<string, any>
+            );
+            timing.totalMs = Date.now() - startedAt;
+            console.info("weighbridge_shared_impurity_finalize_recovered", {
+              traceId,
+              ticketId: id,
+              companyId,
+              durationMs: timing.totalMs,
+            });
+            const response = NextResponse.json({
+              ticket: enrichedTicket,
+              finalize: { ok: true, code: "already_finalized_after_ambiguous_response" },
+              idempotent_replay: true,
+              recovered_after_rpc_error: true,
+              debug: timing,
+            });
+            response.headers.set(
+              "Server-Timing",
+              `auth;dur=${timing.authMs}, finalize_rpc;dur=${timing.rpcMs}, total;dur=${timing.totalMs}`
+            );
+            return response;
+          }
+          timing.totalMs = Date.now() - startedAt;
+          return NextResponse.json({
+            error: "Сервер не успел подтвердить закрытие. Повторите закрытие: тот же безопасный ключ не создаст второе движение.",
+            code: "shared_impurity_finalize_timeout",
+            trace_id: traceId,
+          }, { status: 504 });
+        }
         const stockErrorResponse = sharedImpurityStockErrorResponse(finalizeError.message);
         if (stockErrorResponse) return stockErrorResponse;
         return NextResponse.json({ error: weighbridgeUserError(finalizeError.message) }, { status: 400 });
@@ -272,17 +366,37 @@ export async function POST(
           { status: 409 }
         );
       }
+      console.info("weighbridge_shared_impurity_finalize_rpc_succeeded", {
+        ticketId: id,
+        companyId,
+        durationMs: timing.rpcMs,
+        idempotentReplay: Boolean(result.idempotent_replay),
+      });
       const { data: updated, error: updatedError } = await supabase
         .from("tickets")
         .select("*, lines:ticket_lines(*)")
         .eq("id", id)
         .eq("company_id", companyId)
         .single();
-      if (updatedError || !updated?.id) {
-        return NextResponse.json(
-          { error: "Талон завершён, но не удалось обновить его отображение." },
-          { status: 409 }
-        );
+      const refreshRequired = Boolean(updatedError || !updated?.id);
+      const committedTicket = updated?.id
+        ? updated as Record<string, any>
+        : {
+            ...ticketBefore,
+            status: "finalized",
+            is_finalized: true,
+            is_voided: false,
+            tare_weight_kg: tare,
+            net_weight_kg: Number(result.net_weight_kg ?? Number(ticketBefore.gross_weight_kg || 0) - tare),
+            accepted_weight_kg: Number(result.accepted_weight_kg ?? result.net_weight_kg ?? Number(ticketBefore.gross_weight_kg || 0) - tare),
+          };
+      if (refreshRequired) {
+        console.error("shared_impurity_finalize_committed_reload_failed", {
+          traceId: randomUUID(),
+          ticketId: id,
+          companyId,
+          message: updatedError?.message || "Finalized ticket was not returned",
+        });
       }
       try {
         await recordWeighbridgeOperatorActivity(request, { companyId, supabase }, "tare_finalize");
@@ -293,15 +407,25 @@ export async function POST(
           message: activityError instanceof Error ? activityError.message : "Unknown activity error",
         });
       }
-      const [attributedTicket] = await enrichTicketOperatorAttribution(supabase, companyId, [updated]);
-      const [enrichedTicket] = await enrichSharedImpurityScopes(supabase, companyId, [attributedTicket]);
+      const enrichedTicket = await enrichCommittedSharedImpurityTicket(
+        supabase,
+        companyId,
+        id,
+        committedTicket
+      );
       timing.totalMs = Date.now() - startedAt;
-      return NextResponse.json({
+      const response = NextResponse.json({
         ticket: enrichedTicket,
         finalize: result,
         idempotent_replay: Boolean(result.idempotent_replay),
+        refresh_required: refreshRequired,
         debug: timing,
       });
+      response.headers.set(
+        "Server-Timing",
+        `auth;dur=${timing.authMs}, finalize_rpc;dur=${timing.rpcMs}, total;dur=${timing.totalMs}`
+      );
+      return response;
     }
 
     if (ticketBefore.op_type === "harvest_incoming" && !ticketBefore.correction_of_ticket_id) {
