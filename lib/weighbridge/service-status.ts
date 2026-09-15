@@ -1,7 +1,7 @@
 // Deployment-controlled maintenance. No database flag and no business-data writes.
 // Never automatically reopen the scale because a guessed deadline has elapsed.
 export const WEIGHBRIDGE_SERVICE = {
-  active: true,
+  active: false,
   startedAt: "2026-09-14T18:44:00.000Z",
   message: "Сервисные работы",
 } as const;
