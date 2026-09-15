@@ -10,7 +10,7 @@ const check = (actual: unknown, expected: unknown) => { assert.deepEqual(actual,
 const visibleForRole = (role: TrafficRole, state: TrafficState) =>
   role === "manager" || role === "harvester" ||
   (role === "weighman" && state === "loaded") ||
-  (role === "receiver" && state === "unloading");
+  (role === "receiver" && (state === "loaded" || state === "unloading"));
 for (const role of ["harvester", "weighman", "receiver", "manager"] as TrafficRole[]) {
   for (const state of ["empty", "loaded", "unloading"] as TrafficState[]) {
     const snapshot: TrafficSnapshot = {

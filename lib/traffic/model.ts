@@ -179,9 +179,9 @@ export function visibleVehicles(
       v.assigned &&
       (role === "manager" || !v.inRepair ||
         (role === "weighman" && v.state === "loaded") ||
-        (role === "receiver" && v.state === "unloading")) &&
+        (role === "receiver" && (v.state === "loaded" || v.state === "unloading"))) &&
       (role !== "weighman" || v.state === "loaded") &&
-      (role !== "receiver" || v.state === "unloading"))
+      (role !== "receiver" || v.state === "loaded" || v.state === "unloading"))
     .sort(
       (a, b) => {
         const aRepairGroup = role === "manager" && !!a.inRepair;
