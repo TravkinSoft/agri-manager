@@ -143,7 +143,8 @@ check("warehouse uses staged loading and exact lot details", () => {
   assert.match(page, /lotId: selectedHarvestBatch\.aggregateLotId/);
   assert.match(page, /warehouseId: selectedHarvestBatch\.warehouseId/);
   assert.match(page, /selectedHarvestBatch\.detailLevel === "full"/);
-  assert.match(page, /Данные партии ещё загружаются/);
+  assert.match(page, /Historical trip details are not a prerequisite for opening a ticket/);
+  assert.doesNotMatch(page, /Данные партии ещё загружаются/);
   assert.match(page, /buildHarvestLotOptionLabel\(batch\)/);
   assert.match(warehousePage, /getWarehouses/);
   assert.match(warehousePage, /summaryOnly: true/);

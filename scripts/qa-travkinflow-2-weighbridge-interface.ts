@@ -13,12 +13,11 @@ for (const label of ["Урожай с поля", "От контрагента", 
   assert.match(modesBlock, new RegExp(label));
 }
 
-assert.match(page, /<header aria-label="Режим весовой"/);
-assert.match(page, /activeWeighbridgeMode\.label/);
-assert.match(page, /activeWeighbridgeMode\.description/);
-assert.match(page, /aria-label="Этапы текущей операции"/);
-assert.match(page, /activeWeighbridgeMode\.steps\.map/);
-assert.match(page, /Сменить операцию/);
+assert.doesNotMatch(page, /<header aria-label="Режим весовой"/);
+assert.doesNotMatch(page, /activeWeighbridgeMode\.(label|description|steps)/);
+assert.doesNotMatch(page, /aria-label="Этапы текущей операции"/);
+assert.doesNotMatch(page, /Сменить операцию/);
+assert.match(page, /<UniversalWorkspaceTabs/);
 assert.doesNotMatch(page, /role="tablist"\s+aria-label="Режим весовой"/);
 
 assert.match(workspaces, /role="tablist" aria-label="Открытые задачи Весовой"/);
@@ -35,8 +34,8 @@ assert.match(workspaces, /min-w-\[11rem\]/);
 assert.match(workspaces, /motion-reduce:transition-none/);
 assert.doesNotMatch(workspaces, /grid-cols-2|md:grid-cols-3|xl:grid-cols-6/);
 
-assert.match(page, /const terminalPanelClass = "rounded-xl border-0/);
+assert.match(page, /const terminalPanelClass = "rounded-md border border-border bg-card shadow-manor-sm"/);
 assert.doesNotMatch(page, /CardHeader className="border-b border-slate-800\/80 px-4 py-3"/);
 assert.match(page, /Других открытых талонов нет/);
 
-console.log("TRAVKINFLOW 2 WEIGHBRIDGE INTERFACE: 32/32 PASS");
+console.log("TRAVKINFLOW 2 WEIGHBRIDGE INTERFACE: current workspace-first interface PASS");

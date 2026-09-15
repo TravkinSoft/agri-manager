@@ -49,21 +49,26 @@ check("warehouse cache ends the blocking loader", () => {
 
 check("workspace ticket endpoint limits journal", () => {
   assert.match(ticketRoute, /workspace.*=== "true"/);
-  assert.match(ticketRoute, /\.in\("status", \["finalized", "voided"\]\)[\s\S]*?\.limit\(20\)/);
+  assert.match(ticketRoute, /const historyLimit = Number\.isFinite\(requestedHistoryLimit\)[\s\S]*?Math\.min\(100, Math\.max\(10/);
+  assert.match(ticketRoute, /\.in\("status", \["finalized", "voided"\]\)[\s\S]*?\.limit\(historyLimit \+ 1\)/);
+  assert.match(ticketRoute, /historyHasMore = recentRows\.length > historyLimit/);
   assert.match(ticketService, /options\?\.workspace/);
 });
 
 check("weighbridge restores cache before background reconciliation", () => {
-  assert.match(weighbridgePage, /if \(cached\) \{[\s\S]*?setLoading\(false\)/);
+  assert.match(weighbridgePage, /if \(cached && !initialWorkspaceHydratedRef\.current\) \{[\s\S]*?setLoading\(false\)/);
   assert.match(weighbridgePage, /readWeighbridgeWorkspaceCache/);
-  assert.match(weighbridgePage, /void verifyOperatorSession\(controller\.signal\)/);
-  assert.match(weighbridgePage, /if \(canUseOperatorSession && !operatorState\.unlocked\) return;[\s\S]*?const reconcile = \(\) => \{[\s\S]*?load\(controller\.signal, Boolean\(cached\)\)[\s\S]*?refreshTickets\(!cached, controller\.signal\)/);
+  assert.match(weighbridgePage, /void verifyOperatorSession\(controller\.signal, true\)/);
+  assert.match(weighbridgePage, /if \(canUseOperatorSession && !operatorState\.unlocked\) return;[\s\S]*?const reconcile = \(\) => \{/);
+  assert.match(weighbridgePage, /refreshTickets\(!cached, controller\.signal\)/);
+  assert.match(weighbridgePage, /load\(controller\.signal, Boolean\(cached\)\)/);
   assert.match(weighbridgePage, /if \(cached\) refreshTimer = window\.setTimeout\(reconcile, 100\)/);
 });
 
 check("focus refreshes are throttled without delaying realtime", () => {
-  assert.match(liveRefresh, /event\?\.source !== "realtime"/);
-  assert.match(weighbridgePage, /minRefreshIntervalMs: 5_000/);
+  assert.match(liveRefresh, /pendingEvent\?\.source !== "realtime"/);
+  assert.match(liveRefresh, /pendingEvent\.source === "realtime" \|\| event\.source === "realtime"/);
+  assert.match(weighbridgePage, /minRefreshIntervalMs: 10_000/);
   assert.match(warehousesPage, /minRefreshIntervalMs: 5_000/);
 });
 

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const root = process.cwd();
-const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
+const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8").replace(/\r\n/g, "\n");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
 const adminActionRoute = read("app/api/weighbridge/tickets/[id]/admin-action/route.ts");
 

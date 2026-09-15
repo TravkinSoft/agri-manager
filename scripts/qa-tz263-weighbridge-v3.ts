@@ -68,7 +68,11 @@ check("manual warehouse flows do not require operator PIN", () => assert.match(t
 check("gross stores human operator", () => assert.match(ticketRoute, /operator_person_id: operatorSession\?\.operator\.id/));
 check("tare stores human operator", () => assert.match(ticketPatch, /operator_person_id: operatorSession\?\.operator\.id/));
 check("finalize stores human operator", () => assert.match(finalizeRoute, /finalized_by_person_id: operatorSession\.operator\.id/));
-check("weighbridge has compact operator control", () => assert.match(page, /operatorState\.operator\?\.name \|\| "Введите PIN"/));
+check("weighbridge keeps the blocking operator PIN dialog without a redundant page header", () => {
+  assert.match(page, /open=\{operatorDialogVisible\}/);
+  assert.match(page, /activeShift \? "Весовщик смены" : "Открыть смену"/);
+  assert.doesNotMatch(page, /operatorState\.operator\?\.name \|\| "Введите PIN"/);
+});
 check("weighbridge supports controlled handover", () => assert.match(page, /handoverWeighbridgeOperator/));
 check("PIN mutation preserves operator options returned by session bootstrap", () => {
   assert.match(page, /operators: Array\.isArray\(nextState\.operators\) \? nextState\.operators : operatorState\.operators/);
@@ -235,7 +239,8 @@ check("every outgoing lot movement exposes a canonical source document", () => {
   assert.match(batchRoute, /weighbridge_ticket/);
   assert.match(batchRoute, /processing_document/);
   assert.match(batchRoute, /missing/);
-  assert.match(batchRoute, /movementTicketsResult/);
+  assert.match(batchRoute, /const \[movementTickets, transformationsResult\]/);
+  assert.match(batchRoute, /const movementTicketRows = movementTickets/);
   assert.match(batchRoute, /batch_transformations/);
 });
 check("stornoed outgoing movements are excluded from active source documents", () => {
@@ -379,7 +384,7 @@ check("PDF print uses the canonical ticket component", () => {
   assert.match(printPage, /<WeighbridgeTicketPaper ticket=\{ticket\}/);
 });
 check("harvest ticket has no sowing-row duplicate or technical batch code", () => {
-  assert.doesNotMatch(ticketPaper, /Посевная строка|HAR-|lot_id|batch_id/);
+  assert.doesNotMatch(ticketPaper, /Посевная строка|>HAR-|\{ticket\.(?:lot_id|batch_id)\}/);
 });
 check("harvest ticket shows its identity facts once", () => {
   assert.equal((ticketPaper.match(/label="Культура"/g) || []).length, 1);

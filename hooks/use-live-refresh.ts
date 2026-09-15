@@ -100,7 +100,7 @@ export function useLiveRefresh({
       }
 
       const waitMs = minRefreshIntervalMs - (Date.now() - lastRefreshAtRef.current);
-      if (minRefreshIntervalMs > 0 && waitMs > 0) {
+      if (pendingEvent?.source !== "realtime" && minRefreshIntervalMs > 0 && waitMs > 0) {
         scheduleRun(waitMs);
         return;
       }
@@ -117,7 +117,7 @@ export function useLiveRefresh({
         runningRef.current = false;
         if (!disposed && pendingRef.current) {
           pendingRef.current = false;
-          scheduleRun(Math.max(minRefreshIntervalMs, debounceMs));
+          scheduleRun(pendingEvent?.source === "realtime" ? debounceMs : Math.max(minRefreshIntervalMs, debounceMs));
         }
       }
     };
@@ -131,8 +131,12 @@ export function useLiveRefresh({
           ...(event.tables || []),
           event.table,
         ].filter(Boolean) as string[]));
+        const source = pendingEvent.source === "realtime" || event.source === "realtime"
+          ? "realtime"
+          : event.source;
         pendingEvent = {
           ...event,
+          source,
           table: tables.length === 1 ? tables[0] : undefined,
           tables,
         };

@@ -24,14 +24,15 @@ function check(name: string, run: () => void) {
 check("page title removed from primary flow", () => assert.doesNotMatch(page, />Весовые талоны</));
 check("large shift blocker removed", () => assert.doesNotMatch(page, /Действия весовой заблокированы: сначала откройте смену/));
 check("large reception blocker removed", () => assert.doesNotMatch(page, /Место приёмки урожая не настроено\. Обратитесь/));
-check("one current-operation header replaces the crowded mode rail", () => {
+check("workspace tabs replace the redundant operation header and mode rail", () => {
   assert.doesNotMatch(page, /intakeStatusLabel|Требуется внимание/);
-  assert.match(page, /aria-label="Режим весовой"/);
-  assert.match(page, /Сменить операцию/);
-  assert.match(page, /Этапы текущей операции/);
+  assert.doesNotMatch(page, /aria-label="Режим весовой"/);
+  assert.doesNotMatch(page, /Сменить операцию/);
+  assert.doesNotMatch(page, /Этапы текущей операции/);
+  assert.match(page, /<UniversalWorkspaceTabs/);
 });
-check("secondary actions share one menu", () => assert.match(page, /aria-label="Дополнительные действия"/));
-check("inventory moved into secondary menu", () => assert.match(page, /DropdownMenuItem asChild>[\s\S]*\/warehouses\/inventory/));
+check("redundant page-level secondary menu is removed", () => assert.doesNotMatch(page, /aria-label="Дополнительные действия"/));
+check("ticket-specific actions remain scoped to the ticket sheet", () => assert.match(page, /aria-label="Действия с талоном"/));
 check("history moved into secondary menu", () => assert.match(page, /История талонов/));
 check("statistics are collapsible below intake", () => {
   assert.match(page, /<details[\s\S]*className=\{`\$\{terminalPanelClass\} group`\}[\s\S]*Статистика/);

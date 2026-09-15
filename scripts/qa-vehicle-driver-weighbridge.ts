@@ -135,7 +135,7 @@ check("cross-device PTC changes refresh transport resources without reloading th
   assert.match(refresh, /const isResourcePoll = event\?\.source === "interval"/);
   assert.match(refresh, /"reference_vehicles",\s*"reference_specialists",\s*"reference_machines",\s*"company_people"/);
   assert.match(refresh, /if \(transportResourcesChanged\) \{\s*tasks\.push\(load\(undefined, true\)\)/);
-  assert.match(refresh, /intervalMs: 30_000/);
+  assert.match(refresh, /intervalMs: 60_000/);
   assert.doesNotMatch(refresh, /setForm\(|setActiveTicket\(|patchTicket\(/);
 });
 
