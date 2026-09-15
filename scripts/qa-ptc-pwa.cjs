@@ -23,18 +23,28 @@ async function main() {
   check(layout.includes('manifest: "/traffic-operator.webmanifest"'),"operator metadata overrides root manifest");
   const installer=fs.readFileSync(path.join(root,"components/traffic/install-traffic-app.tsx"),"utf8");
   check(installer.includes('scope: "/traffic-operator"'),"narrow worker registration");
+  check(installer.includes("WORKER_UPDATE_INTERVAL_MS") && installer.includes("registration?.update()"),"active cabinet checks for a new release");
+  check(installer.includes('window.addEventListener("focus", checkForUpdate)') && installer.includes('document.addEventListener("visibilitychange", checkForUpdate)'),"returning operator checks for an update immediately");
   check(installer.includes('return null') && !installer.includes('beforeinstallprompt'),"headless PWA registration leaves native browser install available without a panel");
+  const releaseRoute=fs.readFileSync(path.join(root,"app/api/traffic/worker-release/route.ts"),"utf8");
+  check(releaseRoute.includes("VERCEL_GIT_COMMIT_SHA") && releaseRoute.includes('"Cache-Control": "no-store, max-age=0"'),"worker imports deployment-specific uncached release marker");
   const runtime=fs.readFileSync(path.join(root,"components/offline/offline-runtime.tsx"),"utf8");
   check((runtime.match(/if \(independentTraffic\) return;/g)||[]).length===2,"both ERP registration and queue-sync effects disabled in PTC");
   const handlers={};let online=true;let networkCalls=0;
+  let navigated=0;
   const context={
     URL,Response,
-    self:{location:{origin:"https://ptc.example"},addEventListener:(name,fn)=>{handlers[name]=fn;},skipWaiting:()=>Promise.resolve(),clients:{claim:()=>Promise.resolve()}},
+    self:{location:{origin:"https://ptc.example"},addEventListener:(name,fn)=>{handlers[name]=fn;},skipWaiting:()=>Promise.resolve(),clients:{claim:()=>Promise.resolve(),matchAll:async()=>[
+      {url:"https://ptc.example/traffic-operator",navigate:async()=>{navigated++;}},
+      {url:"https://ptc.example/dashboard",navigate:async()=>{navigated+=100;}},
+    ]}},
+    importScripts:(url)=>check(url==="/api/traffic/worker-release","worker imports release marker"),
     fetch:async (request,options)=>{networkCalls++;check(options.cache==="no-store","navigation bypasses HTTP response cache");if(!online)throw new Error("offline");return new Response("online cabinet");},
     get caches(){throw new Error("PTC worker must never touch CacheStorage");},
   };
   vm.runInNewContext(fs.readFileSync(path.join(root,"public/ptc-sw.js"),"utf8"),context);
   for(const eventName of ["install","activate"]){let work;handlers[eventName]({waitUntil:p=>{work=p;}});await work;checks++;}
+  check(navigated===1,"new worker reloads only its active PTC cabinet");
   const request=(suffix,method="GET",mode="cors")=>({url:`https://ptc.example${suffix}`,method,mode});
   async function dispatch(req){let response;handlers.fetch({request:req,respondWith:value=>{response=value;}});return response?await response:null;}
   for(const req of [request("/api/traffic/operator"),request("/api/traffic/session","POST"),request("/api/traffic/session","DELETE"),request("/dashboard","GET","navigate"),request("/_next/static/test.js"),request("/traffic-operator?_rsc=1")])check((await dispatch(req))===null,"no interception/storage/replay of API, writes, unrelated app or RSC");
