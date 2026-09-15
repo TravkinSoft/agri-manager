@@ -1,19 +1,13 @@
 plugins {
     id "com.android.application"
-    id "org.jetbrains.kotlin.android"
-    id "org.jetbrains.kotlin.plugin.compose"
-}
-
-def buildConfigString = { value ->
-    def escaped = String.valueOf(value ?: "").replace("\\", "\\\\").replace('"', '\\"')
-    return '"' + escaped + '"'
 }
 
 def uploadKeystorePath = System.getenv("TRAVKINFLOW_UPLOAD_KEYSTORE")
 def uploadStorePassword = System.getenv("TRAVKINFLOW_UPLOAD_STORE_PASSWORD")
 def uploadKeyAlias = System.getenv("TRAVKINFLOW_UPLOAD_KEY_ALIAS")
 def uploadKeyPassword = System.getenv("TRAVKINFLOW_UPLOAD_KEY_PASSWORD")
-def uploadSigningConfigured = uploadKeystorePath && uploadStorePassword && uploadKeyAlias && uploadKeyPassword
+def uploadSigningConfigured =
+    uploadKeystorePath && uploadStorePassword && uploadKeyAlias && uploadKeyPassword
 
 android {
     namespace "com.travkin.flow"
@@ -23,12 +17,15 @@ android {
         applicationId "com.travkin.flow"
         minSdk 29
         targetSdk 36
-        versionCode 3
-        versionName "3.0.0"
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField "String", "APP_CHANNEL", '"production"'
-        buildConfigField "String", "SUPABASE_URL", buildConfigString(System.getenv("TRAVKINFLOW_SUPABASE_URL"))
-        buildConfigField "String", "SUPABASE_ANON_KEY", buildConfigString(System.getenv("TRAVKINFLOW_SUPABASE_ANON_KEY"))
+        versionCode 4
+        versionName "4.0.0"
+
+        resValue "string", "app_name", "TravkinFlow"
+        resValue "string", "launcher_name", "TravkinFlow"
+        resValue "string", "host_name", "travkinflow.com"
+        resValue "string", "launch_url", "https://travkinflow.com/dashboard"
+        resValue "string", "web_manifest_url", "https://travkinflow.com/manifest.webmanifest"
+        resValue "string", "provider_authority", "com.travkin.flow.fileprovider"
     }
 
     signingConfigs {
@@ -47,15 +44,15 @@ android {
             applicationIdSuffix ".qa"
             versionNameSuffix "-qa"
             resValue "string", "app_name", "TravkinFlow QA"
-            buildConfigField "String", "BASE_URL", '"https://qa.travkinflow.com"'
-            buildConfigField "String", "APP_CHANNEL", '"qa"'
+            resValue "string", "host_name", "qa.travkinflow.com"
+            resValue "string", "launch_url", "https://qa.travkinflow.com/dashboard"
+            resValue "string", "web_manifest_url", "https://qa.travkinflow.com/manifest.webmanifest"
+            resValue "string", "provider_authority", "com.travkin.flow.qa.fileprovider"
         }
         release {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
-            resValue "string", "app_name", "TravkinFlow"
-            buildConfigField "String", "BASE_URL", '"https://travkinflow.com"'
             if (uploadSigningConfigured) {
                 signingConfig signingConfigs.upload
             }
@@ -67,13 +64,9 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
-    buildFeatures {
-        buildConfig true
-        compose true
+    lint {
+        abortOnError true
+        checkReleaseBuilds true
     }
 
     testOptions {
@@ -82,44 +75,51 @@ android {
 }
 
 dependencies {
-    implementation "androidx.core:core-ktx:1.16.0"
-    implementation "androidx.core:core-splashscreen:1.0.1"
-    implementation "androidx.activity:activity-compose:1.13.0"
-    implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.10.0"
-    implementation "androidx.lifecycle:lifecycle-runtime-compose:2.10.0"
-    implementation "androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0"
-
-    // Compose 1.12 requires compileSdk 37 / AGP 9.1. Keep the latest
-    // official Compose line compatible with the current API 36 Play target.
-    def composeBom = platform("androidx.compose:compose-bom:2026.06.00")
-    implementation composeBom
-    androidTestImplementation composeBom
-    implementation "androidx.compose.material3:material3"
-    implementation "androidx.compose.material:material-icons-extended"
-    implementation "androidx.compose.ui:ui"
-    implementation "androidx.compose.ui:ui-tooling-preview"
-    debugImplementation "androidx.compose.ui:ui-tooling"
-
-    implementation platform("com.squareup.okhttp3:okhttp-bom:5.3.0")
-    implementation "com.squareup.okhttp3:okhttp"
-    implementation "com.squareup.retrofit2:retrofit:3.0.0"
-    implementation "com.squareup.retrofit2:converter-gson:3.0.0"
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2"
-
+    implementation "com.google.androidbrowserhelper:androidbrowserhelper:2.7.3"
+    implementation "com.google.androidbrowserhelper:locationdelegation:1.1.2"
     testImplementation "junit:junit:4.13.2"
 }
 
-// A signed bundle may enter Google Play Internal Testing after the static gate.
-// Device and role-realistic acceptance remain separate Production rollout gates.
-tasks.configureEach { task ->
-    if (task.name == "preReleaseBuild") {
-        task.doFirst {
-            def readinessFile = rootProject.file("../docs/google-play/agronomist-release-readiness.json")
-            if (!readinessFile.exists()) throw new GradleException("Native Android readiness manifest missing")
-            def readiness = new groovy.json.JsonSlurper().parse(readinessFile)
-            if (readiness.readyForInternalTest != true) {
-                throw new GradleException("Native Android candidate has not passed the static Internal Testing gate.")
+tasks.register("verifyTwaConfig") {
+    group = "verification"
+    description = "Fails the build if the official TravkinFlow TWA identity or URL contract drifts."
+
+    inputs.file("src/main/AndroidManifest.xml")
+    inputs.file("src/main/res/values/twa.xml")
+
+    doLast {
+        def manifestText = file("src/main/AndroidManifest.xml").getText("UTF-8")
+        def twaResourceText = file("src/main/res/values/twa.xml").getText("UTF-8")
+        def requiredManifestValues = [
+            "com.google.androidbrowserhelper.trusted.LauncherActivity",
+            "android.support.customtabs.trusted.DEFAULT_URL",
+            "android.support.customtabs.trusted.FALLBACK_STRATEGY",
+            "android:autoVerify=\"true\"",
+            "android:host=\"@string/host_name\""
+        ]
+
+        requiredManifestValues.each { requiredValue ->
+            if (!manifestText.contains(requiredValue)) {
+                throw new GradleException("Missing required TWA manifest invariant: ${requiredValue}")
             }
         }
+
+        def legacyKotlinSources = fileTree("src/main") { include "**/*.kt" }.files
+        if (!legacyKotlinSources.isEmpty()) {
+            throw new GradleException("Legacy native Compose sources remain in the TWA release.")
+        }
+
+        if (manifestText.contains("android.webkit.WebView")) {
+            throw new GradleException("A custom WebView is forbidden; use the verified TWA/custom-tab provider.")
+        }
+
+        if (!twaResourceText.contains("delegate_permission/common.handle_all_urls") ||
+                !twaResourceText.contains("https://travkinflow.com")) {
+            throw new GradleException("The app-to-site Digital Asset Links statement is missing.")
+        }
     }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("verifyTwaConfig")
 }

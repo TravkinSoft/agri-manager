@@ -4,17 +4,6 @@ pluginManagement {
         mavenCentral()
         gradlePluginPortal()
     }
-    buildscript {
-        repositories {
-            google()
-            mavenCentral()
-        }
-        dependencies {
-            // Kotlin 2.4 metadata requires R8 9.1.29+; keep the explicit
-            // compiler override until the bundled AGP compiler catches up.
-            classpath("com.android.tools:r8:9.1.31")
-        }
-    }
 }
 
 dependencyResolutionManagement {

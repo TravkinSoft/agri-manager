@@ -1,0 +1,30 @@
+{
+  "scope": "production-web-parity-twa",
+  "sourceBranch": "codex/google-market-twa-v4",
+  "sourceBaseline": "15f66b0c9cab2ef66c9da794396cb87323a54651",
+  "packageName": "com.travkin.flow",
+  "versionName": "4.0.0",
+  "versionCode": 4,
+  "livePwaVerified": true,
+  "staticBuildVerified": true,
+  "mobileWebAudit": {
+    "role": "agronomist",
+    "viewport": "412x915",
+    "routes": [
+      "/dashboard",
+      "/crop-structure",
+      "/fields-map",
+      "/warehouses",
+      "/traffic",
+      "/weather-lab",
+      "/settings",
+      "/notifications",
+      "/tickets"
+    ],
+    "horizontalOverflowFailures": 0
+  },
+  "readyForInternalTest": true,
+  "playDeliveredDeviceAcceptance": false,
+  "roleRealisticQa": false,
+  "productionSubmitted": false
+}

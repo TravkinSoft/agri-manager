@@ -6,22 +6,20 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
-$readinessPath = Join-Path (Split-Path -Parent $projectDirectory) 'docs\google-play\agronomist-release-readiness.json'
-if (-not (Test-Path -LiteralPath $readinessPath -PathType Leaf)) { throw 'Native Android readiness manifest is missing. Play signing is blocked.' }
+$readinessPath = Join-Path (Split-Path -Parent $projectDirectory) 'docs\google-play\twa-v4-readiness.json'
+if (-not (Test-Path -LiteralPath $readinessPath -PathType Leaf)) { throw 'TWA V4 readiness manifest is missing. Play signing is blocked.' }
 $readiness = Get-Content -LiteralPath $readinessPath -Raw | ConvertFrom-Json
 if ($readiness.readyForInternalTest -ne $true) {
-    throw 'Native Android candidate has not passed the static Internal Testing gate. Do not sign or upload an older AAB. Signing keys have not been opened.'
+    throw 'TWA V4 has not passed the live/static Internal Testing gate. Signing keys have not been opened.'
 }
 $bundlePath = Join-Path $projectDirectory 'app\build\outputs\bundle\release\app-release.aab'
-$generatedBuildConfig = Join-Path $projectDirectory 'app\build\generated\source\buildConfig\release\com\travkin\flow\BuildConfig.java'
-$expectedRepositoryRoot = 'C:\Users\TRAVKIN\Downloads\CodecSaaS\project-google-market-native-v1'
+$expectedRepositoryRoot = 'C:\Users\TRAVKIN\Downloads\CodecSaaS\project-google-market-twa-v4'
 $expectedProjectDirectory = Join-Path $expectedRepositoryRoot 'android'
-$legacyProjectDirectory = 'C:\Users\TRAVKIN\Downloads\CodecSaaS\project-google-market\android'
-$expectedBranch = 'codex/google-market-six-cabinets-v1'
-$nativeReleaseBaseline = '909bd1eed3c367f0fcca68c2d765ef567d09e300'
+$expectedBranch = 'codex/google-market-twa-v4'
+$nativeReleaseBaseline = '15f66b0c9cab2ef66c9da794396cb87323a54651'
 $expectedPackage = 'com.travkin.flow'
-$expectedVersionCode = 3
-$expectedVersionName = '3.0.0'
+$expectedVersionCode = 4
+$expectedVersionName = '4.0.0'
 $expectedTargetSdk = 36
 $expectedKeyAlias = 'travkinflow-upload'
 $expectedUploadFingerprint = '8B:29:80:B8:07:E2:99:1F:A5:54:C2:B6:61:7D:89:9F:9F:58:AA:EC:2D:77:DE:37:12:A3:89:70:38:C5:A3:CB'
@@ -79,13 +77,8 @@ function Get-GitText {
 function Assert-NativeReleaseSource {
     $actualProjectDirectory = [IO.Path]::GetFullPath($projectDirectory).TrimEnd('\')
     $requiredProjectDirectory = [IO.Path]::GetFullPath($expectedProjectDirectory).TrimEnd('\')
-    $rejectedLegacyDirectory = [IO.Path]::GetFullPath($legacyProjectDirectory).TrimEnd('\')
-
-    if ($actualProjectDirectory -ieq $rejectedLegacyDirectory) {
-        throw 'Legacy TWA source project-google-market\android is forbidden for Play V3 signing.'
-    }
     if ($actualProjectDirectory -ine $requiredProjectDirectory) {
-        throw "Play V3 signing is allowed only from: $requiredProjectDirectory"
+        throw "Play V4 signing is allowed only from: $requiredProjectDirectory"
     }
 
     $repositoryRoot = [IO.Path]::GetFullPath((Get-GitText @('rev-parse', '--show-toplevel'))).TrimEnd('\')
@@ -127,13 +120,7 @@ function Assert-NativeReleaseSource {
         Where-Object { $_.Extension -in @('.kt', '.java', '.xml') }
     $forbiddenRuntimePatterns = @(
         'android\.webkit',
-        '\bWebView\b',
         '\bloadUrl\s*\(',
-        'TrustedWebActivity',
-        'androidx\.browser',
-        'androidbrowserhelper',
-        '\bbubblewrap\b',
-        '\bCustomTabs?\b',
         '\bcopilot\b',
         'api/assistant',
         'api/traffic/session'
@@ -146,19 +133,21 @@ function Assert-NativeReleaseSource {
     try {
         $dependencyReport = & .\gradlew.bat :app:dependencies --configuration releaseRuntimeClasspath --no-daemon --console=plain 2>&1
         if ($LASTEXITCODE -ne 0) {
-            throw 'Unable to resolve releaseRuntimeClasspath for native-runtime verification.'
+            throw 'Unable to resolve releaseRuntimeClasspath for TWA verification.'
         }
     }
     finally {
         Pop-Location
     }
-    if (($dependencyReport | Out-String) -match '(?i)androidx\.browser|androidx\.webkit|androidbrowserhelper|trustedwebactivity|bubblewrap|customtabs') {
-        throw 'Forbidden WebView/TWA/custom-tabs dependency detected in releaseRuntimeClasspath.'
+    $dependencyText = $dependencyReport | Out-String
+    if ($dependencyText -notmatch 'com\.google\.androidbrowserhelper:androidbrowserhelper:2\.7\.3' -or
+        $dependencyText -notmatch 'com\.google\.androidbrowserhelper:locationdelegation:1\.1\.2') {
+        throw 'Required Android Browser Helper TWA/location dependencies are missing.'
     }
 
-    Write-Output "Native release source verified: $branch @ $head"
-    Write-Output 'Forbidden mobile runtime, feature, and dependency matches: 0'
-    if ($readiness.deviceAcceptance -ne $true -or $readiness.roleRealisticQa -ne $true) {
+    Write-Output "TWA release source verified: $branch @ $head"
+    Write-Output 'Custom WebView and legacy native role implementation matches: 0'
+    if ($readiness.playDeliveredDeviceAcceptance -ne $true -or $readiness.roleRealisticQa -ne $true) {
         Write-Output 'Internal Testing candidate only: device/role acceptance remains required before any Production rollout.'
     }
 }
@@ -231,24 +220,6 @@ if (-not (Test-Path -LiteralPath $KeystorePath -PathType Leaf)) {
 
 Assert-NativeReleaseSource
 
-if ([string]::IsNullOrWhiteSpace($env:TRAVKINFLOW_SUPABASE_URL)) {
-    throw 'Перед запуском задайте TRAVKINFLOW_SUPABASE_URL только в текущем терминале.'
-}
-
-$supabaseUri = $null
-if (-not [Uri]::TryCreate($env:TRAVKINFLOW_SUPABASE_URL, [UriKind]::Absolute, [ref]$supabaseUri) -or
-    $supabaseUri.Scheme -ne 'https' -or
-    $supabaseUri.AbsolutePath -ne '/' -or
-    -not [string]::IsNullOrEmpty($supabaseUri.Query) -or
-    -not [string]::IsNullOrEmpty($supabaseUri.Fragment) -or
-    -not [string]::IsNullOrEmpty($supabaseUri.UserInfo)) {
-    throw 'TRAVKINFLOW_SUPABASE_URL должен быть корневым HTTPS URL без credentials, query или fragment.'
-}
-
-if ([string]::IsNullOrWhiteSpace($env:TRAVKINFLOW_SUPABASE_ANON_KEY)) {
-    throw 'Перед запуском задайте TRAVKINFLOW_SUPABASE_ANON_KEY только в текущем терминале.'
-}
-
 $keyAlias = $expectedKeyAlias
 if (-not [string]::IsNullOrWhiteSpace($env:TRAVKINFLOW_UPLOAD_KEY_ALIAS) -and
     $env:TRAVKINFLOW_UPLOAD_KEY_ALIAS -cne $expectedKeyAlias) {
@@ -297,10 +268,6 @@ try {
 
     if (-not (Test-Path -LiteralPath $bundlePath -PathType Leaf)) {
         throw "Release AAB не создан: $bundlePath"
-    }
-
-    if (-not (Test-Path -LiteralPath $generatedBuildConfig -PathType Leaf)) {
-        throw 'Release BuildConfig не создан.'
     }
 
     Assert-BundletoolValid -Path $bundlePath

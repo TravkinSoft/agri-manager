@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="travkin_background">#0C111A</color>
-    <color name="travkin_navigation">#101520</color>
+    <color name="twa_status_bar">#292C26</color>
+    <color name="twa_status_bar_dark">#181A17</color>
+    <color name="twa_navigation_bar">#000000</color>
+    <color name="twa_navigation_bar_dark">#000000</color>
+    <color name="twa_navigation_divider">#00000000</color>
+    <color name="twa_navigation_divider_dark">#00000000</color>
+    <color name="twa_splash_background">#D2CFC5</color>
 </resources>
