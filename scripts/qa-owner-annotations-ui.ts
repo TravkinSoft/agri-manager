@@ -62,7 +62,7 @@ check("closed stock disclosures point up and open disclosures point down", () =>
 check("dashboard moves live context into the field row", () => {
   assert.doesNotMatch(dashboard, /tf-manor-heading text-3xl/);
   assert.match(dashboard, /<span>Картофель<\/span><span>·<\/span><span>\{clock/);
-  assert.match(dashboard, /text-emerald-700">Live/);
+  assert.match(dashboard, /shiftIsOpen \? "Live" : "Offline"/);
 });
 
 check("yield calculator is width-bounded", () => {

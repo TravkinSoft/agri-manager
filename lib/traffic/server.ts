@@ -262,6 +262,7 @@ export async function readSnapshot(
   includeEvents = role === "manager",
   actorId?: string,
   includeAnalytics = false,
+  includeOpenCombineShift = includeAnalytics,
 ): Promise<TrafficSnapshot> {
   const db = getServiceClient();
   const results = await Promise.all([
@@ -301,7 +302,7 @@ export async function readSnapshot(
           .order("opened_at", { ascending: false })
           .limit(1)
           .maybeSingle()
-      : role === "manager" && includeAnalytics
+      : role === "manager" && includeOpenCombineShift
         ? db
             .from("ptc_combine_shifts")
             .select("id,operator_name,opened_at,closed_at,hectares_shift,hectares_field_total")

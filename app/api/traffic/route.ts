@@ -51,7 +51,9 @@ export async function GET(request: NextRequest) {
       });
     }
     const [snapshot, fleet, people, accounts] = await Promise.all([
-      readSnapshot(companyId, "manager", "", true, undefined, actor.role === "agronomist"),
+      // The dashboard status depends on the real combine shift for every manager
+      // role, while the heavier analytics remain agronomist-only.
+      readSnapshot(companyId, "manager", "", true, undefined, actor.role === "agronomist", true),
       // Every role admitted by manager() needs the read-only fleet catalogue for
       // the complete board. Driver/account metadata stays fleet-manager-only.
       readCompanyFleet(db, companyId),

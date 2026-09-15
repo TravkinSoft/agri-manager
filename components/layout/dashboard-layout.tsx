@@ -48,6 +48,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const isWeighbridge = pathname === "/weighbridge" || pathname?.startsWith("/weighbridge/");
   const isTraffic = pathname === "/traffic" || pathname?.startsWith("/traffic/") || pathname === "/fleet";
   const isDashboard = pathname === "/dashboard";
+  const isWarehouses = pathname === "/warehouses";
   const assistantEnabled = canUseAssistantShell(profile?.role) && !isWeatherLab && !isWeighbridge;
 
   useEffect(() => {
@@ -123,7 +124,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <Header />
-            <main className={`travkin-scrollbar tf-manor-workspace min-h-0 flex-1 overflow-x-hidden overflow-y-scroll [scrollbar-gutter:stable] py-3 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] sm:py-4 sm:pl-[max(1rem,env(safe-area-inset-left))] sm:pr-[max(1rem,env(safe-area-inset-right))] md:py-6 md:pl-[max(1.5rem,env(safe-area-inset-left))] md:pr-[max(1.5rem,env(safe-area-inset-right))] ${profile?.role === "fleet_manager" ? "pb-[calc(env(safe-area-inset-bottom)+1rem)]" : "pb-[calc(env(safe-area-inset-bottom)+6.25rem)] sm:pb-[calc(env(safe-area-inset-bottom)+6.25rem)] md:pb-6"}`}>
+            <main className={`travkin-scrollbar tf-manor-workspace min-h-0 flex-1 overflow-x-hidden overflow-y-scroll [scrollbar-gutter:stable] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] sm:pl-[max(1rem,env(safe-area-inset-left))] sm:pr-[max(1rem,env(safe-area-inset-right))] md:pl-[max(1.5rem,env(safe-area-inset-left))] md:pr-[max(1.5rem,env(safe-area-inset-right))] ${isDashboard || isWarehouses ? "pt-1.5 sm:pt-2 md:pt-3" : "py-3 sm:py-4 md:py-6"} ${profile?.role === "fleet_manager" ? "pb-[calc(env(safe-area-inset-bottom)+1rem)]" : "pb-[calc(env(safe-area-inset-bottom)+6.25rem)] sm:pb-[calc(env(safe-area-inset-bottom)+6.25rem)] md:pb-6"}`}>
               <div key={pathname} className={`tf-estate-page-enter ${isTraffic ? "h-full min-h-0" : ""}`}>
                 {children}
               </div>

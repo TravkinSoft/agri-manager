@@ -877,7 +877,7 @@ export default function WarehousesPage() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
 
       {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
       {reorderError ? <Alert variant="destructive"><AlertDescription>{reorderError}.</AlertDescription></Alert> : null}

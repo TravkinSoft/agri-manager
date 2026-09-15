@@ -110,8 +110,13 @@ check("latest potato weighbridge ticket selects the live field and allocation", 
     fieldId: "field-current",
     fieldName: "1 (МашДвор)",
     cropStructureAllocationId: "allocation-current",
+    harvestLotId: null,
+    seasonId: "s1",
+    cropId: "c2",
     cropName: "Картофель",
+    varietyId: "v2",
     varietyName: "Гала",
+    reproductionId: "r2",
     reproductionName: "Элита",
     areaHa: 8,
   });
@@ -443,16 +448,28 @@ check("dashboard presents the potato live chain", () => {
   assert.match(dashboardUi, /potatoParties/);
   assert.doesNotMatch(dashboardUi, /Поступление по культурам|Завершено рейсов/);
 });
-check("dashboard exposes secondary potato driver table", () => {
-  assert.match(dashboardUi, /PotatoDriverSummary/);
+check("dashboard keeps the driver data available but hides the temporary table", () => {
+  assert.doesNotMatch(dashboardUi, /PotatoDriverSummary/);
   assert.match(dashboardUi, /\["agronomist", "director"\]\.includes\(profile\.role\)[\s\S]*?<TrafficShiftSummary/);
   assert.match(dashboardUi, /shiftReportOpen \? <div[\s\S]*?<TrafficShiftSummary/);
   assert.match(potatoDriverUi, /timeZone: HARVEST_TIME_ZONE/);
   assert.match(potatoDriverUi, /"водитель"[\s\S]*?"водителя"[\s\S]*?"водителей"/);
 });
-check("yield calculator uses accepted potato mass and entered hectares", () => {
-  assert.match(dashboardUi, /receivedKg \/ 1000 \/ hectares/);
+check("yield calculator uses selected party stock and defaults to the field area", () => {
+  assert.match(dashboardUi, /selectedPartyStockKg \/ 1000 \/ hectares/);
+  assert.match(dashboardUi, /enteredHectares > 0 \? enteredHectares : fieldHectares/);
   assert.match(dashboardUi, /Убрано, га/);
+});
+check("dashboard live state and timers follow the combine shift", () => {
+  assert.match(dashboardUi, /shiftIsOpen \? "Live" : "Offline"/);
+  assert.doesNotMatch(dashboardUi, /Смена не открыта|PTC загружается/);
+  assert.match(dashboardUi, /group === "offline" \? null/);
+  assert.match(dashboardUi, /group === "empty" && !shiftIsOpen \? "0 мин"/);
+  assert.match(dashboardUi, /const days = Math\.floor\(minutes \/ 1_440\)/);
+});
+check("dashboard temporarily hides lower operational lists", () => {
+  assert.doesNotMatch(dashboardUi, />Последние рейсы</);
+  assert.doesNotMatch(dashboardUi, />Размещение</);
 });
 check("live refresh uses existing weighbridge tables", () => assert.match(dashboardUi, /LIVE_REFRESH_TABLES\.weighbridge/));
 

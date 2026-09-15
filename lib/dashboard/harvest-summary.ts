@@ -118,8 +118,13 @@ export type HarvestOverview = {
     fieldId: string;
     fieldName: string;
     cropStructureAllocationId: string;
+    harvestLotId: string | null;
+    seasonId: string | null;
+    cropId: string | null;
     cropName: string;
+    varietyId: string | null;
     varietyName: string | null;
+    reproductionId: string | null;
     reproductionName: string | null;
     areaHa: number | null;
   } | null;
@@ -511,8 +516,13 @@ export function buildHarvestOverview(
         fieldId: activeWeighbridgeTicket.field_id,
         fieldName: cleanLabel(activeWeighbridgeTicket.field_name_snapshot) || "Поле не указано",
         cropStructureAllocationId: activeWeighbridgeTicket.crop_structure_allocation_id,
+        harvestLotId: activeWeighbridgeTicket.harvest_lot_id || null,
+        seasonId: activeWeighbridgeTicket.season_id || null,
+        cropId: activeWeighbridgeIdentity.cropId,
         cropName: activeWeighbridgeIdentity.crop,
+        varietyId: activeWeighbridgeIdentity.varietyId,
         varietyName: activeWeighbridgeIdentity.variety,
+        reproductionId: activeWeighbridgeIdentity.reproductionId,
         reproductionName: activeWeighbridgeIdentity.reproduction,
         areaHa: Number.isFinite(activeAreaHa) && activeAreaHa > 0 ? activeAreaHa : null,
       }
