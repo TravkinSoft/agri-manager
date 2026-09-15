@@ -24,6 +24,13 @@
     "horizontalOverflowFailures": 0
   },
   "readyForInternalTest": true,
+  "internalTest": {
+    "active": true,
+    "releasedAt": "2026-09-16T01:15:00+05:00",
+    "trackId": "4700886727669203831",
+    "testerListCount": 3,
+    "consoleStatus": "Available to internal testers"
+  },
   "playDeliveredDeviceAcceptance": false,
   "roleRealisticQa": false,
   "productionSubmitted": false

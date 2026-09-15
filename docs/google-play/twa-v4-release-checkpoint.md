@@ -50,3 +50,16 @@ Production business/database test writes are prohibited throughout this gate.
 
 Play-delivered device acceptance and all-role QA remain separate gates and are
 not implied by these static/mobile-browser checks.
+
+## Internal Testing checkpoint
+
+- Google Play accepted `4 (4.0.0)` and made it active for the Internal Testing
+  track on 2026-09-16 at 01:15 (Asia/Qyzylorda).
+- Tester distribution uses the existing `TravkinFlow GM Internal Testers`
+  email list with three entries.
+- Play Console warning: six previously supported devices are excluded (one
+  phone and five tablets, approximately 0% of the catalog). The release still
+  supports 8,540 phones and 5,511 tablets.
+- Version 3 was not deleted. Google Play updates eligible testers in place to
+  version 4 because the package and signing lineage are unchanged.
+- Production submission remains gated on Play-delivered Android acceptance.
