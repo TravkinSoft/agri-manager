@@ -198,7 +198,13 @@ async function main() {
     const repairHarness = harness(role, repairVehicles);
     const repairTree = repairHarness.render();
     const repairCards = cardNodes(repairTree);
-    check(repairCards.length, role === "manager" ? repairVehicles.length : role === "harvester" ? 0 : 1);
+    check(repairCards.length, role === "manager"
+      ? repairVehicles.length
+      : role === "harvester"
+        ? 0
+        : role === "receiver"
+          ? 2
+          : 1);
     const repairHtml = renderToStaticMarkup(repairTree);
     check(repairHtml.includes("На ремонте"), role === "manager");
     if (role === "manager") {
@@ -208,24 +214,39 @@ async function main() {
       check(repairCards.every(card => card.props["data-repair-stage-action"] === undefined), true);
     } else if (role === "harvester") {
       check(repairCards, []);
-    } else {
+    } else if (role === "weighman") {
       check(repairCards.every(card => card.type === "button"), true);
       check(repairCards.every(card => words(card).includes("Ремонт отмечен")), true);
       check(repairCards.every(card => words(card).includes("8 мин")), true);
       check(repairCards.every(card => card.props["data-repair-stage-action"] === "true"), true);
-      const expectedStateTone = role === "weighman" ? "bg-emerald-50" : "bg-amber-50";
-      check(repairCards[0].props.className.includes(expectedStateTone), true);
+      check(repairCards[0].props.className.includes("bg-emerald-50"), true);
       const stageNote = nodes(repairTree).find(node => node.props?.["data-testid"] === "traffic-repair-stage-note");
       check(stageNote?.props.role, "status");
-      check(words(stageNote).includes(role === "receiver" ? "Завершите фактическую выгрузку" : "Отметьте прибытие на выгрузку"), true);
+      check(words(stageNote).includes("Отметьте прибытие на выгрузку"), true);
       const cancelled = harness(role, repairVehicles, { confirm: false });
       cardNodes(cancelled.render())[0].props.onClick();
       await flush();
       check(cancelled.calls.length, 0);
       check(cancelled.confirmPrompts.length, 1);
-      check(cancelled.confirmPrompts[0].includes(role === "receiver"
-        ? "Выгрузка фактически завершена? Машина останется в ремонте."
-        : "Машина фактически прибыла на выгрузку? Она останется в ремонте."), true);
+      check(cancelled.confirmPrompts[0].includes("Машина фактически прибыла на выгрузку? Она останется в ремонте."), true);
+    } else {
+      check(repairCards.map(card => card.type), ["article", "button"]);
+      check(repairCards.every(card => words(card).includes("Ремонт отмечен")), true);
+      check(repairCards.every(card => words(card).includes("8 мин")), true);
+      check(repairCards[0].props.className.includes("bg-emerald-50"), true);
+      check(repairCards[1].props.className.includes("bg-amber-50"), true);
+      check(repairCards[0].props["data-repair-stage-action"], undefined);
+      check(repairCards[1].props["data-repair-stage-action"], "true");
+      const stageNote = nodes(repairTree).find(node => node.props?.["data-testid"] === "traffic-repair-stage-note");
+      check(stageNote?.props.role, "status");
+      check(words(stageNote).includes("до весовой — только для контроля"), true);
+      const cancelled = harness(role, repairVehicles, { confirm: false });
+      const actionable = cardNodes(cancelled.render()).find(card => card.type === "button")!;
+      actionable.props.onClick();
+      await flush();
+      check(cancelled.calls.length, 0);
+      check(cancelled.confirmPrompts.length, 1);
+      check(cancelled.confirmPrompts[0].includes("Выгрузка фактически завершена? Машина останется в ремонте."), true);
     }
   }
   const repairedUnload = repairVehicles[2];
@@ -574,7 +595,12 @@ async function main() {
   check(unloading.props.snapshot.vehicles.length, 1); // Canonical source is untouched.
   unloading.requests[0].resolve(receiptFor(vehicles[2], "empty")); await flush();
   check(unloading.props.snapshot.vehicles.length, 0);
-  check(renderToStaticMarkup(harness("receiver", []).render()).includes("Пока нет машин на выгрузке"), true);
+  const receiverIncoming = harness("receiver", vehicles.filter(vehicle => vehicle.state === "loaded"));
+  const receiverIncomingCard = cardNodes(receiverIncoming.render())[0];
+  check(receiverIncomingCard.type, "article");
+  check(receiverIncomingCard.props.onClick, undefined);
+  check(words(receiverIncomingCard).includes("В пути к приёмке"), true);
+  check(renderToStaticMarkup(harness("receiver", []).render()).includes("Пока нет машин на пути к приёмке"), true);
   check(renderToStaticMarkup(harness("weighman", []).render()).includes("Пока нет загруженных машин"), true);
 
   // A replay may return a newer current state, not the target requested by this click.

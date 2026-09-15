@@ -47,7 +47,7 @@ async function main() {
   );
   check(
     visibleVehicles(vehicles, "receiver").map((v) => v.state),
-    ["unloading"],
+    ["loaded", "unloading"],
   );
   check(
     visibleVehicles(vehicles, "weighman").map((v) => v.state),
@@ -71,6 +71,7 @@ async function main() {
   check(trafficRepairPhase(repairedLoaded), "active");
   check(trafficRepairPhase(vehicles[0]), "none");
   check(visibleVehicles([repairedLoaded], "weighman").map((v) => v.vehicle_id), ["0"]);
+  check(visibleVehicles([repairedLoaded], "receiver").map((v) => v.vehicle_id), ["0"]);
   check(visibleVehicles([repairedUnloading], "receiver").map((v) => v.vehicle_id), ["1"]);
   check(visibleVehicles([repairedEmpty], "harvester"), []);
   check(visibleVehicles([repairedEmpty], "weighman"), []);

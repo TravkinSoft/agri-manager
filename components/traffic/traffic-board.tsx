@@ -434,7 +434,7 @@ export function TrafficBoard({
       : "машин";
   const activeRepairStageMessage = !isManager && displayVehicles.some((vehicle) => vehicle.inRepair)
     ? snapshot.role === "receiver"
-      ? "Ремонт отмечен. Завершите фактическую выгрузку — машина останется в ремонте."
+      ? "Ремонт отмечен. Машина остаётся видимой: до весовой — только для контроля, после весовой можно завершить фактическую выгрузку."
       : snapshot.role === "weighman"
         ? "Ремонт отмечен. Отметьте прибытие на выгрузку — машина останется в ремонте."
         : null
@@ -647,7 +647,9 @@ export function TrafficBoard({
                 </> : <>
                   {!vehicle.assigned ? <span className="shrink-0 font-semibold">Не на линии ·</span>
                     : usesHarvesterSwipe ? <span className={`shrink-0 font-semibold ${PTC_BOARD_V2 ? "text-emerald-800" : "text-emerald-800"}`}>Свайп вправо → ·</span>
-                      : !isManager ? <span className="shrink-0">{STATE_LABEL[vehicle.state]} ·</span> : null}
+                      : !isManager ? <span className="shrink-0">{snapshot.role === "receiver" && vehicle.state === "loaded"
+                        ? "В пути к приёмке"
+                        : STATE_LABEL[vehicle.state]} ·</span> : null}
                   <Clock3 aria-hidden size={11} />
                   <span className="truncate">{stateAge(statusSince, now + offset)}</span>
                 </>}
@@ -775,14 +777,14 @@ export function TrafficBoard({
             {snapshot.role === "weighman"
               ? "Пока нет загруженных машин"
               : snapshot.role === "receiver"
-                ? "Пока нет машин на выгрузке"
+                ? "Пока нет машин на пути к приёмке"
                 : "Машины ещё не назначены"}
           </h2>
           <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
             {snapshot.role === "weighman"
               ? "Машина появится здесь сразу после подтверждения комбайнёра."
               : snapshot.role === "receiver"
-                ? "Машина появится здесь сразу после подтверждения весовщика."
+                ? "Машина появится сразу после отправки комбайнёром. Завершение выгрузки станет доступно после отметки весовщика."
                 : "В парке пока нет машин, доступных для оборота."}
           </p>
         </div>
