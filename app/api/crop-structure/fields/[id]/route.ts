@@ -80,6 +80,17 @@ const isMissingCropStructureV4Column = (error: unknown) => {
   );
 };
 
+const cropStructureSaveErrorMessage = (error: { code?: string | null; message?: string | null }) => {
+  const message = String(error.message || "");
+  if (
+    String(error.code || "") === "23503" &&
+    message.includes("tickets_crop_structure_allocation_id_fkey")
+  ) {
+    return "Старые талоны связаны с этим участком. Обновите страницу и повторите сохранение — история талонов будет сохранена.";
+  }
+  return message || "Не удалось сохранить структуру поля";
+};
+
 function parseRows(value: unknown): InputRow[] {
   if (!Array.isArray(value) || value.length > 100) {
     throw new SessionAuthError("rows must be an array with at most 100 items", 400);
@@ -332,7 +343,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       })),
     }));
 
-    const { data: saved, error: saveError } = await supabase.rpc("save_crop_structure_field_v5", {
+    const { data: saved, error: saveError } = await supabase.rpc("save_crop_structure_field_v6", {
       p_company_id: companyId,
       p_actor_profile_id: actor.id,
       p_actor_auth_user_id: actor.authUserId,
@@ -342,7 +353,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     });
     if (saveError) {
       const conflict = String(saveError.code || "") === "23514" || String(saveError.code || "") === "23505";
-      throw new SessionAuthError(saveError.message, conflict ? 409 : 400);
+      throw new SessionAuthError(cropStructureSaveErrorMessage(saveError), conflict ? 409 : 400);
     }
 
     return NextResponse.json(saved || { companyId, fieldId, seasonId, rows: [] });

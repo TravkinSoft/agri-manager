@@ -103,6 +103,7 @@
     "qa:warehouse:opening-balance": "npx --no-install tsx scripts/qa-warehouse-opening-balance-v1.ts",
     "qa:weighbridge:route-processing": "npx --no-install tsx scripts/qa-weighbridge-route-processing-v1.ts",
     "qa:crop-optional-seed": "npx --no-install tsx scripts/qa-crop-structure-optional-seed.ts",
+    "qa:p0:crop-structure-history-safe-save": "npx --no-install tsx scripts/qa-p0-crop-structure-history-safe-save.ts",
     "qa:tz266": "npx --no-install tsx scripts/qa-tz266-active-harvest-tabs.ts",
     "qa:p0:weighbridge-gross": "npx --no-install tsx scripts/qa-p0-weighbridge-gross-legacy-schema.ts",
     "qa:p0:weighbridge-form-state": "npx --no-install tsx scripts/qa-p0-weighbridge-form-state.ts",
