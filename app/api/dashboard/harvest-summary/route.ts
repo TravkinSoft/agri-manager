@@ -6,6 +6,7 @@ import {
   buildWarehouseHarvestRows,
   resolveHarvestPeriod,
   type HarvestDashboardFilters,
+  type HarvestOverview,
   type HarvestPeriodPreset,
 } from "@/lib/dashboard/harvest-summary";
 import type { HarvestBatchSummary, WeighbridgeTicket } from "@/lib/types/weighbridge";
@@ -283,6 +284,64 @@ function readFilters(request: NextRequest): HarvestDashboardFilters {
   return { cropId: read("cropId"), varietyId: read("varietyId"), reproductionId: read("reproductionId"), fieldId: read("fieldId"), warehouseId: read("warehouseId") };
 }
 
+async function attachVerifiedCurrentPlotYield(
+  supabase: any,
+  companyId: string,
+  summary: HarvestOverview,
+): Promise<HarvestOverview> {
+  const selection = summary.activeWeighbridgeSelection;
+  if (!selection) return summary;
+
+  let allocationQuery = supabase
+    .from("crop_structure")
+    .select("id,field_id,season_id,crop_id,variety_id,reproduction_id,area,archived")
+    .eq("company_id", companyId)
+    .eq("field_id", selection.fieldId)
+    .eq("archived", false);
+  if (selection.seasonId) allocationQuery = allocationQuery.eq("season_id", selection.seasonId);
+  const { data: allocations, error: allocationsError } = await allocationQuery;
+  if (allocationsError) throw allocationsError;
+
+  const activeAllocations = allocations || [];
+  const exactAllocation = activeAllocations.find((row: any) => String(row.id) === selection.cropStructureAllocationId);
+  const selectionIsTheOnlyPlot = activeAllocations.length === 1
+    && exactAllocation
+    && String(exactAllocation.crop_id || "") === String(selection.cropId || "")
+    && String(exactAllocation.variety_id || "") === String(selection.varietyId || "")
+    && String(exactAllocation.reproduction_id || "") === String(selection.reproductionId || "");
+  if (!selectionIsTheOnlyPlot) {
+    return { ...summary, currentPlotHarvestedAreaStatus: "field_has_multiple_plots" };
+  }
+
+  const { data: shifts, error: shiftsError } = await supabase
+    .from("ptc_combine_shifts")
+    .select("id,field_id,closed_at,hectares_shift,hectares_field_total")
+    .eq("company_id", companyId)
+    .eq("field_id", selection.fieldId)
+    .not("closed_at", "is", null)
+    .gte("closed_at", summary.period.start)
+    .lt("closed_at", summary.period.end)
+    .order("closed_at", { ascending: true });
+  if (shiftsError) throw shiftsError;
+
+  // hectares_shift is the work done during each closed shift and may be summed
+  // for the current working day. hectares_field_total is a cumulative field
+  // checkpoint, so it is deliberately never used as this period's denominator.
+  const harvestedAreaHa = (shifts || []).reduce((total: number, row: any) => {
+    const value = Number(row.hectares_shift);
+    return Number.isFinite(value) && value > 0 ? total + value : total;
+  }, 0);
+  if (!(harvestedAreaHa > 0)) {
+    return { ...summary, currentPlotHarvestedAreaStatus: "no_closed_shift" };
+  }
+  return {
+    ...summary,
+    currentPlotHarvestedAreaHa: harvestedAreaHa,
+    currentPlotYieldTPerHa: summary.currentPlotAcceptedKg / 1000 / harvestedAreaHa,
+    currentPlotHarvestedAreaStatus: "verified",
+  };
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { companyId, supabase } = await resolveWeighbridgeSession(request, {
@@ -324,7 +383,11 @@ export async function GET(request: NextRequest) {
     }
 
     const warehouseRows = buildWarehouseHarvestRows(loadedWarehouseRows, filters);
-    const summary = buildHarvestOverview(tickets, { period, filters, warehouseRows });
+    const summary = await attachVerifiedCurrentPlotYield(
+      supabase,
+      companyId,
+      buildHarvestOverview(tickets, { period, filters, warehouseRows }),
+    );
     if (section === "bootstrap") {
       return NextResponse.json({
         summary: { ...summary, source: SUMMARY_SOURCE },

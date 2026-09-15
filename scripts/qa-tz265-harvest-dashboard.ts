@@ -73,6 +73,29 @@ check("open ticket stays outside received mass", () => assert.equal(summary.open
 check("field total equals completed harvest total", () => assert.equal(summary.fields.reduce((sum, row) => sum + row.receivedKg, 0), 1200 + 2400 + 900 + 1300 + 500));
 check("field includes last trip and destination", () => { assert.ok(summary.fields.every((row) => row.lastTripAt && row.destinationName)); });
 check("potato moisture block is absent", () => assert.equal(summary.moisture.some((row) => row.cropName === "Картофель"), false));
+check("today potato total uses only effective finalized harvest tickets", () => assert.equal(summary.potatoAcceptedKg, 500));
+check("current plot mass requires the exact field, allocation, season, crop, variety, and reproduction", () => {
+  const exactOne = ticket({
+    id: "plot-exact-1", ticket_no: "PLOT-EXACT-1", field_id: "field-9", field_name_snapshot: "9",
+    crop_structure_allocation_id: "allocation-34", crop_structure_area_ha: 34, season_id: "season-2026",
+    crop_name_snapshot: "Картофель", variety_name_snapshot: "Baltic Rose", reproduction_name_snapshot: "4",
+    net_weight_kg: 8_000, created_at: "2026-08-12T05:00:00Z", finalized_at: "2026-08-12T05:30:00Z", updated_at: "2026-08-12T05:30:00Z",
+    lines: [{ id: "plot-line-1", product_id: "potato", crop_id: "crop-potato", product_name: "Картофель", quantity: 8_000, uom: "kg", moisture_percent: null, variety_id: "baltic", variety_name: "Baltic Rose", reproduction_id: "rep-4", reproduction_name: "4", warehouse_to_id: "w1" }],
+  });
+  const exactTwo = ticket({
+    ...exactOne, id: "plot-exact-2", ticket_no: "PLOT-EXACT-2", net_weight_kg: 9_000,
+    created_at: "2026-08-12T06:00:00Z", finalized_at: "2026-08-12T06:30:00Z", updated_at: "2026-08-12T06:30:00Z",
+  });
+  const otherAllocation = ticket({ ...exactOne, id: "plot-other-allocation", ticket_no: "PLOT-OTHER", crop_structure_allocation_id: "allocation-11", net_weight_kg: 50_000 });
+  const otherField = ticket({ ...exactOne, id: "plot-other-field", ticket_no: "PLOT-OTHER-FIELD", field_id: "field-10", net_weight_kg: 60_000 });
+  const invalid = ticket({ ...exactOne, id: "plot-voided", ticket_no: "PLOT-VOIDED", is_voided: true, status: "voided", net_weight_kg: 70_000 });
+  const result = buildHarvestOverview([exactOne, exactTwo, otherAllocation, otherField, invalid], { period });
+  assert.equal(result.potatoAcceptedKg, 127_000);
+  assert.equal(result.currentPlotAcceptedKg, 17_000);
+  assert.equal(result.currentPlotHarvestedAreaHa, null);
+  assert.equal(result.currentPlotYieldTPerHa, null);
+  assert.equal(result.currentPlotHarvestedAreaStatus, "no_closed_shift");
+});
 check("latest potato weighbridge ticket selects the live field and allocation", () => {
   const earlier = ticket({
     id: "potato-earlier",
@@ -275,6 +298,9 @@ check("potato driver table groups only effective potato trips", () => {
     netWeightKg: 18_000,
     averageNetWeightKg: 9_000,
     lastTripAt: "2026-08-12T06:00:00Z",
+    vehicles: [{ vehicleId: null, label: "Машина не указана" }],
+    averageTripMinutes: null,
+    timedTripCount: 0,
   });
 });
 check("potato driver grouping reconciles legacy names, keeps anonymous trips separate, and uses the latest label", () => {
@@ -358,22 +384,22 @@ const ticketApi = readFileSync(resolve(root, "app/api/weighbridge/tickets/[id]/r
 const ticketPdfApi = readFileSync(resolve(root, "app/api/weighbridge/tickets/[id]/pdf/route.ts"), "utf8");
 check("agronomist/director/legal routes are explicit", () => {
   assert.match(roleAccess, /AGRONOMIST_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/crop-structure",\s*"\/weather-lab",\s*"\/tickets",\s*"\/auth"/);
-  assert.match(roleAccess, /DIRECTOR_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/weather-lab",\s*"\/auth"/);
+  assert.match(roleAccess, /DIRECTOR_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/weather-lab",\s*"\/analytics",\s*"\/auth"/);
   assert.match(roleAccess, /DIRECTOR_ALLOWED_EXACT = \["\/fields-map", "\/warehouses"\]/);
   assert.match(roleAccess, /LEGAL_OPERATOR_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/analytics",\s*"\/auth"/);
   assert.match(roleAccess, /LEGAL_OPERATOR_ALLOWED_EXACT = \["\/fields-map", "\/warehouses"\]/);
 });
 check("director and legal operator receive only their approved cabinet routes", () => {
-  for (const path of ["/dashboard", "/fields-map", "/warehouses", "/weather-lab"]) {
+  for (const path of ["/dashboard", "/fields-map", "/warehouses", "/weather-lab", "/analytics"]) {
     assert.equal(canAccessPath("director", path), true, `director ${path}`);
   }
-  for (const path of ["/analytics", "/fields-map/import", "/warehouses/transactions", "/tickets", "/weighbridge", "/crop-structure", "/settings"]) {
+  for (const path of ["/fields-map/import", "/warehouses/transactions", "/tickets", "/weighbridge", "/crop-structure", "/settings"]) {
     assert.equal(canAccessPath("director", path), false, `director ${path}`);
   }
   for (const path of ["/dashboard", "/fields-map", "/warehouses", "/analytics"]) {
     assert.equal(canAccessPath("legal_operator", path), true, `legal_operator ${path}`);
   }
-  assert.equal(canAccessPath("legal_operator", "/weighbridge/ticket-id/print"), true, "legal_operator ticket print");
+  assert.equal(canAccessPath("legal_operator", "/weighbridge/10000000-0000-4000-8000-000000000001/print"), true, "legal_operator ticket print");
   for (const path of ["/weather-lab", "/fields", "/fields-map/import", "/warehouses/transactions", "/reports", "/tickets", "/weighbridge", "/crop-structure", "/settings"]) {
     assert.equal(canAccessPath("legal_operator", path), false, `legal_operator ${path}`);
   }
@@ -386,30 +412,34 @@ check("agronomist menus expose traffic and keep tickets hidden", () => {
   assert.match(mobileAgronomist, /harvest_summary[\s\S]*?crop_structure[\s\S]*?warehouses[\s\S]*?traffic[\s\S]*?MORE_ITEM/);
   assert.doesNotMatch(mobileAgronomist, /tickets_nav/);
 });
-check("director and legal operator menus match their four approved pages", () => {
+check("director and legal operator menus match their approved pages", () => {
   const desktopDirector = sidebar.match(/const DIRECTOR_NAV[\s\S]*?\];/)?.[0] ?? "";
   const desktopLegal = sidebar.match(/const LEGAL_OPERATOR_NAV[\s\S]*?\];/)?.[0] ?? "";
   const mobileDirector = mobileNav.match(/case "director":[\s\S]*?case "legal_operator"/)?.[0] ?? "";
   const mobileLegal = mobileNav.match(/case "legal_operator":[\s\S]*?case "specialist"/)?.[0] ?? "";
-  assert.match(desktopDirector, /harvest_summary[\s\S]*?field_map[\s\S]*?warehouses[\s\S]*?weather/);
-  assert.doesNotMatch(desktopDirector, /analytics|crop_structure|traffic|tickets_nav/);
+  assert.match(desktopDirector, /harvest_summary[\s\S]*?field_map[\s\S]*?warehouses[\s\S]*?weather[\s\S]*?analytics/);
+  assert.doesNotMatch(desktopDirector, /crop_structure|traffic|tickets_nav/);
   assert.match(desktopLegal, /harvest_summary[\s\S]*?field_map[\s\S]*?warehouses[\s\S]*?analytics/);
   assert.doesNotMatch(desktopLegal, /weather|fields"|crop_structure|traffic|tickets_nav/);
   assert.match(mobileDirector, /harvest_summary[\s\S]*?field_map[\s\S]*?warehouses[\s\S]*?weather/);
-  assert.doesNotMatch(mobileDirector, /analytics|MORE_ITEM/);
+  assert.match(mobileDirector, /MORE_ITEM/);
+  assert.doesNotMatch(mobileDirector, /analytics/);
   assert.match(mobileLegal, /harvest_summary[\s\S]*?field_map[\s\S]*?warehouses[\s\S]*?analytics/);
   assert.doesNotMatch(mobileLegal, /weather|MORE_ITEM/);
 });
 check("live dashboard and warehouse read APIs include intended roles", () => {
-  assert.match(dashboardPage, /\["agronomist", "director", "legal_operator", "company_admin", "global_admin"\]/);
-  assert.match(dashboardApi, /DASHBOARD_ROLES = \["global_admin", "company_admin", "agronomist", "director", "legal_operator"\]/);
-  assert.match(warehousePage, /\["weighman", "agronomist", "director", "legal_operator"\]\.includes\(role\)/);
-  assert.match(warehouseAuth, /WAREHOUSE_READ_ROLES = \[[\s\S]*?"director",\s*"legal_operator"/);
+  assert.match(dashboardPage, /\["agronomist", "director", "accountant", "legal_operator", "company_admin", "global_admin"\]/);
+  assert.match(dashboardApi, /DASHBOARD_ROLES = \["global_admin", "company_admin", "agronomist", "director", "accountant", "legal_operator"\]/);
+  assert.match(warehousePage, /canViewOperationalSummary = \["weighman", "agronomist", "director", "accountant"\]\.includes\(role\)/);
+  assert.match(warehousePage, /isReadOnlyRole = canViewOperationalSummary \|\| role === "legal_operator"/);
+  assert.match(warehouseAuth, /WAREHOUSE_READ_ROLES = \[[\s\S]*?"director",\s*"accountant",\s*"legal_operator"/);
   const weighbridgeReadRoles = weighbridgeAuth.match(/WEIGHBRIDGE_READ_ROLES = \[[\s\S]*?\] as const/)?.[0] ?? "";
   assert.doesNotMatch(weighbridgeReadRoles, /"legal_operator"/);
-  assert.match(harvestBatchApi, /HARVEST_BATCH_READ_ROLES = \[\.\.\.WEIGHBRIDGE_READ_ROLES, "legal_operator"\]/);
-  assert.match(ticketApi, /TICKET_READ_ROLES = \[\.\.\.WEIGHBRIDGE_READ_ROLES, "legal_operator"\]/);
-  assert.match(ticketPdfApi, /TICKET_PDF_READ_ROLES = \[\.\.\.WEIGHBRIDGE_READ_ROLES, "legal_operator"\]/);
+  assert.match(weighbridgeAuth, /WEIGHBRIDGE_TICKET_READ_ROLES = \[[\s\S]*?"director",\s*"accountant",\s*"legal_operator"/);
+  assert.match(weighbridgeAuth, /WEIGHBRIDGE_HARVEST_READ_ROLES = \[[\s\S]*?"director",\s*"accountant",\s*"legal_operator"/);
+  assert.match(harvestBatchApi, /allowedRoles: WEIGHBRIDGE_HARVEST_READ_ROLES/);
+  assert.match(ticketApi, /allowedRoles: WEIGHBRIDGE_TICKET_READ_ROLES/);
+  assert.match(ticketPdfApi, /allowedRoles: WEIGHBRIDGE_TICKET_READ_ROLES/);
 });
 check("field-map and warehouse writes exclude read-only cabinet roles", () => {
   const fieldWriteRoles = fieldMapPolicy.match(/FIELD_MAP_WRITE_ROLES = new Set<string>\(\[[\s\S]*?\]\)/)?.[0] ?? "";
@@ -424,7 +454,7 @@ check("assistant is global admin only", () => {
   assert.match(assistantPanel, /if \(!enabled\) return null/);
 });
 check("director and legal operator server mutations are blocked", () => {
-  assert.match(serverSession, /\["director", "legal_operator"\]\.includes\(actor\.role\)/);
+  assert.match(serverSession, /isOperationalReadOnlyRole\(actor\.role\)/);
   assert.match(serverSession, /This cabinet is read-only/);
 });
 check("legal operator remains read-only at the database boundary", () => {
@@ -439,26 +469,39 @@ check("legal operator remains read-only at the database boundary", () => {
 check("dashboard API does not cap harvest at one thousand rows", () => assert.match(dashboardApi, /\.range\(from, from \+ pageSize - 1\)/));
 check("dashboard presents the potato live chain", () => {
   assert.match(dashboardUi, /Главные показатели картофеля/);
-  assert.match(dashboardUi, /Принято/);
+  assert.match(dashboardUi, /Сегодня принято/);
+  assert.match(dashboardUi, /С текущего участка/);
   assert.match(dashboardUi, /На складе/);
-  assert.match(dashboardUi, /Текущее поле[\s\S]*Главные показатели картофеля[\s\S]*Статусы машин PTC[\s\S]*Последние рейсы[\s\S]*Размещение/);
+  assert.match(dashboardUi, /Живая урожайность/);
+  assert.match(dashboardUi, /Текущее поле[\s\S]*Главные показатели картофеля[\s\S]*Статусы машин PTC[\s\S]*PotatoDriverSummary/);
   assert.match(dashboardUi, /summary\?\.activeWeighbridgeSelection/);
   assert.doesNotMatch(dashboardUi, /traffic\?\.snapshot\.fieldName/);
   assert.match(dashboardApi, /crop_structure_allocation_id[\s\S]*crop_structure[\s\S]*field_id,area/);
   assert.match(dashboardUi, /potatoParties/);
   assert.doesNotMatch(dashboardUi, /Поступление по культурам|Завершено рейсов/);
 });
-check("dashboard keeps the driver data available but hides the temporary table", () => {
-  assert.doesNotMatch(dashboardUi, /PotatoDriverSummary/);
+check("dashboard shows the live driver champions table after the unchanged PTC status block", () => {
+  assert.match(dashboardUi, /Статусы машин PTC[\s\S]*<PotatoDriverSummary rows=\{summary\.potatoDrivers\}/);
   assert.match(dashboardUi, /\["agronomist", "director"\]\.includes\(profile\.role\)[\s\S]*?<TrafficShiftSummary/);
   assert.match(dashboardUi, /shiftReportOpen \? <div[\s\S]*?<TrafficShiftSummary/);
-  assert.match(potatoDriverUi, /timeZone: HARVEST_TIME_ZONE/);
-  assert.match(potatoDriverUi, /"водитель"[\s\S]*?"водителя"[\s\S]*?"водителей"/);
+  assert.match(potatoDriverUi, /Таблица чемпионов/);
+  assert.match(potatoDriverUi, /data-driver-id=\{row\.driverId \|\| row\.key\}/);
+  assert.match(potatoDriverUi, /duration: 400/);
+  assert.match(potatoDriverUi, /prefers-reduced-motion: reduce/);
+  assert.match(potatoDriverUi, /Самый быстрый/);
+  assert.match(potatoDriverUi, /талон будет напрямую связан с завершённым циклом PTC/);
 });
 check("yield calculator uses selected party stock and defaults to the field area", () => {
   assert.match(dashboardUi, /selectedPartyStockKg \/ 1000 \/ hectares/);
   assert.match(dashboardUi, /enteredHectares > 0 \? enteredHectares : fieldHectares/);
   assert.match(dashboardUi, /Убрано, га/);
+});
+check("live yield uses exact accepted mass and shift hectares only when plot ownership is verified", () => {
+  assert.match(dashboardApi, /currentPlotAcceptedKg \/ 1000 \/ harvestedAreaHa/);
+  assert.match(dashboardApi, /Number\(row\.hectares_shift\)/);
+  assert.match(dashboardApi, /hectares_field_total is a cumulative field/);
+  assert.match(dashboardApi, /currentPlotHarvestedAreaStatus: "field_has_multiple_plots"/);
+  assert.match(dashboardUi, /Недостаточно данных/);
 });
 check("dashboard live state and timers follow the combine shift", () => {
   assert.match(dashboardUi, /shiftIsOpen \? "Live" : "Offline"/);

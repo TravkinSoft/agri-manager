@@ -26,7 +26,11 @@ for (const label of ["Пустая машина", "Загруженная маш
 }
 
 assert.match(dashboard, /Оборот машин · \{trafficVehicles\.filter/);
-assert.doesNotMatch(dashboard, />Последние рейсы|>Размещение|PotatoDriverSummary/);
+assert.doesNotMatch(dashboard, />Последние рейсы|>Размещение/);
+assert.match(dashboard, /Статусы машин PTC[\s\S]*<PotatoDriverSummary rows=\{summary\.potatoDrivers\}/);
+for (const label of ["Сегодня принято", "С текущего участка", "На складе", "Живая урожайность"]) {
+  assert.match(dashboard, new RegExp(label));
+}
 assert.match(layout, /isDashboard \|\| isWarehouses \? "pt-1\.5 sm:pt-2 md:pt-3"/);
 assert.match(warehouses, /<div className="space-y-3">/);
 assert.match(warehouses, /sm:grid-cols-\[repeat\(auto-fill,240px\)\]/);

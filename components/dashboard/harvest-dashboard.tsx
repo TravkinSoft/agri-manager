@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowDownToLine, ChevronDown, Clock3, Loader2, PackageCheck, Truck, Wrench } from "lucide-react";
 import { TrafficShiftSummary } from "@/components/dashboard/traffic-shift-summary";
+import { PotatoDriverSummary } from "@/components/dashboard/potato-driver-summary";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { isPotatoLabel, type HarvestFilterOptions, type HarvestOverview } from "@/lib/dashboard/harvest-summary";
@@ -214,7 +215,8 @@ export function HarvestDashboard() {
   useLiveRefresh({ enabled: Boolean(companyId), companyId, tables: LIVE_REFRESH_TABLES.weighbridge, intervalMs: 15_000, onRefresh: loadDashboard });
 
   const potatoParties = useMemo(() => (summary?.parties || []).filter((party) => isPotatoLabel(party.cropName)), [summary]);
-  const receivedKg = potatoParties.reduce((total, party) => total + party.receivedKg, 0);
+  const receivedKg = summary?.potatoAcceptedKg || 0;
+  const currentPlotAcceptedKg = summary?.currentPlotAcceptedKg || 0;
   const stockKg = potatoParties.reduce((total, party) => total + party.currentStockKg, 0);
   const waitingTare = potatoParties.flatMap((party) => party.openTickets).filter((ticket) => (ticket.waitingTareMinutes || 0) > 0);
   const activeSelection = summary?.activeWeighbridgeSelection || null;
@@ -225,6 +227,16 @@ export function HarvestDashboard() {
   const activeShift = traffic?.snapshot.combineShift || null;
   const fieldHectares = activeSelection?.areaHa ?? null;
   const fieldDetail = [activeIdentity, fieldHectares === null ? null : `участок ${fieldHectares.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`].filter(Boolean).join(" · ");
+  const reproduction = compactReproductionLabel(activeSelection?.reproductionName);
+  const reproductionDetail = reproduction === "—" ? null : /^\d+$/u.test(reproduction) ? `${reproduction} р.` : reproduction;
+  const currentPlotIdentity = activeSelection
+    ? [
+        /^поле\b/iu.test(activeField) ? activeField : `Поле ${activeField}`,
+        activeSelection.varietyName,
+        reproductionDetail,
+        fieldHectares === null ? null : `участок ${fieldHectares.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`,
+      ].filter(Boolean).join(" · ")
+    : "Точный участок не выбран";
   const shiftIsOpen = activeShift?.status === "open";
   const selectedPartyStockKg = potatoParties
     .filter((party) => activeSelection && (
@@ -238,7 +250,15 @@ export function HarvestDashboard() {
     .reduce((total, party) => total + party.currentStockKg, 0);
   const enteredHectares = Number(harvestedHectares.replace(",", "."));
   const hectares = enteredHectares > 0 ? enteredHectares : fieldHectares;
-  const yieldTonnes = hectares && hectares > 0 ? selectedPartyStockKg / 1000 / hectares : null;
+  const manualYieldTonnes = hectares && hectares > 0 ? selectedPartyStockKg / 1000 / hectares : null;
+  const liveYieldTonnes = summary?.currentPlotYieldTPerHa ?? null;
+  const liveYieldNote = summary?.currentPlotHarvestedAreaStatus === "verified"
+    ? `Убрано за рабочий день: ${summary.currentPlotHarvestedAreaHa?.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`
+    : summary?.currentPlotHarvestedAreaStatus === "field_has_multiple_plots"
+      ? "Гектары смены связаны с полем, а не с точным участком"
+      : summary?.currentPlotHarvestedAreaStatus === "no_closed_shift"
+        ? "Нет закрытого отчёта смены с фактическими гектарами"
+        : "Точный участок не выбран";
   const trafficVehicles = useMemo(() => mergeTrafficVehicles(traffic?.snapshot || null, traffic?.fleet || []), [traffic]);
   const grouped = useMemo(() => Object.fromEntries(GROUPS.map((group) => [group.key, trafficVehicles.filter((vehicle) => vehicleGroup(vehicle) === group.key)])) as Record<TrafficGroup, TrafficVehicle[]>, [trafficVehicles]);
 
@@ -268,18 +288,26 @@ export function HarvestDashboard() {
             </div>
           </section>
 
-          <section className="grid grid-cols-3 border-b border-border" aria-label="Главные показатели картофеля">
-            <div className="min-w-0 py-1 pr-2 sm:pr-3">
-              <div className="text-[9px] uppercase leading-none tracking-[0.11em] text-muted-foreground sm:text-[10px]">Принято</div>
+          <section className="grid grid-cols-2 border-b border-border sm:grid-cols-4" aria-label="Главные показатели картофеля">
+            <div className="min-w-0 py-2 pr-2 sm:py-1 sm:pr-3">
+              <div className="text-[9px] uppercase leading-none tracking-[0.11em] text-muted-foreground sm:text-[10px]">Сегодня принято</div>
               <div className="mt-1 whitespace-nowrap text-base font-semibold leading-none tabular-nums text-[color:var(--manor-brass-soft)] sm:text-lg">{mass(receivedKg)}</div>
+              <div className="mt-1 truncate text-[10px] text-muted-foreground">Все поля компании</div>
             </div>
-            <div className="min-w-0 border-x border-border px-2 py-1 sm:px-3">
+            <div className="min-w-0 border-l border-border px-2 py-2 sm:px-3 sm:py-1">
+              <div className="text-[9px] uppercase leading-none tracking-[0.08em] text-muted-foreground sm:text-[10px]">С текущего участка</div>
+              <div className="mt-1 whitespace-nowrap text-base font-semibold leading-none tabular-nums text-foreground sm:text-lg">{mass(currentPlotAcceptedKg)}</div>
+              <div className="mt-1 truncate text-[10px] text-muted-foreground" title={currentPlotIdentity}>{currentPlotIdentity}</div>
+            </div>
+            <div className="min-w-0 border-t border-border py-2 pr-2 sm:border-l sm:border-t-0 sm:px-3 sm:py-1">
               <div className="text-[9px] uppercase leading-none tracking-[0.11em] text-muted-foreground sm:text-[10px]">На складе</div>
               <div className="mt-1 whitespace-nowrap text-base font-semibold leading-none tabular-nums text-foreground sm:text-lg">{mass(stockKg)}</div>
+              <div className="mt-1 truncate text-[10px] text-muted-foreground">Чистый остаток картофеля</div>
             </div>
-            <button type="button" onClick={() => setCalculatorOpen((value) => !value)} className="min-h-9 min-w-0 px-2 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-3">
-              <div className="text-[9px] uppercase leading-none tracking-[0.08em] text-muted-foreground sm:text-[10px]">Урожайность</div>
-              <div className="mt-1 whitespace-nowrap text-sm font-semibold leading-none tabular-nums text-foreground sm:text-lg">{yieldTonnes == null ? "Рассчитать" : `${yieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div>
+            <button type="button" onClick={() => setCalculatorOpen((value) => !value)} className="min-h-9 min-w-0 border-l border-t border-border px-2 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:border-t-0 sm:px-3 sm:py-1">
+              <div className="text-[9px] uppercase leading-none tracking-[0.08em] text-muted-foreground sm:text-[10px]">Живая урожайность</div>
+              <div className={`mt-1 leading-none tabular-nums text-foreground ${liveYieldTonnes == null ? "text-xs font-medium sm:text-sm" : "whitespace-nowrap text-sm font-semibold sm:text-lg"}`}>{liveYieldTonnes == null ? "Недостаточно данных" : `${liveYieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div>
+              <div className="mt-1 truncate text-[10px] text-muted-foreground" title={liveYieldNote}>{liveYieldNote}</div>
             </button>
           </section>
 
@@ -289,7 +317,7 @@ export function HarvestDashboard() {
               <label className="text-[11px] text-muted-foreground">Убрано, га
                 <Input inputMode="decimal" value={harvestedHectares} onChange={(event) => setHarvestedHectares(event.target.value)} placeholder={fieldHectares ? `По участку: ${fieldHectares.toLocaleString("ru-RU")}` : "Например, 2,4"} className="mt-1 h-9" />
               </label>
-              <div className="min-w-0"><div className="text-[11px] text-muted-foreground">Урожайность</div><div className="mt-1 truncate text-lg font-semibold tabular-nums text-[color:var(--manor-brass-soft)]">{yieldTonnes == null ? "—" : `${yieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div></div>
+               <div className="min-w-0"><div className="text-[11px] text-muted-foreground">Урожайность</div><div className="mt-1 truncate text-lg font-semibold tabular-nums text-[color:var(--manor-brass-soft)]">{manualYieldTonnes == null ? "—" : `${manualYieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div></div>
             </section>
           ) : null}
 
@@ -317,6 +345,8 @@ export function HarvestDashboard() {
           )}
         </section>
       ) : null}
+
+      {summary ? <PotatoDriverSummary rows={summary.potatoDrivers} periodLabel="Текущий рабочий день" /> : null}
 
       {profile && ["agronomist", "director"].includes(profile.role) && profile.company_id ? (
         <details className="group border-y border-border" onToggle={(event) => setShiftReportOpen(event.currentTarget.open)}>

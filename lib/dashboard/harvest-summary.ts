@@ -112,6 +112,11 @@ export type HarvestOverview = {
   period: HarvestPeriod;
   completedTripCount: number;
   openTicketCount: number;
+  potatoAcceptedKg: number;
+  currentPlotAcceptedKg: number;
+  currentPlotHarvestedAreaHa: number | null;
+  currentPlotYieldTPerHa: number | null;
+  currentPlotHarvestedAreaStatus: "verified" | "no_selection" | "field_has_multiple_plots" | "no_closed_shift";
   activeWeighbridgeSelection: {
     ticketId: string;
     occurredAt: string;
@@ -136,6 +141,9 @@ export type HarvestOverview = {
     netWeightKg: number;
     averageNetWeightKg: number;
     lastTripAt: string;
+    vehicles: Array<{ vehicleId: string | null; label: string }>;
+    averageTripMinutes: number | null;
+    timedTripCount: number;
   }>;
   parties: HarvestParty[];
   cropTotals: Array<{ key: string; cropId: string | null; cropName: string; receivedKg: number; trips: number }>;
@@ -527,6 +535,21 @@ export function buildHarvestOverview(
         areaHa: Number.isFinite(activeAreaHa) && activeAreaHa > 0 ? activeAreaHa : null,
       }
     : null;
+  const potatoFinalized = finalized.filter((ticket) => isPotatoLabel(ticketIdentity(ticket).crop));
+  const potatoAcceptedKg = potatoFinalized.reduce((total, ticket) => total + harvestTicketHeaderNetKg(ticket), 0);
+  const currentPlotAcceptedKg = activeWeighbridgeSelection
+    ? potatoFinalized
+        .filter((ticket) => {
+          const identity = ticketIdentity(ticket);
+          return ticket.field_id === activeWeighbridgeSelection.fieldId
+            && ticket.crop_structure_allocation_id === activeWeighbridgeSelection.cropStructureAllocationId
+            && (ticket.season_id || null) === activeWeighbridgeSelection.seasonId
+            && identity.cropId === activeWeighbridgeSelection.cropId
+            && identity.varietyId === activeWeighbridgeSelection.varietyId
+            && identity.reproductionId === activeWeighbridgeSelection.reproductionId;
+        })
+        .reduce((total, ticket) => total + harvestTicketHeaderNetKg(ticket), 0)
+    : 0;
 
   const cropMap = new Map<string, HarvestOverview["cropTotals"][number]>();
   const fieldMap = new Map<string, HarvestOverview["fields"][number]>();
@@ -678,12 +701,21 @@ export function buildHarvestOverview(
         netWeightKg: 0,
         averageNetWeightKg: 0,
         lastTripAt: occurredAt,
+        vehicles: [],
+        averageTripMinutes: null,
+        timedTripCount: 0,
       };
       driverRow.tripCount += 1;
       driverRow.netWeightKg += netKg;
       driverRow.averageNetWeightKg = driverRow.netWeightKg / driverRow.tripCount;
       if (new Date(occurredAt).getTime() >= new Date(driverRow.lastTripAt).getTime()) {
         driverRow.lastTripAt = occurredAt;
+      }
+      const tripVehicleId = cleanLabel(ticket.vehicle_id);
+      const tripVehicleLabel = vehicleLabel(ticket);
+      if (!driverRow.vehicles.some((vehicle) => (vehicle.vehicleId || vehicle.label) === (tripVehicleId || tripVehicleLabel))) {
+        driverRow.vehicles.push({ vehicleId: tripVehicleId, label: tripVehicleLabel });
+        driverRow.vehicles.sort((left, right) => left.label.localeCompare(right.label, "ru"));
       }
       potatoDriverMap.set(driverKey, driverRow);
     }
@@ -874,6 +906,11 @@ export function buildHarvestOverview(
     period: options.period,
     completedTripCount: finalized.length,
     openTicketCount: open.length,
+    potatoAcceptedKg,
+    currentPlotAcceptedKg,
+    currentPlotHarvestedAreaHa: null,
+    currentPlotYieldTPerHa: null,
+    currentPlotHarvestedAreaStatus: activeWeighbridgeSelection ? "no_closed_shift" : "no_selection",
     activeWeighbridgeSelection,
     potatoDrivers: Array.from(potatoDriverMap.values())
       .sort((a, b) => b.tripCount - a.tripCount || b.netWeightKg - a.netWeightKg || a.driverName.localeCompare(b.driverName, "ru")),
