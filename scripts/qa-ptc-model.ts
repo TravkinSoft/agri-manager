@@ -47,7 +47,7 @@ async function main() {
   );
   check(
     visibleVehicles(vehicles, "receiver").map((v) => v.state),
-    ["loaded", "unloading"],
+    ["unloading", "loaded"],
   );
   check(
     visibleVehicles(vehicles, "weighman").map((v) => v.state),

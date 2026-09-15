@@ -230,13 +230,13 @@ async function main() {
       check(cancelled.confirmPrompts.length, 1);
       check(cancelled.confirmPrompts[0].includes("Машина фактически прибыла на выгрузку? Она останется в ремонте."), true);
     } else {
-      check(repairCards.map(card => card.type), ["article", "button"]);
+      check(repairCards.map(card => card.type), ["button", "article"]);
       check(repairCards.every(card => words(card).includes("Ремонт отмечен")), true);
       check(repairCards.every(card => words(card).includes("8 мин")), true);
-      check(repairCards[0].props.className.includes("bg-emerald-50"), true);
-      check(repairCards[1].props.className.includes("bg-amber-50"), true);
-      check(repairCards[0].props["data-repair-stage-action"], undefined);
-      check(repairCards[1].props["data-repair-stage-action"], "true");
+      check(repairCards[0].props.className.includes("bg-amber-50"), true);
+      check(repairCards[1].props.className.includes("bg-emerald-50"), true);
+      check(repairCards[0].props["data-repair-stage-action"], "true");
+      check(repairCards[1].props["data-repair-stage-action"], undefined);
       const stageNote = nodes(repairTree).find(node => node.props?.["data-testid"] === "traffic-repair-stage-note");
       check(stageNote?.props.role, "status");
       check(words(stageNote).includes("до весовой — только для контроля"), true);
@@ -600,6 +600,10 @@ async function main() {
   check(receiverIncomingCard.type, "article");
   check(receiverIncomingCard.props.onClick, undefined);
   check(words(receiverIncomingCard).includes("В пути к приёмке"), true);
+  const receiverQueueCards = cardNodes(harness("receiver", [vehicles[0], vehicles[2]]).render());
+  check(receiverQueueCards.map(card => card.props["data-testid"]), ["traffic-vehicle-car-2", "traffic-vehicle-car-0"]);
+  check(words(receiverQueueCards[0]).includes("На выгрузке"), true);
+  check(words(receiverQueueCards[1]).includes("В пути к приёмке"), true);
   check(renderToStaticMarkup(harness("receiver", []).render()).includes("Пока нет машин на пути к приёмке"), true);
   check(renderToStaticMarkup(harness("weighman", []).render()).includes("Пока нет загруженных машин"), true);
 

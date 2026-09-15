@@ -173,7 +173,9 @@ export function visibleVehicles(
   vehicles: TrafficVehicle[],
   role: TrafficRole,
 ): TrafficVehicle[] {
-  const rank = { empty: 0, loaded: 1, unloading: 2 };
+  const rank: Record<TrafficState, number> = role === "receiver"
+    ? { unloading: 0, loaded: 1, empty: 2 }
+    : { empty: 0, loaded: 1, unloading: 2 };
   return vehicles
     .filter((v) =>
       v.assigned &&
