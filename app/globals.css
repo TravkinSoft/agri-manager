@@ -191,7 +191,12 @@
 
   .tf-manor-workspace {
     background: transparent;
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
   }
+
+  .tf-scroll-hidden { scrollbar-width: none; }
+  .tf-scroll-hidden::-webkit-scrollbar { display: none; }
 
   .tf-manor-sidebar,
   .tf-manor-topbar {

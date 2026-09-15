@@ -189,6 +189,7 @@ export async function listHarvestBatchSummaries(
     warehouseId?: string;
     aggregateLots?: boolean;
     summaryOnly?: boolean;
+    originsOnly?: boolean;
     lotId?: string;
     signal?: AbortSignal;
   }
@@ -199,6 +200,7 @@ export async function listHarvestBatchSummaries(
   if (options?.warehouseId) query.set("warehouseId", options.warehouseId);
   if (options?.aggregateLots) query.set("view", "lots");
   if (options?.summaryOnly) query.set("detail", "summary");
+  if (options?.originsOnly) query.set("detail", "origins");
   if (options?.lotId) query.set("lotId", options.lotId);
   const url = `/api/weighbridge/harvest-batches${query.size ? `?${query.toString()}` : ""}`;
   const response = await fetch(url, { method: "GET", cache: "no-store", headers, signal: options?.signal });

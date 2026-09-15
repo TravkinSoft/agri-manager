@@ -223,7 +223,7 @@ export function HarvestDashboard() {
   return (
     <div className="mx-auto w-full max-w-[1500px] space-y-5 overflow-x-hidden">
       {error ? <div className="border-l-2 border-rose-400 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
-      {loading && !summary ? <div className="flex min-h-[18rem] items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка...</div> : null}
+      {loading && !summary ? <div className="flex min-h-[144px] items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка...</div> : null}
 
       {summary ? (
         <>
@@ -244,17 +244,17 @@ export function HarvestDashboard() {
           </section>
 
           <section className="grid grid-cols-3 border-b border-border" aria-label="Главные показатели картофеля">
-            <div className="min-w-0 py-4 pr-2 sm:pr-3">
+            <div className="min-w-0 py-2 pr-2 sm:pr-3">
               <div className="text-[9px] uppercase tracking-[0.11em] text-muted-foreground sm:text-[10px]">Принято</div>
-              <div className="mt-1 whitespace-nowrap text-lg font-semibold tabular-nums text-[color:var(--manor-brass-soft)] sm:text-2xl">{mass(receivedKg)}</div>
+              <div className="mt-0.5 whitespace-nowrap text-base font-semibold tabular-nums text-[color:var(--manor-brass-soft)] sm:text-xl">{mass(receivedKg)}</div>
             </div>
-            <div className="min-w-0 border-x border-border px-2 py-4 sm:px-3">
+            <div className="min-w-0 border-x border-border px-2 py-2 sm:px-3">
               <div className="text-[9px] uppercase tracking-[0.11em] text-muted-foreground sm:text-[10px]">На складе</div>
-              <div className="mt-1 whitespace-nowrap text-lg font-semibold tabular-nums text-foreground sm:text-2xl">{mass(stockKg)}</div>
+              <div className="mt-0.5 whitespace-nowrap text-base font-semibold tabular-nums text-foreground sm:text-xl">{mass(stockKg)}</div>
             </div>
-            <button type="button" onClick={() => setCalculatorOpen((value) => !value)} className="min-w-0 px-2 py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-3">
+            <button type="button" onClick={() => setCalculatorOpen((value) => !value)} className="min-h-11 min-w-0 px-2 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-3">
               <div className="text-[9px] uppercase tracking-[0.08em] text-muted-foreground sm:text-[10px]">Урожайность</div>
-              <div className="mt-1 whitespace-nowrap text-base font-semibold tabular-nums text-foreground sm:text-2xl">{yieldTonnes == null ? "Рассчитать" : `${yieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div>
+              <div className="mt-0.5 whitespace-nowrap text-sm font-semibold tabular-nums text-foreground sm:text-xl">{yieldTonnes == null ? "Рассчитать" : `${yieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div>
             </button>
           </section>
 

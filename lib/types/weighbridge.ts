@@ -295,7 +295,7 @@ export interface HarvestBatchSummary {
   cropName: string;
   cropCategorySlug?: string;
   processingEligible?: boolean;
-  detailLevel?: "summary" | "full";
+  detailLevel?: "summary" | "origins" | "full";
   varietyId: string | null;
   varietyName: string;
   reproductionId: string | null;
@@ -347,6 +347,8 @@ export interface HarvestBatchSummary {
     fieldId: string | null;
     fieldName: string;
     netWeightKg: number;
+    areaHa?: number | null;
+    yieldTPerHa?: number | null;
     enteredProcessingKg?: number | null;
     tripCount: number;
   }>;

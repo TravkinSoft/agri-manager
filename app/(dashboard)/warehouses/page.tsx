@@ -180,6 +180,7 @@ export default function WarehousesPage() {
   const [detailBalance, setDetailBalance] = useState<InventoryBalance | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<HarvestBatchSummary | null>(null);
   const [selectedBatchLoading, setSelectedBatchLoading] = useState(false);
+  const [selectedBatchError, setSelectedBatchError] = useState<string | null>(null);
   const selectedBatchRequestGeneration = useRef(0);
   const [isReorderMode, setIsReorderMode] = useState(false);
   const [reorderDraftIds, setReorderDraftIds] = useState<string[]>([]);
@@ -372,11 +373,12 @@ export default function WarehousesPage() {
     setDetailsError(null);
   };
 
-  const openHarvestBatch = async (batch: HarvestBatchSummary) => {
+  const openHarvestBatch = async (batch: HarvestBatchSummary, history = false) => {
     if (!profile?.company_id) return;
     const generation = ++selectedBatchRequestGeneration.current;
     setSelectedBatch(batch);
-    if (batch.detailLevel === "full") {
+    setSelectedBatchError(null);
+    if (history && batch.detailLevel === "full") {
       setSelectedBatchLoading(false);
       return;
     }
@@ -386,14 +388,18 @@ export default function WarehousesPage() {
         warehouseId: batch.warehouseId,
         aggregateLots: true,
         lotId: batch.aggregateLotId || batch.id,
+        originsOnly: !history,
       });
       const full = rows.find((row) => row.id === batch.id && row.warehouseId === batch.warehouseId);
       if (!full) throw new Error("Партия больше не находится на этом складе");
       if (selectedBatchRequestGeneration.current === generation) {
-        setSelectedBatch((current) => current?.id === batch.id && current.warehouseId === batch.warehouseId ? full : current);
+        setSelectedBatch((current) => current?.id === batch.id && current.warehouseId === batch.warehouseId
+          ? history ? { ...full, fieldSummaries: current.fieldSummaries || full.fieldSummaries } : { ...current, detailLevel: "origins", fieldSummaries: full.fieldSummaries }
+          : current);
       }
     } catch (cause) {
       if (selectedBatchRequestGeneration.current === generation) {
+        setSelectedBatchError(cause instanceof Error ? cause.message : "Не удалось загрузить данные партии");
         toast({
           title: "Не удалось загрузить историю партии",
           description: cause instanceof Error ? cause.message : "Повторите попытку",
@@ -494,7 +500,7 @@ export default function WarehousesPage() {
   useEffect(() => {
     if (!selectedBatch) return;
     const current = findWarehouseScopedHarvestBatch(harvestBatches, selectedBatch);
-    if (current && current !== selectedBatch && selectedBatch.detailLevel !== "full") setSelectedBatch(current);
+    if (current && current !== selectedBatch && selectedBatch.detailLevel === "summary") setSelectedBatch(current);
   }, [harvestBatches, selectedBatch]);
 
   const summaries = useMemo<Summary[]>(() => warehouses.filter((warehouse) => warehouse.company_id === profile?.company_id).map((warehouse) => {
@@ -872,18 +878,6 @@ export default function WarehousesPage() {
 
   return (
     <div className="space-y-5">
-      {canManageWarehouses || canStockOperate ? (
-        <div className="flex flex-wrap justify-end gap-2">
-          {canManageWarehouses ? <Button asChild variant="outline">
-            <Link href="/warehouses/manage"><Settings2 className="mr-2 h-4 w-4" />Управление складами</Link>
-          </Button> : null}
-          {canStockOperate ? (
-            <Button asChild variant="outline">
-              <Link href="/warehouses/inventory"><ClipboardList className="mr-2 h-4 w-4" />Инвентаризация</Link>
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
 
       {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
       {reorderError ? <Alert variant="destructive"><AlertDescription>{reorderError}.</AlertDescription></Alert> : null}
@@ -907,7 +901,8 @@ export default function WarehousesPage() {
         </div>
       ) : null}
       <div id="warehouse-view" hidden={isAgronomist && selectedView !== "warehouses"} role={isAgronomist ? "tabpanel" : undefined} aria-labelledby={isAgronomist ? "warehouse-tab-warehouses" : undefined} className="space-y-3">
-      <div className="relative max-w-md">
+      <div className="flex flex-wrap items-center gap-2" data-testid="warehouse-toolbar">
+      <div className="relative min-w-0 basis-full sm:basis-64 sm:flex-1 sm:max-w-md">
         <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
         <Input
           className="pl-9"
@@ -917,6 +912,11 @@ export default function WarehousesPage() {
           disabled={isReorderMode}
           placeholder="Найти склад, материал, культуру, поле или партию"
         />
+      </div>
+      {canManageWarehouses || canStockOperate ? <div className="flex flex-wrap gap-2 sm:ml-auto">
+        {canManageWarehouses ? <Button asChild variant="outline"><Link href="/warehouses/manage"><Settings2 className="mr-2 h-4 w-4" />Управление складами</Link></Button> : null}
+        {canStockOperate ? <Button asChild variant="outline"><Link href="/warehouses/inventory"><ClipboardList className="mr-2 h-4 w-4" />Инвентаризация</Link></Button> : null}
+      </div> : null}
       </div>
       {searchDataLoading ? (
         <div className="text-xs text-muted-foreground" role="status">Ищем по остаткам и партиям...</div>
@@ -1100,6 +1100,9 @@ export default function WarehousesPage() {
         }}
         batch={selectedBatch}
         loading={selectedBatchLoading}
+        error={selectedBatchError}
+        onLoadHistory={() => selectedBatch && void openHarvestBatch(selectedBatch, true)}
+        onRetryOrigins={() => selectedBatch && void openHarvestBatch(selectedBatch)}
       />
     </div>
   );

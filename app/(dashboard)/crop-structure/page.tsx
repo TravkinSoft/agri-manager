@@ -25,6 +25,7 @@ import { OperationFormDialog } from "@/components/operations/operation-form-dial
 import { SpecialistOperationPlan } from "@/components/operations/specialist-operation-plan";
 import { CatalogIdentityCombobox } from "@/components/crop-structure/catalog-identity-combobox";
 import { FieldHarvestLive } from "@/components/crop-structure/field-harvest-live";
+import { fieldSearchRank } from "@/lib/fields/search-rank";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
@@ -876,6 +877,10 @@ export default function CropStructurePage() {
       .filter((field) => !q || field.name.toLowerCase().includes(q))
       .filter((field) => cropFilter === "all" || (allocByField.get(field.id) || []).some((row) => row.crop_id === cropFilter))
       .sort((a, b) => {
+        if (q) {
+          const relevance = fieldSearchRank(a.name, q) - fieldSearchRank(b.name, q);
+          if (relevance) return relevance;
+        }
         if (sortBy === "field") return a.name.localeCompare(b.name, "ru");
         if (sortBy === "area") return b.area - a.area;
         if (sortBy === "main_crop") return cropName(mainCrop(a.id)).localeCompare(cropName(mainCrop(b.id)), "ru");
@@ -2016,8 +2021,8 @@ export default function CropStructurePage() {
     return (
       <article
         key={`master-${field.id}`}
-        className={`overflow-hidden rounded-xl border bg-card transition-colors motion-reduce:transition-none ${
-          isSelected ? "border-primary shadow-sm" : "border-border hover:border-primary/40"
+        className={`overflow-hidden rounded-lg transition-colors motion-reduce:transition-none ${
+          isSelected ? "bg-primary/10" : "bg-transparent hover:bg-muted/50"
         }`}
         data-testid="crop-field-master-item"
         data-selected={isSelected ? "true" : "false"}
@@ -2058,18 +2063,12 @@ export default function CropStructurePage() {
             ) : null}
           </span>
 
-          <span className="mt-3 flex items-center gap-2">
-            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-              <span className="block h-full rounded-full bg-primary" style={{ width: `${progress}%` }} />
-            </span>
-            <span className="w-9 shrink-0 text-right text-[10px] font-semibold tabular-nums text-muted-foreground">{progress.toFixed(0)}%</span>
-          </span>
         </button>
-        <div className="border-t border-border px-3 py-2">
+        <div className="px-3 pb-2">
           <Button
             type="button"
             size="sm"
-            variant="outline"
+            variant="ghost"
             className="h-9 w-full"
             onClick={(event) => openPrimaryOperationPlan(field, event)}
             disabled={!FIELD_FIRST_CREATE_ENABLED || hasUnsavedStructureChanges || saving}
@@ -2547,21 +2546,20 @@ export default function CropStructurePage() {
               <div className="flex items-center justify-between pb-2 lg:pb-3">
                 <div>
                   <div className="text-sm font-semibold text-foreground">Участки</div>
-                  <div className="text-xs text-muted-foreground">Выберите объект операции</div>
                 </div>
                 <Badge className="border-border bg-background text-foreground hover:bg-background">{rowItems.length}</Badge>
               </div>
-              <div className="flex min-h-0 gap-2 overflow-x-auto pb-2 [scrollbar-width:thin] [scrollbar-color:var(--manor-line)_transparent] lg:block lg:space-y-1 lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
+              <div className="tf-scroll-hidden flex min-h-0 gap-2 overflow-x-auto pb-2 lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0">
                 {rowItems.map((item) => {
                   const isSelected = item.key === selectedItem.key;
                   return (
                     <button
                       key={item.key}
                       type="button"
-                      className={`flex min-h-16 min-w-[220px] items-center justify-between gap-3 rounded-lg border-l-2 px-3 py-2 text-left transition-colors motion-reduce:transition-none lg:min-w-0 ${
+                      className={`flex min-h-16 w-60 shrink-0 items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition-colors motion-reduce:transition-none lg:w-full lg:min-w-0 ${
                         isSelected
-                          ? "border-primary bg-primary/10"
-                          : "border-transparent bg-transparent hover:border-border hover:bg-background"
+                          ? "bg-primary/15 ring-1 ring-inset ring-primary/30"
+                          : "bg-card hover:bg-muted/60"
                       }`}
                       onClick={() => {
                         setSelectedDossierAllocationKey(item.key);
@@ -2569,7 +2567,7 @@ export default function CropStructurePage() {
                       }}
                     >
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-foreground">{item.title}</div>
+                        <div className="text-sm font-semibold leading-snug text-foreground [overflow-wrap:anywhere]">{item.title}</div>
                         <div className={`mt-1 text-xs ${item.reviewRequired ? "font-medium text-amber-800" : "text-muted-foreground"}`}>
                           {item.reviewRequired ? "Требуется уточнить сорт и репродукцию" : fmtHa(item.plannedArea)}
                         </div>
@@ -3414,32 +3412,6 @@ export default function CropStructurePage() {
 
   return (
     <div className="space-y-4">
-      {seasons.length > 1 ? (
-        <div className="flex justify-end">
-          <Select
-            value={seasonId || undefined}
-            onValueChange={(value) => {
-              closeField();
-              setSeasonId(value);
-            }}
-            disabled={seasons.length === 0 || saving || (isDesktopWorkspace && hasUnsavedStructureChanges)}
-          >
-            <SelectTrigger
-              className="h-8 min-w-[132px] border-border bg-transparent px-2 text-xs font-medium text-muted-foreground shadow-none hover:border-border hover:text-foreground disabled:cursor-default disabled:opacity-70"
-              aria-label="Сезон структуры посевов"
-            >
-              <SelectValue placeholder="Сезон не создан" />
-            </SelectTrigger>
-            <SelectContent>
-              {seasons.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
-                  {item.year}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      ) : null}
 
       {season && !canEditSelectedSeason && canEditStructure ? (
         <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-800">
@@ -3579,7 +3551,7 @@ export default function CropStructurePage() {
             className="hidden min-w-0 gap-4 xl:grid xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]"
             data-testid="crop-master-detail-workspace"
           >
-            <Card className="flex h-[calc(100dvh-12rem)] min-h-[540px] max-h-[860px] min-w-0 flex-col overflow-hidden">
+            <Card className="flex h-[calc(100dvh-12rem)] min-h-[540px] max-h-[860px] min-w-0 flex-col overflow-hidden border-0 bg-transparent shadow-none">
               <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
                 <div>
                   <h2 className="text-sm font-semibold text-foreground">Поля</h2>
@@ -3587,7 +3559,7 @@ export default function CropStructurePage() {
                 </div>
                 <Badge className="border-border bg-background text-foreground hover:bg-background">{filteredFields.length}</Badge>
               </div>
-              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 travkin-scrollbar" aria-label="Поля выбранного сезона">
+              <div className="tf-scroll-hidden min-h-0 flex-1 space-y-1 overflow-y-auto p-1" aria-label="Поля выбранного сезона">
                 {filteredFields.map(renderFieldMasterItem)}
               </div>
             </Card>

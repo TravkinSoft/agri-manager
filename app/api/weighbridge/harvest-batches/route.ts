@@ -23,6 +23,7 @@ import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
 import { summarizeAggregateHarvestLotFields } from "@/lib/weighbridge/harvest-lot-option-label";
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { getServiceClient } from "@/lib/supabase/service";
+import { buildWarehouseFieldOrigins } from "@/lib/warehouse/field-origins";
 
 import {
   collapseOperationDocuments,
@@ -176,6 +177,7 @@ async function loadSharedImpurityPoolSummaries(
   companyId: string,
   warehouseId: string | null,
   poolBatchId: string | null = null,
+  originsOnly = false,
 ) {
   // The request session and company access are already verified by
   // resolveWeighbridgeSession. Read the complete pool projection through the
@@ -199,7 +201,7 @@ async function loadSharedImpurityPoolSummaries(
   }
   const groups = (rawGroups || []) as any[];
   if (!groups.length) return [];
-  const detailed = Boolean(poolBatchId);
+  const detailed = Boolean(poolBatchId) && !originsOnly;
 
   const groupIds = ids(groups.map((group) => group.id));
   const batchIds = ids(groups.map((group) => group.pool_inventory_batch_id));
@@ -390,6 +392,8 @@ async function loadSharedImpurityPoolSummaries(
         fieldId: sourceIdentityId,
         fieldName: sourceIdentityName,
         netWeightKg: Number(member.source_total_snapshot_kg || 0),
+        areaHa: Number(snapshot.area_ha) > 0 ? Number(snapshot.area_ha) : null,
+        yieldTPerHa: Number(snapshot.area_ha) > 0 ? Number(member.source_total_snapshot_kg || 0) / 1000 / Number(snapshot.area_ha) : null,
         tripCount: sourceTrips.length,
       };
     });
@@ -451,7 +455,7 @@ async function loadSharedImpurityPoolSummaries(
       reviewState: "confirmed" as const,
       reviewReasons: [],
       cropStructureSources: [],
-      fieldSummaries: detailed ? fieldSummaries : [],
+      fieldSummaries: detailed || originsOnly ? fieldSummaries : [],
       tripBatches: detailed ? tripBatches : [],
       outgoingDocuments: detailed && impurityTicket ? [{
         id: String(impurityTicket.id),
@@ -568,13 +572,9 @@ async function loadAggregateHarvestLotSummaries(
     categoryIds.length
       ? supabase.from("crop_categories").select("id,slug,name_ru").in("id", categoryIds)
       : Promise.resolve({ data: [], error: null }),
-    sourceTicketIds.length
-      ? loadInChunks<any>(sourceTicketIds, (chunk) => supabase
-          .from("tickets")
-          .select("id,field_id")
-          .eq("company_id", companyId)
-          .in("id", chunk)).catch(() => [])
-      : Promise.resolve([]),
+    // The warehouse list does not load tickets, even for field-name fallback.
+    // Source fields are resolved from stock and crop-structure links here.
+    Promise.resolve([]),
     cropStructureIds.length
       ? supabase
           .from("crop_structure")
@@ -907,7 +907,8 @@ async function loadAggregateHarvestLots(
   harvestStockSupabase: any,
   companyId: string,
   warehouseId: string | null,
-  lotId: string | null
+  lotId: string | null,
+  originsOnly = false,
 ) {
   let lotsQuery = supabase
     .from("harvest_lots")
@@ -1045,10 +1046,32 @@ async function loadAggregateHarvestLots(
   const ticketIds = lineageTicketIds(lineage);
   const ticketRows = await loadInChunks<any>(ticketIds, (chunk) => supabase
     .from("tickets")
-    .select("id,ticket_no,op_type,field_id,vehicle_id,driver_id,warehouse_to_id,audit_json,net_weight_kg,status,is_finalized,is_voided,replacement_ticket_id,created_at,finalized_at")
+    .select(originsOnly
+      ? "id,op_type,field_id,crop_structure_allocation_id,warehouse_to_id,accepted_weight_kg,net_weight_kg,status,is_finalized,is_voided,replacement_ticket_id"
+      : "id,ticket_no,op_type,field_id,vehicle_id,driver_id,warehouse_to_id,audit_json,net_weight_kg,status,is_finalized,is_voided,replacement_ticket_id,created_at,finalized_at")
     .eq("company_id", companyId)
     .in("id", chunk)
     .order("id", { ascending: true }));
+  if (originsOnly) {
+    const structureIds = ids(ticketRows.map(row => row.crop_structure_allocation_id));
+    const structures = await loadInChunks<any>(structureIds, chunk => supabase.from("crop_structure")
+      .select("id,field_id,area").eq("company_id", companyId).in("id", chunk).order("id"));
+    const names = new Map<string, string>((fieldsResult.data || []).map((row: any) => [String(row.id), String(row.name)]));
+    const candidates = resolveEffectiveHarvestTicketCandidatesByBatch(lineage, ticketRows);
+    const batchById = new Map(directBatchRows.map(row => [String(row.id), row]));
+    return lotRows.flatMap(lot => {
+      const members = lineage.filter(row => row.harvestLotId === String(lot.id));
+      const lotTicketIds = new Set(members.flatMap(row => (candidates.get(row.inventoryBatchId) || []).map(item => item.ticketId)));
+      const warehouses = new Map(allStockRows.filter((stock: any) => String(stock.harvest_lot_id) === String(lot.id) && Number(stock.current_weight_kg) > 0).map((stock: any) => [String(stock.warehouse_id), stock]));
+      return Array.from(warehouses.values()).map((stock: any) => {
+        const localMembers = members.filter(row => String(batchById.get(row.inventoryBatchId)?.warehouse_id) === String(stock.warehouse_id));
+        const originIds = new Set(localMembers.flatMap(row => (candidates.get(row.inventoryBatchId) || []).map(item => item.ticketId)));
+        const yieldRows = ticketRows.filter(row => lotTicketIds.has(String(row.id)));
+        const sourceRows = yieldRows.filter(row => originIds.has(String(row.id)) || String(row.warehouse_to_id) === String(stock.warehouse_id));
+        return { id: String(lot.id), warehouseId: String(stock.warehouse_id), fieldSummaries: buildWarehouseFieldOrigins(sourceRows, structures, names, yieldRows) };
+      });
+    });
+  }
   const vehicleIds = ids(ticketRows.map((row) => row.vehicle_id));
   const driverIds = ids(ticketRows.map((row) => row.driver_id));
   const [vehiclesResult, machinesResult, peopleResult, specialistsResult, profilesResult] = await Promise.all([
@@ -1771,12 +1794,15 @@ export async function GET(request: NextRequest) {
       // timeout even when the underlying aggregate itself takes only milliseconds.
       const harvestStockSupabase = getServiceClient();
       const summaryOnly = request.nextUrl.searchParams.get("detail") === "summary";
+      const originsOnly = request.nextUrl.searchParams.get("detail") === "origins";
+      if (originsOnly && (!lotId || !warehouseId)) return timedJson({ error: "Нужны партия и склад" }, { status: 400 });
       if (lotId) {
         const sharedImpurityPool = await loadSharedImpurityPoolSummaries(
           harvestStockSupabase,
           companyId,
           warehouseId,
           lotId,
+          originsOnly,
         );
         if (sharedImpurityPool.length) {
           timing.aggregateMs = Date.now() - aggregateStartedAt;
@@ -1786,13 +1812,14 @@ export async function GET(request: NextRequest) {
       const [lots, sharedImpurityPools] = await Promise.all([
         summaryOnly
           ? loadAggregateHarvestLotSummaries(supabase, harvestStockSupabase, companyId, warehouseId, lotId)
-          : loadAggregateHarvestLots(supabase, harvestStockSupabase, companyId, warehouseId, lotId),
+          : loadAggregateHarvestLots(supabase, harvestStockSupabase, companyId, warehouseId, lotId, originsOnly),
         summaryOnly && !lotId
           ? loadSharedImpurityPoolSummaries(harvestStockSupabase, companyId, warehouseId)
           : Promise.resolve([]),
       ]);
       timing.aggregateMs = Date.now() - aggregateStartedAt;
       if (lots !== null) return timedJson({ batches: [...sharedImpurityPools, ...lots] });
+      if (originsOnly) return timedJson({ error: "Происхождение партии недоступно" }, { status: 404 });
     }
 
     let batchQuery = supabase

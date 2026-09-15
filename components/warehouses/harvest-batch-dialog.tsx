@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalendarDays, ChevronDown, ExternalLink, Factory, FileText, Loader2, PackageOpen, Scale, Truck, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -19,6 +19,9 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   batch: HarvestBatchSummary | null;
   loading?: boolean;
+  error?: string | null;
+  onLoadHistory?: () => void;
+  onRetryOrigins?: () => void;
 };
 
 type OutgoingDocument = NonNullable<HarvestBatchSummary["outgoingDocuments"]>[number];
@@ -153,7 +156,9 @@ function ProcessingDocumentDialog({ document, onOpenChange, onOpenTicket }: {
   );
 }
 
-export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false }: Props) {
+export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false, error, onLoadHistory, onRetryOrigins }: Props) {
+  const [historyOpen, setHistoryOpen] = useState(false);
+  useEffect(() => { setHistoryOpen(false); }, [batch?.id, batch?.warehouseId, open]);
   const [processingDocument, setProcessingDocument] = useState<OutgoingDocument | null>(null);
   const [ticketPreviewId, setTicketPreviewId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -191,14 +196,7 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
         0
       ) / moistureWeight
     : null;
-  const fieldSummaries = batch?.fieldSummaries?.length
-    ? batch.fieldSummaries
-    : [{
-        fieldId: batch?.fieldId || null,
-        fieldName: batch?.fieldName || "Поле не уточнено",
-        netWeightKg: batch?.companyReceivedKg ?? batch?.receivedKg ?? 0,
-        tripCount: activeTrips.length,
-      }];
+  const fieldSummaries = batch?.fieldSummaries || [];
 
   return (
     <>
@@ -227,13 +225,27 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
               </div>
             </DialogHeader>
 
-            <div ref={scrollRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
+            <div ref={scrollRef} className="tf-scroll-hidden min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
               {loading ? (
                 <div className="flex min-h-52 items-center justify-center gap-2 text-sm text-muted-foreground" role="status">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Загружаем историю партии...
+                  <Loader2 className="h-4 w-4 animate-spin" /> {historyOpen ? "Загружаем рейсы и движения..." : "Загружаем происхождение..."}
                 </div>
               ) : (
               <>
+              {error ? <div role="alert" className="text-sm text-rose-800">{error}<button type="button" className="ml-3 underline" onClick={historyOpen ? onLoadHistory : onRetryOrigins}>Повторить</button></div> : null}
+              <section aria-label="Поступление с полей">
+                <h3 className="mb-3 text-sm font-semibold">С полей</h3>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4 gap-y-3 text-sm">
+                  <span className="text-xs text-muted-foreground">Поле</span><span className="text-right text-xs text-muted-foreground">Принято</span><span className="text-right text-xs text-muted-foreground">т/га</span>
+                  {fieldSummaries.map((field, index) => <div key={`${field.fieldId}-${index}`} className="contents">
+                    <div className="min-w-0"><div className="font-medium [overflow-wrap:anywhere]">{field.fieldName}</div>{field.areaHa != null ? <div className="text-xs text-muted-foreground">Участки партии · {field.areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га</div> : null}</div>
+                    <span className="text-right font-semibold tabular-nums text-emerald-800">{(field.netWeightKg / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} т</span>
+                    <span className="text-right tabular-nums">{field.yieldTPerHa == null ? "—" : field.yieldTPerHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })}</span>
+                  </div>)}
+                </div>
+                {!fieldSummaries.length && !error ? <p className="mt-3 text-xs text-muted-foreground">Происхождение по полям не подтверждено.</p> : null}
+              </section>
+              <button type="button" aria-expanded={historyOpen} className="flex min-h-11 items-center gap-2 rounded-md bg-muted/50 px-3 text-sm font-medium hover:bg-muted" onClick={() => { if (!historyOpen) onLoadHistory?.(); setHistoryOpen(value => !value); }}><FileText className="h-4 w-4" />{historyOpen ? "Скрыть рейсы и движения" : "Рейсы и движения"}</button>
               {batch.reviewState === "requires_review" ? (
                 <div className="rounded-md border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-800">
                   <div className="font-semibold">Требуется уточнение</div>
@@ -258,6 +270,7 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
                 </section>
               ) : null}
 
+              {historyOpen && batch.detailLevel === "full" ? <>
               <section aria-label="Движение массы">
                 {flow ? (
                   <div className="grid grid-cols-2 gap-4 border-b border-border pb-3">
@@ -429,6 +442,7 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
                   ) : null}
                 </div>
               </details>
+              </> : null}
               </>
               )}
             </div>

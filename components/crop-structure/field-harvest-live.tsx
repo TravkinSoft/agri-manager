@@ -199,7 +199,7 @@ export function FieldHarvestLive({
     : null;
   const allocation = data ? selectedAllocation(data, allocationId) : null;
 
-  if (!data && (state.phase === "loading" || state.data !== null)) {
+  if (!data && (state.phase === "idle" || state.phase === "loading" || state.data !== null)) {
     return (
       <section
         className="min-h-[88px] rounded-lg border border-border bg-background p-2.5"
@@ -238,21 +238,20 @@ export function FieldHarvestLive({
   const reconciliation = reconciliationCopy(data.reconciliationStatus);
   const refreshing = state.phase === "refreshing";
   const stale = state.phase === "stale";
-  const areaBasis = data.yieldBasis === "season_structure_area"
-    ? "по площади структуры сезона"
-    : data.yieldBasis === "field_area"
-      ? "по площади поля"
-      : "площадь не задана";
+  // A selected plot never inherits the whole field's mass or area.
+  const acceptedMassKg = allocation?.acceptedMassKg ?? 0;
+  const yieldTPerHa = allocation?.yieldTPerHa ?? null;
+  const areaHa = allocation?.areaHa ?? null;
 
   return (
     <section
-      className="rounded-lg border border-emerald-400/20 bg-emerald-400/[0.035] px-3 py-2.5"
+      className="rounded-lg bg-card px-3 py-2.5"
       aria-live="polite"
       aria-busy={refreshing}
       data-testid="field-harvest-live"
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="text-xs font-semibold text-foreground">Live-факт уборки</div>
+        <div className="min-w-0 text-xs font-semibold text-foreground">{allocationLabel || "Уборка участка"}</div>
         <div className="flex items-center gap-2">
           <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${reconciliation.className}`}>
             {reconciliation.label}
@@ -269,31 +268,25 @@ export function FieldHarvestLive({
         </div>
       </div>
 
-      <div className="mt-2 grid grid-cols-2 divide-x divide-border border-y border-border">
+      <div className="mt-2 grid grid-cols-2 gap-3">
         <div className="flex min-w-0 items-center gap-2 py-2 pr-2">
           <Scale className="h-3.5 w-3.5 shrink-0 text-emerald-800" aria-hidden="true" />
           <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Принято по полю</div>
-            <div className="mt-0.5 text-base font-semibold tabular-nums text-foreground">{formatMass(data.acceptedMassKg)}</div>
-            <div className="text-[11px] text-muted-foreground">{data.finalizedTicketCount} завершённых рейсов</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Принято с участка</div>
+            <div className="mt-0.5 text-base font-semibold tabular-nums text-foreground">{allocation ? formatMass(acceptedMassKg) : "—"}</div>
           </div>
         </div>
         <div className="flex min-w-0 items-center gap-2 py-2 pl-3">
           <Sprout className="h-3.5 w-3.5 shrink-0 text-amber-800" aria-hidden="true" />
           <div className="min-w-0">
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Урожайность</div>
-            <div className="mt-0.5 text-base font-semibold tabular-nums text-foreground">{formatYield(data.yieldTPerHa)}</div>
-            <div className="text-[11px] text-muted-foreground">{areaBasis} · {data.yieldAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га</div>
+            <div className="mt-0.5 text-base font-semibold tabular-nums text-foreground">{formatYield(yieldTPerHa)}</div>
+            <div className="text-[11px] text-muted-foreground">{areaHa != null && areaHa > 0 ? `Участок ${areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га` : "Площадь участка не задана"}</div>
           </div>
         </div>
       </div>
 
-      {allocation ? (
-        <div className="mt-2 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">{allocationLabel || "Выбранный участок"}:</span>{" "}
-          {formatMass(allocation.acceptedMassKg)} · {formatYield(allocation.yieldTPerHa)} · {allocation.finalizedTicketCount} рейсов
-        </div>
-      ) : null}
+      {!allocation ? <div className="mt-2 text-xs text-muted-foreground">Нет подтверждённых данных выбранного участка.</div> : null}
       <div className={`mt-2 text-[11px] ${stale ? "text-amber-800" : "text-muted-foreground"}`}>
         {stale ? `${state.error}. Показаны последние подтверждённые данные.` : reconciliation.detail}
         {data.unassignedAcceptedMassKg > 0
