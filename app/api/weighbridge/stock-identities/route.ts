@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
+import { loadSupabaseInChunks, loadSupabasePages } from "@/lib/server/supabase-query-pagination";
 
 const batchClassLabel = (value: string | null | undefined) => {
   const key = String(value || "").toLowerCase();
@@ -20,6 +21,18 @@ const formatStockQuantity = (value: number, uom: string) => {
   }
   const label = uom === "kg" ? "кг" : uom === "l" ? "л" : uom === "pcs" ? "шт" : "ед. неизвестна";
   return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} ${label}`;
+};
+
+const stockLoadError = (stage: string, error: any) => {
+  console.error("weighbridge_stock_identities_failed", {
+    stage,
+    code: error?.code || null,
+    message: error?.message || String(error || "Unknown error"),
+  });
+  return NextResponse.json(
+    { error: "Не удалось загрузить остатки склада. Повторите попытку.", code: "stock_identity_load_failed" },
+    { status: 500 },
+  );
 };
 
 const systemNameOf = (row: any, fallback = "") => localizedName(row, "ru", ["name", "full_name", "title", "code", "slug"]) || fallback;
@@ -43,59 +56,64 @@ export async function GET(request: NextRequest) {
     const { companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
     });
-    const [
-      { data: rawRows, error: stockError },
-      { data: lotStockRows, error: lotStockError },
-    ] = await Promise.all([
-      supabase
+    const [stockResult, lotStockResult] = await Promise.all([
+      loadSupabasePages<any>(() => supabase
         .from("v_effective_stock_balance_identity_v1")
         .select("company_id,warehouse_id,product_id,variety_id,reproduction_id,batch_id,batch_class,quantity,uom,processing_allocated_kg,effective_available_kg,open_ticket_reserved_kg")
         .eq("company_id", companyId)
         .eq("warehouse_id", warehouseId)
         .gt("effective_available_kg", 0)
-        .order("product_id", { ascending: true }),
-      supabase
+        .order("product_id", { ascending: true })
+        .order("variety_id", { ascending: true })
+        .order("reproduction_id", { ascending: true })
+        .order("batch_id", { ascending: true })
+        .order("batch_class", { ascending: true })
+        .order("uom", { ascending: true })),
+      loadSupabasePages<any>(() => supabase
         .from("v_weighbridge_harvest_lot_available_v2")
         .select("company_id,harvest_lot_id,warehouse_id,trip_count,ledger_weight_kg,processing_allocated_kg,open_ticket_reserved_kg,available_weight_kg,batch_class,physical_state")
         .eq("company_id", companyId)
         .eq("warehouse_id", warehouseId)
-        .gt("available_weight_kg", 0),
+        .gt("available_weight_kg", 0)
+        .order("harvest_lot_id", { ascending: true })
+        .order("batch_class", { ascending: true })
+        .order("physical_state", { ascending: true })),
     ]);
-    if (stockError) return NextResponse.json({ error: stockError.message }, { status: 400 });
-    if (lotStockError) return NextResponse.json({ error: lotStockError.message }, { status: 400 });
+    const { data: rawRows, error: stockError } = stockResult;
+    const { data: lotStockRows, error: lotStockError } = lotStockResult;
+    if (stockError) return stockLoadError("balances", stockError);
+    if (lotStockError) return stockLoadError("harvest_lot_balances", lotStockError);
 
     const lotIds = Array.from(new Set((lotStockRows || []).map((row: any) => String(row.harvest_lot_id || "")).filter(Boolean)));
-    const [{ data: lots, error: lotsError }, { data: lotLinks, error: linksError }] = await Promise.all([
-      lotIds.length
-        ? supabase
-            .from("harvest_lots")
-            .select("id,company_id,season_id,crop_id,variety_id,reproduction_id,composition_hash,identity_kind,review_state,status")
-            .eq("company_id", companyId)
-            .eq("status", "active")
-            .in("id", lotIds)
-        : Promise.resolve({ data: [] as any[], error: null }),
-      lotIds.length
-        ? supabase
-            .from("harvest_lot_batches")
-            .select("harvest_lot_id,inventory_batch_id")
-            .eq("company_id", companyId)
-            .in("harvest_lot_id", lotIds)
-        : Promise.resolve({ data: [] as any[], error: null }),
+    const [lotsResult, linksResult] = await Promise.all([
+      loadSupabaseInChunks<any>(lotIds, (chunk) => supabase
+        .from("harvest_lots")
+        .select("id,company_id,season_id,crop_id,variety_id,reproduction_id,composition_hash,identity_kind,review_state,status")
+        .eq("company_id", companyId)
+        .eq("status", "active")
+        .in("id", chunk)),
+      loadSupabaseInChunks<any>(lotIds, (chunk) => supabase
+        .from("harvest_lot_batches")
+        .select("harvest_lot_id,inventory_batch_id")
+        .eq("company_id", companyId)
+        .in("harvest_lot_id", chunk)
+        .order("inventory_batch_id", { ascending: true })),
     ]);
-    if (lotsError) return NextResponse.json({ error: lotsError.message }, { status: 400 });
-    if (linksError) return NextResponse.json({ error: linksError.message }, { status: 400 });
+    const { data: lots, error: lotsError } = lotsResult;
+    const { data: lotLinks, error: linksError } = linksResult;
+    if (lotsError) return stockLoadError("harvest_lots", lotsError);
+    if (linksError) return stockLoadError("harvest_lot_batches", linksError);
 
     const activeLotIds = new Set((lots || []).map((lot: any) => String(lot.id)));
     const activeLinks = (lotLinks || []).filter((link: any) => activeLotIds.has(String(link.harvest_lot_id)));
     const linkedBatchIds = Array.from(new Set(activeLinks.map((link: any) => String(link.inventory_batch_id || "")).filter(Boolean)));
-    const { data: linkedBatches, error: batchesError } = linkedBatchIds.length
-      ? await supabase
-          .from("inventory_batches")
-          .select("id,product_id,crop_id,variety_id,reproduction_id,batch_class,physical_state,warehouse_id,received_at,created_at,composition_snapshot,composition_hash,is_mixed_harvest")
-          .eq("company_id", companyId)
-          .in("id", linkedBatchIds)
-      : { data: [] as any[], error: null };
-    if (batchesError) return NextResponse.json({ error: batchesError.message }, { status: 400 });
+    const { data: linkedBatches, error: batchesError } = await loadSupabaseInChunks<any>(linkedBatchIds, (chunk) => supabase
+      .from("inventory_batches")
+      .select("id,product_id,crop_id,variety_id,reproduction_id,batch_class,physical_state,warehouse_id,received_at,created_at,composition_snapshot,composition_hash,is_mixed_harvest")
+      .eq("company_id", companyId)
+      .in("id", chunk)
+      .order("id", { ascending: true }));
+    if (batchesError) return stockLoadError("inventory_batches", batchesError);
 
     const lotById = new Map((lots || []).map((lot: any) => [String(lot.id), lot]));
     const lotIdByBatchId = new Map(activeLinks.map((link: any) => [String(link.inventory_batch_id), String(link.harvest_lot_id)]));
@@ -152,34 +170,49 @@ export async function GET(request: NextRequest) {
     // exact reference IDs found in those rows through the same authenticated client. This
     // keeps global-catalog visibility governed by the catalog RLS contract and prevents a
     // mismatched service credential from silently returning unclassified stock.
-    const [productsResult, cropsResult, varietiesResult, reproductionsResult, lineSnapshotsResult] = await Promise.all([
-      productIds.length
-        ? supabase.from("products").select("id,name,trade_name,normalized_name,type,product_type,stock_unit,base_uom,unit,physical_state,is_seed_material").in("id", productIds)
-        : Promise.resolve({ data: [] as any[], error: null }),
-      cropLookupIds.length
-        ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug").in("id", cropLookupIds)
-        : Promise.resolve({ data: [] as any[], error: null }),
-      varietyIds.length ? supabase.from("varieties").select("id,name,name_ru,name_kz,name_en").in("id", varietyIds) : Promise.resolve({ data: [] as any[], error: null }),
-      reproductionIds.length
-        ? supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code").in("id", reproductionIds)
-        : Promise.resolve({ data: [] as any[], error: null }),
-      productIds.length || varietyIds.length || reproductionIds.length
-        ? supabase
-            .from("ticket_lines")
-            .select("product_id,product_name_snapshot,variety_id,variety_name_snapshot,reproduction_id,reproduction_name_snapshot")
-            .eq("company_id", companyId)
-            .not("ticket_id", "is", null)
-        : Promise.resolve({ data: [] as any[], error: null }),
+    const [productsResult, cropsResult, varietiesResult, reproductionsResult, productSnapshotsResult, varietySnapshotsResult, reproductionSnapshotsResult] = await Promise.all([
+      loadSupabaseInChunks<any>(productIds, (chunk) => supabase.from("products").select("id,name,trade_name,normalized_name,type,product_type,stock_unit,base_uom,unit,physical_state,is_seed_material").in("id", chunk).order("id")),
+      loadSupabaseInChunks<any>(cropLookupIds, (chunk) => supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug").in("id", chunk).order("id")),
+      loadSupabaseInChunks<any>(varietyIds, (chunk) => supabase.from("varieties").select("id,name,name_ru,name_kz,name_en").in("id", chunk).order("id")),
+      loadSupabaseInChunks<any>(reproductionIds, (chunk) => supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code").in("id", chunk).order("id")),
+      loadSupabaseInChunks<any>(productIds, (chunk) => supabase
+        .from("ticket_lines")
+        .select("product_id,product_name_snapshot")
+        .eq("company_id", companyId)
+        .not("ticket_id", "is", null)
+        .not("product_name_snapshot", "is", null)
+        .in("product_id", chunk)
+        .order("id", { ascending: false })),
+      loadSupabaseInChunks<any>(varietyIds, (chunk) => supabase
+        .from("ticket_lines")
+        .select("variety_id,variety_name_snapshot")
+        .eq("company_id", companyId)
+        .not("ticket_id", "is", null)
+        .not("variety_name_snapshot", "is", null)
+        .in("variety_id", chunk)
+        .order("id", { ascending: false })),
+      loadSupabaseInChunks<any>(reproductionIds, (chunk) => supabase
+        .from("ticket_lines")
+        .select("reproduction_id,reproduction_name_snapshot")
+        .eq("company_id", companyId)
+        .not("ticket_id", "is", null)
+        .not("reproduction_name_snapshot", "is", null)
+        .in("reproduction_id", chunk)
+        .order("id", { ascending: false })),
     ]);
-    const referenceError = productsResult.error || cropsResult.error || varietiesResult.error || reproductionsResult.error || lineSnapshotsResult.error;
+    const referenceError = productsResult.error || cropsResult.error || varietiesResult.error || reproductionsResult.error || productSnapshotsResult.error || varietySnapshotsResult.error || reproductionSnapshotsResult.error;
     if (referenceError) {
-      return NextResponse.json({ error: `Stock reference hydration failed: ${referenceError.message}` }, { status: 400 });
+      return stockLoadError("reference_hydration", referenceError);
     }
     const products = productsResult.data || [];
     const crops = cropsResult.data || [];
     const varieties = varietiesResult.data || [];
     const reproductions = reproductionsResult.data || [];
-    const lineSnapshots = lineSnapshotsResult.data || [];
+    const lineSnapshots = [
+      ...(productSnapshotsResult.data || []),
+      ...(varietySnapshotsResult.data || []),
+      ...(reproductionSnapshotsResult.data || []),
+    ];
 
     const productMap = new Map((products || []).map((row: any) => [String(row.id), brandNameOf(row, "")]));
     const productTypeMap = new Map((products || []).map((row: any) => [String(row.id), String(row.product_type || row.type || "").toLowerCase()]));
