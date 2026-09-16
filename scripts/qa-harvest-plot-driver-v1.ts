@@ -16,6 +16,7 @@ async function main() {
   equal(shiftRoute.includes('rpc("ptc_set_combine_shift_v1"'), true);
   const board = readFileSync("components/traffic/traffic-board.tsx", "utf8");
   equal(board.includes('data-testid="traffic-shift-required"'), true);
+  equal(board.includes('data-testid="traffic-legacy-shift-plot"'), true);
   equal(board.includes('disabled={pendingVehicle || stale || !snapshot.enabled || !harvesterShiftReady}'), true);
   const dashboard = readFileSync("lib/dashboard/harvest-summary.ts", "utf8");
   equal(dashboard.includes("isHarvestVegetableLabel(ticketIdentity(ticket).crop)"), true);
@@ -99,15 +100,17 @@ async function main() {
     "PTC_FIELD_ALREADY_COMPLETED",
   );
 
-  // An already-open legacy shift must choose its exact plot before another
-  // vehicle can be sent. Trips already in progress are not changed.
+  // An already-open legacy shift remains usable during the rollout. The
+  // operator can attach the exact plot without closing the shift.
   await db.query("update ptc_vehicle_states set state='empty',version=0,cycle=0 where company_id=$1 and vehicle_id=$2", [company, vehicle]);
   const legacyShift = randomUUID();
   await db.query("insert into ptc_combine_shifts(id,company_id,operator_user_id,operator_person_id,operator_name,field_id) values($1,$2,$3,$4,'Комбайнёр',$5)", [legacyShift, company, harvester, harvesterPerson, field]);
-  await rejects(
-    () => db.query("select ptc_actor_transition_v1($1,$2,0,'loaded',$3) value", [harvester, vehicle, randomUUID()]),
-    "PTC_SHIFT_REQUIRED",
-  );
+  const legacyCompatibleLoad = (await db.query<{ value: any }>(
+    "select ptc_actor_transition_v1($1,$2,0,'loaded',$3) value", [harvester, vehicle, randomUUID()],
+  )).rows[0].value;
+  equal((await db.query<any>("select crop_structure_id,field_id::text from ptc_events where id=$1", [legacyCompatibleLoad.eventId])).rows,
+    [{ crop_structure_id: null, field_id: field }]);
+  await db.query("update ptc_vehicle_states set state='empty',version=0,cycle=0 where company_id=$1 and vehicle_id=$2", [company, vehicle]);
   const attached = (await db.query<{ value: any }>(
     "select ptc_set_combine_shift_v2($1,'switch',$2,$3,0,false,false,$4) value",
     [harvester, legacyShift, structure2, randomUUID()],

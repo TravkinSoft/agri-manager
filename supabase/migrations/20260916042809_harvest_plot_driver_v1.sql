@@ -386,9 +386,6 @@ begin
       where company_id=company and operator_user_id=p_actor and closed_at is null
       order by opened_at desc limit 1 for share;
     if not found then raise exception 'PTC_SHIFT_REQUIRED'; end if;
-    if active_shift.current_crop_structure_id is null then
-      raise exception 'PTC_SHIFT_REQUIRED';
-    end if;
     event_field:=coalesce(active_shift.field_id,
       (select field_id from public.ptc_flows where company_id=company));
     event_structure:=active_shift.current_crop_structure_id;

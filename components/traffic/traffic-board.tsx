@@ -144,7 +144,10 @@ export function TrafficBoard({
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
   const harvesterShiftReady = snapshot.role !== "harvester"
-    || (snapshot.combineShift?.status === "open" && Boolean(snapshot.combineShift.cropStructureId));
+    || snapshot.combineShift?.status === "open";
+  const harvesterNeedsExactPlot = snapshot.role === "harvester"
+    && snapshot.combineShift?.status === "open"
+    && !snapshot.combineShift.cropStructureId;
   function updatePending(update: (commands: PendingTrafficCommand[]) => PendingTrafficCommand[]) {
     pendingRef.current = update(pendingRef.current);
     setPendingCommands(pendingRef.current);
@@ -513,6 +516,11 @@ export function TrafficBoard({
       {snapshot.role === "harvester" && !harvesterShiftReady ? (
         <p data-testid="traffic-shift-required" role="status" className="mb-4 rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-800">
           Сначала откройте смену и выберите текущий участок. До этого отправка машин заблокирована.
+        </p>
+      ) : null}
+      {harvesterNeedsExactPlot ? (
+        <p data-testid="traffic-legacy-shift-plot" role="status" className="mb-4 rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-800">
+          Смена открыта по старым правилам. Машины доступны, но выберите текущий участок кнопкой сверху, чтобы новые рейсы сразу попадали в правильную сводку.
         </p>
       ) : null}
       <div
