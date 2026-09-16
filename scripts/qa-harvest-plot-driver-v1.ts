@@ -48,12 +48,13 @@ async function main() {
     create table ptc_events(id uuid primary key default gen_random_uuid(),company_id uuid references companies(id),vehicle_id uuid references reference_vehicles(id),actor_user_id uuid,actor_name text,field_id uuid,idempotency_key uuid,expected_version integer,from_state text,to_state text,cycle integer,created_at timestamptz default now(),unique(company_id,idempotency_key));
     create table ptc_last_vehicle_markers(company_id uuid,vehicle_id uuid,primary key(company_id));
     create table ptc_last_vehicle_events(id uuid primary key default gen_random_uuid(),company_id uuid,vehicle_id uuid,actor_user_id uuid,actor_name text,command text,action text,idempotency_key uuid);
-    create table ptc_combine_shifts(id uuid primary key default gen_random_uuid(),company_id uuid references ptc_flows(company_id),operator_user_id uuid references profiles(id),operator_person_id uuid references company_people(id),operator_name text,field_id uuid references fields(id),opened_at timestamptz default now(),closed_at timestamptz,hectares_shift numeric,hectares_field_total numeric,created_at timestamptz default now(),updated_at timestamptz default now());
+    create table ptc_combine_shifts(id uuid primary key default gen_random_uuid(),company_id uuid references ptc_flows(company_id),operator_user_id uuid references profiles(id),operator_person_id uuid references company_people(id),operator_name text,field_id uuid references fields(id),opened_at timestamptz default now(),closed_at timestamptz,hectares_shift numeric,hectares_field_total numeric,created_at timestamptz default now(),updated_at timestamptz default now(),check ((closed_at is null and hectares_shift is null and hectares_field_total is null) or (closed_at is not null and closed_at >= opened_at and hectares_shift >= 0 and hectares_field_total >= 0)));
     create table ptc_combine_shift_events(id uuid primary key default gen_random_uuid(),company_id uuid references ptc_flows(company_id),shift_id uuid references ptc_combine_shifts(id),actor_user_id uuid references profiles(id),command text check(command in ('open','close')),idempotency_key uuid,created_at timestamptz default now(),unique(company_id,idempotency_key));
     create table tickets(id uuid primary key default gen_random_uuid(),company_id uuid references companies(id),is_voided boolean default false);
     grant select,insert,update,delete on all tables in schema public to service_role;
   `);
   await db.exec(readFileSync("supabase/migrations/20260916042809_harvest_plot_driver_v1.sql", "utf8"));
+  await db.exec(readFileSync("supabase/migrations/20260916160357_ptc_open_shift_progress_constraint.sql", "utf8"));
 
   const company = randomUUID();
   const field = randomUUID();
