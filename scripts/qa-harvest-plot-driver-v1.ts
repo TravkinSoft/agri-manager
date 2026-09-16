@@ -21,6 +21,16 @@ async function main() {
   const dashboard = readFileSync("lib/dashboard/harvest-summary.ts", "utf8");
   equal(dashboard.includes("isHarvestVegetableLabel(ticketIdentity(ticket).crop)"), true);
   equal(dashboard.includes("? finalized\n        .filter"), true);
+  const weighbridgePage = readFileSync("app/(dashboard)/weighbridge/page.tsx", "utf8");
+  equal(weighbridgePage.includes("const next = ptcQueue[0] || null;"), true);
+  equal(weighbridgePage.includes("vehicleId: next.vehicleId"), true);
+  equal(weighbridgePage.includes('driverId: next.driverId || ""'), true);
+  equal(weighbridgePage.includes('form.vehicleId || form.driverId || form.grossKg'), true);
+  equal(weighbridgePage.includes('const keepPtcTrip = Boolean(queued && ('), true);
+  equal(weighbridgePage.includes('ptcEventId: keepPtcTrip ? previous.ptcEventId : ""'), true);
+  const ticketRoute = readFileSync("app/api/weighbridge/tickets/route.ts", "utf8");
+  equal(ticketRoute.includes("const tripHasExactPlot = Boolean(tripEvent?.crop_structure_id);"), true);
+  equal(ticketRoute.includes("String(tripEvent.driver_id || \"\") !== String(ticket.driver_id || \"\")"), false);
 
   const db = new PGlite();
   await db.exec(`

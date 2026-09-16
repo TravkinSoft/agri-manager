@@ -3407,32 +3407,52 @@ export default function WeighbridgeOperationsPage() {
     const automaticAllocation = fieldId
       ? automaticHarvestAllocation(harvestStructureByField[fieldId] || [], { allowIncompleteIdentity: true })
       : null;
-    setForm((previous) => previous.fieldId === fieldId ? previous : ({
-      ...previous,
-      fieldId,
-      cropStructureAllocationId: automaticAllocation?.allocationId || "",
-      cropId: automaticAllocation?.cropId || "",
-      varietyId: automaticAllocation?.varietyId || "",
-      reproductionId: automaticAllocation?.reproductionId || "",
-      combineOperatorPersonId: "",
-      ptcEventId: "",
-      ptcCycle: null,
-    }));
+    setForm((previous) => {
+      if (previous.fieldId === fieldId) return previous;
+      const queued = previous.ptcEventId
+        ? ptcQueue.find((item) => item.ptcEventId === previous.ptcEventId) || null
+        : null;
+      const keepPtcTrip = Boolean(queued && (
+        !queued.cropStructureId
+        || (queued.fieldId === fieldId && queued.cropStructureId === automaticAllocation?.allocationId)
+      ));
+      return {
+        ...previous,
+        fieldId,
+        cropStructureAllocationId: automaticAllocation?.allocationId || "",
+        cropId: automaticAllocation?.cropId || "",
+        varietyId: automaticAllocation?.varietyId || "",
+        reproductionId: automaticAllocation?.reproductionId || "",
+        combineOperatorPersonId: "",
+        ptcEventId: keepPtcTrip ? previous.ptcEventId : "",
+        ptcCycle: keepPtcTrip ? previous.ptcCycle : null,
+      };
+    });
   };
 
   const changeHarvestTarget = (allocationId: string) => {
     const allocation = (harvestStructureByField[form.fieldId] || [])
       .find((item) => item.allocationId === allocationId) || null;
-    setForm((previous) => previous.cropStructureAllocationId === allocation?.allocationId ? previous : ({
-      ...previous,
-      cropStructureAllocationId: allocation?.allocationId || "",
-      cropId: allocation?.cropId || "",
-      varietyId: allocation?.varietyId || "",
-      reproductionId: allocation?.reproductionId || "",
-      combineOperatorPersonId: "",
-      ptcEventId: "",
-      ptcCycle: null,
-    }));
+    setForm((previous) => {
+      if (previous.cropStructureAllocationId === allocation?.allocationId) return previous;
+      const queued = previous.ptcEventId
+        ? ptcQueue.find((item) => item.ptcEventId === previous.ptcEventId) || null
+        : null;
+      const keepPtcTrip = Boolean(queued && (
+        !queued.cropStructureId
+        || (queued.fieldId === previous.fieldId && queued.cropStructureId === allocation?.allocationId)
+      ));
+      return {
+        ...previous,
+        cropStructureAllocationId: allocation?.allocationId || "",
+        cropId: allocation?.cropId || "",
+        varietyId: allocation?.varietyId || "",
+        reproductionId: allocation?.reproductionId || "",
+        combineOperatorPersonId: "",
+        ptcEventId: keepPtcTrip ? previous.ptcEventId : "",
+        ptcCycle: keepPtcTrip ? previous.ptcCycle : null,
+      };
+    });
   };
 
   const changeHarvestTransport = (vehicleId: string, driverId: string) => {
@@ -3460,14 +3480,11 @@ export default function WeighbridgeOperationsPage() {
 
   useEffect(() => {
     if (!coreDataReady || form.operationType !== "harvest_incoming" || form.vehicleId || form.driverId || form.grossKg) return;
-    const next = ptcQueue.find((item) => {
-      if (!item.driverId || !item.fieldId || !item.cropStructureId) return false;
-      return (harvestStructureByField[item.fieldId] || []).some((allocation) => allocation.allocationId === item.cropStructureId);
-    });
-    if (!next?.driverId) return;
-    const allocation = (harvestStructureByField[next.fieldId!] || [])
-      .find((item) => item.allocationId === next.cropStructureId);
-    if (!allocation) return;
+    const next = ptcQueue[0] || null;
+    if (!next) return;
+    const allocation = next.fieldId && next.cropStructureId
+      ? (harvestStructureByField[next.fieldId] || []).find((item) => item.allocationId === next.cropStructureId) || null
+      : null;
     setForm((previous) => {
       if (previous.operationType !== "harvest_incoming" || previous.vehicleId || previous.driverId || previous.grossKg) return previous;
       return {
@@ -3476,11 +3493,13 @@ export default function WeighbridgeOperationsPage() {
         driverId: next.driverId || "",
         ptcEventId: next.ptcEventId,
         ptcCycle: next.ptcCycle,
-        fieldId: next.fieldId || "",
-        cropStructureAllocationId: allocation.allocationId,
-        cropId: allocation.cropId,
-        varietyId: allocation.varietyId,
-        reproductionId: allocation.reproductionId,
+        ...(next.fieldId && allocation ? {
+          fieldId: next.fieldId,
+          cropStructureAllocationId: allocation.allocationId,
+          cropId: allocation.cropId,
+          varietyId: allocation.varietyId,
+          reproductionId: allocation.reproductionId,
+        } : {}),
       };
     });
   }, [coreDataReady, form.operationType, form.vehicleId, form.driverId, form.grossKg, ptcQueue, harvestStructureByField]);
