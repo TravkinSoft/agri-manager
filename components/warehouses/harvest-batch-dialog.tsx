@@ -236,13 +236,14 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false,
               <section aria-label="Поступление с полей">
                 <h3 className="mb-3 text-sm font-semibold">С полей</h3>
                 <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4 gap-y-3 text-sm">
-                  <span className="text-xs text-muted-foreground">Поле</span><span className="text-right text-xs text-muted-foreground">Принято</span><span className="text-right text-xs text-muted-foreground">т/га</span>
+                  <span className="text-xs text-muted-foreground">Поле</span><span className="text-right text-xs text-muted-foreground">Чистый урожай</span><span className="text-right text-xs text-muted-foreground">т/га</span>
                   {fieldSummaries.map((field, index) => <div key={`${field.fieldId}-${index}`} className="contents">
                     <div className="min-w-0"><div className="font-medium [overflow-wrap:anywhere]">{field.fieldName}</div>{field.areaHa != null ? <div className="text-xs text-muted-foreground">Участки партии · {field.areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га</div> : null}</div>
-                    <span className="text-right font-semibold tabular-nums text-emerald-800">{(field.netWeightKg / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} т</span>
-                    <span className="text-right tabular-nums">{field.yieldTPerHa == null ? "—" : field.yieldTPerHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })}</span>
+                    <span className="text-right font-semibold tabular-nums text-emerald-800">{field.cleanWeightKg == null ? "Не уточнён" : `${(field.cleanWeightKg / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} т`}</span>
+                    <span className="text-right tabular-nums">{field.cleanWeightKg == null || field.yieldTPerHa == null ? "—" : field.yieldTPerHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })}</span>
                   </div>)}
                 </div>
+                {fieldSummaries.length > 0 ? <p className="mt-3 text-xs text-muted-foreground">За вычетом оформленных примесей. т/га — по площади участков партии.{fieldSummaries.some(field => field.cleanWeightKg == null) ? " Распределение примесей по источникам требует уточнения." : ""}</p> : null}
                 {!fieldSummaries.length && !error ? <p className="mt-3 text-xs text-muted-foreground">Происхождение по полям не подтверждено.</p> : null}
               </section>
               <button type="button" aria-expanded={historyOpen} className="flex min-h-11 items-center gap-2 rounded-md bg-muted/50 px-3 text-sm font-medium hover:bg-muted" onClick={() => { if (!historyOpen) onLoadHistory?.(); setHistoryOpen(value => !value); }}><FileText className="h-4 w-4" />{historyOpen ? "Скрыть рейсы и движения" : "Рейсы и движения"}</button>

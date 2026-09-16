@@ -347,6 +347,7 @@ export interface HarvestBatchSummary {
     fieldId: string | null;
     fieldName: string;
     netWeightKg: number;
+    cleanWeightKg?: number | null;
     areaHa?: number | null;
     yieldTPerHa?: number | null;
     enteredProcessingKg?: number | null;

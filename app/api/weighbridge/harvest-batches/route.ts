@@ -24,6 +24,7 @@ import { summarizeAggregateHarvestLotFields } from "@/lib/weighbridge/harvest-lo
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { getServiceClient } from "@/lib/supabase/service";
 import { buildWarehouseFieldOrigins } from "@/lib/warehouse/field-origins";
+import { cleanHarvestMassByTicket, type ImpurityEntry } from "@/lib/warehouse/clean-harvest-mass";
 
 import {
   collapseOperationDocuments,
@@ -392,8 +393,9 @@ async function loadSharedImpurityPoolSummaries(
         fieldId: sourceIdentityId,
         fieldName: sourceIdentityName,
         netWeightKg: Number(member.source_total_snapshot_kg || 0),
+        cleanWeightKg: null,
         areaHa: Number(snapshot.area_ha) > 0 ? Number(snapshot.area_ha) : null,
-        yieldTPerHa: Number(snapshot.area_ha) > 0 ? Number(member.source_total_snapshot_kg || 0) / 1000 / Number(snapshot.area_ha) : null,
+        yieldTPerHa: null,
         tripCount: sourceTrips.length,
       };
     });
@@ -1048,30 +1050,55 @@ async function loadAggregateHarvestLots(
     .from("tickets")
     .select(originsOnly
       ? "id,op_type,field_id,crop_structure_allocation_id,warehouse_to_id,accepted_weight_kg,net_weight_kg,status,is_finalized,is_voided,replacement_ticket_id"
-      : "id,ticket_no,op_type,field_id,vehicle_id,driver_id,warehouse_to_id,audit_json,net_weight_kg,status,is_finalized,is_voided,replacement_ticket_id,created_at,finalized_at")
+      : "id,ticket_no,op_type,field_id,crop_structure_allocation_id,accepted_weight_kg,vehicle_id,driver_id,warehouse_to_id,audit_json,net_weight_kg,status,is_finalized,is_voided,replacement_ticket_id,created_at,finalized_at")
     .eq("company_id", companyId)
     .in("id", chunk)
     .order("id", { ascending: true }));
-  if (originsOnly) {
-    const structureIds = ids(ticketRows.map(row => row.crop_structure_allocation_id));
-    const structures = await loadInChunks<any>(structureIds, chunk => supabase.from("crop_structure")
-      .select("id,field_id,area").eq("company_id", companyId).in("id", chunk).order("id"));
-    const names = new Map<string, string>((fieldsResult.data || []).map((row: any) => [String(row.id), String(row.name)]));
-    const candidates = resolveEffectiveHarvestTicketCandidatesByBatch(lineage, ticketRows);
+  const structureIds = ids(ticketRows.map(row => row.crop_structure_allocation_id));
+  // Read impurity deductions on the original batches and their descendants in
+  // every warehouse. Current stock would incorrectly deduct sales/transfers.
+  const relatedBatches = await loadInChunks<any>(ticketIds, chunk => harvestStockSupabase.from("inventory_batches")
+    .select("id,parent_batch_id,source_ticket_id").eq("company_id", companyId).in("source_ticket_id", chunk).order("id"));
+  const impurityBatchIds = ids([...Array.from(seenBatchIds), ...relatedBatches.map(row => row.id)]);
+  const impuritySelect = "id,inventory_batch_id,batch_id_text,batch_id,reason_type,delta_qty_signed";
+  const impurityQuery = () => harvestStockSupabase.from("stock_ledger_entries")
+    .select(impuritySelect).eq("company_id", companyId).ilike("reason_type", "%impurit%");
+  const [structures, impurityByBatch, impurityByText, impurityByLegacy] = await Promise.all([
+    loadInChunks<any>(structureIds, chunk => supabase.from("crop_structure")
+      .select("id,field_id,area").eq("company_id", companyId).in("id", chunk).order("id")),
+    loadInChunks<ImpurityEntry>(impurityBatchIds, chunk => impurityQuery().in("inventory_batch_id", chunk).order("id")),
+    loadInChunks<ImpurityEntry>(impurityBatchIds, chunk => impurityQuery().is("inventory_batch_id", null).in("batch_id_text", chunk).order("id")),
+    loadInChunks<ImpurityEntry>(impurityBatchIds, chunk => impurityQuery().is("inventory_batch_id", null).is("batch_id_text", null).in("batch_id", chunk).order("id")),
+  ]);
+  const names = new Map<string, string>((fieldsResult.data || []).map((row: any) => [String(row.id), String(row.name)]));
+  const candidates = resolveEffectiveHarvestTicketCandidatesByBatch(lineage, ticketRows);
+  const impurityLineage = resolveHarvestLotTicketLineage(
+    impurityBatchIds.map(id => ({ inventory_batch_id: id, harvest_lot_id: "origin" })),
+    [...links, ...ancestorLinkRows], [...directBatchRows, ...ancestorBatchRows, ...relatedBatches], transformationInputLinks,
+  );
+  const cleanMassByTicket = cleanHarvestMassByTicket(ticketRows,
+    resolveEffectiveHarvestTicketCandidatesByBatch(impurityLineage, ticketRows),
+    [...impurityByBatch, ...impurityByText, ...impurityByLegacy]);
+  const originsByLotWarehouse = new Map<string, ReturnType<typeof buildWarehouseFieldOrigins>>();
+  {
     const batchById = new Map(directBatchRows.map(row => [String(row.id), row]));
-    return lotRows.flatMap(lot => {
+    lotRows.forEach(lot => {
       const members = lineage.filter(row => row.harvestLotId === String(lot.id));
       const lotTicketIds = new Set(members.flatMap(row => (candidates.get(row.inventoryBatchId) || []).map(item => item.ticketId)));
       const warehouses = new Map(allStockRows.filter((stock: any) => String(stock.harvest_lot_id) === String(lot.id) && Number(stock.current_weight_kg) > 0).map((stock: any) => [String(stock.warehouse_id), stock]));
-      return Array.from(warehouses.values()).map((stock: any) => {
+      Array.from(warehouses.values()).forEach((stock: any) => {
         const localMembers = members.filter(row => String(batchById.get(row.inventoryBatchId)?.warehouse_id) === String(stock.warehouse_id));
         const originIds = new Set(localMembers.flatMap(row => (candidates.get(row.inventoryBatchId) || []).map(item => item.ticketId)));
         const yieldRows = ticketRows.filter(row => lotTicketIds.has(String(row.id)));
         const sourceRows = yieldRows.filter(row => originIds.has(String(row.id)) || String(row.warehouse_to_id) === String(stock.warehouse_id));
-        return { id: String(lot.id), warehouseId: String(stock.warehouse_id), fieldSummaries: buildWarehouseFieldOrigins(sourceRows, structures, names, yieldRows) };
+        originsByLotWarehouse.set(`${lot.id}:${stock.warehouse_id}`, buildWarehouseFieldOrigins(sourceRows, structures, names, yieldRows, cleanMassByTicket));
       });
     });
   }
+  if (originsOnly) return lotRows.flatMap(lot => {
+    const warehouseIds = ids(allStockRows.filter((stock: any) => String(stock.harvest_lot_id) === String(lot.id) && Number(stock.current_weight_kg) > 0).map(stock => stock.warehouse_id));
+    return warehouseIds.map(id => ({ id: String(lot.id), warehouseId: id, fieldSummaries: originsByLotWarehouse.get(`${lot.id}:${id}`) || [] }));
+  });
   const vehicleIds = ids(ticketRows.map((row) => row.vehicle_id));
   const driverIds = ids(ticketRows.map((row) => row.driver_id));
   const [vehiclesResult, machinesResult, peopleResult, specialistsResult, profilesResult] = await Promise.all([
@@ -1730,7 +1757,10 @@ async function loadAggregateHarvestLots(
         stockComponents: stock.components.sort((left, right) => right.quantityKg - left.quantityKg),
         reviewState: lot.review_state,
         reviewReasons: Array.isArray(lot.review_reasons) ? lot.review_reasons : [],
-        fieldSummaries: warehouseFieldSummaries,
+        fieldSummaries: (originsByLotWarehouse.get(`${lot.id}:${stock.warehouse_id}`) || []).map(origin => ({
+          ...origin,
+          enteredProcessingKg: warehouseFieldSummaries.find(field => field.fieldId === origin.fieldId)?.enteredProcessingKg ?? null,
+        })),
         tripBatches: warehouseOriginTrips,
         outgoingDocuments: historyDocuments,
         tickets: warehouseOriginTrips.filter((trip) => trip.ticketId).map((trip) => ({

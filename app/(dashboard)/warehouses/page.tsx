@@ -394,7 +394,7 @@ export default function WarehousesPage() {
       if (!full) throw new Error("Партия больше не находится на этом складе");
       if (selectedBatchRequestGeneration.current === generation) {
         setSelectedBatch((current) => current?.id === batch.id && current.warehouseId === batch.warehouseId
-          ? history ? { ...full, fieldSummaries: current.fieldSummaries || full.fieldSummaries } : { ...current, detailLevel: "origins", fieldSummaries: full.fieldSummaries }
+          ? history ? full : { ...current, detailLevel: "origins", fieldSummaries: full.fieldSummaries }
           : current);
       }
     } catch (cause) {
