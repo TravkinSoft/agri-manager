@@ -10,7 +10,7 @@ const ticketPaper = readFileSync(resolve("components/weighbridge/weighbridge-tic
 const shipmentMigration = readFileSync(
   resolve("supabase/migrations/20260916145647_p0_shipment_tare_first_atomic_v1.sql"),
   "utf8",
-);
+).replace(/\r\n/g, "\n");
 
 let passed = 0;
 function check(name: string, fn: () => void) {
