@@ -366,6 +366,10 @@ export function isPotatoLabel(value: unknown): boolean {
   return /картоф|potato|картоп/i.test(String(value || ""));
 }
 
+export function isHarvestVegetableLabel(value: unknown): boolean {
+  return isPotatoLabel(value) || /морков|carrot|сәбіз/i.test(String(value || ""));
+}
+
 export function isMoistureApplicable(value: unknown): boolean {
   if (isPotatoLabel(value)) return false;
   return /пшениц|ячмен|ов[её]с|рож|кукуруз|рапс|л[её]н|подсолнеч|соя|горох|прос|греч|сорго|wheat|barley|oat|rye|corn|maize|rapeseed|flax|sunflower|soy|pea/i.test(String(value || ""));
@@ -515,7 +519,7 @@ export function buildHarvestOverview(
       (isOpenHarvestTicket(ticket) || isEffectiveFinalizedHarvestTicket(ticket))
       && Boolean(ticket.field_id)
       && Boolean(ticket.crop_structure_allocation_id)
-      && isPotatoLabel(ticketIdentity(ticket).crop)
+      && isHarvestVegetableLabel(ticketIdentity(ticket).crop)
     ))
     .sort((left, right) => weighbridgeSelectionTime(right) - weighbridgeSelectionTime(left))[0] || null;
   const activeWeighbridgeIdentity = activeWeighbridgeTicket ? ticketIdentity(activeWeighbridgeTicket) : null;
@@ -545,7 +549,7 @@ export function buildHarvestOverview(
   const potatoFinalized = finalized.filter((ticket) => isPotatoLabel(ticketIdentity(ticket).crop));
   const potatoAcceptedKg = potatoFinalized.reduce((total, ticket) => total + harvestTicketHeaderNetKg(ticket), 0);
   const currentPlotAcceptedKg = activeWeighbridgeSelection
-    ? potatoFinalized
+    ? finalized
         .filter((ticket) => {
           const identity = ticketIdentity(ticket);
           return ticket.field_id === activeWeighbridgeSelection.fieldId

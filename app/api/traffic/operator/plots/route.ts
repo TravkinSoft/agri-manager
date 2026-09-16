@@ -75,8 +75,10 @@ export async function GET(request: NextRequest) {
       const field = fieldById.get(String(row.field_id || ""));
       const variety = varietyById.get(String(row.variety_id || ""));
       const reproduction = reproductionById.get(String(row.reproduction_id || ""));
+      if (!field || !variety || !reproduction) return [];
       const progress = progressByStructure.get(String(row.id));
       const plannedAreaHa = Number(progress?.planned_area_ha ?? row.area ?? 0);
+      if (!(plannedAreaHa > 0)) return [];
       const actualCompletedHa = Number(progress?.actual_completed_ha ?? 0);
       return [{
         cropStructureId: String(row.id),
@@ -93,7 +95,7 @@ export async function GET(request: NextRequest) {
       }];
     }).sort((left, right) =>
       left.cropName.localeCompare(right.cropName, "ru")
-      || left.fieldName.localeCompare(right.fieldName, "ru")
+      || left.fieldName.localeCompare(right.fieldName, "ru", { numeric: true })
       || left.varietyName.localeCompare(right.varietyName, "ru")
     );
     return noStore({ seasonId: String(season.id), seasonYear: Number(season.year), plots });

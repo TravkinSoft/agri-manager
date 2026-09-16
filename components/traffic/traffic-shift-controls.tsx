@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { Clock3, EllipsisVertical, Play, RefreshCw, Square, Wrench } from "lucide-react";
+import { Clock3, Play, RefreshCw, Square, Wrench } from "lucide-react";
 import type { TrafficSnapshot } from "@/lib/traffic/model";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -43,6 +43,7 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
   const [error, setError] = useState("");
   const shift = snapshot.combineShift;
   const open = shift?.status === "open";
+  const needsPlot = open && !shift?.cropStructureId;
   const combineStatus = snapshot.ownCombineStatus;
   const isBroken = combineStatus?.isBroken === true;
   const currentPlot = useMemo(
@@ -133,6 +134,11 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
       return;
     }
     if (!shift || shift.status !== "open") return;
+    if (needsPlot) {
+      void commit({ action: "switch", shiftId: shift.id, cropStructureId: selectedPlotId,
+        hectaresFieldTotal: 0, fieldFinished: false });
+      return;
+    }
     const form = new FormData(event.currentTarget);
     const hectaresFieldTotal = Number(form.get("hectaresFieldTotal"));
     const fieldFinished = form.get("fieldFinished") === "on";
@@ -161,9 +167,10 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
       <div data-testid="traffic-combine-shift" className="relative">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button type="button" aria-label="Меню комбайнёра" disabled={busy || stale || !snapshot.enabled}
-              className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-xl text-foreground hover:bg-accent/40 disabled:opacity-40">
-              <EllipsisVertical aria-hidden size={22} />
+            <button type="button" aria-label="Смена и участок комбайнёра" disabled={busy || stale || !snapshot.enabled}
+              className={`flex min-h-[48px] max-w-[230px] items-center gap-2 rounded-xl border px-3 text-left text-sm font-semibold disabled:opacity-40 ${needsPlot || !open ? "border-amber-500/45 bg-amber-500/10 text-amber-800" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-800"}`}>
+              {open && !needsPlot ? <Clock3 aria-hidden size={18} className="shrink-0" /> : <Play aria-hidden size={18} className="shrink-0" />}
+              <span className="truncate">{needsPlot ? "Выбрать участок" : open ? currentPlot?.fieldName || "Смена открыта" : "Открыть смену"}</span>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-72">
@@ -190,7 +197,7 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
             <DropdownMenuSeparator />
             {open ? <>
               <DropdownMenuItem onSelect={() => beginPlotDialog("switch")} className="min-h-[48px] gap-2" disabled={!selectablePlots.length}>
-                <RefreshCw aria-hidden size={16} /> Закончить или сменить поле
+                <RefreshCw aria-hidden size={16} /> {needsPlot ? "Выбрать текущий участок" : "Закончить или сменить поле"}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setClosing(true)} className="min-h-[48px] gap-2"><Square aria-hidden size={16} /> Закрыть смену</DropdownMenuItem>
             </> : (
@@ -206,11 +213,11 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
       <Dialog open={plotDialog !== null} onOpenChange={(value) => { if (!value && !busy) setPlotDialog(null); }}>
         <DialogContent className="w-[calc(100%-2rem)] max-w-lg rounded-2xl">
           <DialogHeader>
-            <DialogTitle>{plotDialog === "open" ? "Открыть смену" : "Перейти на другое поле"}</DialogTitle>
-            <DialogDescription>Выберите фактический овощной участок. Отправленные машины получат его автоматически.</DialogDescription>
+            <DialogTitle>{plotDialog === "open" ? "Открыть смену" : needsPlot ? "Выбрать текущий участок" : "Перейти на другое поле"}</DialogTitle>
+            <DialogDescription>Выберите фактический участок картофеля или моркови. Отправленные машины получат его автоматически.</DialogDescription>
           </DialogHeader>
           <form onSubmit={submitPlot} className="space-y-4">
-            {plotDialog === "switch" ? <>
+            {plotDialog === "switch" && !needsPlot ? <>
               <label className="block text-sm text-foreground">Сделано на текущем поле всего, га
                 <input name="hectaresFieldTotal" type="number" inputMode="decimal" min={currentPlot?.actualCompletedHa || 0} max="1000000" step="0.001" required
                   defaultValue={currentPlot?.actualCompletedHa ?? shift?.hectaresFieldTotal ?? 0}
@@ -218,7 +225,7 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
               </label>
               <label className="flex min-h-[48px] items-center gap-3 rounded-xl border border-border px-3 text-sm"><input name="fieldFinished" type="checkbox" className="h-5 w-5" /> Поле закончено</label>
             </> : null}
-            <label className="block text-sm text-foreground">{plotDialog === "open" ? "С какого участка начинаем" : "Следующий участок"}
+            <label className="block text-sm text-foreground">{plotDialog === "open" ? "С какого участка начинаем" : needsPlot ? "Где сейчас идёт уборка" : "Следующий участок"}
               <select value={selectedPlotId} onChange={(event) => setSelectedPlotId(event.target.value)} required
                 className="mt-2 min-h-[52px] w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-amber-300">
                 <option value="">Выберите участок</option>
@@ -228,7 +235,7 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
             <div className="grid grid-cols-2 gap-2">
               <button type="button" disabled={busy} onClick={() => setPlotDialog(null)} className="min-h-[48px] rounded-xl border border-border disabled:opacity-50">Отмена</button>
               <button type="submit" disabled={busy || !selectedPlotId} className="min-h-[48px] rounded-xl bg-primary font-semibold text-primary-foreground disabled:opacity-50">
-                {busy ? "Сохраняем…" : plotDialog === "open" ? "Открыть смену" : "Перейти"}
+                {busy ? "Сохраняем…" : plotDialog === "open" ? "Открыть смену" : needsPlot ? "Выбрать участок" : "Перейти"}
               </button>
             </div>
           </form>

@@ -299,16 +299,30 @@ async function loadWarehouseRows(
 
 async function loadActivePtcPlotSelection(companyId: string): Promise<HarvestOverview["activeWeighbridgeSelection"]> {
   const db = getServiceClient();
-  const { data: shift, error: shiftError } = await db
+  const selection = "id,current_crop_structure_id,updated_at";
+  const { data: openShift, error: openShiftError } = await db
     .from("ptc_combine_shifts")
-    .select("id,current_crop_structure_id,updated_at")
+    .select(selection)
     .eq("company_id", companyId)
     .is("closed_at", null)
     .not("current_crop_structure_id", "is", null)
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (shiftError) throw shiftError;
+  if (openShiftError) throw openShiftError;
+  let shift = openShift;
+  if (!shift) {
+    const { data: latestShift, error: latestShiftError } = await db
+      .from("ptc_combine_shifts")
+      .select(selection)
+      .eq("company_id", companyId)
+      .not("current_crop_structure_id", "is", null)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latestShiftError) throw latestShiftError;
+    shift = latestShift;
+  }
   if (!shift?.current_crop_structure_id) return null;
   const { data: structure, error: structureError } = await db
     .from("crop_structure")

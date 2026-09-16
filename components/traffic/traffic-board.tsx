@@ -143,6 +143,8 @@ export function TrafficBoard({
   const mounted = useRef(true);
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
+  const harvesterShiftReady = snapshot.role !== "harvester"
+    || (snapshot.combineShift?.status === "open" && Boolean(snapshot.combineShift.cropStructureId));
   function updatePending(update: (commands: PendingTrafficCommand[]) => PendingTrafficCommand[]) {
     pendingRef.current = update(pendingRef.current);
     setPendingCommands(pendingRef.current);
@@ -188,6 +190,10 @@ export function TrafficBoard({
   );
   async function confirm(command: TrafficCommand, retry = false) {
     if (stale || !snapshot.enabled) return;
+    if (!harvesterShiftReady) {
+      setActionError("Сначала откройте смену и выберите текущий участок");
+      return;
+    }
     const vehicleId = command.vehicle.vehicle_id;
     const existing = pendingRef.current.find(item => item.vehicle.vehicle_id === vehicleId);
     if (existing && (!retry || existing.phase !== "uncertain" || existing.key !== command.key)) return;
@@ -504,6 +510,11 @@ export function TrafficBoard({
             : "Агроном ещё не подтвердил список машин для работы."}
         </p>
       ) : null}
+      {snapshot.role === "harvester" && !harvesterShiftReady ? (
+        <p data-testid="traffic-shift-required" role="status" className="mb-4 rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-800">
+          Сначала откройте смену и выберите текущий участок. До этого отправка машин заблокирована.
+        </p>
+      ) : null}
       <div
         data-testid={isManager ? "traffic-manager-board" : undefined}
         className={isManager
@@ -604,7 +615,7 @@ export function TrafficBoard({
             : pendingCommands.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id);
           const identity = getFleetVehicleCardIdentity(vehicle);
           const isLastVehicle = snapshot.lastVehicle?.vehicleId === vehicle.vehicle_id;
-          const canChangeLastVehicle = snapshot.role === "harvester" && !vehicle.inRepair &&
+          const canChangeLastVehicle = snapshot.role === "harvester" && harvesterShiftReady && !vehicle.inRepair &&
             (isLastVehicle || vehicle.state === "empty");
           const cardClass = `${PTC_BOARD_V2 ? "tf2-traffic-card " : ""}${compactAgronomistMobile
             ? "h-[4.875rem] p-1.5 lg:h-24 lg:p-2.5"
@@ -676,7 +687,7 @@ export function TrafficBoard({
                   : ""}`}
               aria-keyshortcuts={PTC_BOARD_V2 && usesHarvesterSwipe ? "ArrowRight Enter Space" : undefined}
               aria-busy={PTC_BOARD_V2 ? pendingVehicle || undefined : undefined}
-              disabled={pendingVehicle || stale || !snapshot.enabled}
+              disabled={pendingVehicle || stale || !snapshot.enabled || !harvesterShiftReady}
               onClick={usesHarvesterSwipe ? event => {
                 // A physical tap has detail > 0 and is intentionally inert.
                 // Keyboard and assistive technology synthesize detail === 0.
@@ -706,7 +717,7 @@ export function TrafficBoard({
                 ? `relative z-10 touch-pan-y select-none cursor-grab transition-transform ${PTC_BOARD_V2 ? "duration-150 motion-reduce:transition-none" : "duration-200"} ease-out ${swipeVisual?.dragging ? "cursor-grabbing" : ""}`
                 : PTC_BOARD_V2
                   ? "cursor-pointer motion-safe:transition motion-safe:duration-150 motion-safe:hover:-translate-y-0.5 motion-safe:active:scale-[0.98] motion-reduce:transform-none"
-                  : "cursor-pointer active:scale-[0.98]"} ${stale || !snapshot.enabled ? "opacity-50" : ""}`}
+                  : "cursor-pointer active:scale-[0.98]"} ${stale || !snapshot.enabled || !harvesterShiftReady ? "opacity-50" : ""}`}
             >
               {content}
             </button>

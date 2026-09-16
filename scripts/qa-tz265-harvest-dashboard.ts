@@ -193,6 +193,44 @@ check("latest valid potato field remains selected when the current period has no
   assert.equal(result.activeWeighbridgeSelection?.fieldName, "МашДвор");
   assert.equal(result.activeWeighbridgeSelection?.areaHa, 8);
 });
+check("latest carrot ticket replaces the previous potato plot and counts only the exact carrot plot", () => {
+  const oldPotato = ticket({
+    id: "old-potato-plot",
+    ticket_no: "OLD-POTATO-PLOT",
+    field_id: "field-9",
+    field_name_snapshot: "9",
+    crop_structure_allocation_id: "allocation-potato",
+    crop_structure_area_ha: 34,
+    crop_name_snapshot: "Картофель",
+    variety_name_snapshot: "Baltic Rose",
+    reproduction_name_snapshot: "4",
+    created_at: "2026-08-12T04:00:00Z",
+    weighing_1_at: "2026-08-12T04:00:00Z",
+    lines: potato.lines,
+  });
+  const carrot = ticket({
+    id: "current-carrot-plot",
+    ticket_no: "CURRENT-CARROT-PLOT",
+    field_id: "field-9",
+    field_name_snapshot: "9",
+    crop_structure_allocation_id: "allocation-carrot",
+    crop_structure_area_ha: 12,
+    crop_name_snapshot: "Морковь",
+    variety_name_snapshot: "Каскад F1",
+    reproduction_name_snapshot: "F1",
+    net_weight_kg: 14_000,
+    created_at: "2026-08-12T06:00:00Z",
+    weighing_1_at: "2026-08-12T06:00:00Z",
+    finalized_at: "2026-08-12T06:30:00Z",
+    updated_at: "2026-08-12T06:30:00Z",
+    lines: [{ id: "carrot-line", product_id: "carrot", crop_id: "crop-carrot", product_name: "Морковь", quantity: 14_000, uom: "kg", moisture_percent: null, variety_id: "cascade", variety_name: "Каскад F1", reproduction_id: "f1", reproduction_name: "F1", warehouse_to_id: "w1" }],
+  });
+  const result = buildHarvestOverview([oldPotato, carrot], { period });
+  assert.equal(result.activeWeighbridgeSelection?.cropName, "Морковь");
+  assert.equal(result.activeWeighbridgeSelection?.cropStructureAllocationId, "allocation-carrot");
+  assert.equal(result.currentPlotAcceptedKg, 14_000);
+  assert.equal(result.potatoAcceptedKg, 1_000);
+});
 check("moisture is mass weighted", () => {
   const wheat = summary.moisture[0];
   assert.equal(wheat.measuredTrips, 3);
@@ -467,14 +505,15 @@ check("legal operator remains read-only at the database boundary", () => {
   assert.match(readOnlyGuardRuntimeGrants, /to anon, authenticated, service_role, authenticator/);
 });
 check("dashboard API does not cap harvest at one thousand rows", () => assert.match(dashboardApi, /\.range\(from, from \+ pageSize - 1\)/));
-check("dashboard presents the potato live chain", () => {
-  assert.match(dashboardUi, /Главные показатели картофеля/);
-  assert.match(dashboardUi, /Сегодня принято/);
+check("dashboard presents the live vegetable plot chain", () => {
+  assert.match(dashboardUi, /Главные показатели уборки/);
+  assert.match(dashboardUi, /Сегодня принято картофеля/);
   assert.match(dashboardUi, /С текущего участка/);
   assert.match(dashboardUi, /На складе/);
   assert.match(dashboardUi, /Живая урожайность/);
-  assert.match(dashboardUi, /Текущее поле[\s\S]*Главные показатели картофеля[\s\S]*Статусы машин PTC[\s\S]*PotatoDriverSummary/);
+  assert.match(dashboardUi, /Текущее поле[\s\S]*Главные показатели уборки[\s\S]*Статусы машин PTC[\s\S]*PotatoDriverSummary/);
   assert.match(dashboardUi, /summary\?\.activeWeighbridgeSelection/);
+  assert.match(dashboardUi, /const activeCrop = activeSelection\?\.cropName \|\| "Картофель"/);
   assert.doesNotMatch(dashboardUi, /traffic\?\.snapshot\.fieldName/);
   assert.match(dashboardApi, /crop_structure_allocation_id[\s\S]*crop_structure[\s\S]*field_id,area/);
   assert.match(dashboardUi, /potatoParties/);

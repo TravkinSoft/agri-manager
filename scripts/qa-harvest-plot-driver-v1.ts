@@ -14,6 +14,12 @@ async function main() {
   const shiftRoute = readFileSync("app/api/traffic/operator/shift/route.ts", "utf8");
   equal(shiftRoute.includes('const legacyClose = input.action === "close" && input.hectaresShift !== undefined'), true);
   equal(shiftRoute.includes('rpc("ptc_set_combine_shift_v1"'), true);
+  const board = readFileSync("components/traffic/traffic-board.tsx", "utf8");
+  equal(board.includes('data-testid="traffic-shift-required"'), true);
+  equal(board.includes('disabled={pendingVehicle || stale || !snapshot.enabled || !harvesterShiftReady}'), true);
+  const dashboard = readFileSync("lib/dashboard/harvest-summary.ts", "utf8");
+  equal(dashboard.includes("isHarvestVegetableLabel(ticketIdentity(ticket).crop)"), true);
+  equal(dashboard.includes("? finalized\n        .filter"), true);
 
   const db = new PGlite();
   await db.exec(`
@@ -41,6 +47,7 @@ async function main() {
   const company = randomUUID();
   const field = randomUUID();
   const structure = randomUUID();
+  const structure2 = randomUUID();
   const harvester = randomUUID();
   const harvesterPerson = randomUUID();
   const driver = randomUUID();
@@ -48,7 +55,7 @@ async function main() {
   const vehicle = randomUUID();
   await db.query("insert into companies values($1)", [company]);
   await db.query("insert into fields values($1,$2,'Поле 9')", [field, company]);
-  await db.query("insert into crop_structure(id,company_id,field_id,area,archived,land_use_type) values($1,$2,$3,12,false,'crop')", [structure, company, field]);
+  await db.query("insert into crop_structure(id,company_id,field_id,area,archived,land_use_type) values($1,$2,$3,12,false,'crop'),($4,$2,$3,5,false,'crop')", [structure, company, field, structure2]);
   await db.query("insert into profiles values($1,$2,'mechanic_operator','active','Комбайнёр')", [harvester, company]);
   await db.query("insert into company_people values($1,$2,$3,'Комбайнёр','active',null),($4,$2,null,'Водитель','active',null)", [harvesterPerson, company, harvester, driver]);
   await db.query("insert into reference_specialists values($1,$2,$3,'driver','active',false)", [specialist, company, driver]);
@@ -92,16 +99,25 @@ async function main() {
     "PTC_FIELD_ALREADY_COMPLETED",
   );
 
-  // Compatibility proof: an already-open legacy shift has no exact plot but
-  // still allows the current PTC cycle to continue and close.
+  // An already-open legacy shift must choose its exact plot before another
+  // vehicle can be sent. Trips already in progress are not changed.
   await db.query("update ptc_vehicle_states set state='empty',version=0,cycle=0 where company_id=$1 and vehicle_id=$2", [company, vehicle]);
   const legacyShift = randomUUID();
   await db.query("insert into ptc_combine_shifts(id,company_id,operator_user_id,operator_person_id,operator_name,field_id) values($1,$2,$3,$4,'Комбайнёр',$5)", [legacyShift, company, harvester, harvesterPerson, field]);
+  await rejects(
+    () => db.query("select ptc_actor_transition_v1($1,$2,0,'loaded',$3) value", [harvester, vehicle, randomUUID()]),
+    "PTC_SHIFT_REQUIRED",
+  );
+  const attached = (await db.query<{ value: any }>(
+    "select ptc_set_combine_shift_v2($1,'switch',$2,$3,0,false,false,$4) value",
+    [harvester, legacyShift, structure2, randomUUID()],
+  )).rows[0].value;
+  equal(attached.cropStructureId, structure2);
   const legacyLoad = (await db.query<{ value: any }>(
     "select ptc_actor_transition_v1($1,$2,0,'loaded',$3) value", [harvester, vehicle, randomUUID()],
   )).rows[0].value;
   equal((await db.query<any>("select crop_structure_id,field_id::text from ptc_events where id=$1", [legacyLoad.eventId])).rows,
-    [{ crop_structure_id: null, field_id: field }]);
+    [{ crop_structure_id: structure2, field_id: field }]);
   const legacyClosed = (await db.query<{ value: any }>(
     "select ptc_set_combine_shift_v2($1,'close',$2,null,5,false,false,$3) value",
     [harvester, legacyShift, randomUUID()],

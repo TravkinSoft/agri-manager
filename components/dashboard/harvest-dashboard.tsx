@@ -220,10 +220,11 @@ export function HarvestDashboard() {
   const stockKg = potatoParties.reduce((total, party) => total + party.currentStockKg, 0);
   const waitingTare = potatoParties.flatMap((party) => party.openTickets).filter((ticket) => (ticket.waitingTareMinutes || 0) > 0);
   const activeSelection = summary?.activeWeighbridgeSelection || null;
+  const activeCrop = activeSelection?.cropName || "Картофель";
   const activeField = activeSelection?.fieldName || "Поле не выбрано";
   const activeIdentity = activeSelection
     ? [activeSelection.varietyName, compactReproductionLabel(activeSelection.reproductionName)].filter((value) => value && value !== "—").join(" · ")
-    : "Картофель";
+    : activeCrop;
   const activeShift = traffic?.snapshot.combineShift || null;
   const fieldHectares = activeSelection?.areaHa ?? null;
   const fieldDetail = [activeIdentity, fieldHectares === null ? null : `участок ${fieldHectares.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`].filter(Boolean).join(" · ");
@@ -238,7 +239,7 @@ export function HarvestDashboard() {
       ].filter(Boolean).join(" · ")
     : "Точный участок не выбран";
   const shiftIsOpen = activeShift?.status === "open";
-  const selectedPartyStockKg = potatoParties
+  const selectedPartyStockKg = (summary?.parties || [])
     .filter((party) => activeSelection && (
       activeSelection.harvestLotId
         ? party.key === `lot:${activeSelection.harvestLotId}`
@@ -279,18 +280,18 @@ export function HarvestDashboard() {
           <section className="flex min-h-9 items-center border-y border-border py-1" aria-label="Текущее поле">
             <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
               <div className="flex shrink-0 items-center gap-1.5 text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
-                <span>Картофель</span><span>·</span><span>{clock(traffic?.snapshot.serverTime || new Date(now).toISOString())}</span>
+                <span>{activeCrop}</span><span>·</span><span>{clock(traffic?.snapshot.serverTime || new Date(now).toISOString())}</span>
                 <span className={`h-1.5 w-1.5 rounded-full ${shiftIsOpen ? "bg-emerald-500" : "bg-rose-500"}`} />
                 <span className={shiftIsOpen ? "text-emerald-700" : "text-rose-700"}>{shiftIsOpen ? "Live" : "Offline"}</span>
               </div>
               <h2 className="shrink-0 text-sm font-semibold text-foreground">{activeField}</h2>
-              <div className="min-w-0 truncate text-[11px] text-muted-foreground">{fieldDetail || "Картофель"}</div>
+              <div className="min-w-0 truncate text-[11px] text-muted-foreground">{fieldDetail || activeCrop}</div>
             </div>
           </section>
 
-          <section className="grid grid-cols-2 border-b border-border sm:grid-cols-4" aria-label="Главные показатели картофеля">
+          <section className="grid grid-cols-2 border-b border-border sm:grid-cols-4" aria-label="Главные показатели уборки">
             <div className="min-w-0 py-2 pr-2 sm:py-1 sm:pr-3">
-              <div className="text-[9px] uppercase leading-none tracking-[0.11em] text-muted-foreground sm:text-[10px]">Сегодня принято</div>
+              <div className="text-[9px] uppercase leading-none tracking-[0.11em] text-muted-foreground sm:text-[10px]">Сегодня принято картофеля</div>
               <div className="mt-1 whitespace-nowrap text-base font-semibold leading-none tabular-nums text-[color:var(--manor-brass-soft)] sm:text-lg">{mass(receivedKg)}</div>
               <div className="mt-1 truncate text-[10px] text-muted-foreground">Все поля компании</div>
             </div>
