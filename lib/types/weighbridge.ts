@@ -108,6 +108,8 @@ export interface TicketInput {
   processing_point_to_id?: string | null;
   vehicle_id?: string | null;
   driver_id?: string | null;
+  ptc_event_id?: string | null;
+  ptc_cycle?: number | null;
   combine_operator_person_id?: string | null;
   responsible_user_id?: string | null;
   created_by: string;
@@ -216,6 +218,9 @@ export interface WeighbridgeTicket {
   processing_point_to_id?: string | null;
   vehicle_id?: string | null;
   driver_id?: string | null;
+  ptc_event_id?: string | null;
+  ptc_cycle?: number | null;
+  ptc_trip_minutes?: number | null;
   gross_weight_kg?: number | null;
   tare_weight_kg?: number | null;
   net_weight_kg?: number | null;

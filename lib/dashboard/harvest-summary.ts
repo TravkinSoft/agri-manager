@@ -493,7 +493,13 @@ export function buildHarvestFilterOptions(tickets: WeighbridgeTicket[], warehous
 
 export function buildHarvestOverview(
   tickets: WeighbridgeTicket[],
-  options: { period: HarvestPeriod; filters?: HarvestDashboardFilters; now?: Date; warehouseRows?: WarehouseHarvestRow[] }
+  options: {
+    period: HarvestPeriod;
+    filters?: HarvestDashboardFilters;
+    now?: Date;
+    warehouseRows?: WarehouseHarvestRow[];
+    activeSelection?: HarvestOverview["activeWeighbridgeSelection"];
+  }
 ): HarvestOverview {
   const now = options.now || new Date();
   const filters = options.filters || {};
@@ -514,7 +520,7 @@ export function buildHarvestOverview(
     .sort((left, right) => weighbridgeSelectionTime(right) - weighbridgeSelectionTime(left))[0] || null;
   const activeWeighbridgeIdentity = activeWeighbridgeTicket ? ticketIdentity(activeWeighbridgeTicket) : null;
   const activeAreaHa = Number(activeWeighbridgeTicket?.crop_structure_area_ha);
-  const activeWeighbridgeSelection = activeWeighbridgeTicket
+  const inferredActiveWeighbridgeSelection = activeWeighbridgeTicket
     && activeWeighbridgeIdentity
     && activeWeighbridgeTicket.field_id
     && activeWeighbridgeTicket.crop_structure_allocation_id
@@ -535,6 +541,7 @@ export function buildHarvestOverview(
         areaHa: Number.isFinite(activeAreaHa) && activeAreaHa > 0 ? activeAreaHa : null,
       }
     : null;
+  const activeWeighbridgeSelection = options.activeSelection || inferredActiveWeighbridgeSelection;
   const potatoFinalized = finalized.filter((ticket) => isPotatoLabel(ticketIdentity(ticket).crop));
   const potatoAcceptedKg = potatoFinalized.reduce((total, ticket) => total + harvestTicketHeaderNetKg(ticket), 0);
   const currentPlotAcceptedKg = activeWeighbridgeSelection
@@ -708,6 +715,12 @@ export function buildHarvestOverview(
       driverRow.tripCount += 1;
       driverRow.netWeightKg += netKg;
       driverRow.averageNetWeightKg = driverRow.netWeightKg / driverRow.tripCount;
+      const tripMinutes = Number(ticket.ptc_trip_minutes);
+      if (Number.isFinite(tripMinutes) && tripMinutes >= 0) {
+        const previousTimedTotal = (driverRow.averageTripMinutes || 0) * driverRow.timedTripCount;
+        driverRow.timedTripCount += 1;
+        driverRow.averageTripMinutes = (previousTimedTotal + tripMinutes) / driverRow.timedTripCount;
+      }
       if (new Date(occurredAt).getTime() >= new Date(driverRow.lastTripAt).getTime()) {
         driverRow.lastTripAt = occurredAt;
       }

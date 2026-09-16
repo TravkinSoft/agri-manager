@@ -178,7 +178,7 @@ async function main() {
   equal(analyticsPanel.includes(" эп."), false);
   assert.match(analyticsPanel, /Загрузок пока нет/); checks++;
   const server = readFileSync("lib/traffic/server.ts", "utf8");
-  assert.match(server, /role === "manager" && includeAnalytics[\s\S]*\.is\("closed_at", null\)[\s\S]*\.order\("opened_at", \{ ascending: true \}\)/); checks++;
+  assert.match(server, /role === "manager" && includeOpenCombineShift[\s\S]*\.is\("closed_at", null\)[\s\S]*\.order\("opened_at", \{ ascending: true \}\)/); checks++;
   assert.match(server, /const LIVE_ANALYTICS_MAX_WINDOW_MS = 24 \* 60 \* 60 \* 1000/); checks++;
   assert.match(server, /analyticsWindowCapped[\s\S]*liveWindowFloor[\s\S]*Текущая смена · последние 24 часа/); checks++;
   assert.match(server, /const rollingStartedAt = new Date\(Date\.parse\(serverTime\) - 12 \* 60 \* 60 \* 1000\)/); checks++;

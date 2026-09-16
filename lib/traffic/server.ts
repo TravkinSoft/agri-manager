@@ -92,6 +92,11 @@ export function failed(error: unknown) {
     PTC_SHIFT_INVALID: [400, "Проверьте данные смены"],
     PTC_SHIFT_ALREADY_OPEN: [409, "Смена уже открыта"],
     PTC_SHIFT_CONFLICT: [409, "Смена уже изменилась. Обновите кабинет"],
+    PTC_SHIFT_REQUIRED: [409, "Сначала откройте смену и выберите участок"],
+    PTC_FIELD_UNAVAILABLE: [409, "Этот участок больше недоступен. Выберите другой"],
+    PTC_FIELD_PROGRESS_BACKWARDS: [409, "Итог по полю не может быть меньше уже сохранённого"],
+    PTC_FIELD_ALREADY_COMPLETED: [409, "Этот участок уже отмечен как завершённый"],
+    PTC_FIELD_COMPLETION_OUTSIDE_TOLERANCE: [409, "Указанная площадь сильно отличается от площади участка. Подтвердите значение ещё раз"],
     PTC_COMBINE_STATUS_FORBIDDEN: [403, "Статус комбайна доступен только комбайнёру"],
     PTC_COMBINE_STATUS_INVALID: [400, "Проверьте статус комбайна"],
     PTC_COMBINE_STATUS_VERSION_CONFLICT: [
@@ -296,7 +301,7 @@ export async function readSnapshot(
     role === "harvester" && actorId
       ? db
           .from("ptc_combine_shifts")
-          .select("id,operator_name,opened_at,closed_at,hectares_shift,hectares_field_total")
+          .select("id,operator_name,opened_at,closed_at,hectares_shift,hectares_field_total,current_crop_structure_id")
           .eq("company_id", companyId)
           .eq("operator_user_id", actorId)
           .order("opened_at", { ascending: false })
@@ -305,7 +310,7 @@ export async function readSnapshot(
       : role === "manager" && includeOpenCombineShift
         ? db
             .from("ptc_combine_shifts")
-            .select("id,operator_name,opened_at,closed_at,hectares_shift,hectares_field_total")
+            .select("id,operator_name,opened_at,closed_at,hectares_shift,hectares_field_total,current_crop_structure_id")
             .eq("company_id", companyId)
             .is("closed_at", null)
             // Several combine operators may have concurrent open shifts. The
@@ -351,6 +356,7 @@ export async function readSnapshot(
     closed_at: string | null;
     hectares_shift: number | string | null;
     hectares_field_total: number | string | null;
+    current_crop_structure_id: string | null;
   } | null;
   const combineShift = shiftRow ? {
     id: shiftRow.id,
@@ -359,6 +365,7 @@ export async function readSnapshot(
     closedAt: shiftRow.closed_at,
     hectaresShift: shiftRow.hectares_shift === null ? null : Number(shiftRow.hectares_shift),
     hectaresFieldTotal: shiftRow.hectares_field_total === null ? null : Number(shiftRow.hectares_field_total),
+    cropStructureId: shiftRow.current_crop_structure_id || null,
     status: shiftRow.closed_at === null ? "open" as const : "closed" as const,
   } : null;
   const combineStatusRows = (results[5].data ?? []) as CombineStatusRow[];
@@ -468,7 +475,7 @@ export async function readSnapshot(
   const [repairs, driverResult] = await Promise.all([repairsPromise, driverIds.length
     ? db
         .from("reference_specialists")
-        .select("id,personnel_type,status,archived,person:person_id(full_name,company_id,role_type,status,deleted_at)")
+        .select("id,personnel_type,status,archived,person:person_id(id,full_name,company_id,role_type,status,deleted_at)")
         .eq("company_id", companyId)
         .in("personnel_type", ["driver", "machine_operator"])
         .eq("status", "active")
@@ -498,6 +505,10 @@ export async function readSnapshot(
         companyId,
         vehicleAllowsMachineOperator(vehicle),
       ),
+      driverId: (() => {
+        const assignment = driverAssignments.get(vehicle?.primary_responsible_personnel_id ?? "") as any;
+        return assignment?.person?.id ? String(assignment.person.id) : null;
+      })(),
     };
   });
   return {

@@ -31,6 +31,7 @@ import {
   type TicketHistoryCursor,
 } from "@/lib/weighbridge/ticket-history-cursor";
 import { sanitizeClientTicketAuditJson } from "@/lib/weighbridge/ticket-audit";
+import { getServiceClient } from "@/lib/supabase/service";
 
 function buildTicketNo(companyId: string): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -715,6 +716,52 @@ export async function POST(request: NextRequest) {
       }));
       if (harvestContext.status !== "ready") {
         return NextResponse.json({ error: harvestContext.message }, { status: 409 });
+      }
+      const hasPtcEvent = Boolean(ticket.ptc_event_id);
+      const hasPtcCycle = ticket.ptc_cycle != null;
+      if (hasPtcEvent !== hasPtcCycle) {
+        return NextResponse.json({ error: "Обновите очередь PTC и выберите машину заново." }, { status: 409 });
+      }
+      if (hasPtcEvent) {
+        const ptc = getServiceClient();
+        const { data: tripEvent, error: tripEventError } = await ptc
+          .from("ptc_events")
+          .select("id,vehicle_id,driver_id,field_id,crop_structure_id,cycle,to_state")
+          .eq("id", String(ticket.ptc_event_id))
+          .eq("company_id", companyId)
+          .maybeSingle();
+        const { data: tripState, error: tripStateError } = await ptc
+          .from("ptc_vehicle_states")
+          .select("vehicle_id,state,cycle,assigned")
+          .eq("company_id", companyId)
+          .eq("vehicle_id", String(ticket.vehicle_id || ""))
+          .maybeSingle();
+        const { data: existingTripTicket, error: existingTripError } = await ptc
+          .from("tickets")
+          .select("id,ticket_no")
+          .eq("company_id", companyId)
+          .eq("ptc_event_id", String(ticket.ptc_event_id))
+          .neq("is_voided", true)
+          .limit(1)
+          .maybeSingle();
+        if (tripEventError || tripStateError || existingTripError) {
+          return NextResponse.json({ error: "Не удалось подтвердить рейс PTC. Обновите очередь." }, { status: 409 });
+        }
+        if (existingTripTicket?.id) {
+          return NextResponse.json({ error: `На этот рейс уже открыт талон ${existingTripTicket.ticket_no}.` }, { status: 409 });
+        }
+        if (
+          !tripEvent?.id || tripEvent.to_state !== "loaded"
+          || String(tripEvent.vehicle_id) !== String(ticket.vehicle_id || "")
+          || Number(tripEvent.cycle) !== Number(ticket.ptc_cycle)
+          || String(tripEvent.driver_id || "") !== String(ticket.driver_id || "")
+          || String(tripEvent.field_id || "") !== String(ticket.field_id || "")
+          || String(tripEvent.crop_structure_id || "") !== String(ticket.crop_structure_allocation_id || "")
+          || !tripState?.assigned || tripState.state !== "loaded"
+          || Number(tripState.cycle) !== Number(ticket.ptc_cycle)
+        ) {
+          return NextResponse.json({ error: "Машина, водитель или участок в PTC уже изменились. Обновите форму." }, { status: 409 });
+        }
       }
       if (lines.length !== 1) {
         return NextResponse.json(

@@ -498,10 +498,17 @@ check("yield calculator uses selected party stock and defaults to the field area
 });
 check("live yield uses exact accepted mass and shift hectares only when plot ownership is verified", () => {
   assert.match(dashboardApi, /currentPlotAcceptedKg \/ 1000 \/ harvestedAreaHa/);
-  assert.match(dashboardApi, /Number\(row\.hectares_shift\)/);
-  assert.match(dashboardApi, /hectares_field_total is a cumulative field/);
-  assert.match(dashboardApi, /currentPlotHarvestedAreaStatus: "field_has_multiple_plots"/);
+  assert.match(dashboardApi, /ptc_combine_field_segments/);
+  assert.match(dashboardApi, /Number\(row\.hectares_segment\)/);
+  assert.match(dashboardApi, /crop_structure_id", selection\.cropStructureAllocationId/);
+  assert.match(dashboardApi, /activeSelection: activePtcSelection/);
   assert.match(dashboardUi, /Недостаточно данных/);
+});
+check("driver champions are potato-only and season-wide", () => {
+  assert.match(dashboardApi, /const seasonPeriod = resolveHarvestPeriod/);
+  assert.match(dashboardApi, /preset: "season"/);
+  assert.match(dashboardApi, /potatoDrivers: seasonDrivers/);
+  assert.match(dashboardApi, /ptc_trip_minutes/);
 });
 check("dashboard live state and timers follow the combine shift", () => {
   assert.match(dashboardUi, /shiftIsOpen \? "Live" : "Offline"/);

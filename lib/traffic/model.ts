@@ -42,6 +42,7 @@ export interface TrafficVehicle {
   brand?: string | null;
   plate: string | null;
   driver: string | null;
+  driverId?: string | null;
   state: TrafficState;
   version: number;
   since: string;
@@ -71,6 +72,7 @@ export interface TrafficCombineShift {
   closedAt: string | null;
   hectaresShift: number | null;
   hectaresFieldTotal: number | null;
+  cropStructureId?: string | null;
   status: "open" | "closed";
 }
 export interface TrafficCombineBreakdown {

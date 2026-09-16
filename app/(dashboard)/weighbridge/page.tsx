@@ -293,6 +293,22 @@ type HarvestStructureOption = {
     hasReproductionRef: boolean;
   };
 };
+
+type PtcQueueItem = {
+  ptcEventId: string;
+  ptcCycle: number;
+  loadedAt: string;
+  vehicleId: string;
+  vehicleLabel: string;
+  driverId: string | null;
+  driverName: string;
+  fieldId: string | null;
+  fieldName: string;
+  cropStructureId: string | null;
+  cropName: string;
+  varietyName: string;
+  reproductionName: string;
+};
 type HarvestContextState = {
   status: "idle" | "loading" | "ready" | "missing" | "ambiguous" | "invalid" | "error";
   message: string;
@@ -373,6 +389,8 @@ type FormState = {
   harvestMoisture: string;
   vehicleId: string;
   driverId: string;
+  ptcEventId: string;
+  ptcCycle: number | null;
   combineOperatorPersonId: string;
   disposalCategory: DisposalCategory;
   disposalReason: string;
@@ -425,6 +443,8 @@ const INITIAL_FORM: FormState = {
   harvestMoisture: "",
   vehicleId: "",
   driverId: "",
+  ptcEventId: "",
+  ptcCycle: null,
   combineOperatorPersonId: "",
   disposalCategory: "utilization",
   disposalReason: "",
@@ -1035,6 +1055,7 @@ export default function WeighbridgeOperationsPage() {
   const resourceCompanyRef = useRef(profile?.company_id);
   resourceCompanyRef.current = profile?.company_id;
   const [harvestStructureByField, setHarvestStructureByField] = useState<Record<string, HarvestStructureOption[]>>({});
+  const [ptcQueue, setPtcQueue] = useState<PtcQueueItem[]>([]);
   const [harvestIncompleteFields, setHarvestIncompleteFields] = useState<Record<string, boolean>>({});
   const [harvestAllocationsReady, setHarvestAllocationsReady] = useState(false);
   const [activeHarvests, setActiveHarvests] = useState<ActiveHarvestRoute[]>([]);
@@ -1292,6 +1313,17 @@ export default function WeighbridgeOperationsPage() {
     return payload;
   };
 
+  const loadPtcQueue = async (companyId: string, signal?: AbortSignal) => {
+    const headers = await getSessionAuthHeaders();
+    const response = await fetch(
+      `/api/weighbridge/ptc-queue?companyId=${encodeURIComponent(companyId)}`,
+      { cache: "no-store", headers, signal }
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(String(payload?.error || "Не удалось загрузить очередь машин с поля"));
+    return (Array.isArray(payload?.queue) ? payload.queue : []) as PtcQueueItem[];
+  };
+
   const applyHarvestAllocations = (payload: any) => {
     setActiveHarvestSeasonId(payload?.seasonId ? String(payload.seasonId) : null);
     setActiveHarvestSeasonYear(payload?.seasonYear ? Number(payload.seasonYear) : null);
@@ -1492,16 +1524,23 @@ export default function WeighbridgeOperationsPage() {
     const request = (async () => {
       if (!background && !coreDataReady) setLoading(true);
       try {
-        const [resourcesResult, allocationsResult, transportPairsResult] = await Promise.allSettled([
+        const [resourcesResult, allocationsResult, transportPairsResult, ptcQueueResult] = await Promise.allSettled([
           getWeighbridgeResources(companyId, { signal: requestSignal }),
           loadHarvestAllocations(companyId, requestSignal),
           loadTransportPickerDataCached(companyId, false, requestSignal),
+          loadPtcQueue(companyId, requestSignal),
         ]);
         if (requestSignal.aborted || resourceCompanyRef.current !== companyId) return;
         const issues: Array<{ code: string; message: string }> = [];
         const addIssue = (code: string, message: string) => {
           if (!issues.some((issue) => issue.code === code)) issues.push({ code, message });
         };
+
+        if (ptcQueueResult.status === "fulfilled") {
+          setPtcQueue(ptcQueueResult.value);
+        } else if (ptcQueueResult.reason?.name !== "AbortError") {
+          addIssue("PTC_QUEUE", "Очередь машин с поля временно недоступна. Машину можно выбрать вручную.");
+        }
 
         if (resourcesResult.status === "fulfilled") {
           const resourceRows = resourcesResult.value;
@@ -3376,6 +3415,8 @@ export default function WeighbridgeOperationsPage() {
       varietyId: automaticAllocation?.varietyId || "",
       reproductionId: automaticAllocation?.reproductionId || "",
       combineOperatorPersonId: "",
+      ptcEventId: "",
+      ptcCycle: null,
     }));
   };
 
@@ -3389,8 +3430,60 @@ export default function WeighbridgeOperationsPage() {
       varietyId: allocation?.varietyId || "",
       reproductionId: allocation?.reproductionId || "",
       combineOperatorPersonId: "",
+      ptcEventId: "",
+      ptcCycle: null,
     }));
   };
+
+  const changeHarvestTransport = (vehicleId: string, driverId: string) => {
+    const queued = form.operationType === "harvest_incoming"
+      ? ptcQueue.find((item) => item.vehicleId === vehicleId) || null
+      : null;
+    const allocation = queued?.fieldId && queued.cropStructureId
+      ? (harvestStructureByField[queued.fieldId] || []).find((item) => item.allocationId === queued.cropStructureId) || null
+      : null;
+    setForm((previous) => ({
+      ...previous,
+      vehicleId,
+      driverId,
+      ptcEventId: queued?.ptcEventId || "",
+      ptcCycle: queued?.ptcCycle ?? null,
+      ...(queued?.fieldId && allocation ? {
+        fieldId: queued.fieldId,
+        cropStructureAllocationId: allocation.allocationId,
+        cropId: allocation.cropId,
+        varietyId: allocation.varietyId,
+        reproductionId: allocation.reproductionId,
+      } : {}),
+    }));
+  };
+
+  useEffect(() => {
+    if (!coreDataReady || form.operationType !== "harvest_incoming" || form.vehicleId || form.driverId || form.grossKg) return;
+    const next = ptcQueue.find((item) => {
+      if (!item.driverId || !item.fieldId || !item.cropStructureId) return false;
+      return (harvestStructureByField[item.fieldId] || []).some((allocation) => allocation.allocationId === item.cropStructureId);
+    });
+    if (!next?.driverId) return;
+    const allocation = (harvestStructureByField[next.fieldId!] || [])
+      .find((item) => item.allocationId === next.cropStructureId);
+    if (!allocation) return;
+    setForm((previous) => {
+      if (previous.operationType !== "harvest_incoming" || previous.vehicleId || previous.driverId || previous.grossKg) return previous;
+      return {
+        ...previous,
+        vehicleId: next.vehicleId,
+        driverId: next.driverId || "",
+        ptcEventId: next.ptcEventId,
+        ptcCycle: next.ptcCycle,
+        fieldId: next.fieldId || "",
+        cropStructureAllocationId: allocation.allocationId,
+        cropId: allocation.cropId,
+        varietyId: allocation.varietyId,
+        reproductionId: allocation.reproductionId,
+      };
+    });
+  }, [coreDataReady, form.operationType, form.vehicleId, form.driverId, form.grossKg, ptcQueue, harvestStructureByField]);
 
   const setActiveHarvestForm = (route: ActiveHarvestRoute | null, clearTransient = false) => {
     setForm((previous) => ({
@@ -4566,6 +4659,8 @@ export default function WeighbridgeOperationsPage() {
       processing_point_from_id: form.operationType === "drying" ? form.processingPointId || null : null,
       vehicle_id: form.vehicleId || null,
       driver_id: form.driverId || null,
+      ptc_event_id: form.operationType === "harvest_incoming" ? form.ptcEventId || null : null,
+      ptc_cycle: form.operationType === "harvest_incoming" ? form.ptcCycle : null,
       combine_operator_person_id: form.operationType === "harvest_incoming" ? form.combineOperatorPersonId || null : null,
       gross_weight_kg: isSupplierDirect ? null : isDirectQuantity ? movementQuantity : toNum(form.grossKg),
       tare_weight_kg: isSupplierDirect ? null : isDirectQuantity ? 0 : null,
@@ -6264,7 +6359,7 @@ export default function WeighbridgeOperationsPage() {
                 openAssignments={transportPickerData.openAssignments}
                 optional={form.operationType === "supplier_receipt"}
                 disabled={loading || submitting || ticketCloseLocked}
-                onChange={(vehicleId, driverId) => setForm((previous) => ({ ...previous, vehicleId, driverId }))}
+                onChange={changeHarvestTransport}
                 onBlockedAssignment={(assignment) => void handleBlockedTransportAssignment(assignment)}
                 onComplete={() => grossInputRef.current?.focus()}
               />

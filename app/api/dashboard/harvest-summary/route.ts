@@ -130,7 +130,7 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
       .from("tickets")
       .select(`
         id,company_id,ticket_no,ticket_type,op_type,status,direction,source_kind,destination_kind,
-        field_id,crop_structure_allocation_id,warehouse_from_id,warehouse_to_id,vehicle_id,driver_id,gross_weight_kg,tare_weight_kg,
+        field_id,crop_structure_allocation_id,warehouse_from_id,warehouse_to_id,vehicle_id,driver_id,ptc_event_id,ptc_cycle,gross_weight_kg,tare_weight_kg,
         net_weight_kg,accepted_weight_kg,weigh_method,is_finalized,is_voided,finalized_at,voided_at,weighing_1_at,weighing_2_at,
         created_at,updated_at,notes,season_id,replacement_ticket_id,correction_of_ticket_id,requires_review,
         review_reason,audit_json,
@@ -176,6 +176,23 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
 
   const ticketIds = rows.map((row) => String(row.id));
   const lotByTicketId = await loadLotByTicketId(supabase, companyId, ticketIds);
+  const ptcEventIds = uniqueIds(rows.map((row) => row.ptc_event_id));
+  const service = getServiceClient();
+  const loadedPtcResult = ptcEventIds.length
+    ? await service.from("ptc_events").select("id,vehicle_id,cycle,created_at").eq("company_id", companyId).in("id", ptcEventIds)
+    : { data: [], error: null } as any;
+  if (loadedPtcResult.error) throw loadedPtcResult.error;
+  const loadedPtcRows = loadedPtcResult.data || [];
+  const unloadingPtcResult = loadedPtcRows.length
+    ? await service.from("ptc_events").select("vehicle_id,cycle,created_at").eq("company_id", companyId).eq("to_state", "unloading").in("vehicle_id", uniqueIds(loadedPtcRows.map((row: any) => row.vehicle_id)))
+    : { data: [], error: null } as any;
+  if (unloadingPtcResult.error) throw unloadingPtcResult.error;
+  const unloadingByTrip = new Map((unloadingPtcResult.data || []).map((row: any) => [`${row.vehicle_id}:${row.cycle}`, row]));
+  const tripMinutesByEvent = new Map(loadedPtcRows.flatMap((loaded: any) => {
+    const unloading = unloadingByTrip.get(`${loaded.vehicle_id}:${loaded.cycle}`) as any;
+    const minutes = unloading ? (Date.parse(unloading.created_at) - Date.parse(loaded.created_at)) / 60_000 : NaN;
+    return Number.isFinite(minutes) && minutes >= 0 ? [[String(loaded.id), minutes] as const] : [];
+  }));
 
   return rows.map((row) => {
     const vehicle = vehicleById.get(String(row.vehicle_id || ""));
@@ -197,6 +214,7 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
     return {
       ...row,
       driver_id: canonicalDriverId,
+      ptc_trip_minutes: tripMinutesByEvent.get(String(row.ptc_event_id || "")) ?? null,
       harvest_lot_id: lotByTicketId.get(String(row.id)) || null,
       field_name_snapshot: String(fieldById.get(String(row.field_id || ""))?.name || "") || null,
       crop_structure_area_ha: allocation?.field_id && String(allocation.field_id) === String(row.field_id || "")
@@ -279,6 +297,55 @@ async function loadWarehouseRows(
   });
 }
 
+async function loadActivePtcPlotSelection(companyId: string): Promise<HarvestOverview["activeWeighbridgeSelection"]> {
+  const db = getServiceClient();
+  const { data: shift, error: shiftError } = await db
+    .from("ptc_combine_shifts")
+    .select("id,current_crop_structure_id,updated_at")
+    .eq("company_id", companyId)
+    .is("closed_at", null)
+    .not("current_crop_structure_id", "is", null)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (shiftError) throw shiftError;
+  if (!shift?.current_crop_structure_id) return null;
+  const { data: structure, error: structureError } = await db
+    .from("crop_structure")
+    .select("id,field_id,season_id,crop_id,variety_id,reproduction_id,area")
+    .eq("company_id", companyId)
+    .eq("id", shift.current_crop_structure_id)
+    .eq("archived", false)
+    .maybeSingle();
+  if (structureError) throw structureError;
+  if (!structure?.id) return null;
+  const [fieldResult, cropResult, varietyResult, reproductionResult] = await Promise.all([
+    db.from("fields").select("id,name").eq("company_id", companyId).eq("id", structure.field_id).maybeSingle(),
+    db.from("crops").select("id,name,name_ru,name_kz,name_en").eq("id", structure.crop_id).maybeSingle(),
+    structure.variety_id ? db.from("varieties").select("id,name,name_ru,name_kz,name_en").eq("id", structure.variety_id).maybeSingle() : Promise.resolve({ data: null, error: null } as any),
+    structure.reproduction_id ? db.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code").eq("id", structure.reproduction_id).maybeSingle() : Promise.resolve({ data: null, error: null } as any),
+  ]);
+  const error = fieldResult.error || cropResult.error || varietyResult.error || reproductionResult.error;
+  if (error) throw error;
+  const name = (row: any) => String(row?.name_ru || row?.name || row?.name_kz || row?.name_en || row?.code || "").trim() || null;
+  return {
+    ticketId: "",
+    occurredAt: String(shift.updated_at),
+    fieldId: String(structure.field_id),
+    fieldName: String(fieldResult.data?.name || "Поле не указано"),
+    cropStructureAllocationId: String(structure.id),
+    harvestLotId: null,
+    seasonId: structure.season_id ? String(structure.season_id) : null,
+    cropId: structure.crop_id ? String(structure.crop_id) : null,
+    cropName: name(cropResult.data) || "Культура не указана",
+    varietyId: structure.variety_id ? String(structure.variety_id) : null,
+    varietyName: name(varietyResult.data),
+    reproductionId: structure.reproduction_id ? String(structure.reproduction_id) : null,
+    reproductionName: name(reproductionResult.data),
+    areaHa: Number(structure.area || 0) || null,
+  };
+}
+
 function readFilters(request: NextRequest): HarvestDashboardFilters {
   const read = (key: string) => String(request.nextUrl.searchParams.get(key) || "").trim() || null;
   return { cropId: read("cropId"), varietyId: read("varietyId"), reproductionId: read("reproductionId"), fieldId: read("fieldId"), warehouseId: read("warehouseId") };
@@ -304,31 +371,30 @@ async function attachVerifiedCurrentPlotYield(
 
   const activeAllocations = allocations || [];
   const exactAllocation = activeAllocations.find((row: any) => String(row.id) === selection.cropStructureAllocationId);
-  const selectionIsTheOnlyPlot = activeAllocations.length === 1
-    && exactAllocation
+  const selectionIsExact = exactAllocation
     && String(exactAllocation.crop_id || "") === String(selection.cropId || "")
     && String(exactAllocation.variety_id || "") === String(selection.varietyId || "")
     && String(exactAllocation.reproduction_id || "") === String(selection.reproductionId || "");
-  if (!selectionIsTheOnlyPlot) {
-    return { ...summary, currentPlotHarvestedAreaStatus: "field_has_multiple_plots" };
+  if (!selectionIsExact) {
+    return { ...summary, currentPlotHarvestedAreaStatus: "no_selection" };
   }
 
-  const { data: shifts, error: shiftsError } = await supabase
-    .from("ptc_combine_shifts")
-    .select("id,field_id,closed_at,hectares_shift,hectares_field_total")
+  const { data: segments, error: segmentsError } = await getServiceClient()
+    .from("ptc_combine_field_segments")
+    .select("id,crop_structure_id,closed_at,hectares_segment")
     .eq("company_id", companyId)
-    .eq("field_id", selection.fieldId)
+    .eq("crop_structure_id", selection.cropStructureAllocationId)
     .not("closed_at", "is", null)
     .gte("closed_at", summary.period.start)
     .lt("closed_at", summary.period.end)
     .order("closed_at", { ascending: true });
-  if (shiftsError) throw shiftsError;
+  if (segmentsError) throw segmentsError;
 
   // hectares_shift is the work done during each closed shift and may be summed
   // for the current working day. hectares_field_total is a cumulative field
   // checkpoint, so it is deliberately never used as this period's denominator.
-  const harvestedAreaHa = (shifts || []).reduce((total: number, row: any) => {
-    const value = Number(row.hectares_shift);
+  const harvestedAreaHa = (segments || []).reduce((total: number, row: any) => {
+    const value = Number(row.hectares_segment);
     return Number.isFinite(value) && value > 0 ? total + value : total;
   }, 0);
   if (!(harvestedAreaHa > 0)) {
@@ -372,8 +438,16 @@ export async function GET(request: NextRequest) {
       shift: shiftResult.data,
       operationalDayStartHour: Number(companyResult.data?.operational_day_start_hour ?? 7),
     });
+    const seasonPeriod = resolveHarvestPeriod({
+      preset: "season",
+      season: seasonResult.data,
+      operationalDayStartHour: Number(companyResult.data?.operational_day_start_hour ?? 7),
+    });
 
-    const loadedWarehouseRows = await loadWarehouseRows(supabase, getServiceClient(), companyId);
+    const [loadedWarehouseRows, activePtcSelection] = await Promise.all([
+      loadWarehouseRows(supabase, getServiceClient(), companyId),
+      loadActivePtcPlotSelection(companyId),
+    ]);
     const filterWarehouseRows = buildWarehouseHarvestRows(loadedWarehouseRows);
     if (section === "filters") {
       return NextResponse.json({
@@ -383,11 +457,13 @@ export async function GET(request: NextRequest) {
     }
 
     const warehouseRows = buildWarehouseHarvestRows(loadedWarehouseRows, filters);
-    const summary = await attachVerifiedCurrentPlotYield(
+    const periodSummary = await attachVerifiedCurrentPlotYield(
       supabase,
       companyId,
-      buildHarvestOverview(tickets, { period, filters, warehouseRows }),
+      buildHarvestOverview(tickets, { period, filters, warehouseRows, activeSelection: activePtcSelection }),
     );
+    const seasonDrivers = buildHarvestOverview(tickets, { period: seasonPeriod }).potatoDrivers;
+    const summary = { ...periodSummary, potatoDrivers: seasonDrivers };
     if (section === "bootstrap") {
       return NextResponse.json({
         summary: { ...summary, source: SUMMARY_SOURCE },

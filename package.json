@@ -90,6 +90,7 @@
     "qa:ptc:notifications": "npx --no-install tsx scripts/qa-ptc-operational-notifications-v1.ts",
     "qa:ptc:agronomist-readonly": "npx --no-install tsx scripts/qa-ptc-agronomist-readonly.ts",
     "qa:ptc:shift-last": "npx --no-install tsx scripts/qa-ptc-shift-last-v1.ts",
+    "qa:ptc:harvest-plot-driver": "npx --no-install tsx scripts/qa-harvest-plot-driver-v1.ts",
     "qa:ptc:combine-breakdown": "npm run qa:ptc:combine-breakdown:db && npm run qa:ptc:combine-breakdown:server",
     "qa:ptc:combine-breakdown:db": "npx --no-install tsx scripts/qa-ptc-combine-breakdown-v1.ts",
     "qa:ptc:combine-breakdown:server": "npx --no-install tsx scripts/qa-ptc-combine-breakdown-server.ts",
