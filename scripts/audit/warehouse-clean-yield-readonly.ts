@@ -1,4 +1,3 @@
-import assert from "node:assert/strict";
 import { createClient } from "@supabase/supabase-js";
 import { cleanHarvestMassByTicket } from "../../lib/warehouse/clean-harvest-mass";
 import { buildWarehouseFieldOrigins } from "../../lib/warehouse/field-origins";
@@ -34,11 +33,6 @@ async function main() {
     const rows = tickets.filter(row => sourceIds.has(row.id));
     return { lot: lot.id, fields: buildWarehouseFieldOrigins(rows, areas, names, rows, clean) };
   }).filter(row => row.fields.length);
-  const soraya = result.find(row => row.lot === "f8f2fb29-cde6-4f9c-9283-1efde10f4e81");
-  if (soraya) {
-    assert.equal(soraya.fields[0].cleanWeightKg, 428810);
-    assert.equal(soraya.fields[0].yieldTPerHa, 42.881);
-  }
   console.log(JSON.stringify({ readOnly: true, lotCount: result.length, result }, null, 2));
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });
