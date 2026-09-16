@@ -431,8 +431,9 @@ export async function createTicket(
   return parseJsonOrThrow(response);
 }
 
-export type HarvestFinalizeInput = {
-  tare_weight_kg: number;
+export type WeighbridgeFinalizeInput = {
+  tare_weight_kg?: number;
+  gross_weight_kg?: number;
   moisture_percent?: number | null;
   deduction_kg?: number | null;
   deduction_percent?: number | null;
@@ -441,18 +442,20 @@ export type HarvestFinalizeInput = {
   idempotency_key?: string;
 };
 
+export type HarvestFinalizeInput = WeighbridgeFinalizeInput;
+
 export async function finalizeTicket(
   ticketId: string,
   _actorUserId: string,
-  harvest?: HarvestFinalizeInput
+  input?: WeighbridgeFinalizeInput
 ) {
   const headers: Record<string, string> = {};
-  if (harvest?.idempotency_key) headers["Idempotency-Key"] = harvest.idempotency_key;
+  if (input?.idempotency_key) headers["Idempotency-Key"] = input.idempotency_key;
   const response = await fetchWithClientAuth(`/api/weighbridge/tickets/${ticketId}/finalize`, {
     method: "POST",
     headers,
     credentials: "include",
-    body: JSON.stringify(harvest || {}),
+    body: JSON.stringify(input || {}),
   }, "json");
   return parseJsonOrThrow(response);
 }

@@ -428,6 +428,157 @@ export async function POST(
       return response;
     }
 
+    const isTareFirstShipmentFinalize = ticketBefore.op_type === "shipment_outbound"
+      && ticketBefore.gross_weight_kg == null
+      && Number(ticketBefore.tare_weight_kg || 0) > 0
+      && !ticketBefore.correction_of_ticket_id;
+    if (isTareFirstShipmentFinalize) {
+      const gross = Number(body?.gross_weight_kg);
+      const tare = Number(ticketBefore.tare_weight_kg || 0);
+      if (!Number.isFinite(gross) || gross <= 0) {
+        return NextResponse.json({ error: "Брутто должно быть больше нуля." }, { status: 400 });
+      }
+      if (gross <= tare) {
+        return NextResponse.json({ error: "Брутто должно быть больше тары." }, { status: 400 });
+      }
+      const idempotencyKey = String(
+        request.headers.get("idempotency-key") || body?.idempotency_key || ""
+      ).trim();
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
+        return NextResponse.json({ error: "Для закрытия отгрузки требуется ключ безопасного повтора." }, { status: 400 });
+      }
+
+      const sessionToken = request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || "";
+      const rpcStartedAt = Date.now();
+      const { data: closeResult, error: closeError } = await supabase.rpc(
+        "close_shipment_ticket_atomic_v1",
+        {
+          p_ticket_id: id,
+          p_session_token: sessionToken,
+          p_gross_weight_kg: gross,
+          p_idempotency_key: idempotencyKey,
+        }
+      );
+      timing.rpcMs = Date.now() - rpcStartedAt;
+
+      let result = (closeResult || {}) as Record<string, any>;
+      let recoveredAfterRpcError = false;
+      if (closeError) {
+        const stockResponse = transferStockErrorResponse(closeError.message);
+        if (stockResponse) return stockResponse;
+        if (!AMBIGUOUS_SHARED_IMPURITY_ERROR.test(String(closeError.message || ""))) {
+          return NextResponse.json({ error: weighbridgeUserError(closeError.message) }, { status: 400 });
+        }
+        const { data: recoveredTicket, error: recoveredError } = await supabase
+          .from("tickets")
+          .select("*, lines:ticket_lines(*)")
+          .eq("id", id)
+          .eq("company_id", companyId)
+          .maybeSingle();
+        if (recoveredError || !isCanonicallyFinalizedTicket(recoveredTicket as Record<string, any> | null)) {
+          return NextResponse.json({
+            error: "Сервер не успел подтвердить закрытие. Повторите: тот же безопасный ключ не создаст второе списание.",
+            code: "shipment_finalize_timeout",
+            trace_id: randomUUID(),
+          }, { status: 504 });
+        }
+        result = {
+          ok: true,
+          ticket_id: id,
+          idempotent_replay: true,
+          gross_weight_kg: recoveredTicket?.gross_weight_kg,
+          tare_weight_kg: recoveredTicket?.tare_weight_kg,
+          physical_net_kg: recoveredTicket?.physical_net_kg ?? recoveredTicket?.net_weight_kg,
+        };
+        recoveredAfterRpcError = true;
+      }
+      if (result.code === "shift_expired") {
+        return NextResponse.json({ error: "Введите PIN весовщика, чтобы продолжить смену.", code: result.code }, { status: 423 });
+      }
+      if (!result.ok) {
+        return NextResponse.json({ error: "Не удалось завершить отгрузку.", code: result.code || "shipment_finalize_failed" }, { status: 409 });
+      }
+
+      const [{ data: updated, error: updatedError }, { data: stillActive }] = await Promise.all([
+        supabase
+          .from("tickets")
+          .select("*, lines:ticket_lines(*)")
+          .eq("id", id)
+          .eq("company_id", companyId)
+          .maybeSingle(),
+        ticketBefore.vehicle_id
+          ? supabase
+              .from("tickets")
+              .select("id")
+              .eq("company_id", companyId)
+              .eq("vehicle_id", ticketBefore.vehicle_id)
+              .in("status", ["draft", "active", "ready_to_close"])
+              .neq("id", id)
+              .limit(1)
+          : Promise.resolve({ data: [] as Array<{ id: string }>, error: null }),
+      ]);
+      const refreshRequired = Boolean(updatedError || !updated?.id);
+      const committedTicket = updated?.id
+        ? updated as Record<string, any>
+        : {
+            ...ticketBefore,
+            status: "finalized",
+            is_finalized: true,
+            is_voided: false,
+            gross_weight_kg: gross,
+            net_weight_kg: Number(result.physical_net_kg ?? gross - tare),
+            physical_net_kg: Number(result.physical_net_kg ?? gross - tare),
+            accepted_weight_kg: Number(result.physical_net_kg ?? gross - tare),
+          };
+
+      try {
+        if (ticketBefore.vehicle_id && (stillActive || []).length === 0) {
+          const { error: vehicleError } = await supabase
+            .from("reference_vehicles")
+            .update({ status: "free" })
+            .eq("id", ticketBefore.vehicle_id)
+            .eq("company_id", companyId);
+          if (vehicleError) throw vehicleError;
+        }
+        await recordWeighbridgeOperatorActivity(request, { companyId, supabase }, "gross");
+      } catch (trailingError) {
+        console.error("shipment_finalize_committed_trailing_write_failed", {
+          traceId: randomUUID(),
+          ticketId: id,
+          companyId,
+          message: trailingError instanceof Error ? trailingError.message : "Unknown trailing-write error",
+        });
+      }
+
+      let responseTicket = committedTicket;
+      try {
+        const [attributedTicket] = await enrichTicketOperatorAttribution(supabase, companyId, [committedTicket]);
+        responseTicket = (attributedTicket || committedTicket) as Record<string, any>;
+      } catch (attributionError) {
+        console.error("shipment_finalize_committed_attribution_failed", {
+          traceId: randomUUID(),
+          ticketId: id,
+          companyId,
+          message: attributionError instanceof Error ? attributionError.message : "Unknown attribution error",
+        });
+      }
+      timing.totalMs = Date.now() - startedAt;
+      const response = NextResponse.json({
+        ticket: responseTicket,
+        finalize: result,
+        committed: true,
+        idempotent_replay: Boolean(result.idempotent_replay),
+        recovered_after_rpc_error: recoveredAfterRpcError,
+        refresh_required: refreshRequired,
+        debug: timing,
+      });
+      response.headers.set(
+        "Server-Timing",
+        `auth;dur=${timing.authMs}, finalize_rpc;dur=${timing.rpcMs}, total;dur=${timing.totalMs}`
+      );
+      return response;
+    }
+
     if (ticketBefore.op_type === "harvest_incoming" && !ticketBefore.correction_of_ticket_id) {
       const tare = Number(body?.tare_weight_kg);
       const moisture = body?.moisture_percent == null || String(body.moisture_percent).trim() === ""

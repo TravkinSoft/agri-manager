@@ -86,6 +86,7 @@
     "qa:tz315:reversal-document-preservation": "npx --no-install tsx scripts/qa-tz315-reversal-document-preservation.ts",
     "qa:tz315:supplier-batch-trace": "npx --no-install tsx scripts/qa-tz315-supplier-batch-trace.ts",
     "qa:tz315:shipment-gross-stock": "npx --no-install tsx scripts/qa-tz315-shipment-gross-stock.ts",
+    "qa:p0:shipment-tare-first": "npx --no-install tsx scripts/qa-tz315-shipment-gross-stock.ts",
     "qa:tz315:outgoing-batch-projection": "npx --no-install tsx scripts/qa-tz315-outgoing-batch-projection.ts",
     "qa:tz315:ticket-cargo-composition": "npx --no-install tsx scripts/qa-tz315-ticket-cargo-composition.ts",
     "qa:ptc:notifications": "npx --no-install tsx scripts/qa-ptc-operational-notifications-v1.ts",

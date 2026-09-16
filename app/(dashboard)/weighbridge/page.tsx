@@ -23,7 +23,7 @@ import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import { adminTicketAction, changeActiveHarvestRouteContext, closeShift, createActiveHarvestRoute, createTicket, downloadTicketPdf, finalizeTicket, getTicketDetails, getWeighbridgeBootstrap, getWeighbridgeOperatorState, getWeighbridgeResources, getWeighbridgeTransportPickerData, handoverWeighbridgeOperator, listActiveHarvestRoutes, listHarvestBatchSummaries, listWeighbridgeWorkspaceTickets, patchTicket, startTicketCorrection, unlockWeighbridgeOperator, updateActiveHarvestRoute, voidTicket, type ActiveHarvestRouteList } from "@/lib/services/weighbridge";
-import type { ActiveHarvestRoute, HarvestBatchSummary, ImpuritySourceScopeInput, TicketDirection, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket } from "@/lib/types/weighbridge";
+import type { ActiveHarvestRoute, HarvestBatchSummary, ImpuritySourceScopeInput, TicketDirection, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket, WeighingInput } from "@/lib/types/weighbridge";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import {
   isHarvestDestinationPlace,
@@ -386,6 +386,7 @@ type FormState = {
   moistureIn: string;
   moistureOut: string;
   grossKg: string;
+  tareKg: string;
   harvestMoisture: string;
   vehicleId: string;
   driverId: string;
@@ -440,6 +441,7 @@ const INITIAL_FORM: FormState = {
   moistureIn: "",
   moistureOut: "",
   grossKg: "",
+  tareKg: "",
   harvestMoisture: "",
   vehicleId: "",
   driverId: "",
@@ -711,6 +713,7 @@ const ticketStageLabel = (t: WeighbridgeTicket) => {
   if (t.status === "ready_to_close") return "Закрыть";
   if (t.status === "voided") return "Проверка";
   if (t.status === "finalized") return "Закрыт";
+  if (t.op_type === "shipment_outbound" && t.tare_weight_kg != null && t.gross_weight_kg == null) return "Ждёт брутто";
   if (t.gross_weight_kg == null) return "Ждёт брутто";
   if (t.tare_weight_kg == null) return "Ждёт тару";
   return "Брутто";
@@ -1073,6 +1076,7 @@ export default function WeighbridgeOperationsPage() {
   const [pendingOpenTicket, setPendingOpenTicket] = useState<WeighbridgeTicket | null>(null);
   const [activeTicket, setActiveTicket] = useState<WeighbridgeTicket | null>(null);
   const [closingTare, setClosingTare] = useState("");
+  const [closingGross, setClosingGross] = useState("");
   const [closingMoisture, setClosingMoisture] = useState("");
   const [closingLastMainOutput, setClosingLastMainOutput] = useState(false);
 
@@ -2570,6 +2574,7 @@ export default function WeighbridgeOperationsPage() {
     setSupplierReceiptLines(selected.supplierReceiptLines || []);
     setShowSupplierExtraFields(selected.showSupplierExtraFields === true);
     setClosingTare("");
+    setClosingGross("");
     setClosingMoisture("");
     setCommentOpen(false);
     if (!saved && migrated) {
@@ -2711,6 +2716,7 @@ export default function WeighbridgeOperationsPage() {
   useEffect(() => {
     if (!activeTicket) return;
     setClosingTare(activeTicket.tare_weight_kg != null ? String(activeTicket.tare_weight_kg) : "");
+    setClosingGross(activeTicket.gross_weight_kg != null ? String(activeTicket.gross_weight_kg) : "");
     const moisture = activeTicket.lines?.[0]?.moisture_percent != null ? String(activeTicket.lines[0].moisture_percent) : "";
     setClosingMoisture(moisture);
     finalizeTicketIdempotencyRef.current = null;
@@ -3338,6 +3344,7 @@ export default function WeighbridgeOperationsPage() {
     setSupplierReceiptLines(workspace.supplierReceiptLines || []);
     setShowSupplierExtraFields(workspace.showSupplierExtraFields === true);
     setClosingTare("");
+    setClosingGross("");
     setClosingMoisture("");
     setCommentOpen(false);
   };
@@ -3532,6 +3539,7 @@ export default function WeighbridgeOperationsPage() {
     setSelectedActiveHarvestId(route.id);
     setActiveHarvestForm(route, true);
     setClosingTare("");
+    setClosingGross("");
     setClosingMoisture("");
     setCommentOpen(false);
     if (activeHarvestStorageKey) localStorage.setItem(activeHarvestStorageKey, route.id);
@@ -4221,22 +4229,37 @@ export default function WeighbridgeOperationsPage() {
     });
     if (confirmed) void openTransportAssignmentTicket(assignment.ticketId);
   };
-  const gross = activeTicket?.gross_weight_kg != null ? String(activeTicket.gross_weight_kg) : activeTicket?.weigh_method === "manual_override_with_reason" && activeTicketLineTotal > 0 ? String(activeTicketLineTotal) : "";
-  const pure = net(gross, closingTare);
-  const grossInputValidation = form.grossKg.trim() ? parseStrictWeightKg(form.grossKg, "Брутто") : null;
+  const isTareFirstShipmentTicket = activeTicket?.op_type === "shipment_outbound"
+    && activeTicket.gross_weight_kg == null
+    && Number(activeTicket.tare_weight_kg || 0) > 0;
+  const gross = isTareFirstShipmentTicket
+    ? closingGross
+    : activeTicket?.gross_weight_kg != null
+      ? String(activeTicket.gross_weight_kg)
+      : activeTicket?.weigh_method === "manual_override_with_reason" && activeTicketLineTotal > 0
+        ? String(activeTicketLineTotal)
+        : "";
+  const effectiveTare = isTareFirstShipmentTicket
+    ? String(activeTicket?.tare_weight_kg || "")
+    : closingTare;
+  const pure = net(gross, effectiveTare);
+  const openingWeightValue = form.operationType === "shipment_outbound" ? form.tareKg : form.grossKg;
+  const openingWeightLabel = form.operationType === "shipment_outbound" ? "Тара" : "Брутто";
+  const grossInputValidation = openingWeightValue.trim() ? parseStrictWeightKg(openingWeightValue, openingWeightLabel) : null;
   const closingTareValidation = closingTare.trim() ? parseStrictWeightKg(closingTare, "Тара") : null;
+  const closingGrossValidation = closingGross.trim() ? parseStrictWeightKg(closingGross, "Брутто") : null;
   const liveWeightKg = useMemo(() => {
-    const formWeight = form.grossKg.trim() ? parseStrictWeightKg(form.grossKg, "Брутто") : null;
+    const formWeight = openingWeightValue.trim() ? parseStrictWeightKg(openingWeightValue, openingWeightLabel) : null;
     if (formWeight?.ok) return formWeight.value;
     const ticketWeight = gross ? parseStrictWeightKg(gross, "Брутто") : null;
     if (ticketWeight?.ok) return ticketWeight.value;
     return 0;
-  }, [form.grossKg, gross]);
+  }, [openingWeightLabel, openingWeightValue, gross]);
   const nextActionLabel = activeTicket
     ? ticketStageLabel(activeTicket)
-    : form.grossKg
-      ? "Ждёт тару"
-      : "Ждёт брутто";
+    : form.operationType === "shipment_outbound"
+      ? form.tareKg ? "Ждёт брутто" : "Ждёт тару"
+      : form.grossKg ? "Ждёт тару" : "Ждёт брутто";
   const isFieldIssue = form.operationType === "issue_to_field";
   const isTransfer = form.operationType === "transfer_between_warehouses";
   const isShipment = form.operationType === "shipment_outbound";
@@ -4428,9 +4451,13 @@ export default function WeighbridgeOperationsPage() {
       if (!form.warehouseFromId) return "Выберите склад-источник";
       if (!form.stockIdentityKey || !selectedTransferStock) return "Выберите остаток для отгрузки";
       if (!form.buyerId) return "Выберите контрагента";
+      if (!form.destinationText.trim()) return "Укажите, куда едет груз";
       if (!form.driverId) return "Выберите водителя";
       if (!form.vehicleId) return "Выберите машину";
-      if ((toNum(form.grossKg) ?? 0) <= 0) return "Укажите брутто";
+      const plannedQuantity = toNum(form.quantityKg);
+      if (!plannedQuantity || plannedQuantity <= 0) return "Укажите плановое количество отгрузки";
+      if (plannedQuantity > Number(selectedTransferStock.quantity || 0)) return "Плановое количество больше доступного остатка";
+      if ((toNum(form.tareKg) ?? 0) <= 0) return "Укажите тару пустой машины";
     } else if (form.operationType === "impurity_removal") {
       if (!form.warehouseFromId) return "Выберите склад";
 	  if (harvestBatchOptionsStatus !== "ready") {
@@ -4595,7 +4622,9 @@ export default function WeighbridgeOperationsPage() {
       form.operationType === "supplier_receipt" && form.supplierReceiptMode === "direct"
         ? supplierReceiptGenericLineTotal
         :
-      form.operationType === "harvest_incoming" || (form.operationType === "supplier_receipt" && form.supplierReceiptMode === "weighbridge") || (isTransfer && form.transferMode === "weighbridge") || isFieldIssueWeighbridge || isShipment
+      isShipment
+        ? toNum(form.quantityKg) ?? 0
+        : form.operationType === "harvest_incoming" || (form.operationType === "supplier_receipt" && form.supplierReceiptMode === "weighbridge") || (isTransfer && form.transferMode === "weighbridge") || isFieldIssueWeighbridge
         || isDisposal || isImpurityRemoval
         ? toNum(form.grossKg) ?? 0
         : toNum(form.quantityKg) ?? 0;
@@ -4632,6 +4661,16 @@ export default function WeighbridgeOperationsPage() {
       source_physical_state: selectedTransferStock?.source_physical_state || null,
       audit_json: {
         ...(isImpurityRemoval ? { impurity_type: form.impurityType } : {}),
+        ...(isShipment
+          ? {
+              shipment_weight_flow: {
+                contract_version: "p0_shipment_tare_first_v1",
+                first_weight: "tare",
+                final_weight: "gross",
+                planned_quantity_kg: movementQuantity,
+              },
+            }
+          : {}),
         ...(isProcessingOutput && processingOutputContext
           ? {
               processing_output: {
@@ -4681,8 +4720,8 @@ export default function WeighbridgeOperationsPage() {
       ptc_event_id: form.operationType === "harvest_incoming" ? form.ptcEventId || null : null,
       ptc_cycle: form.operationType === "harvest_incoming" ? form.ptcCycle : null,
       combine_operator_person_id: form.operationType === "harvest_incoming" ? form.combineOperatorPersonId || null : null,
-      gross_weight_kg: isSupplierDirect ? null : isDirectQuantity ? movementQuantity : toNum(form.grossKg),
-      tare_weight_kg: isSupplierDirect ? null : isDirectQuantity ? 0 : null,
+      gross_weight_kg: isSupplierDirect || isShipment ? null : isDirectQuantity ? movementQuantity : toNum(form.grossKg),
+      tare_weight_kg: isShipment ? toNum(form.tareKg) : isSupplierDirect ? null : isDirectQuantity ? 0 : null,
       weigh_method: isDirectQuantity ? "manual_override_with_reason" : "preset_tare",
       notes: [
         form.operationType === "shipment_outbound" && form.externalDocumentNo.trim() ? `Документ отгрузки: ${form.externalDocumentNo.trim()}` : "",
@@ -4824,6 +4863,16 @@ export default function WeighbridgeOperationsPage() {
           moisture_percent: form.harvestMoisture.trim() ? Number(form.harvestMoisture.replace(",", ".")) : null,
         }
       : undefined;
+    const openingWeighings: WeighingInput[] = isShipment
+      ? [{
+          weighing_no: 1,
+          measured_weight_kg: toNum(form.tareKg) ?? 0,
+          measured_at: new Date().toISOString(),
+          device_source: "manual",
+          operator_user_id: profile.id,
+          comment: "Первое взвешивание отгрузки: тара пустой машины",
+        }]
+      : [];
     const createPayloadFingerprint = createTicketSubmissionFingerprint(
       isTransferDirect && selectedTransferStock
         ? {
@@ -4842,7 +4891,7 @@ export default function WeighbridgeOperationsPage() {
         : {
             ticket,
             lines: linesToCreate,
-            weighings: [],
+            weighings: openingWeighings,
             paperBackfill,
             impurity_source_scope: impuritySourceScope || null,
           }
@@ -4902,7 +4951,7 @@ export default function WeighbridgeOperationsPage() {
       const result = await createTicket(
         ticket,
         linesToCreate,
-        [],
+        openingWeighings,
         idempotencyKey,
         paperBackfill,
         impuritySourceScope
@@ -4988,8 +5037,8 @@ export default function WeighbridgeOperationsPage() {
           fieldMaterialCategory: prev.fieldMaterialCategory,
           supplierLot: "",
           harvestYear: prev.harvestYear,
-          productId: prev.productId,
-          stockIdentityKey: prev.stockIdentityKey,
+          productId: prev.operationType === "shipment_outbound" ? "" : prev.productId,
+          stockIdentityKey: prev.operationType === "shipment_outbound" ? "" : prev.stockIdentityKey,
           // The just-created ticket owns/reserves its sources. Reusing that
           // selection makes the refreshed list look blocked for the next trip.
           sourceBatchId: "",
@@ -5107,6 +5156,7 @@ export default function WeighbridgeOperationsPage() {
       setActiveTicket(corrected);
       setTickets((current) => current.map((ticket) => ticket.id === corrected.id ? corrected : ticket));
       setClosingTare(corrected.tare_weight_kg == null ? "" : String(corrected.tare_weight_kg));
+      setClosingGross(corrected.gross_weight_kg == null ? "" : String(corrected.gross_weight_kg));
       setOpenTicketEditOpen(false);
       toast({ title: "Талон исправлен", description: "Изменение и автор сохранены в истории." });
     } catch (error: any) {
@@ -5131,6 +5181,7 @@ export default function WeighbridgeOperationsPage() {
       setTicketCorrectionReason("");
       setActiveTicket(replacement);
       setClosingTare(replacement.tare_weight_kg == null ? "" : String(replacement.tare_weight_kg));
+      setClosingGross(replacement.gross_weight_kg == null ? "" : String(replacement.gross_weight_kg));
       setClosingMoisture(replacement.lines?.[0]?.moisture_percent == null ? "" : String(replacement.lines[0].moisture_percent));
       toast({ title: "Создан исправленный талон", description: `Проверьте данные и завершите талон ${replacement.ticket_no}.` });
     } catch (error: any) {
@@ -5147,12 +5198,22 @@ export default function WeighbridgeOperationsPage() {
     const isDirectTransferTicket = activeTicket.op_type === "warehouse_transfer" && activeTicket.weigh_method === "manual_override_with_reason";
     const isDirectFieldIssueTicket = activeTicket.op_type === "issue_to_field" && activeTicket.weigh_method === "manual_override_with_reason";
     const isDirectQuantityTicket = isDirectSupplierTicket || isDirectTransferTicket || isDirectFieldIssueTicket;
-    const g = isDirectQuantityTicket
+    const isTareFirstShipmentClosure = activeTicket.op_type === "shipment_outbound"
+      && activeTicket.gross_weight_kg == null
+      && Number(activeTicket.tare_weight_kg || 0) > 0
+      && !activeTicket.correction_of_ticket_id;
+    const strictGross = isTareFirstShipmentClosure ? parseStrictWeightKg(closingGross, "Брутто") : null;
+    if (strictGross && !strictGross.ok) return toast({ title: "Ошибка", description: strictGross.message, variant: "destructive" });
+    const g = isTareFirstShipmentClosure
+      ? strictGross?.ok ? strictGross.value : 0
+      : isDirectQuantityTicket
       ? Number(activeTicket.gross_weight_kg || 0) || activeTicketLineTotal
       : Number(activeTicket.gross_weight_kg || 0);
-    const strictTare = isDirectQuantityTicket ? null : parseStrictWeightKg(closingTare, "Тара");
+    const strictTare = isDirectQuantityTicket || isTareFirstShipmentClosure ? null : parseStrictWeightKg(closingTare, "Тара");
     if (strictTare && !strictTare.ok) return toast({ title: "Ошибка", description: strictTare.message, variant: "destructive" });
-    const t = isDirectQuantityTicket ? 0 : strictTare?.ok ? strictTare.value : 0;
+    const t = isTareFirstShipmentClosure
+      ? Number(activeTicket.tare_weight_kg || 0)
+      : isDirectQuantityTicket ? 0 : strictTare?.ok ? strictTare.value : 0;
     if (!Number.isFinite(g) || g <= 0) return toast({ title: "Ошибка", description: "Брутто не заполнено", variant: "destructive" });
     if (!isDirectQuantityTicket) {
       const weightValidation = validateHarvestWeights(g, t);
@@ -5174,8 +5235,10 @@ export default function WeighbridgeOperationsPage() {
     if (moisture != null && (!Number.isFinite(moisture) || moisture <= 0 || moisture >= 100)) {
       return toast({ title: "Ошибка", description: "Влажность должна быть больше 0 и меньше 100 %.", variant: "destructive" });
     }
-    const acceptedLabel = isHarvestClosure && pure != null
-      ? ` Принято на склад: ${formatWeightKg(pure)}.`
+    const acceptedLabel = pure != null && (isHarvestClosure || isTareFirstShipmentClosure)
+      ? isTareFirstShipmentClosure
+        ? ` Со склада будет списано: ${formatWeightKg(pure)}.`
+        : ` Принято на склад: ${formatWeightKg(pure)}.`
       : "";
     finalizingRef.current = true;
     if (!(await siteConfirm({ title: "Закрыть талон", description: `После закрытия будет создано движение по складу.${acceptedLabel}`, actionLabel: "Закрыть" }))) {
@@ -5232,6 +5295,7 @@ export default function WeighbridgeOperationsPage() {
       adjustActiveHarvestTicketCount(closingTicket, -1);
       releaseTransportAssignment(closingTicket, true);
       setClosingTare("");
+      setClosingGross("");
       setClosingMoisture("");
       setClosingLastMainOutput(false);
       commitTicketCloseState(EMPTY_TICKET_CLOSE_STATE);
@@ -5250,7 +5314,12 @@ export default function WeighbridgeOperationsPage() {
     setFinalizing(true);
     try {
       let finalizeResponse: Record<string, any> | null = null;
-      if (isAtomicHarvestClosure || isAtomicTransferClosure || isAtomicSharedImpurityClosure) {
+      if (isTareFirstShipmentClosure) {
+        finalizeResponse = await finalizeTicket(closingTicket.id, profile.id, {
+          gross_weight_kg: g,
+          idempotency_key: currentFinalizeKey,
+        });
+      } else if (isAtomicHarvestClosure || isAtomicTransferClosure || isAtomicSharedImpurityClosure) {
         const finalizeAtomicTicket = async (confirmTareVariance: boolean) => finalizeTicket(closingTicket.id, profile.id, {
           tare_weight_kg: t,
           moisture_percent: moisture,
@@ -5549,6 +5618,7 @@ export default function WeighbridgeOperationsPage() {
         handoverNote: shiftHandoverNote.trim() || undefined,
       });
       setClosingTare("");
+      setClosingGross("");
       setClosingMoisture("");
       setCommentOpen(false);
       toast({ title: "Смена закрыта", description: "Смена успешно закрыта." });
@@ -6296,7 +6366,28 @@ export default function WeighbridgeOperationsPage() {
                   </div>
                 ) : null}
                 {isShipment ? (
-                  <div className="grid gap-2 md:grid-cols-2">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-1 md:col-span-2">
+                      <Label>Партия со склада *</Label>
+                      <Select value={form.stockIdentityKey} onValueChange={(v) => {
+                        const selected = stockIdentityOptions.find((item) => item.key === v);
+                        setForm((p) => ({
+                          ...p,
+                          stockIdentityKey: v,
+                          productId: selected?.product_id || "",
+                          varietyId: selected?.variety_id || "",
+                          reproductionId: selected?.reproduction_id || "",
+                        }));
+                      }} disabled={!form.warehouseFromId || stockIdentityLoading}>
+                        <SelectTrigger className="h-9"><SelectValue placeholder={stockIdentityLoading ? "Загружаем партии..." : "Выберите точную партию"} /></SelectTrigger>
+                        <SelectContent>{stockIdentityOptions.map((item) => <SelectItem key={item.key} value={item.key}>{item.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Плановое количество, кг *</Label>
+                      <Input className="h-9" inputMode="decimal" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} placeholder="Сколько планируют отгрузить" />
+                      {selectedTransferStock ? <p className="text-xs text-muted-foreground">Доступно: {formatWeightKg(selectedTransferStock.quantity)}</p> : null}
+                    </div>
                     <div className="space-y-1">
                       <Label>Контрагент *</Label>
                       <Select value={form.buyerId} onValueChange={(v) => setForm((p) => ({ ...p, buyerId: v }))}>
@@ -6308,9 +6399,13 @@ export default function WeighbridgeOperationsPage() {
                       </Select>
                     </div>
                     <div className="space-y-1">
-                      <Label>Цель отгрузки *</Label>
+                      <Label>Куда *</Label>
+                      <Input className="h-9" value={form.destinationText} onChange={(e) => setForm((p) => ({ ...p, destinationText: e.target.value }))} placeholder="Адрес, элеватор, база..." />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Цель отгрузки</Label>
                       <Select value={form.shipmentPurpose} onValueChange={(v) => setForm((p) => ({ ...p, shipmentPurpose: v as ShipmentPurpose }))}>
-                        <SelectTrigger className="h-8"><SelectValue placeholder="Выберите цель" /></SelectTrigger>
+                        <SelectTrigger className="h-9"><SelectValue placeholder="Выберите цель" /></SelectTrigger>
                         <SelectContent>
                           {(Object.keys(shipmentPurposeLabels) as ShipmentPurpose[]).map((purpose) => (
                             <SelectItem key={purpose} value={purpose}>{shipmentPurposeLabels[purpose]}</SelectItem>
@@ -6320,16 +6415,12 @@ export default function WeighbridgeOperationsPage() {
                     </div>
                     <div className="space-y-1">
                       <Label>Документ</Label>
-                      <Input className="h-8" value={form.externalDocumentNo} onChange={(e) => setForm((p) => ({ ...p, externalDocumentNo: e.target.value }))} placeholder="Накладная / ТТН" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label>Пункт назначения</Label>
-                      <Input className="h-8" value={form.destinationText} onChange={(e) => setForm((p) => ({ ...p, destinationText: e.target.value }))} placeholder="Адрес, элеватор, база..." />
+                      <Input className="h-9" value={form.externalDocumentNo} onChange={(e) => setForm((p) => ({ ...p, externalDocumentNo: e.target.value }))} placeholder="Накладная / ТТН" />
                     </div>
                   </div>
                 ) : null}
                 <div className="grid gap-2 md:grid-cols-2">
-                  {!isProcessingOutput ? <Select value={form.stockIdentityKey} onValueChange={(v) => {
+                  {!isProcessingOutput && !isShipment ? <Select value={form.stockIdentityKey} onValueChange={(v) => {
                     const selected = stockIdentityOptions.find((item) => item.key === v);
                     setForm((p) => ({ ...p, stockIdentityKey: v, productId: selected?.product_id || "", varietyId: selected?.variety_id || "", reproductionId: selected?.reproduction_id || "" }));
                   }} disabled={!form.warehouseFromId || stockIdentityLoading}>
@@ -6393,7 +6484,10 @@ export default function WeighbridgeOperationsPage() {
 
             {isWeighbridgeForm ? (
               <section data-weighbridge-section="weight" aria-label="Вес операции" className={formSectionClass}>
-              <WorkflowSectionHeading title={form.operationType === "harvest_incoming" ? "3 · Вес рейса" : "Вес операции"} description="Введите фактическое показание и при необходимости влажность" />
+              <WorkflowSectionHeading
+                title={form.operationType === "harvest_incoming" ? "3 · Вес рейса" : "Вес операции"}
+                description={isShipment ? "Сначала взвесьте пустую машину. Брутто вводится после загрузки при закрытии талона." : "Введите фактическое показание и при необходимости влажность"}
+              />
               {form.operationType === "harvest_incoming" ? (
                 <div className="mb-3">
                   <CompactField label="Комбайнер" required>
@@ -6416,13 +6510,20 @@ export default function WeighbridgeOperationsPage() {
                 </div>
               ) : null}
               <div>
-                <div className={form.operationType === "harvest_incoming" ? "grid items-end gap-3 md:grid-cols-[1fr_170px_220px]" : "grid items-end gap-3 md:grid-cols-[1fr_180px]"}>
-                  <CompactField label="Брутто / вес (кг)" required error={grossInputValidation && !grossInputValidation.ok ? grossInputValidation.message : null}>
-                    <Input ref={grossInputRef} className="h-10" inputMode="decimal" value={form.grossKg} onChange={(e) => setForm((p) => ({ ...p, grossKg: e.target.value }))} placeholder="0" />
+                <div className={form.operationType === "harvest_incoming" ? "grid items-end gap-3 md:grid-cols-[1fr_170px_220px]" : isShipment ? "grid items-end gap-3" : "grid items-end gap-3 md:grid-cols-[1fr_180px]"}>
+                  <CompactField label={isShipment ? "Тара пустой машины (кг)" : "Брутто / вес (кг)"} required error={grossInputValidation && !grossInputValidation.ok ? grossInputValidation.message : null}>
+                    <Input
+                      ref={grossInputRef}
+                      className="h-10"
+                      inputMode="decimal"
+                      value={isShipment ? form.tareKg : form.grossKg}
+                      onChange={(e) => setForm((p) => isShipment ? ({ ...p, tareKg: e.target.value }) : ({ ...p, grossKg: e.target.value }))}
+                      placeholder="0"
+                    />
                   </CompactField>
-                  <CompactField label="Влажность, %">
+                  {!isShipment ? <CompactField label="Влажность, %">
                     <Input className="h-10" inputMode="decimal" value={form.harvestMoisture} onChange={(e) => setForm((p) => ({ ...p, harvestMoisture: e.target.value }))} placeholder="—" />
-                  </CompactField>
+                  </CompactField> : null}
                   {form.operationType === "harvest_incoming" && canOperate ? (
                     <Button
                       className="h-10 w-full font-semibold"
@@ -6480,7 +6581,7 @@ export default function WeighbridgeOperationsPage() {
                     (canUseOperatorSession && !operatorState.unlocked && !isSupplierDirect)
                   }
                 >
-                  {submitting ? "Сохранение..." : "Создать талон"}
+                  {submitting ? "Сохранение..." : isShipment ? "Открыть отгрузку" : "Создать талон"}
                 </Button>
                 {coreDataReady && activeShift && canUseOperatorSession && !operatorState.unlocked && !isSupplierDirect ? (
                   <button type="button" className="mt-1 text-left text-xs font-medium text-amber-800 underline underline-offset-2" onClick={openShiftAction}>
@@ -6786,15 +6887,20 @@ export default function WeighbridgeOperationsPage() {
                   </DropdownMenu>
                 )}
                 weightEditor={canOperate ? {
-                  tareValue: closingTare,
+                  inputKind: isTareFirstShipmentTicket ? "gross" : "tare",
+                  value: isTareFirstShipmentTicket ? closingGross : closingTare,
                   moistureValue: closingMoisture,
                   physicalNetKg: pure,
                   disabled: finalizing || ticketClosePending || ticketCloseRetry,
-                  tareError: closingTareValidation && !closingTareValidation.ok
+                  error: isTareFirstShipmentTicket
+                    ? closingGrossValidation && !closingGrossValidation.ok
+                      ? closingGrossValidation.message
+                      : pure != null && pure <= 0 ? "Брутто должно быть больше тары." : ""
+                    : closingTareValidation && !closingTareValidation.ok
                     ? closingTareValidation.message
                     : pure != null && pure <= 0 ? "Тара должна быть меньше брутто." : "",
-                  tareInputRef,
-                  onTareChange: setClosingTare,
+                  inputRef: tareInputRef,
+                  onChange: isTareFirstShipmentTicket ? setClosingGross : setClosingTare,
                   onMoistureChange: setClosingMoisture,
                   onMoistureCommit: () => undefined,
                 } : undefined}
@@ -6829,9 +6935,9 @@ export default function WeighbridgeOperationsPage() {
                       Последний рейс основной продукции
                     </label>
                   ) : null}
-                  <Button className="w-full max-w-sm bg-emerald-600 font-semibold hover:bg-emerald-700" onClick={closeTicket} disabled={finalizing || ticketClosePending || !closingTare || Boolean(closingTareValidation && !closingTareValidation.ok) || (pure != null && pure <= 0)}>
+                  <Button className="w-full max-w-sm bg-emerald-600 font-semibold hover:bg-emerald-700" onClick={closeTicket} disabled={finalizing || ticketClosePending || (isTareFirstShipmentTicket ? !closingGross || Boolean(closingGrossValidation && !closingGrossValidation.ok) : !closingTare || Boolean(closingTareValidation && !closingTareValidation.ok)) || (pure != null && pure <= 0)}>
                     {finalizing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-                    {finalizing ? "Закрытие..." : ticketCloseRetry ? "Повторить закрытие безопасно" : "Закрыть талон"}
+                    {finalizing ? "Закрытие..." : ticketCloseRetry ? "Повторить закрытие безопасно" : isTareFirstShipmentTicket ? "Завершить отгрузку" : "Закрыть талон"}
                   </Button>
                 </div>
               ) : null}

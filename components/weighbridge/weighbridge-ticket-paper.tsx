@@ -23,14 +23,15 @@ export type WeighbridgeTicketPaperLabels = {
 };
 
 export type WeighbridgeTicketWeightEditor = {
-  tareValue: string;
+  inputKind?: "tare" | "gross";
+  value: string;
   moistureValue: string;
   physicalNetKg: number | null;
   disabled?: boolean;
   moistureSaving?: boolean;
-  tareError?: string;
-  tareInputRef?: React.Ref<HTMLInputElement>;
-  onTareChange: (value: string) => void;
+  error?: string;
+  inputRef?: React.Ref<HTMLInputElement>;
+  onChange: (value: string) => void;
   onMoistureChange: (value: string) => void;
   onMoistureCommit: () => void;
 };
@@ -71,6 +72,15 @@ const operationLabel = (operation: string) => ({
   impurity_removal: "Примеси",
   drying: "Сушка",
 } as Record<string, string>)[operation] || operation || "Операция";
+
+const shipmentPurposeLabel = (purpose: string | null | undefined) => ({
+  sale: "Продажа",
+  export: "Экспорт",
+  seed_release: "Семенной отпуск",
+  return: "Возврат",
+  processor: "Переработчику",
+  other: "Прочее",
+} as Record<string, string>)[clean(purpose)] || clean(purpose);
 
 const dateTime = (value: string | null | undefined) => {
   if (!value) return "";
@@ -173,6 +183,8 @@ export function WeighbridgeTicketPaper({
   const mainLine = lines[0] || null;
   const isHarvest = ticket.op_type === "harvest_incoming";
   const isSupplier = ticket.op_type === "supplier_receipt";
+  const isShipment = ticket.op_type === "shipment_outbound";
+  const editedWeightKind = weightEditor?.inputKind || "tare";
 
   const company = first(labels.company, ticket.company_name, "Компания");
   const field = first(labels.field, ticket.field_name_snapshot);
@@ -218,7 +230,7 @@ export function WeighbridgeTicketPaper({
   const sharedSourceTotal = optionalWeight(sharedImpurityScope?.source_total_kg);
   const sharedCleanTotal = optionalWeight(sharedImpurityScope?.clean_total_kg);
   const showHarvestMoisture = isHarvest && !isPotato(crop);
-  const showMoisture = !isHarvest || showHarvestMoisture;
+  const showMoisture = !isShipment && (!isHarvest || showHarvestMoisture);
   const showMoistureEditor = Boolean(weightEditor) && showMoisture;
   const showProductLines = !isHarvest && (isSupplier ? lines.length > 1 : lines.length > 0);
   const displayedLineQuantity = (line: (typeof cargoLines)[number]) => {
@@ -269,6 +281,8 @@ export function WeighbridgeTicketPaper({
             <Fact label="Склад отправления" value={warehouseFrom} />
             <Fact label="Склад назначения" value={warehouseTo} />
             <Fact label="Покупатель" value={buyer} />
+            {isShipment ? <Fact label="Куда" value={first(ticket.destination_text)} /> : null}
+            {isShipment ? <Fact label="Цель отгрузки" value={shipmentPurposeLabel(ticket.shipment_purpose)} /> : null}
             {isSupplier && lines.length === 1 ? <Fact label="Товар" value={first(mainLine?.product_name, mainLine?.product_name_snapshot)} /> : null}
             {isSupplier && lines.length === 1 ? <Fact label="Количество" value={quantity(mainLine?.quantity, mainLine?.uom)} /> : null}
           </div>
@@ -323,28 +337,41 @@ export function WeighbridgeTicketPaper({
         <PaperSection title="ВЕС И КАЧЕСТВО">
           {hasWeight ? (
             <div className="grid grid-cols-3 gap-2 text-center">
-              {ticket.gross_weight_kg != null ? <div><div className="text-xs text-[#5d4f3d]">Брутто</div><div className="text-lg font-bold">{formatWeightKg(ticket.gross_weight_kg)}</div></div> : null}
-              {weightEditor ? (
+              {weightEditor && editedWeightKind === "gross" ? (
+                <label className="block text-left">
+                  <span className="block text-center text-xs text-[#5d4f3d]">Брутто</span>
+                  <input
+                    ref={weightEditor.inputRef}
+                    inputMode="decimal"
+                    value={weightEditor.value}
+                    onChange={(event) => weightEditor.onChange(event.target.value)}
+                    disabled={weightEditor.disabled}
+                    aria-label="Брутто, кг"
+                    className="mt-0.5 h-9 w-full rounded border border-[#9e8967] bg-white/70 px-2 text-center text-base font-bold outline-none focus:border-[#8a6b22] focus:ring-2 focus:ring-[#d7ae35]/40"
+                  />
+                </label>
+              ) : ticket.gross_weight_kg != null ? <div><div className="text-xs text-[#5d4f3d]">Брутто</div><div className="text-lg font-bold">{formatWeightKg(ticket.gross_weight_kg)}</div></div> : <div />}
+              {weightEditor && editedWeightKind === "tare" ? (
                 <label className="block text-left">
                   <span className="block text-center text-xs text-[#5d4f3d]">Тара</span>
                   <input
-                    ref={weightEditor.tareInputRef}
+                    ref={weightEditor.inputRef}
                     inputMode="decimal"
-                    value={weightEditor.tareValue}
-                    onChange={(event) => weightEditor.onTareChange(event.target.value)}
+                    value={weightEditor.value}
+                    onChange={(event) => weightEditor.onChange(event.target.value)}
                     disabled={weightEditor.disabled}
                     aria-label="Тара, кг"
                     className="mt-0.5 h-9 w-full rounded border border-[#9e8967] bg-white/70 px-2 text-center text-base font-bold outline-none focus:border-[#8a6b22] focus:ring-2 focus:ring-[#d7ae35]/40"
                   />
                 </label>
-              ) : ticket.tare_weight_kg != null ? <div><div className="text-xs text-[#5d4f3d]">Тара</div><div className="text-lg font-bold">{formatWeightKg(ticket.tare_weight_kg)}</div></div> : null}
+              ) : ticket.tare_weight_kg != null ? <div><div className="text-xs text-[#5d4f3d]">Тара</div><div className="text-lg font-bold">{formatWeightKg(ticket.tare_weight_kg)}</div></div> : <div />}
               <div className="rounded border-2 border-[#7b633f] bg-[#eee2ca] px-1 py-1">
                 <div className="text-xs font-bold text-[#5d4f3d]">Нетто</div>
                 <div className="text-xl font-black">{displayedNetKg == null ? "—" : formatWeightKg(displayedNetKg)}</div>
               </div>
             </div>
           ) : null}
-          {weightEditor?.tareError ? <div className="mt-1 text-xs font-semibold text-red-700">{weightEditor.tareError}</div> : null}
+          {weightEditor?.error ? <div className="mt-1 text-xs font-semibold text-red-700">{weightEditor.error}</div> : null}
           {showMoistureEditor && weightEditor ? (
             <div className="mt-2 border-t border-[#c7b797] pt-2">
               <label className="flex items-center justify-between gap-3 rounded border border-[#9e8967] bg-white/45 px-2 py-1.5">

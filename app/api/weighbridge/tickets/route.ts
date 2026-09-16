@@ -1353,9 +1353,30 @@ export async function POST(request: NextRequest) {
         if (!ticket.buyer_id || String(ticket.destination_kind || "") !== "counterparty") {
           return NextResponse.json({ error: "counterparty is required for shipment" }, { status: 400 });
         }
+        if (!String(ticket.destination_text || "").trim()) {
+          return NextResponse.json({ error: "Укажите, куда едет груз." }, { status: 400 });
+        }
         if (!ticket.vehicle_id || !ticket.driver_id) {
           return NextResponse.json({ error: "vehicle and driver are required for shipment" }, { status: 400 });
         }
+        const tare = Number(ticket.tare_weight_kg);
+        if (!Number.isFinite(tare) || tare <= 0) {
+          return NextResponse.json({ error: "Укажите тару пустой машины." }, { status: 400 });
+        }
+        if (ticket.gross_weight_kg != null) {
+          return NextResponse.json({ error: "Отгрузка открывается по таре пустой машины. Брутто вводится после загрузки." }, { status: 400 });
+        }
+        const tareWeighings = weighings.filter((item) => Number(item.weighing_no) === 1);
+        if (weighings.some((item) => Number(item.weighing_no) !== 1) || tareWeighings.length !== 1) {
+          return NextResponse.json({ error: "При открытии отгрузки требуется одно первое взвешивание тары." }, { status: 400 });
+        }
+        const tareEvent = tareWeighings[0];
+        if (Math.abs(Number(tareEvent.measured_weight_kg || 0) - tare) > 0.001) {
+          return NextResponse.json({ error: "Первое взвешивание должно совпадать с тарой талона." }, { status: 400 });
+        }
+        tareEvent.device_source = "manual";
+        tareEvent.operator_user_id = actor.id;
+        (ticket as any).weighing_1_at = tareEvent.measured_at || new Date().toISOString();
       }
       if (isDisposal && !String(ticket.notes || "").trim()) {
         return NextResponse.json({ error: "comment/reason is required for write-off" }, { status: 400 });
@@ -1552,13 +1573,13 @@ export async function POST(request: NextRequest) {
       let available = 0;
       try { available = await selectedStockAvailability(line); }
       catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Остаток недоступен." }, { status: 400 }); }
-      // A normal first weighing only knows gross. Vehicle tare is not stock and
-      // must not make a valid shipment/write-off look larger than its balance.
-      // Finalization replaces the line quantity with net before the canonical
-      // stock RPC performs the authoritative availability check.
-      if (stockOutQuantityAtCreate != null && available < stockOutQuantityAtCreate) {
+      // Shipment opens on the empty-truck tare and reserves only a planning
+      // amount in the form. The final authoritative debit is still the actual
+      // net weight, checked atomically when gross is recorded.
+      const quantityToCheck = isShipment ? Number(line.quantity || 0) : stockOutQuantityAtCreate;
+      if (quantityToCheck != null && available < quantityToCheck) {
         return NextResponse.json(
-          { error: `Недостаточно остатка по выбранной складской идентичности. Доступно: ${available.toFixed(3)} кг, нужно: ${stockOutQuantityAtCreate.toFixed(3)} кг` },
+          { error: `Недостаточно остатка по выбранной складской идентичности. Доступно: ${available.toFixed(3)} кг, нужно: ${Number(quantityToCheck).toFixed(3)} кг` },
           { status: 400 }
         );
       }
