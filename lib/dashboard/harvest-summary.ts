@@ -503,6 +503,7 @@ export function buildHarvestOverview(
     now?: Date;
     warehouseRows?: WarehouseHarvestRow[];
     activeSelection?: HarvestOverview["activeWeighbridgeSelection"];
+    suppressInferredActiveSelection?: boolean;
   }
 ): HarvestOverview {
   const now = options.now || new Date();
@@ -545,7 +546,8 @@ export function buildHarvestOverview(
         areaHa: Number.isFinite(activeAreaHa) && activeAreaHa > 0 ? activeAreaHa : null,
       }
     : null;
-  const activeWeighbridgeSelection = options.activeSelection || inferredActiveWeighbridgeSelection;
+  const activeWeighbridgeSelection = options.activeSelection
+    || (options.suppressInferredActiveSelection ? null : inferredActiveWeighbridgeSelection);
   const potatoFinalized = finalized.filter((ticket) => isPotatoLabel(ticketIdentity(ticket).crop));
   const potatoAcceptedKg = potatoFinalized.reduce((total, ticket) => total + harvestTicketHeaderNetKg(ticket), 0);
   const currentPlotAcceptedKg = activeWeighbridgeSelection

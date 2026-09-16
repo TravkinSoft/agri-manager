@@ -220,7 +220,7 @@ export function HarvestDashboard() {
   const stockKg = potatoParties.reduce((total, party) => total + party.currentStockKg, 0);
   const waitingTare = potatoParties.flatMap((party) => party.openTickets).filter((ticket) => (ticket.waitingTareMinutes || 0) > 0);
   const activeSelection = summary?.activeWeighbridgeSelection || null;
-  const activeCrop = activeSelection?.cropName || "Картофель";
+  const activeCrop = activeSelection?.cropName || "Уборка";
   const activeField = activeSelection?.fieldName || "Поле не выбрано";
   const activeIdentity = activeSelection
     ? [activeSelection.varietyName, compactReproductionLabel(activeSelection.reproductionName)].filter((value) => value && value !== "—").join(" · ")
@@ -297,8 +297,8 @@ export function HarvestDashboard() {
             </div>
             <div className="min-w-0 border-l border-border px-2 py-2 sm:px-3 sm:py-1">
               <div className="text-[9px] uppercase leading-none tracking-[0.08em] text-muted-foreground sm:text-[10px]">С текущего участка</div>
-              <div className="mt-1 whitespace-nowrap text-base font-semibold leading-none tabular-nums text-foreground sm:text-lg">{mass(currentPlotAcceptedKg)}</div>
-              <div className="mt-1 truncate text-[10px] text-muted-foreground" title={currentPlotIdentity}>{currentPlotIdentity}</div>
+              <div className="mt-1 whitespace-nowrap text-base font-semibold leading-none tabular-nums text-foreground sm:text-lg">{activeSelection ? mass(currentPlotAcceptedKg) : "—"}</div>
+              <div className="mt-1 truncate text-[10px] text-muted-foreground" title={currentPlotIdentity}>{activeSelection ? currentPlotIdentity : "Комбайнёр должен выбрать участок"}</div>
             </div>
             <div className="min-w-0 border-t border-border py-2 pr-2 sm:border-l sm:border-t-0 sm:px-3 sm:py-1">
               <div className="text-[9px] uppercase leading-none tracking-[0.11em] text-muted-foreground sm:text-[10px]">На складе</div>

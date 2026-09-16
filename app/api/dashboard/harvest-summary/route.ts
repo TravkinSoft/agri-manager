@@ -297,7 +297,12 @@ async function loadWarehouseRows(
   });
 }
 
-async function loadActivePtcPlotSelection(companyId: string): Promise<HarvestOverview["activeWeighbridgeSelection"]> {
+type ActivePtcPlotState = {
+  selection: HarvestOverview["activeWeighbridgeSelection"];
+  suppressTicketInference: boolean;
+};
+
+async function loadActivePtcPlotSelection(companyId: string): Promise<ActivePtcPlotState> {
   const db = getServiceClient();
   const selection = "id,current_crop_structure_id,updated_at";
   const { data: openShift, error: openShiftError } = await db
@@ -305,11 +310,15 @@ async function loadActivePtcPlotSelection(companyId: string): Promise<HarvestOve
     .select(selection)
     .eq("company_id", companyId)
     .is("closed_at", null)
-    .not("current_crop_structure_id", "is", null)
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (openShiftError) throw openShiftError;
+  if (openShift && !openShift.current_crop_structure_id) {
+    // A legacy shift can be open without an exact plot. In this state the last
+    // weighbridge ticket is not the current plot and must never be presented as one.
+    return { selection: null, suppressTicketInference: true };
+  }
   let shift = openShift;
   if (!shift) {
     const { data: latestShift, error: latestShiftError } = await db
@@ -323,7 +332,9 @@ async function loadActivePtcPlotSelection(companyId: string): Promise<HarvestOve
     if (latestShiftError) throw latestShiftError;
     shift = latestShift;
   }
-  if (!shift?.current_crop_structure_id) return null;
+  if (!shift?.current_crop_structure_id) {
+    return { selection: null, suppressTicketInference: false };
+  }
   const { data: structure, error: structureError } = await db
     .from("crop_structure")
     .select("id,field_id,season_id,crop_id,variety_id,reproduction_id,area")
@@ -332,7 +343,7 @@ async function loadActivePtcPlotSelection(companyId: string): Promise<HarvestOve
     .eq("archived", false)
     .maybeSingle();
   if (structureError) throw structureError;
-  if (!structure?.id) return null;
+  if (!structure?.id) return { selection: null, suppressTicketInference: true };
   const [fieldResult, cropResult, varietyResult, reproductionResult] = await Promise.all([
     db.from("fields").select("id,name").eq("company_id", companyId).eq("id", structure.field_id).maybeSingle(),
     db.from("crops").select("id,name,name_ru,name_kz,name_en").eq("id", structure.crop_id).maybeSingle(),
@@ -343,20 +354,23 @@ async function loadActivePtcPlotSelection(companyId: string): Promise<HarvestOve
   if (error) throw error;
   const name = (row: any) => String(row?.name_ru || row?.name || row?.name_kz || row?.name_en || row?.code || "").trim() || null;
   return {
-    ticketId: "",
-    occurredAt: String(shift.updated_at),
-    fieldId: String(structure.field_id),
-    fieldName: String(fieldResult.data?.name || "Поле не указано"),
-    cropStructureAllocationId: String(structure.id),
-    harvestLotId: null,
-    seasonId: structure.season_id ? String(structure.season_id) : null,
-    cropId: structure.crop_id ? String(structure.crop_id) : null,
-    cropName: name(cropResult.data) || "Культура не указана",
-    varietyId: structure.variety_id ? String(structure.variety_id) : null,
-    varietyName: name(varietyResult.data),
-    reproductionId: structure.reproduction_id ? String(structure.reproduction_id) : null,
-    reproductionName: name(reproductionResult.data),
-    areaHa: Number(structure.area || 0) || null,
+    selection: {
+      ticketId: "",
+      occurredAt: String(shift.updated_at),
+      fieldId: String(structure.field_id),
+      fieldName: String(fieldResult.data?.name || "Поле не указано"),
+      cropStructureAllocationId: String(structure.id),
+      harvestLotId: null,
+      seasonId: structure.season_id ? String(structure.season_id) : null,
+      cropId: structure.crop_id ? String(structure.crop_id) : null,
+      cropName: name(cropResult.data) || "Культура не указана",
+      varietyId: structure.variety_id ? String(structure.variety_id) : null,
+      varietyName: name(varietyResult.data),
+      reproductionId: structure.reproduction_id ? String(structure.reproduction_id) : null,
+      reproductionName: name(reproductionResult.data),
+      areaHa: Number(structure.area || 0) || null,
+    },
+    suppressTicketInference: false,
   };
 }
 
@@ -458,7 +472,7 @@ export async function GET(request: NextRequest) {
       operationalDayStartHour: Number(companyResult.data?.operational_day_start_hour ?? 7),
     });
 
-    const [loadedWarehouseRows, activePtcSelection] = await Promise.all([
+    const [loadedWarehouseRows, activePtcState] = await Promise.all([
       loadWarehouseRows(supabase, getServiceClient(), companyId),
       loadActivePtcPlotSelection(companyId),
     ]);
@@ -474,7 +488,13 @@ export async function GET(request: NextRequest) {
     const periodSummary = await attachVerifiedCurrentPlotYield(
       supabase,
       companyId,
-      buildHarvestOverview(tickets, { period, filters, warehouseRows, activeSelection: activePtcSelection }),
+      buildHarvestOverview(tickets, {
+        period,
+        filters,
+        warehouseRows,
+        activeSelection: activePtcState.selection,
+        suppressInferredActiveSelection: activePtcState.suppressTicketInference,
+      }),
     );
     const seasonDrivers = buildHarvestOverview(tickets, { period: seasonPeriod }).potatoDrivers;
     const summary = { ...periodSummary, potatoDrivers: seasonDrivers };

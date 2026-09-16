@@ -231,6 +231,22 @@ check("latest carrot ticket replaces the previous potato plot and counts only th
   assert.equal(result.currentPlotAcceptedKg, 14_000);
   assert.equal(result.potatoAcceptedKg, 1_000);
 });
+check("an open legacy combine shift suppresses the misleading latest-ticket plot", () => {
+  const latest = ticket({
+    id: "latest-ticket-is-not-current-plot",
+    field_id: "field-old",
+    field_name_snapshot: "Старое поле",
+    crop_structure_allocation_id: "allocation-old",
+    crop_structure_area_ha: 16,
+    crop_name_snapshot: "Морковь",
+    variety_name_snapshot: "Каскад F1",
+    net_weight_kg: 36_530,
+  });
+  const result = buildHarvestOverview([latest], { period, suppressInferredActiveSelection: true });
+  assert.equal(result.activeWeighbridgeSelection, null);
+  assert.equal(result.currentPlotAcceptedKg, 0);
+  assert.equal(result.currentPlotHarvestedAreaStatus, "no_selection");
+});
 check("moisture is mass weighted", () => {
   const wheat = summary.moisture[0];
   assert.equal(wheat.measuredTrips, 3);
@@ -513,7 +529,8 @@ check("dashboard presents the live vegetable plot chain", () => {
   assert.match(dashboardUi, /Живая урожайность/);
   assert.match(dashboardUi, /Текущее поле[\s\S]*Главные показатели уборки[\s\S]*Статусы машин PTC[\s\S]*PotatoDriverSummary/);
   assert.match(dashboardUi, /summary\?\.activeWeighbridgeSelection/);
-  assert.match(dashboardUi, /const activeCrop = activeSelection\?\.cropName \|\| "Картофель"/);
+  assert.match(dashboardUi, /const activeCrop = activeSelection\?\.cropName \|\| "Уборка"/);
+  assert.match(dashboardUi, /Комбайнёр должен выбрать участок/);
   assert.doesNotMatch(dashboardUi, /traffic\?\.snapshot\.fieldName/);
   assert.match(dashboardApi, /crop_structure_allocation_id[\s\S]*crop_structure[\s\S]*field_id,area/);
   assert.match(dashboardUi, /potatoParties/);
@@ -540,7 +557,9 @@ check("live yield uses exact accepted mass and shift hectares only when plot own
   assert.match(dashboardApi, /ptc_combine_field_segments/);
   assert.match(dashboardApi, /Number\(row\.hectares_segment\)/);
   assert.match(dashboardApi, /crop_structure_id", selection\.cropStructureAllocationId/);
-  assert.match(dashboardApi, /activeSelection: activePtcSelection/);
+  assert.match(dashboardApi, /activeSelection: activePtcState\.selection/);
+  assert.match(dashboardApi, /openShift && !openShift\.current_crop_structure_id[\s\S]*suppressTicketInference: true/);
+  assert.match(dashboardApi, /suppressInferredActiveSelection: activePtcState\.suppressTicketInference/);
   assert.match(dashboardUi, /Недостаточно данных/);
 });
 check("driver champions are potato-only and season-wide", () => {
