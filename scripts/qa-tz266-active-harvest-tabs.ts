@@ -19,6 +19,7 @@ const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
 const tabs = read("components/weighbridge/universal-workspace-tabs.tsx");
 const harvestPicker = read("components/weighbridge/active-harvest-tabs.tsx");
+const impurityPicker = read("components/weighbridge/impurity-source-picker.tsx");
 const transportSelects = read("components/weighbridge/transport-driver-picker.tsx");
 const transportPairing = read("lib/weighbridge/transport-pairing.ts");
 const transportApi = read("app/api/weighbridge/transport-pairs/route.ts");
@@ -72,6 +73,14 @@ check("original field and warehouse row is restored", () => {
   assert.match(page, /<Label>Участок \/ культура \*<\/Label>[\s\S]*<HarvestAllocationPicker/);
   assert.match(page, /<Label>Место приёмки \*<\/Label>[\s\S]*ariaLabel="Место приёмки"/);
   assert.match(page, /grid gap-3 md:grid-cols-2 xl:grid-cols-3/);
+});
+
+check("weighbridge pickers keep search in the main field and remove redundant copy", () => {
+  assert.match(harvestPicker, /<Anchor asChild>[\s\S]*?<input[\s\S]*?placeholder=\{open \? searchPlaceholder : placeholder\}/);
+  assert.doesNotMatch(harvestPicker, /PopoverTrigger|<Input/);
+  assert.match(page, /className=\"overflow-hidden xl:col-start-1\"/);
+  assert.doesNotMatch(page, /terminalPanelClass\} tf-estate-document|Обновляем остатки; последний подтверждённый список|Сверху показаны до 8 недавних комбайнеров/);
+  assert.doesNotMatch(impurityPicker, /Выбранная партия сейчас недоступна|Не удалось подтвердить остатки/);
 });
 
 check("transport and driver are separate searchable fields", () => {

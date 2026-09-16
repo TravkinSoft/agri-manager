@@ -280,9 +280,11 @@ export function HarvestDashboard() {
           <section className="flex min-h-9 items-center border-y border-border py-1" aria-label="Текущее поле">
             <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
               <div className="flex shrink-0 items-center gap-1.5 text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
-                <span>{activeCrop}</span><span>·</span><span>{clock(traffic?.snapshot.serverTime || new Date(now).toISOString())}</span>
-                <span className={`h-1.5 w-1.5 rounded-full ${shiftIsOpen ? "bg-emerald-500" : "bg-rose-500"}`} />
-                <span className={shiftIsOpen ? "text-emerald-700" : "text-rose-700"}>{shiftIsOpen ? "Live" : "Offline"}</span>
+                <span className={`flex items-center gap-1.5 font-semibold ${shiftIsOpen ? "text-emerald-700" : "text-rose-700"}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${shiftIsOpen ? "bg-emerald-500" : "bg-rose-500"}`} />
+                  {shiftIsOpen ? "Live" : "Offline"}
+                </span>
+                <span>·</span><span>{activeCrop}</span><span>·</span><span>{clock(traffic?.snapshot.serverTime || new Date(now).toISOString())}</span>
               </div>
               <h2 className="shrink-0 text-sm font-semibold text-foreground">{activeField}</h2>
               <div className="min-w-0 truncate text-[11px] text-muted-foreground">{fieldDetail || activeCrop}</div>

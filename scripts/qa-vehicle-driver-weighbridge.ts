@@ -81,7 +81,7 @@ check("transport picker retains the vehicle and plate while permanent assignment
   assert.equal(transport.transportPickerOptionLabel({ name: "KAMAZ", plate: "QA-207" }), "KAMAZ · QA-207");
   assert.doesNotMatch(page, /import\s+\{[^}]*\bVehicleDriverAssignment\b|<VehicleDriverAssignment\b|vehicleAssignment=|applyAssignmentToNewDraft/);
   assert.doesNotMatch(picker, /vehicleAssignment|driver-assignment-client|saveVehicleDriverAssignment/);
-  assert.match(picker, /Водитель только для этого талона\. Назначение в PTC не меняется\./);
+  assert.doesNotMatch(picker, /Водитель только для этого талона\. Назначение в PTC не меняется\./);
 });
 check("UI still blocks selected busy vehicles and drivers", () => {
   assert.match(picker, /const assignment = assignmentByVehicle\.get\(nextVehicleId\);\s*if \(assignment\) \{\s*onBlockedAssignment\(assignment\);\s*return;/);
@@ -97,7 +97,7 @@ check("assignment broadcasts refresh only options and reject stale company resul
 });
 check("weighbridge wires driver selection to document form state only", () => {
   const selector = page.slice(page.indexOf("<TransportDriverSelects"), page.indexOf("{drivers.length === 0"));
-  assert.match(selector, /onChange=\{\(vehicleId, driverId\) => setForm\(\(previous\) => \(\{ \.\.\.previous, vehicleId, driverId \}\)\)\}/);
+  assert.match(selector, /onChange=\{changeHarvestTransport\}/);
   assert.doesNotMatch(selector, /saveVehicleDriverAssignment|publishVehicleDriverAssignment|onAssigned/);
 });
 check("ticket creation freezes the selected driver identity without changing PTC assignment", () => {

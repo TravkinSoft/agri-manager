@@ -5750,7 +5750,7 @@ export default function WeighbridgeOperationsPage() {
       ref={workspaceRef}
       {...(operatorGateBlocked ? ({ inert: "" } as any) : {})}
       aria-hidden={operatorGateBlocked ? true : undefined}
-      className={`tf-estate-weighbridge mx-auto max-w-[1680px] space-y-3 px-2 pb-4 sm:px-3 ${operatorGateBlocked ? "pointer-events-none select-none blur-sm opacity-35" : ""}`}
+      className={`tf-estate-weighbridge w-full space-y-2 pb-4 ${operatorGateBlocked ? "pointer-events-none select-none blur-sm opacity-35" : ""}`}
     >
       <UniversalWorkspaceTabs
         tabs={workspaceTabs}
@@ -5762,12 +5762,12 @@ export default function WeighbridgeOperationsPage() {
         onLimit={() => toast({ title: "Можно открыть не более 6 рабочих вкладок." })}
       />
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_320px]">
         <Card
           id="weighbridge-workspace-panel"
           role="tabpanel"
           aria-labelledby={`weighbridge-workspace-tab-${selectedWorkspaceId}`}
-          className={`${terminalPanelClass} tf-estate-document overflow-hidden xl:col-start-1`}
+          className="overflow-hidden xl:col-start-1"
         >
           <CardHeader className="px-4 pb-2 pt-4">
             <CardTitle className="flex flex-col gap-3 text-2xl text-foreground md:flex-row md:items-center md:justify-between">
@@ -6013,15 +6013,6 @@ export default function WeighbridgeOperationsPage() {
                               ? "Не удалось загрузить источники"
                               : "Выберите участки или партии урожая"}
                       />
-	                    <div className="min-h-5 text-xs text-muted-foreground" aria-live="polite">
-	                      {form.warehouseFromId && harvestBatchOptionsStatus === "loading"
-	                        ? "Читаем актуальные остатки партий этого склада..."
-	                        : form.warehouseFromId && harvestBatchOptionsStatus === "refreshing"
-	                          ? "Обновляем остатки; последний подтверждённый список остаётся доступен."
-	                          : form.warehouseFromId && harvestBatchOptionsStatus === "stale"
-	                            ? "Показан последний подтверждённый список. Перед созданием талона повторите обновление."
-	                            : null}
-	                    </div>
 	                    {form.warehouseFromId && (harvestBatchOptionsStatus === "error" || harvestBatchOptionsStatus === "stale") ? (
 	                      <div className="flex flex-wrap items-center gap-2 border-l-2 border-red-400/70 bg-red-50 px-3 py-2 text-xs text-red-800" role="alert">
 	                        <span className="min-w-0 flex-1">{harvestBatchOptionsError}</span>
@@ -6417,13 +6408,11 @@ export default function WeighbridgeOperationsPage() {
                       disabled={loading || submitting || !combineOperatorContextId}
                     />
                   </CompactField>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {combineOperators.length === 0
-                      ? "Активные сотрудники не настроены. Обратитесь к администратору компании."
-                      : persistentCombineOperator
-                        ? "Для этого участка последний выбранный комбайнер подставляется автоматически."
-                        : "Сверху показаны до 8 недавних комбайнеров этого участка; после открытия талона выбор очищается."}
-                  </div>
+                  {combineOperators.length === 0 ? (
+                    <div className="mt-1 text-xs text-amber-800">
+                      Активные сотрудники не настроены. Обратитесь к администратору компании.
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               <div>

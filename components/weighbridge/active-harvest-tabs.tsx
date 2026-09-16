@@ -1,10 +1,10 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Anchor } from "@radix-ui/react-popover";
+import { Check, ChevronsUpDown, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverContent } from "@/components/ui/popover";
 import type { SearchableComboboxOption } from "@/components/weighbridge/searchable-combobox";
 import { rankHarvestPhysicalFieldSearch } from "@/lib/weighbridge/field-picker";
 
@@ -54,6 +54,10 @@ export function HarvestAllocationPicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
   const deferredQuery = useDeferredValue(query);
   const selected = useMemo(
     () => options.find((option) => option.value === value) || null,
@@ -82,8 +86,24 @@ export function HarvestAllocationPicker({
     ].join(" ").toLocaleLowerCase("ru-RU").includes(normalizedQuery));
   }, [deferredQuery, options, physicalFieldSearch]);
   const visible = filtered.slice(0, maxVisible);
+  const boundedActiveIndex = Math.min(activeIndex, Math.max(0, visible.length - 1));
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+  useEffect(() => {
+    if (open) listRef.current?.querySelector<HTMLElement>(`[data-option-index="${boundedActiveIndex}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [boundedActiveIndex, open, query]);
+
+  const beginSearch = () => {
+    if (disabled || inputRef.current?.matches(":disabled")) return;
+    setQuery("");
+    setActiveIndex(0);
+    setOpen(true);
+  };
 
   const choose = (option: SearchableComboboxOption) => {
+    if (disabled || inputRef.current?.matches(":disabled")) return;
     onValueChange(option.value);
     setOpen(false);
     setQuery("");
@@ -91,87 +111,109 @@ export function HarvestAllocationPicker({
   };
 
   return (
-    <Popover open={open} onOpenChange={(next) => {
-      setOpen(next);
+    <Popover open={open && !disabled} onOpenChange={(next) => {
       if (!next) {
+        setOpen(false);
         setQuery("");
         setActiveIndex(0);
       }
     }}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-label={ariaLabel}
-          aria-expanded={open}
-          disabled={disabled}
-          className="h-10 w-full justify-between border-border bg-background px-3 text-left font-normal text-foreground hover:bg-background"
+      <Anchor asChild>
+        <div
+          ref={anchorRef}
+          className={`flex h-10 min-w-0 items-center gap-2 rounded-md border border-input bg-card px-3 text-foreground focus-within:ring-2 focus-within:ring-ring ${disabled ? "opacity-50" : ""}`}
         >
-          <span className="min-w-0 truncate">{selected?.label || placeholder}</span>
-          <span aria-hidden="true" className="ml-2 shrink-0 text-muted-foreground">⌄</span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className="w-[var(--radix-popover-trigger-width)] min-w-[320px] border-border bg-background p-0 text-foreground"
-      >
-        <div className="border-b border-border p-2">
-          <Input
-            autoFocus
-            value={query}
+          <Search aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <input
+            ref={inputRef}
+            role="combobox"
+            aria-label={ariaLabel}
+            aria-autocomplete="list"
+            aria-haspopup="listbox"
+            aria-expanded={open && !disabled}
+            aria-controls={open ? listId : undefined}
+            aria-activedescendant={open && visible.length ? `${listId}-${boundedActiveIndex}` : undefined}
+            autoComplete="off"
+            disabled={disabled}
+            value={open ? query : selected?.label || ""}
+            placeholder={open ? searchPlaceholder : placeholder}
+            className="h-full w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            onFocus={beginSearch}
+            onClick={() => { if (!open) beginSearch(); }}
             onChange={(event) => {
               setQuery(event.target.value);
               setActiveIndex(0);
+              setOpen(true);
             }}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return;
               if (event.key === "Escape") {
-                event.preventDefault();
+                if (open) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setOpen(false);
+                  setQuery("");
+                }
+                return;
+              }
+              if (event.key === "Tab") {
                 setOpen(false);
                 return;
               }
-              if (event.key === "ArrowDown") {
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                 event.preventDefault();
-                setActiveIndex((index) => Math.min(index + 1, Math.max(0, visible.length - 1)));
-                return;
-              }
-              if (event.key === "ArrowUp") {
+                if (!open) {
+                  beginSearch();
+                  return;
+                }
+                setActiveIndex((index) => Math.max(0, Math.min(visible.length - 1, index + (event.key === "ArrowDown" ? 1 : -1))));
+              } else if (event.key === "Enter") {
                 event.preventDefault();
-                setActiveIndex((index) => Math.max(0, index - 1));
-                return;
-              }
-              if (event.key === "Enter" && visible[activeIndex]) {
-                event.preventDefault();
-                choose(visible[activeIndex]);
+                if (open && visible[boundedActiveIndex]) choose(visible[boundedActiveIndex]);
+                else beginSearch();
               }
             }}
-            placeholder={searchPlaceholder}
-            aria-label={`Поиск: ${ariaLabel.toLocaleLowerCase("ru-RU")}`}
-            className="border-border bg-background text-foreground"
           />
+          <ChevronsUpDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
         </div>
+      </Anchor>
+      <PopoverContent
+        align="start"
+        sideOffset={4}
+        className="w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] border-border bg-background p-1 text-foreground"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        onFocusOutside={(event) => event.preventDefault()}
+        onInteractOutside={(event) => {
+          if (anchorRef.current?.contains(event.target as Node)) event.preventDefault();
+        }}
+      >
         <div
+          ref={listRef}
+          id={listId}
           role="listbox"
           aria-label={listAriaLabel}
-          className="max-h-64 overflow-y-auto overflow-x-hidden overscroll-contain p-1 travkin-scrollbar"
+          className="travkin-scrollbar max-h-64 overflow-y-auto overflow-x-hidden overscroll-contain"
           onWheel={(event) => event.stopPropagation()}
         >
           {visible.map((option, index) => (
             <button
+              id={`${listId}-${index}`}
+              data-option-index={index}
               key={option.value}
               type="button"
               role="option"
               aria-selected={value === option.value}
-              className={index === activeIndex
-                ? "flex w-full items-start gap-2 rounded-md bg-muted px-3 py-2 text-left"
-                : "flex w-full items-start gap-2 rounded-md px-3 py-2 text-left hover:bg-background"}
-              onMouseEnter={() => setActiveIndex(index)}
+              tabIndex={-1}
+              className={`flex min-h-11 w-full items-start gap-2 rounded-sm px-3 py-2 text-left text-sm text-foreground ${index === boundedActiveIndex ? "bg-accent" : ""}`}
+              onPointerMove={() => setActiveIndex(index)}
+              onPointerDown={(event) => event.preventDefault()}
               onClick={() => choose(option)}
             >
-              <span aria-hidden="true" className={value === option.value ? "mt-0.5 text-amber-800" : "mt-0.5 text-transparent"}>✓</span>
+              <Check aria-hidden="true" className={`mt-0.5 h-4 w-4 shrink-0 ${value === option.value ? "opacity-100" : "opacity-0"}`} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-foreground">{option.label}</span>
-                {option.description ? <span className="block truncate text-xs text-muted-foreground">{option.description}</span> : null}
+                <span className="block break-words font-medium">{option.label}</span>
+                {option.description ? <span className="block break-words text-xs text-muted-foreground">{option.description}</span> : null}
               </span>
             </button>
           ))}

@@ -1,10 +1,8 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ChevronDown, Search } from "lucide-react";
+import { Check, ChevronDown, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import {
   isImpuritySourceSelectionBlocked,
   normalizeImpuritySourceSelection,
@@ -27,7 +25,7 @@ type ImpuritySourcePickerProps = {
   optionsStatus?: ImpuritySourcePickerOptionsStatus;
 };
 
-/** Every check is saved in the workspace draft; no uncommitted modal copy. */
+/** Every selection is saved in the workspace draft; there is no modal commit step. */
 export function ImpuritySourcePicker({
   options, value, onChange, disabled = false,
   placeholder = "Выберите участки или партии урожая", optionsStatus = "ready",
@@ -48,7 +46,9 @@ export function ImpuritySourcePicker({
   const selected = Array.from(new Set(value));
   const unavailableKeys = selected.filter((key) => !optionByKey.has(key));
   const refreshing = optionsStatus === "loading" || optionsStatus === "refreshing" || optionsStatus === "idle";
+  const fieldDisabled = disabled && !selected.length;
   const labelFor = (key: string) => optionByKey.get(key)?.label || knownLabels.current.get(key) || "Ранее выбранная партия";
+  const summary = selected.length === 1 ? labelFor(selected[0]) : selected.length ? `Выбрано партий: ${selected.length}` : "";
   const normalizedQuery = query.trim().toLocaleLowerCase("ru");
   const groupedOptions = useMemo(() => {
     const groups = new Map<string, ImpuritySourcePickerOption[]>();
@@ -61,6 +61,17 @@ export function ImpuritySourcePicker({
     });
     return Array.from(groups.entries());
   }, [options, normalizedQuery]);
+
+  const beginSearch = () => {
+    if (fieldDisabled) return;
+    setQuery("");
+    setExpanded(true);
+  };
+
+  const close = () => {
+    setExpanded(false);
+    setQuery("");
+  };
 
   const toggle = (option: ImpuritySourcePickerOption) => {
     if (disabled) return;
@@ -77,52 +88,79 @@ export function ImpuritySourcePicker({
 
   return (
     <div className="space-y-2" data-testid="impurity-source-picker">
-      <Button type="button" variant="outline"
-        className="h-auto min-h-12 w-full touch-manipulation justify-between gap-3 px-3 py-2 text-left font-normal"
-        disabled={disabled && !selected.length} aria-expanded={expanded} aria-controls={listId}
-        onClick={() => setExpanded((current) => !current)}>
-        <span className={`min-w-0 whitespace-normal break-words ${selected.length ? "text-foreground" : "text-muted-foreground"}`}>
-          {selected.length === 1 ? labelFor(selected[0]) : selected.length ? `Выбрано партий: ${selected.length}` : placeholder}
-        </span>
-        <ChevronDown className={`h-4 w-4 shrink-0 opacity-60 ${expanded ? "rotate-180" : ""}`} aria-hidden="true" />
-      </Button>
-      {unavailableKeys.length ? (
-        <p role="status" className="text-xs text-amber-800">
-          {refreshing ? "Обновляем остатки. Ваш выбор сохранён." : optionsStatus === "ready"
-            ? "Выбранная партия сейчас недоступна. Выбор сохранён; проверьте склад или уберите эту партию из выбора."
-            : "Не удалось подтвердить остатки. Ваш выбор сохранён; повторите обновление списка."}
-        </p>
-      ) : null}
+      <div className={`flex min-h-11 w-full items-center gap-2 rounded-md border border-input bg-card px-3 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring ${fieldDisabled ? "cursor-not-allowed opacity-60" : ""}`}>
+        <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <input
+          type="text"
+          role="combobox"
+          aria-label="Поиск источника примеси"
+          aria-autocomplete="list"
+          aria-expanded={expanded}
+          aria-controls={expanded ? listId : undefined}
+          disabled={fieldDisabled}
+          value={expanded ? query : summary}
+          placeholder={expanded ? "Поиск по полю, культуре, сорту" : placeholder}
+          className="min-w-0 flex-1 bg-transparent py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+          onFocus={beginSearch}
+          onClick={() => { if (!expanded) beginSearch(); }}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setExpanded(true);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              close();
+              event.currentTarget.blur();
+            }
+          }}
+        />
+        <button
+          type="button"
+          disabled={fieldDisabled}
+          aria-label={expanded ? "Свернуть список" : "Открыть список"}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            if (expanded) close();
+            else beginSearch();
+          }}
+        >
+          <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden="true" />
+        </button>
+      </div>
       {expanded ? (
-        <div id={listId} role="group" aria-label="Выбор участков и партий урожая" className="space-y-3 rounded-lg border bg-background p-3">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-            <Input value={query} onChange={(event) => setQuery(event.target.value)} className="min-h-11 pl-9" placeholder="Поиск по полю, культуре, сорту" aria-label="Поиск источника примеси" />
-          </div>
-          <p className="text-xs text-muted-foreground">Выбор сохраняется сразу. Можно выбрать одну или несколько точных партий для одного талона примеси.</p>
-          <div className="travkin-scrollbar max-h-80 space-y-3 overflow-y-auto overscroll-contain">
+        <div id={listId} role="group" aria-label="Выбор участков и партий урожая" className="space-y-2 pt-1">
+          <div className="travkin-scrollbar max-h-80 space-y-3 overflow-y-auto overscroll-contain pr-1">
             {unavailableKeys.map((key) => (
-              <div key={key} className="flex items-center justify-between gap-2 rounded border border-amber-500/40 p-2 text-sm">
+              <div key={key} className="flex items-center justify-between gap-2 rounded-md bg-amber-500/10 px-3 py-2 text-sm">
                 <span>{labelFor(key)} · {refreshing ? "проверяем остаток" : "нет в текущем списке"}</span>
-                <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(selected.filter((item) => item !== key))}>Убрать из выбора</Button>
+                <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(selected.filter((item) => item !== key))}>Убрать</Button>
               </div>
             ))}
             {groupedOptions.map(([group, groupOptions]) => (
               <section key={group} aria-label={group}>
-                <div className="mb-1 text-xs font-semibold uppercase text-muted-foreground">{group}</div>
-                <div className="divide-y rounded-lg border">
+                <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{group}</div>
+                <div className="space-y-1">
                   {groupOptions.map((option) => {
                     const checked = selected.includes(option.key);
                     const blocked = disabled || (!checked && isImpuritySourceSelectionBlocked(selected, option, options));
-                    const checkboxId = `${listId}-${option.key}`;
                     return (
-                      <div key={option.key} className={`flex min-h-12 items-center gap-3 px-3 ${blocked ? "opacity-50" : ""}`}>
-                        <Checkbox id={checkboxId} checked={checked} disabled={blocked} onCheckedChange={() => toggle(option)} className="h-5 w-5" aria-label={option.label} />
-                        <label htmlFor={checkboxId} className={`flex min-h-12 min-w-0 flex-1 flex-col justify-center py-2 ${blocked ? "cursor-not-allowed" : "cursor-pointer"}`}>
-                          <span className="text-sm font-medium leading-snug">{option.label}</span>
-                          {option.description ? <span className="mt-0.5 text-xs text-muted-foreground">{option.description}</span> : null}
-                        </label>
-                      </div>
+                      <button
+                        key={option.key}
+                        type="button"
+                        role="checkbox"
+                        aria-checked={checked}
+                        disabled={blocked}
+                        className={`flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors ${checked ? "bg-primary/10 text-foreground" : "hover:bg-muted/60"} ${blocked ? "cursor-not-allowed opacity-45" : ""}`}
+                        onClick={() => toggle(option)}
+                      >
+                        <Check className={`h-4 w-4 shrink-0 text-primary ${checked ? "opacity-100" : "opacity-0"}`} aria-hidden="true" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-medium leading-snug">{option.label}</span>
+                          {option.description ? <span className="mt-0.5 block text-xs text-muted-foreground">{option.description}</span> : null}
+                        </span>
+                      </button>
                     );
                   })}
                 </div>
@@ -130,7 +168,7 @@ export function ImpuritySourcePicker({
             ))}
             {!groupedOptions.length ? <p className="py-3 text-center text-sm text-muted-foreground">{refreshing ? "Загружаем партии…" : options.length ? "По вашему запросу ничего не найдено" : "На складе нет доступных источников"}</p> : null}
           </div>
-          <Button type="button" variant="ghost" className="min-h-11 w-full" onClick={() => { setExpanded(false); setQuery(""); }}>Свернуть список{selected.length ? ` · выбрано ${selected.length}` : ""}</Button>
+          <Button type="button" variant="ghost" className="min-h-10 w-full" onClick={close}>Готово{selected.length ? ` · выбрано ${selected.length}` : ""}</Button>
         </div>
       ) : null}
     </div>

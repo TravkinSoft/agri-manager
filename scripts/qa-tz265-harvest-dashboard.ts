@@ -570,6 +570,7 @@ check("driver champions are potato-only and season-wide", () => {
 });
 check("dashboard live state and timers follow the combine shift", () => {
   assert.match(dashboardUi, /shiftIsOpen \? "Live" : "Offline"/);
+  assert.match(dashboardUi, /shiftIsOpen \? "Live" : "Offline"[\s\S]*?<span>·<\/span><span>\{activeCrop\}<\/span><span>·<\/span><span>\{clock/);
   assert.doesNotMatch(dashboardUi, /Смена не открыта|PTC загружается/);
   assert.match(dashboardUi, /group === "offline" \? null/);
   assert.match(dashboardUi, /group === "empty" && !shiftIsOpen \? "0 мин"/);

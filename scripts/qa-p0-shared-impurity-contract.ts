@@ -270,7 +270,8 @@ async function main() {
     assert.match(page.text, /hasDuplicateImpurityCropStructureSources/);
     assert.match(page.text, /selectedImpuritySourceOptions\.every\(\(source\) => source\.supportsSharedSelection\)/);
     assert.match(page.text, /usesExactImpuritySourceScope/);
-    assert.match(picker.text, /одну или несколько точных партий/);
+    assert.match(picker.text, /role="checkbox"/);
+    assert.match(picker.text, /onChange\(\[\.\.\.availableSelection, option\.key\]\)/);
   });
 
   check("only an unresolved legacy pool can appear as a combined stock card", () => {
@@ -327,9 +328,11 @@ async function main() {
     assert.match(selectionPolicy.text, /selectedContainsLegacyFallback/);
     assert.doesNotMatch(picker.text, /hasIncompleteSharedSelection/);
     assert.doesNotMatch(picker.text, /disabled=\{hasIncompleteSharedSelection\}/);
-    assert.match(picker.text, /Можно выбрать одну или несколько точных партий/);
-    assert.match(picker.text, /для одного талона примеси/);
-    assert.match(picker.text, /Выбор сохраняется сразу/);
+    assert.match(picker.text, /role="combobox"/);
+    assert.match(picker.text, /role="checkbox"/);
+    assert.match(picker.text, /Поиск по полю, культуре, сорту/);
+    assert.doesNotMatch(picker.text, /Выбор сохраняется сразу|Можно выбрать одну или несколько точных партий/);
+    assert.doesNotMatch(picker.text, /<Checkbox|divide-y rounded-lg border/);
   });
 
   check("open cards, journal, preview and paper expose unresolved shared provenance", () => {
