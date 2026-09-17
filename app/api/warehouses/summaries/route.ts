@@ -21,6 +21,34 @@ export const dynamic = "force-dynamic";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const QUERY_CHUNK_SIZE = 300;
+const BALANCE_PAGE_SIZE = 1000;
+
+async function loadWarehouseBalanceRows(
+  db: Awaited<ReturnType<typeof getUserScopedClientFromRequest>>,
+  companyId: string,
+  warehouseIds: string[],
+) {
+  const rows: any[] = [];
+  for (let from = 0; ; from += BALANCE_PAGE_SIZE) {
+    const result = await db
+      .from("v_stock_balance_identity")
+      .select("warehouse_id,product_id,variety_id,reproduction_id,quantity,uom,batch_class,batch_id,last_movement_at")
+      .eq("company_id", companyId)
+      .in("warehouse_id", warehouseIds)
+      .order("warehouse_id", { ascending: true })
+      .order("product_id", { ascending: true })
+      .order("variety_id", { ascending: true, nullsFirst: true })
+      .order("reproduction_id", { ascending: true, nullsFirst: true })
+      .order("batch_id", { ascending: true, nullsFirst: true })
+      .order("batch_class", { ascending: true })
+      .order("uom", { ascending: true })
+      .range(from, from + BALANCE_PAGE_SIZE - 1);
+    if (result.error) throw result.error;
+    const page = result.data || [];
+    rows.push(...page);
+    if (page.length < BALANCE_PAGE_SIZE) return rows;
+  }
+}
 
 async function loadRowsInChunks<T>(
   values: string[],
@@ -167,11 +195,9 @@ export async function GET(request: NextRequest) {
     }
 
     const [balancesResult, harvestLotsResult] = await Promise.all([
-      supabase
-        .from("v_stock_balance_identity")
-        .select("warehouse_id,product_id,quantity,uom,batch_class,batch_id,last_movement_at")
-        .eq("company_id", companyId)
-        .in("warehouse_id", warehouseIds),
+      loadWarehouseBalanceRows(supabase, companyId, warehouseIds)
+        .then((data) => ({ data, error: null }))
+        .catch((error) => ({ data: [] as any[], error })),
       harvestStockSupabase
         .from("v_harvest_lot_stock_v2")
         .select("harvest_lot_id,warehouse_id,current_weight_kg")

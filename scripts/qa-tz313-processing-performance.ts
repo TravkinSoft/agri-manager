@@ -136,7 +136,10 @@ check("processing summary scope is bounded and has no ledger N plus one", () => 
 
 check("default warehouse summaries remain backward compatible", () => {
   assert.match(summariesRoute, /v_stock_balance_identity/);
-  assert.match(summariesRoute, /warehouse_id,product_id,quantity,uom,batch_class,batch_id,last_movement_at/);
+  assert.match(summariesRoute, /loadWarehouseBalanceRows/);
+  assert.match(summariesRoute, /BALANCE_PAGE_SIZE = 1000/);
+  assert.match(summariesRoute, /warehouse_id,product_id,variety_id,reproduction_id,quantity,uom,batch_class,batch_id,last_movement_at/);
+  assert.match(summariesRoute, /\.range\(from, from \+ BALANCE_PAGE_SIZE - 1\)/);
   assert.match(summariesRoute, /loadHarvestBalanceBatchIds/);
   assert.match(summariesRoute, /Promise\.all\(chunks\.map/);
   assert.doesNotMatch(summariesRoute, /loadWarehouseLedgerRows/);
