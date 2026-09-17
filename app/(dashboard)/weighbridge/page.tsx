@@ -88,6 +88,7 @@ import {
   type UniversalWeighbridgeWorkspace,
   type UniversalWorkspaceOperationType,
 } from "@/lib/weighbridge/universal-workspaces";
+import { WEIGHBRIDGE_PIN_REQUIRED } from "@/lib/weighbridge/operator-access-mode";
 
 type Lang = "ru" | "kz" | "en";
 type OperationType = "harvest_incoming" | "supplier_receipt" | "issue_to_field" | "transfer_between_warehouses" | "shipment_outbound" | "disposal_writeoff" | "impurity_removal" | "drying";
@@ -5494,7 +5495,7 @@ export default function WeighbridgeOperationsPage() {
   };
 
   const submitOperatorAction = async () => {
-    if (!profile?.company_id || !operatorPersonId || !/^\d{6}$/.test(operatorPin)) return;
+    if (!profile?.company_id || !operatorPersonId || (WEIGHBRIDGE_PIN_REQUIRED && !/^\d{6}$/.test(operatorPin))) return;
     setOperatorBusy(true);
     setOperatorError("");
     const mutationGeneration = ++operatorMutationGenerationRef.current;
@@ -5529,10 +5530,10 @@ export default function WeighbridgeOperationsPage() {
       // without making the unlocked form compete with a full bootstrap.
     } catch (e: any) {
       const message = String(e?.message || "");
-      const wrongPin = Number(e?.status) === 401 || message.toLowerCase().includes("неверный pin");
+      const wrongPin = WEIGHBRIDGE_PIN_REQUIRED && (Number(e?.status) === 401 || message.toLowerCase().includes("неверный pin"));
       setOperatorPin("");
       setOperatorSessionStatus(wrongPin ? "ready" : "error");
-      setOperatorError(wrongPin ? "Неверный PIN" : "Не удалось проверить PIN. Повторите");
+      setOperatorError(wrongPin ? "Неверный PIN" : "Не удалось выбрать весовщика. Повторите");
     } finally {
       if (mutationGeneration === operatorMutationGenerationRef.current) {
         operatorMutationInFlightRef.current = false;
@@ -7016,7 +7017,9 @@ export default function WeighbridgeOperationsPage() {
             <DialogDescription>
               {operatorSessionStatus === "error"
                   ? "Доступ к Весовой остаётся заблокированным."
-                  : "Выберите сотрудника и подтвердите доступ личным PIN."}
+                  : WEIGHBRIDGE_PIN_REQUIRED
+                    ? "Выберите сотрудника и подтвердите доступ личным PIN."
+                    : "Временно выберите весовщика без PIN и продолжайте работу."}
             </DialogDescription>
           </DialogHeader>
           {operatorSessionStatus === "error" ? (
@@ -7051,7 +7054,7 @@ export default function WeighbridgeOperationsPage() {
                   : "В справочнике сотрудников нет активных весовщиков."}
               </div>
             )}
-            {eligibleOperators.length ? (
+            {eligibleOperators.length && WEIGHBRIDGE_PIN_REQUIRED ? (
               <div className="space-y-2">
                 <Label>PIN</Label>
                  <Input
@@ -7082,12 +7085,12 @@ export default function WeighbridgeOperationsPage() {
               <Link href="/dashboard">Выйти из Весовой</Link>
             </Button>
             {operatorSessionStatus !== "error" ? (
-              <Button type="button" onClick={() => void submitOperatorAction()} disabled={operatorBusy || !eligibleOperators.length || !operatorPersonId || !/^\d{6}$/.test(operatorPin)}>
+              <Button type="button" onClick={() => void submitOperatorAction()} disabled={operatorBusy || !eligibleOperators.length || !operatorPersonId || (WEIGHBRIDGE_PIN_REQUIRED && !/^\d{6}$/.test(operatorPin))}>
                 {operatorBusy
                   ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Проверка...</>
                   : activeShift?.id && activeShift?.operator_person_id && activeShift.operator_person_id !== operatorPersonId
-                    ? "Передать смену"
-                    : activeShift?.id ? "Продолжить смену" : "Открыть смену"}
+                    ? "Выбрать и передать смену"
+                    : activeShift?.id ? "Выбрать и продолжить" : "Выбрать и открыть смену"}
               </Button>
             ) : null}
 

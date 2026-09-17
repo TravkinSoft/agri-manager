@@ -4,13 +4,10 @@ import {
   asSessionErrorResponse,
   resolveWeighbridgeSession,
 } from "@/app/api/weighbridge/_auth";
-import {
-  SessionAuthError,
-  getUserScopedClientFromRequest,
-} from "@/lib/auth/server-session";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
 import { isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
+import { WEIGHBRIDGE_PIN_REQUIRED } from "@/lib/weighbridge/operator-access-mode";
 
 const OPERATOR_SESSION_ROLES = ["global_admin", "company_admin", "director", "weighman"] as const;
 const WEIGHBRIDGE_PERSONNEL_ROLES = new Set(["driver", "mechanic_operator"]);
@@ -215,21 +212,21 @@ export async function GET(request: NextRequest) {
   try {
     const requestedCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
     const includeWorkspace = request.nextUrl.searchParams.get("workspace") === "true";
-    if (!requestedCompanyId) {
-      throw new SessionAuthError("Company is required", 400);
-    }
-    const supabase = await getUserScopedClientFromRequest(request);
+    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: OPERATOR_SESSION_ROLES,
+      requestedCompanyId,
+    });
     const token = request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || null;
     const rpcStartedAt = performance.now();
     let { data, error } = await supabase.rpc("weighbridge_initial_workspace_v1", {
-      p_company_id: requestedCompanyId,
+      p_company_id: companyId,
       p_session_token: token,
       p_include_workspace: includeWorkspace,
     });
     let recoveredOperatorSession = false;
     if (error) {
       console.error("[weighbridge/operator-session] initial workspace RPC failed", {
-        companyId: requestedCompanyId,
+        companyId,
         includeWorkspace,
         hasOperatorCookie: Boolean(token),
         code: error.code,
@@ -244,7 +241,7 @@ export async function GET(request: NextRequest) {
       // PIN: it only restores the operator picker and clears the bad cookie.
       if (token && error.code !== "42501") {
         const fallback = await supabase.rpc("weighbridge_initial_workspace_v1", {
-          p_company_id: requestedCompanyId,
+          p_company_id: companyId,
           p_session_token: null,
           p_include_workspace: false,
         });
@@ -254,7 +251,7 @@ export async function GET(request: NextRequest) {
           recoveredOperatorSession = true;
         } else {
           console.error("[weighbridge/operator-session] locked-state recovery failed", {
-            companyId: requestedCompanyId,
+            companyId,
             code: fallback.error.code,
             message: fallback.error.message,
             details: fallback.error.details,
@@ -280,7 +277,7 @@ export async function GET(request: NextRequest) {
       ? supabase
         .from("reference_specialists")
         .select("id,person_id,personnel_type,status,archived")
-        .eq("company_id", requestedCompanyId)
+        .eq("company_id", companyId)
         .in("id", assignmentBridgeIds)
       : Promise.resolve({ data: [], error: null });
     const machinesStartedAt = performance.now();
@@ -288,7 +285,7 @@ export async function GET(request: NextRequest) {
       ? supabase
         .from("reference_machines")
         .select("id,name,full_name,brand,model,series,license_plate,source_raw_name,type,category,machinery_type,status,is_active,archived,global_model:global_machine_model_id(full_name,category)")
-        .eq("company_id", requestedCompanyId)
+        .eq("company_id", companyId)
         .eq("is_active", true)
         .eq("archived", false)
         .order("name", { ascending: true })
@@ -334,7 +331,16 @@ export async function GET(request: NextRequest) {
     return response;
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
-    if (sessionError) return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    if (sessionError) {
+      console.error("[weighbridge/operator-session] bootstrap rejected", {
+        status: sessionError.status,
+        message: sessionError.error,
+      });
+      return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
+    console.error("[weighbridge/operator-session] bootstrap crashed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }
@@ -365,22 +371,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Неизвестное действие операторской сессии." }, { status: 400 });
     }
 
-    const rpcName = action === "handover"
-      ? "handover_weighbridge_shift_v1"
-      : "open_or_unlock_weighbridge_shift_v1";
-    const args = action === "handover"
+    const rpcName = !WEIGHBRIDGE_PIN_REQUIRED
+      ? "temporary_select_weighbridge_operator_without_pin_v1"
+      : action === "handover"
+        ? "handover_weighbridge_shift_v1"
+        : "open_or_unlock_weighbridge_shift_v1";
+    const args = !WEIGHBRIDGE_PIN_REQUIRED
       ? {
           p_company_id: companyId,
           p_person_id: String(body?.personId || ""),
-          p_pin: String(body?.pin || ""),
-          p_handover_note: String(body?.note || "").trim() || null,
+          p_note: String(body?.note || "").trim() || null,
         }
-      : {
-          p_company_id: companyId,
-          p_person_id: String(body?.personId || ""),
-          p_pin: String(body?.pin || ""),
-          p_opening_note: String(body?.note || "").trim() || null,
-        };
+      : action === "handover"
+        ? {
+            p_company_id: companyId,
+            p_person_id: String(body?.personId || ""),
+            p_pin: String(body?.pin || ""),
+            p_handover_note: String(body?.note || "").trim() || null,
+          }
+        : {
+            p_company_id: companyId,
+            p_person_id: String(body?.personId || ""),
+            p_pin: String(body?.pin || ""),
+            p_opening_note: String(body?.note || "").trim() || null,
+          };
     const rpcStartedAt = performance.now();
     const { data, error } = await supabase.rpc(rpcName, args);
     const rpcMs = performance.now() - rpcStartedAt;
