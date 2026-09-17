@@ -1980,7 +1980,7 @@ export default function WeighbridgeOperationsPage() {
       } catch (error: any) {
         if (controller.signal.aborted || generation !== operatorRequestGenerationRef.current || error?.name === "AbortError") return;
         setOperatorSessionStatus("error");
-        setOperatorError("Не удалось проверить PIN. Повторите");
+        setOperatorError("Не удалось загрузить доступ к Весовой. Повторите проверку.");
         console.error("Operator session verification failed", error);
       }
     })().finally(() => {
@@ -7022,7 +7022,7 @@ export default function WeighbridgeOperationsPage() {
           {operatorSessionStatus === "error" ? (
             <div className="space-y-3">
               <div role="alert" className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-800">
-                {operatorError || "Не удалось проверить PIN. Повторите"}
+                {operatorError || "Не удалось загрузить доступ к Весовой. Повторите проверку."}
               </div>
               <Button type="button" className="w-full" onClick={() => void verifyOperatorSession()}>
                 Повторить проверку

@@ -287,6 +287,12 @@ export async function GET(request: NextRequest) {
       "Server-Timing",
       `initial_workspace_rpc;dur=${rpcMs.toFixed(1)}, assignment_bridges;dur=${bridgesMs.toFixed(1)}, machines;dur=${machinesMs.toFixed(1)}, total;dur=${(performance.now() - startedAt).toFixed(1)}`
     );
+    // A revoked, expired, or unknown operator cookie must not linger on a
+    // workstation after the server has already returned the canonical locked
+    // state. The next unlock will issue a fresh HttpOnly cookie.
+    if (token && !Boolean(payload.operator_state?.unlocked)) {
+      response.cookies.set(WEIGHBRIDGE_OPERATOR_COOKIE, "", { ...cookieOptions, maxAge: 0 });
+    }
     return response;
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
