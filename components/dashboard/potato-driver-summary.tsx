@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useMemo } from "react";
-import { ChevronLeft, ChevronRight, Trophy, Truck } from "lucide-react";
+import { Trophy, Truck } from "lucide-react";
 import type { HarvestOverview } from "@/lib/dashboard/harvest-summary";
 
 type PotatoDriverRow = HarvestOverview["potatoDrivers"][number];
@@ -18,21 +18,11 @@ type PotatoDriverSummaryProps = {
   rows: PotatoDriverRow[];
   totalWeightKg: number;
   periodLabel: string;
-  dayOffset: number;
-  onOlderDay: () => void;
-  onNewerDay: () => void;
-  onToday: () => void;
   onRefresh?: () => void;
   refreshing?: boolean;
 };
 
-function dayTitle(dayOffset: number): string {
-  if (dayOffset === 0) return "Сегодня";
-  if (dayOffset === 1) return "Вчера";
-  return `${dayOffset} дн. назад`;
-}
-
-export const PotatoDriverSummary = memo(function PotatoDriverSummary({ rows, totalWeightKg, periodLabel, dayOffset, onOlderDay, onNewerDay, onToday, onRefresh, refreshing = false }: PotatoDriverSummaryProps) {
+export const PotatoDriverSummary = memo(function PotatoDriverSummary({ rows, totalWeightKg, periodLabel, onRefresh, refreshing = false }: PotatoDriverSummaryProps) {
   const rankedRows = useMemo(
     () => [...rows].sort((left, right) => right.netWeightKg - left.netWeightKg || right.tripCount - left.tripCount || left.driverName.localeCompare(right.driverName, "ru")),
     [rows],
@@ -48,25 +38,15 @@ export const PotatoDriverSummary = memo(function PotatoDriverSummary({ rows, tot
           </span>
           <div className="min-w-0">
             <h2 id="potato-driver-champions-title" className="text-base font-semibold text-foreground">Таблица чемпионов</h2>
-            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{periodLabel} · только завершённые действующие рейсы картофеля</p>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">За весь сезон · картофель · {periodLabel}</p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2" aria-label="Выбор рабочего дня">
-          <div className="flex items-center overflow-hidden rounded-lg border border-border bg-background/40">
-            <button type="button" onClick={onOlderDay} className="flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" aria-label="Показать предыдущий рабочий день">
-              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-            </button>
-            <span className="min-w-[82px] border-x border-border px-2 text-center text-xs font-semibold text-foreground">{dayTitle(dayOffset)}</span>
-            <button type="button" onClick={onNewerDay} disabled={dayOffset === 0} className="flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35" aria-label="Показать следующий рабочий день">
-              <ChevronRight className="h-4 w-4" aria-hidden="true" />
-            </button>
-          </div>
-          {dayOffset > 0 ? <button type="button" onClick={onToday} className="h-8 rounded-lg border border-border px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Сегодня</button> : null}
+        <div className="flex items-center justify-end gap-2">
           {onRefresh ? <button type="button" onClick={onRefresh} disabled={refreshing} aria-busy={refreshing} className="h-8 rounded-lg border border-border px-2.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50">Обновить</button> : null}
         </div>
       </header>
 
-      <div className="grid grid-cols-3 border-b border-border bg-background/20" aria-label="Итоги выбранного рабочего дня">
+      <div className="grid grid-cols-3 border-b border-border bg-background/20" aria-label="Итоги сезона по картофелю">
         <div className="min-w-0 px-3 py-2.5 sm:px-4"><span className="block text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Принято картофеля</span><strong className="mt-1 block truncate text-base tabular-nums text-foreground">{tonnes(totalWeightKg)}</strong></div>
         <div className="min-w-0 border-l border-border px-3 py-2.5 sm:px-4"><span className="block text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Рейсов</span><strong className="mt-1 block text-base tabular-nums text-foreground">{tripCount}</strong></div>
         <div className="min-w-0 border-l border-border px-3 py-2.5 sm:px-4"><span className="block text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Водителей</span><strong className="mt-1 block text-base tabular-nums text-foreground">{rankedRows.length}</strong></div>
@@ -113,7 +93,7 @@ export const PotatoDriverSummary = memo(function PotatoDriverSummary({ rows, tot
           </ol>
         </div>
       ) : (
-        <p className="px-4 py-6 text-sm text-muted-foreground">За выбранный рабочий день завершённых картофельных рейсов нет.</p>
+        <p className="px-4 py-6 text-sm text-muted-foreground">За сезон завершённых картофельных рейсов нет.</p>
       )}
     </section>
   );

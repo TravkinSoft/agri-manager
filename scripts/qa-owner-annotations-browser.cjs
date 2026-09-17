@@ -24,6 +24,7 @@ async function main() {
     window.plot={cropStructureId:'plot',fieldId:'field',fieldName:'28',cropName:'Картофель',varietyName:'Сорая',reproductionName:'1',plannedAreaHa:12,actualCompletedHa:8.34,remainingAreaHa:3.66,status:'active'};
     const driver=(key,kg,trips)=>({key,driverId:key,driverName:key,netWeightKg:kg,tripCount:trips,averageNetWeightKg:kg/trips,vehicles:[{vehicleId:key,label:'МТЗ · '+key}],lastTripAt:'2026-09-17T07:00:00Z',averageTripMinutes:5,timedTripCount:1});
     window.summary=(offset=0)=>({period:{label:offset?'16.09, 07:00 — 17.09, 07:00':'17.09, 07:00 — сейчас'},potatoAcceptedKg:offset||window.changed?12000:4000,currentPlotAcceptedKg:4000,parties:[],harvestPlots:[{...window.plot,cropStructureAllocationId:'plot',isCurrent:true,acceptedKg:3000,areaHa:12},{...window.plot,cropStructureAllocationId:'old',fieldName:'Предыдущее поле',status:'completed',acceptedKg:1000,areaHa:12}],potatoDrivers:offset?[driver('Вчера',12000,3)]:window.changed?[driver('A',9000,10),driver('B',3000,1)]:[driver('A',1000,10),driver('B',3000,1)]});
+    window.seasonSummary=()=>({...window.summary(),period:{label:'01.01.2026 07:00 — сейчас'},potatoAcceptedKg:window.changed?1200000:400000,potatoDrivers:window.changed?[driver('A',900000,100),driver('B',300000,10)]:[driver('A',100000,100),driver('B',300000,10)]});
     createRoot(document.getElementById('app')).render(new URLSearchParams(location.search).has('operator')?
       <main style={{padding:12}}><TrafficShiftControls snapshot={window.snapshot} stale={false} refresh={async()=>{}} onCommitted={async()=>{}}/><TrafficBoard snapshot={window.snapshot} stale={false} error='' refresh={async()=>{}} onCommitted={()=>true}/></main>:
       <main style={{padding:12}}><HarvestDashboard/></main>);
@@ -31,7 +32,7 @@ async function main() {
   const mocks = {
     auth: `export const useAuth=()=>({profile:{company_id:'qa',role:'agronomist'}});`,
     live: `export const LIVE_REFRESH_TABLES={weighbridge:[]}; export const useLiveRefresh=o=>{window.refreshDashboard=o.onRefresh;};`,
-    service: `export const getHarvestBootstrap=async()=>({summary:window.summary()}); export const getHarvestSummary=async q=>{window.calls.push({summary:q});return window.summary(q.dayOffset||0);};`,
+    service: `export const getHarvestBootstrap=async()=>({summary:window.summary()}); export const getHarvestSummary=async q=>{window.calls.push({summary:q});return q.period==='season'?window.seasonSummary():window.summary(q.dayOffset||0);};`,
     shiftSummary: `export const TrafficShiftSummary=()=>null;`,
     picker: `export const VehicleDriverAssignment=()=>null;`,
     transport: `export async function trafficRequest(url,method,body){
@@ -62,6 +63,11 @@ async function main() {
     await page.goto(base);
     const rows=page.locator('[data-driver-id]');
     await page.locator('[data-rank="1"][data-driver-id="B"]').waitFor();
+    const champions=page.getByRole('region',{name:'Таблица чемпионов',exact:true});
+    assert.match(await champions.innerText(),/За весь сезон/);
+    assert.match(await rows.first().innerText(),/300 т/);
+    assert.equal(await champions.getByRole('button',{name:'Показать предыдущий рабочий день'}).count(),0);
+    assert.match(await page.getByLabel('Итоги выбранного рабочего дня').innerText(),/12 т/);
     assert.equal(await page.getByText(/^(Лидер|Самый быстрый|Больше всего тонн|Среднее время)$/).count(),0);
     assert(!/\d{2}:\d{2}/.test(await page.getByLabel('Текущее поле',{exact:true}).innerText()));
     await page.getByRole('tab',{name:/Предыдущее поле/}).click();
@@ -78,11 +84,13 @@ async function main() {
     assert.deepEqual(await lane.evaluate(e=>({height:e.clientHeight,scrollable:e.scrollHeight>e.clientHeight,bar:getComputedStyle(e).scrollbarWidth})),{height:460,scrollable:true,bar:'none'});
     await page.getByRole('button',{name:'Обновить',exact:true}).click();
     await page.locator('[data-rank="1"][data-driver-id="A"]').waitFor();
+    assert.match(await rows.first().innerText(),/900 т/);
+    const seasonRows=await champions.innerText();
     await page.getByRole('button',{name:'Показать предыдущий рабочий день'}).click();
-    await page.locator('[data-driver-id="Вчера"]').waitFor();
+    await page.waitForFunction(()=>window.calls.some(c=>c.summary?.dayOffset===2));
     assert.match(await page.getByLabel('Итоги выбранного рабочего дня').innerText(),/12 т/);
-    await page.getByRole('button',{name:'Сегодня',exact:true}).click();
-    await page.locator('[data-driver-id="A"]').waitFor();
+    assert.equal(await champions.innerText(),seasonRows,'daily navigation must not change season champions');
+    assert.equal(await page.evaluate(()=>window.calls.filter(c=>c.summary?.period==='season').length),2,'season loads only initially and on explicit refresh');
     await page.screenshot({path:path.join(output,'desktop.png'),fullPage:true});
     for(const width of [1024,768,360]){
       await page.setViewportSize({width,height:930});

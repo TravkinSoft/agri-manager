@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowDownToLine, ChevronDown, Clock3, Loader2, PackageCheck, Truck, Wrench } from "lucide-react";
 import { TrafficShiftSummary } from "@/components/dashboard/traffic-shift-summary";
 import { PotatoDriverSummary } from "@/components/dashboard/potato-driver-summary";
+import { HarvestDaySummary } from "@/components/dashboard/harvest-day-summary";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { isPotatoLabel, type HarvestFilterOptions, type HarvestOverview } from "@/lib/dashboard/harvest-summary";
@@ -159,7 +160,6 @@ export function HarvestDashboard() {
   const { payload: traffic, error: trafficError } = useDashboardTraffic(canReadTraffic);
   const [summary, setSummary] = useState<HarvestOverview | null>(null);
   const [driverSummary, setDriverSummary] = useState<HarvestOverview | null>(null);
-  const [driverDayOffset, setDriverDayOffset] = useState(0);
   const [driverLoading, setDriverLoading] = useState(false);
   const [driverError, setDriverError] = useState("");
   const [error, setError] = useState("");
@@ -173,10 +173,25 @@ export function HarvestDashboard() {
   const summaryRef = useRef<HarvestOverview | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const driverAbortRef = useRef<AbortController | null>(null);
-  const driverDayOffsetRef = useRef(0);
-  const driverSummaryInitializedRef = useRef(false);
   const initialTrafficGroupSelectedRef = useRef(false);
   const previousActivePlotRef = useRef<string | null>(null);
+
+  const refreshDrivers = useCallback(async () => {
+    driverAbortRef.current?.abort();
+    if (!companyId) return;
+    const controller = new AbortController();
+    driverAbortRef.current = controller;
+    setDriverLoading(true);
+    setDriverError("");
+    try {
+      const next = await getHarvestSummary<HarvestOverview>({ period: "season", filters: {} }, { signal: controller.signal });
+      if (!controller.signal.aborted) setDriverSummary(next);
+    } catch (reason) {
+      if (!controller.signal.aborted) setDriverError(reason instanceof Error ? reason.message : "Не удалось загрузить рейтинг за сезон");
+    } finally {
+      if (!controller.signal.aborted) setDriverLoading(false);
+    }
+  }, [companyId]);
 
   const loadDashboard = useCallback(async () => {
     if (!companyId) {
@@ -196,10 +211,6 @@ export function HarvestDashboard() {
       if (controller.signal.aborted) return;
       summaryRef.current = next;
       setSummary(next);
-      if (driverDayOffsetRef.current === 0 && !driverSummaryInitializedRef.current) {
-        driverSummaryInitializedRef.current = true;
-        setDriverSummary(next);
-      }
     } catch (reason) {
       if (controller.signal.aborted) return;
       setError(reason instanceof Error ? reason.message : "Не удалось загрузить сводку");
@@ -212,74 +223,24 @@ export function HarvestDashboard() {
 
   useEffect(() => {
     summaryRef.current = null;
-    driverDayOffsetRef.current = 0;
-    driverSummaryInitializedRef.current = false;
     initialTrafficGroupSelectedRef.current = false;
     setSummary(null);
     setDriverSummary(null);
-    setDriverDayOffset(0);
+    setDriverLoading(false);
     setDriverError("");
     void loadDashboard();
+    void refreshDrivers();
     return () => {
       abortRef.current?.abort();
       driverAbortRef.current?.abort();
     };
-  }, [companyId, loadDashboard]);
-  useEffect(() => {
-    driverDayOffsetRef.current = driverDayOffset;
-    driverAbortRef.current?.abort();
-    if (!companyId) return;
-    if (driverDayOffset === 0) {
-      driverSummaryInitializedRef.current = Boolean(summaryRef.current);
-      setDriverSummary(summaryRef.current);
-      setDriverLoading(false);
-      setDriverError("");
-      return;
-    }
-    const controller = new AbortController();
-    driverAbortRef.current = controller;
-    setDriverSummary(null);
-    setDriverLoading(true);
-    setDriverError("");
-    void getHarvestSummary<HarvestOverview>({ period: "current_day", dayOffset: driverDayOffset, filters: {} }, { signal: controller.signal })
-      .then((next) => {
-        if (!controller.signal.aborted) {
-          driverSummaryInitializedRef.current = true;
-          setDriverSummary(next);
-        }
-      })
-      .catch((reason) => {
-        if (!controller.signal.aborted) setDriverError(reason instanceof Error ? reason.message : "Не удалось загрузить рейтинг");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setDriverLoading(false);
-      });
-    return () => controller.abort();
-  }, [companyId, driverDayOffset]);
+  }, [companyId, loadDashboard, refreshDrivers]);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
   useLiveRefresh({ enabled: Boolean(companyId), companyId, tables: LIVE_REFRESH_TABLES.weighbridge, intervalMs: 15_000, onRefresh: loadDashboard });
 
-  const showOlderDriverDay = useCallback(() => setDriverDayOffset((value) => Math.min(3_650, value + 1)), []);
-  const showNewerDriverDay = useCallback(() => setDriverDayOffset((value) => Math.max(0, value - 1)), []);
-  const showTodayDrivers = useCallback(() => setDriverDayOffset(0), []);
-  const refreshDrivers = useCallback(async () => {
-    driverAbortRef.current?.abort();
-    const controller = new AbortController();
-    driverAbortRef.current = controller;
-    setDriverLoading(true);
-    setDriverError("");
-    try {
-      const next = await getHarvestSummary<HarvestOverview>({ period: "current_day", dayOffset: driverDayOffsetRef.current, filters: {} }, { signal: controller.signal });
-      if (!controller.signal.aborted) setDriverSummary(next);
-    } catch (reason) {
-      if (!controller.signal.aborted) setDriverError(reason instanceof Error ? reason.message : "Не удалось обновить рейтинг");
-    } finally {
-      if (!controller.signal.aborted) setDriverLoading(false);
-    }
-  }, []);
   useEffect(() => {
     const plots = summary?.harvestPlots || [];
     const activePlotId = plots.find((plot) => plot.isCurrent)?.cropStructureAllocationId || null;
@@ -495,7 +456,8 @@ export function HarvestDashboard() {
       ) : null}
 
       {driverError ? <div className="border-l-2 border-rose-400 px-3 py-2 text-sm text-rose-700">{driverError}</div> : null}
-      {driverSummary ? <PotatoDriverSummary rows={driverSummary.potatoDrivers} totalWeightKg={driverSummary.potatoAcceptedKg} periodLabel={driverSummary.period.label} dayOffset={driverDayOffset} onOlderDay={showOlderDriverDay} onNewerDay={showNewerDriverDay} onToday={showTodayDrivers} onRefresh={refreshDrivers} refreshing={driverLoading} /> : driverLoading ? <section className="flex min-h-32 items-center justify-center rounded-xl border border-border bg-card/40 text-sm text-muted-foreground" aria-label="Загрузка дневной сводки"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка сводки рабочего дня...</section> : null}
+      {driverSummary ? <PotatoDriverSummary rows={driverSummary.potatoDrivers} totalWeightKg={driverSummary.potatoAcceptedKg} periodLabel={driverSummary.period.label} onRefresh={refreshDrivers} refreshing={driverLoading} /> : driverLoading ? <section className="flex min-h-32 items-center justify-center rounded-xl border border-border bg-card/40 text-sm text-muted-foreground" aria-label="Загрузка рейтинга за сезон"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка рейтинга за сезон...</section> : null}
+      {companyId ? <HarvestDaySummary key={companyId} companyId={companyId} /> : null}
 
       {profile && ["agronomist", "director"].includes(profile.role) && profile.company_id ? (
         <details className="group border-y border-border" onToggle={(event) => setShiftReportOpen(event.currentTarget.open)}>
