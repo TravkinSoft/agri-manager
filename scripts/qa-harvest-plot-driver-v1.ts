@@ -17,10 +17,10 @@ async function main() {
   const board = readFileSync("components/traffic/traffic-board.tsx", "utf8");
   equal(board.includes('data-testid="traffic-shift-required"'), true);
   equal(board.includes('data-testid="traffic-legacy-shift-plot"'), true);
-  equal(board.includes('disabled={pendingVehicle || stale || !snapshot.enabled || !harvesterShiftReady}'), true);
+  equal(board.includes('disabled={pendingVehicle || swipeVisual?.departing || stale || !snapshot.enabled || !harvesterShiftReady}'), true);
   const dashboard = readFileSync("lib/dashboard/harvest-summary.ts", "utf8");
   equal(dashboard.includes("isHarvestVegetableLabel(ticketIdentity(ticket).crop)"), true);
-  equal(dashboard.includes("? finalized\n        .filter"), true);
+  equal(/\?\s*finalized\s*\.filter/.test(dashboard), true);
   const weighbridgePage = readFileSync("app/(dashboard)/weighbridge/page.tsx", "utf8");
   equal(weighbridgePage.includes("const next = ptcQueue[0] || null;"), true);
   equal(weighbridgePage.includes("vehicleId: next.vehicleId"), true);

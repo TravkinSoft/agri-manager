@@ -41,14 +41,17 @@ function check(name: string, run: () => void) {
   console.log(`PASS ${checks} ${name}`);
 }
 
-check("canonical current person outranks historical ticket driver and specialist FK", () => {
-  assert.equal(preferredDriverForVehicle(driverParams), "current-person");
+check("latest completed ticket driver outranks a stale directory assignment", () => {
+  assert.equal(preferredDriverForVehicle(driverParams), "historical-person");
 });
-check("busy assigned person never falls back to historical driver", () => {
-  assert.equal(preferredDriverForVehicle({ ...driverParams, openAssignments: open }), "");
+check("busy historical driver is not auto-selected", () => {
+  assert.equal(preferredDriverForVehicle({
+    ...driverParams,
+    openAssignments: [{ ...open[0], driverId: "historical-person" }],
+  }), "");
 });
-check("unresolved or inactive permanent person does not resurrect ticket history", () => {
-  assert.equal(preferredDriverForVehicle({ ...driverParams, drivers: [drivers[1]] }), "");
+check("active ticket history remains usable when a stale directory driver is absent", () => {
+  assert.equal(preferredDriverForVehicle({ ...driverParams, drivers: [drivers[1]] }), "historical-person");
 });
 check("historical suggestion remains available for unassigned vehicles", () => {
   assert.equal(preferredDriverForVehicle({ ...driverParams, vehicle: vehicles[1] }), "historical-person");
@@ -56,8 +59,8 @@ check("historical suggestion remains available for unassigned vehicles", () => {
 check("history never selects an unavailable driver", () => {
   assert.equal(preferredDriverForVehicle({ ...driverParams, vehicle: vehicles[1], drivers: [] }), "");
 });
-check("ambiguous assigned drivers require an explicit choice", () => {
-  assert.equal(preferredDriverForVehicle({ ...driverParams, drivers: drivers.map((driver) => ({ ...driver, assignedVehicleIds: ["vehicle-1"] })) }), "");
+check("ticket history resolves an ambiguous stale directory assignment", () => {
+  assert.equal(preferredDriverForVehicle({ ...driverParams, drivers: drivers.map((driver) => ({ ...driver, assignedVehicleIds: ["vehicle-1"] })) }), "historical-person");
 });
 check("reverse suggestion prefers permanent vehicle", () => {
   assert.equal(preferredVehicleForDriver(vehicleParams), "vehicle-1");
@@ -317,9 +320,9 @@ async function checkInitialWorkspaceAssignmentBridges() {
       return { data: { operator_state: {}, initial_workspace: payload }, error: null };
     },
     from(table: string) {
-      if (table === "reference_machines") {
+      if (table === "reference_machines" || table === "reference_vehicles") {
         const query: any = {
-          select() { return query; }, eq() { return query; }, order() { return query; },
+          select() { return query; }, eq() { return query; }, order() { return query; }, not() { return query; },
           then(done: (value: unknown) => unknown, failed: (reason: unknown) => unknown) {
             return Promise.resolve({ data: [], error: null }).then(done, failed);
           },
@@ -352,7 +355,7 @@ async function checkInitialWorkspaceAssignmentBridges() {
     "@/app/api/weighbridge/_auth": {
       WEIGHBRIDGE_OPERATOR_COOKIE: "fixture-only",
       asSessionErrorResponse: () => null,
-      resolveWeighbridgeSession: async () => { throw new Error("POST is outside this QA"); },
+      resolveWeighbridgeSession: async () => ({ companyId: "company", supabase: db }),
     },
     "@/lib/auth/server-session": {
       SessionAuthError: class extends Error {},
@@ -361,6 +364,7 @@ async function checkInitialWorkspaceAssignmentBridges() {
     "@/lib/utils/qa-data": { hasQaDataMarker: () => false },
     "@/lib/weighbridge/transport": transport,
     "@/lib/vehicles/driver-name": driverNames,
+    "@/lib/weighbridge/operator-access-mode": { WEIGHBRIDGE_PIN_REQUIRED: true },
   };
   const loaded = { exports: {} as any };
   vm.runInNewContext(ts.transpileModule(read("app/api/weighbridge/operator-session/route.ts"), {

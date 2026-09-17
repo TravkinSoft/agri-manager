@@ -33,7 +33,11 @@ export type OpenTransportAssignment = {
 type AssignedTransportDriver = { id: string; assignedVehicleIds?: string[] };
 type AssignedTransportVehicle = { id: string; primaryPersonnelId?: string | null };
 
-/** Suggestions are read-only: a permanent assignment always outranks ticket history. */
+/**
+ * The last completed weighbridge trip is the freshest operational pairing.
+ * The directory assignment is a fallback, and the operator can still edit the
+ * suggestion before creating the ticket.
+ */
 export function preferredDriverForVehicle(params: {
   vehicle: AssignedTransportVehicle;
   drivers: AssignedTransportDriver[];
@@ -41,11 +45,10 @@ export function preferredDriverForVehicle(params: {
   openAssignments: OpenTransportAssignment[];
 }): string {
   const assigned = params.drivers.filter((driver) => driver.assignedVehicleIds?.includes(params.vehicle.id));
-  // Missing/inactive or ambiguous permanent drivers must not resurrect an old ticket pairing.
-  const hasAssignment = Boolean(params.vehicle.primaryPersonnelId) || assigned.length > 0;
-  const suggestedId = hasAssignment
-    ? (assigned.length === 1 ? assigned[0].id : "")
-    : params.latestDriverByVehicle[params.vehicle.id] || "";
+  const recentDriverId = params.latestDriverByVehicle[params.vehicle.id] || "";
+  const directoryDriverId = params.vehicle.primaryPersonnelId
+    || (assigned.length === 1 ? assigned[0].id : "");
+  const suggestedId = recentDriverId || directoryDriverId;
   return suggestedId && params.drivers.some((driver) => driver.id === suggestedId)
     && !params.openAssignments.some((assignment) => assignment.driverId === suggestedId)
     ? suggestedId : "";

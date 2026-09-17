@@ -6,7 +6,11 @@ import {
 } from "@/app/api/weighbridge/_auth";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
-import { isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
+import {
+  isTrailerTransport,
+  mergeWeighbridgeTransportCatalog,
+  resolveTransportIdentity,
+} from "@/lib/weighbridge/transport";
 import { WEIGHBRIDGE_PIN_REQUIRED } from "@/lib/weighbridge/operator-access-mode";
 
 const OPERATOR_SESSION_ROLES = ["global_admin", "company_admin", "director", "weighman"] as const;
@@ -50,11 +54,15 @@ function normalizeInitialWorkspace(
   payload: Record<string, any> | null | undefined,
   assignmentBridges: Record<string, any>[] = [],
   machineSourceRows: Record<string, any>[] = [],
+  canonicalMachineLinks: Record<string, any>[] = [],
   resourceErrors: Record<string, string>[] = [],
 ) {
   if (!payload) return null;
-  const rawVehicles = (Array.isArray(payload.vehicles) ? payload.vehicles : [])
-    .filter((row: any) => !row?.source_machine_id);
+  const linkByVehicleId = new Map(canonicalMachineLinks.map((row: any) => [
+    String(row.id || ""),
+    row.source_machine_id ? String(row.source_machine_id) : null,
+  ]));
+  const rawVehicles = Array.isArray(payload.vehicles) ? payload.vehicles : [];
   const vehicleRows = rawVehicles.map((row: any) => {
     const transportModel = Array.isArray(row.transport_model)
       ? row.transport_model[0]
@@ -70,6 +78,7 @@ function normalizeInitialWorkspace(
       fleetType: String(row.fleet_type || ""),
       transportCategory: String(transportModel?.category || ""),
       source: "reference_vehicles" as const,
+      sourceMachineId: linkByVehicleId.get(String(row.id)) || null,
       primaryPersonnelId: row.primary_responsible_personnel_id
         ? String(row.primary_responsible_personnel_id)
         : null,
@@ -190,7 +199,7 @@ function normalizeInitialWorkspace(
         .filter((row: any) => !hasQaDataMarker(String(row.name || ""))),
       destinations: (Array.isArray(payload.destinations) ? payload.destinations : [])
         .filter((row: any) => !hasQaDataMarker(String(row.name || ""))),
-      vehicles: [...vehicleRows.filter((row) => !isTrailerTransport(row)), ...machineRows]
+      vehicles: mergeWeighbridgeTransportCatalog(vehicleRows, machineRows)
         .sort((a, b) => a.name.localeCompare(b.name, "ru")),
       trailers: vehicleRows.filter((row) => isTrailerTransport(row)),
       drivers,
@@ -290,7 +299,20 @@ export async function GET(request: NextRequest) {
         .eq("archived", false)
         .order("name", { ascending: true })
       : Promise.resolve({ data: [], error: null });
-    const [bridgeResult, machineResult] = await Promise.all([bridgePromise, machinePromise]);
+    const canonicalMachineLinksPromise = initialWorkspace
+      ? supabase
+        .from("reference_vehicles")
+        .select("id,source_machine_id")
+        .eq("company_id", companyId)
+        .eq("is_active", true)
+        .eq("archived", false)
+        .not("source_machine_id", "is", null)
+      : Promise.resolve({ data: [], error: null });
+    const [bridgeResult, machineResult, canonicalMachineLinksResult] = await Promise.all([
+      bridgePromise,
+      machinePromise,
+      canonicalMachineLinksPromise,
+    ]);
     const bridgesMs = performance.now() - bridgesStartedAt;
     const machinesMs = performance.now() - machinesStartedAt;
     if (bridgeResult.error) {
@@ -301,7 +323,8 @@ export async function GET(request: NextRequest) {
     }
     const assignmentBridges = (bridgeResult.data || []) as Record<string, any>[];
     const initialMachines = (machineResult.data || []) as Record<string, any>[];
-    const initialResourceErrors = machineResult.error
+    const canonicalMachineLinks = (canonicalMachineLinksResult.data || []) as Record<string, any>[];
+    const initialResourceErrors = machineResult.error || canonicalMachineLinksResult.error
       ? [{
           resource: "reference_machines",
           code: "WB_RESOURCES_MACHINES",
@@ -314,6 +337,7 @@ export async function GET(request: NextRequest) {
         initialWorkspace,
         assignmentBridges,
         initialMachines,
+        canonicalMachineLinks,
         initialResourceErrors,
       ),
     });

@@ -4,7 +4,11 @@ import {
   asSessionErrorResponse,
   resolveWeighbridgeSession,
 } from "@/app/api/weighbridge/_auth";
-import { isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
+import {
+  isTrailerTransport,
+  mergeWeighbridgeTransportCatalog,
+  resolveTransportIdentity,
+} from "@/lib/weighbridge/transport";
 import { vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
 
 export const runtime = "nodejs";
@@ -65,9 +69,8 @@ export async function GET(request: NextRequest) {
     const settled = await Promise.allSettled([
       supabase
         .from("reference_vehicles")
-        .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name,type,fleet_type,primary_responsible_personnel_id,is_active,archived,transport_model:transport_model_id(full_name,category)")
+        .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name,type,fleet_type,primary_responsible_personnel_id,source_machine_id,is_active,archived,transport_model:transport_model_id(full_name,category)")
         .eq("company_id", companyId)
-        .is("source_machine_id", null)
         .eq("is_active", true)
         .eq("archived", false)
         .order("name", { ascending: true }),
@@ -161,6 +164,7 @@ export async function GET(request: NextRequest) {
         fleetType: String(row.fleet_type || ""),
         transportCategory: String(transportModel?.category || ""),
         source: "reference_vehicles" as const,
+        sourceMachineId: row.source_machine_id ? String(row.source_machine_id) : null,
         primaryPersonnelId: row.primary_responsible_personnel_id
           ? String(row.primary_responsible_personnel_id)
           : null,
@@ -187,7 +191,7 @@ export async function GET(request: NextRequest) {
         primaryPersonnelId: null,
       };
     });
-    const vehicles = [...vehicleRows.filter((row) => !isTrailerTransport(row)), ...machineRows]
+    const vehicles = mergeWeighbridgeTransportCatalog(vehicleRows, machineRows)
       .sort((a, b) => a.name.localeCompare(b.name, "ru"));
     const trailers = vehicleRows.filter((row) => isTrailerTransport(row));
 

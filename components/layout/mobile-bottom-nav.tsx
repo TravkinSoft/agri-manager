@@ -115,7 +115,6 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
     case "weighman":
       return [
         { labelKey: "weighbridge", href: "/weighbridge", icon: Scale, kind: "route" },
-        { labelKey: "traffic", href: "/weighbridge/traffic", icon: Truck, kind: "route" },
         { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
         { labelKey: "ledger", href: "/ledger", icon: History, kind: "route" },
       ];

@@ -48,7 +48,6 @@ import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
 import {
   combineOperatorContextKey,
   recentCombineOperatorIds,
-  usesPersistentCombineOperator,
 } from "@/lib/weighbridge/combine-operator";
 import { HarvestAllocationPicker } from "@/components/weighbridge/active-harvest-tabs";
 import { UniversalWorkspaceTabs, type UniversalWorkspaceTab } from "@/components/weighbridge/universal-workspace-tabs";
@@ -2794,16 +2793,6 @@ export default function WeighbridgeOperationsPage() {
     () => fieldHarvestOptions.find((x) => x.allocationId === form.cropStructureAllocationId) || null,
     [fieldHarvestOptions, form.cropStructureAllocationId]
   );
-  const persistentCombineOperator = useMemo(
-    () => usesPersistentCombineOperator({
-      cropSlug: selectedHarvestAllocation?.cropSlug,
-      cropName: selectedHarvestAllocation?.cropName,
-      categorySlug: selectedHarvestAllocation?.cropCategorySlug,
-      categoryName: selectedHarvestAllocation?.cropCategoryName,
-      subcategory: selectedHarvestAllocation?.cropSubcategory,
-    }),
-    [selectedHarvestAllocation]
-  );
   const combineOperatorContext = useMemo(() => {
     if (
       form.operationType !== "harvest_incoming"
@@ -2852,19 +2841,11 @@ export default function WeighbridgeOperationsPage() {
         keywords: [person.name, person.position, person.department],
       }));
   }, [combineOperators, recentCombineOperatorPersonIds]);
-  const previousCombineOperatorContextRef = useRef("");
   useEffect(() => {
-    const contextChanged = previousCombineOperatorContextRef.current !== combineOperatorContextId;
-    previousCombineOperatorContextRef.current = combineOperatorContextId;
-    if (!combineOperatorContextId) {
-      if (form.combineOperatorPersonId) {
-        setForm((previous) => ({ ...previous, combineOperatorPersonId: "" }));
-      }
-      return;
-    }
+    if (!combineOperatorContextId) return;
     const selectedIsAvailable = combineOperators.some((person) => person.id === form.combineOperatorPersonId);
-    let nextPersonId = contextChanged || !selectedIsAvailable ? "" : form.combineOperatorPersonId;
-    if (persistentCombineOperator && !nextPersonId) {
+    let nextPersonId = selectedIsAvailable ? form.combineOperatorPersonId : "";
+    if (!nextPersonId) {
       nextPersonId = recentCombineOperatorPersonIds[0] || "";
     }
     if (nextPersonId !== form.combineOperatorPersonId) {
@@ -2874,7 +2855,6 @@ export default function WeighbridgeOperationsPage() {
     combineOperatorContextId,
     combineOperators,
     form.combineOperatorPersonId,
-    persistentCombineOperator,
     recentCombineOperatorSignature,
     recentCombineOperatorPersonIds,
   ]);
@@ -3424,7 +3404,6 @@ export default function WeighbridgeOperationsPage() {
         cropId: automaticAllocation?.cropId || "",
         varietyId: automaticAllocation?.varietyId || "",
         reproductionId: automaticAllocation?.reproductionId || "",
-        combineOperatorPersonId: "",
         ptcEventId: keepPtcTrip ? previous.ptcEventId : "",
         ptcCycle: keepPtcTrip ? previous.ptcCycle : null,
       };
@@ -3449,7 +3428,6 @@ export default function WeighbridgeOperationsPage() {
         cropId: allocation?.cropId || "",
         varietyId: allocation?.varietyId || "",
         reproductionId: allocation?.reproductionId || "",
-        combineOperatorPersonId: "",
         ptcEventId: keepPtcTrip ? previous.ptcEventId : "",
         ptcCycle: keepPtcTrip ? previous.ptcCycle : null,
       };
@@ -3515,17 +3493,17 @@ export default function WeighbridgeOperationsPage() {
       varietyId: route?.varietyId || "",
       reproductionId: route?.reproductionId || "",
       warehouseToId: route?.warehouseId || "",
-      ...(clearTransient ? { vehicleId: "", driverId: "", combineOperatorPersonId: "", grossKg: "", notes: "" } : {}),
+      ...(clearTransient ? { vehicleId: "", driverId: "", grossKg: "", notes: "" } : {}),
     }));
   };
 
   const selectActiveHarvest = async (route: ActiveHarvestRoute, confirmVolatile = true) => {
     if (route.id === selectedActiveHarvestId) return;
-    const hasVolatileInput = Boolean(form.vehicleId || form.driverId || form.combineOperatorPersonId || form.grossKg);
+    const hasVolatileInput = Boolean(form.vehicleId || form.driverId || form.grossKg);
     if (confirmVolatile && hasVolatileInput) {
       const confirmed = await siteConfirm({
         title: "Сменить активную уборку?",
-        description: "Транспорт, водитель и введённый вес будут очищены.",
+        description: "Транспорт, водитель и введённый вес будут очищены. Последний выбранный комбайнёр сохранится.",
         actionLabel: "Сменить",
       });
       if (!confirmed) return;
@@ -4959,7 +4937,7 @@ export default function WeighbridgeOperationsPage() {
             varietyId: prev.varietyId,
             reproductionId: prev.reproductionId,
             warehouseToId: prev.warehouseToId,
-            combineOperatorPersonId: persistentCombineOperator ? prev.combineOperatorPersonId : "",
+            combineOperatorPersonId: prev.combineOperatorPersonId,
             externalDocumentNo: "",
             paperRecordedAt: "",
             paperTareKg: "",
