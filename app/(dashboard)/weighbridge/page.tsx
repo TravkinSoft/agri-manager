@@ -1056,6 +1056,7 @@ export default function WeighbridgeOperationsPage() {
   resourceCompanyRef.current = profile?.company_id;
   const [harvestStructureByField, setHarvestStructureByField] = useState<Record<string, HarvestStructureOption[]>>({});
   const [ptcQueue, setPtcQueue] = useState<PtcQueueItem[]>([]);
+  const ptcQueueGenerationRef = useRef(0);
   const [harvestIncompleteFields, setHarvestIncompleteFields] = useState<Record<string, boolean>>({});
   const [harvestAllocationsReady, setHarvestAllocationsReady] = useState(false);
   const [activeHarvests, setActiveHarvests] = useState<ActiveHarvestRoute[]>([]);
@@ -1324,6 +1325,17 @@ export default function WeighbridgeOperationsPage() {
     return (Array.isArray(payload?.queue) ? payload.queue : []) as PtcQueueItem[];
   };
 
+  const refreshPtcQueue = async (signal?: AbortSignal) => {
+    if (!profile?.company_id) return [] as PtcQueueItem[];
+    const companyId = profile.company_id;
+    const generation = ++ptcQueueGenerationRef.current;
+    const queue = await loadPtcQueue(companyId, signal);
+    if (generation === ptcQueueGenerationRef.current && resourceCompanyRef.current === companyId) {
+      setPtcQueue(queue);
+    }
+    return queue;
+  };
+
   const applyHarvestAllocations = (payload: any) => {
     setActiveHarvestSeasonId(payload?.seasonId ? String(payload.seasonId) : null);
     setActiveHarvestSeasonYear(payload?.seasonYear ? Number(payload.seasonYear) : null);
@@ -1520,6 +1532,7 @@ export default function WeighbridgeOperationsPage() {
 
     const companyId = profile.company_id;
     const assignmentRevision = vehicleAssignmentRevisionRef.current;
+    const ptcQueueGeneration = ++ptcQueueGenerationRef.current;
     const requestSignal = signal || new AbortController().signal;
     const request = (async () => {
       if (!background && !coreDataReady) setLoading(true);
@@ -1537,7 +1550,7 @@ export default function WeighbridgeOperationsPage() {
         };
 
         if (ptcQueueResult.status === "fulfilled") {
-          setPtcQueue(ptcQueueResult.value);
+          if (ptcQueueGeneration === ptcQueueGenerationRef.current) setPtcQueue(ptcQueueResult.value);
         } else if (ptcQueueResult.reason?.name !== "AbortError") {
           addIssue("PTC_QUEUE", "Очередь машин с поля временно недоступна. Машину можно выбрать вручную.");
         }
@@ -2022,6 +2035,10 @@ export default function WeighbridgeOperationsPage() {
       "reference_machines",
       "company_people",
     ].some((name) => changedTables.has(name));
+    const ptcQueueChanged = ticketChanged || [
+      "ptc_vehicle_states",
+      "ptc_events",
+    ].some((name) => changedTables.has(name));
     if (stockChanged) stockIdentityCacheRef.current.clear();
     const tasks: Promise<unknown>[] = [];
     if (isResourcePoll) {
@@ -2030,8 +2047,12 @@ export default function WeighbridgeOperationsPage() {
       // on foreground resume; periodically reloading all of them created a
       // permanent request storm on the weighbridge workstation.
       tasks.push(refreshTransportPickerData());
+      tasks.push(refreshPtcQueue());
     } else if (transportResourcesChanged) {
       tasks.push(load(undefined, true));
+    }
+    if (!isResourcePoll && !transportResourcesChanged && ptcQueueChanged) {
+      tasks.push(refreshPtcQueue());
     }
     if (cropStructureChanged && !transportResourcesChanged) {
       tasks.push(refreshHarvestAllocations());
@@ -4926,6 +4947,11 @@ export default function WeighbridgeOperationsPage() {
             : "Талон добавлен в активные",
         });
       }
+      if (form.operationType === "harvest_incoming" && form.ptcEventId) {
+        const consumedPtcEventId = form.ptcEventId;
+        ptcQueueGenerationRef.current += 1;
+        setPtcQueue((current) => current.filter((item) => item.ptcEventId !== consumedPtcEventId));
+      }
       setForm((prev) => {
         if (prev.operationType === "harvest_incoming") {
           return {
@@ -4990,6 +5016,7 @@ export default function WeighbridgeOperationsPage() {
       setSupplierReceiptLines([]);
       setShowSupplierExtraFields(false);
       window.setTimeout(() => {
+        if (form.operationType === "harvest_incoming") void refreshPtcQueue();
         void refreshLiveData({
           source: "realtime",
           table: createdStatus === "finalized" ? "stock_ledger_entries" : "tickets",

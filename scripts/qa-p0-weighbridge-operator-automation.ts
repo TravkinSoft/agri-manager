@@ -8,6 +8,8 @@ const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8"
 const page = read("app/(dashboard)/weighbridge/page.tsx");
 const resources = read("app/api/weighbridge/resources/route.ts");
 const operatorSession = read("app/api/weighbridge/operator-session/route.ts");
+const ptcQueueRoute = read("app/api/weighbridge/ptc-queue/route.ts");
+const liveRefresh = read("hooks/use-live-refresh.ts");
 const sidebar = read("components/layout/sidebar.tsx");
 const mobileNav = read("components/layout/mobile-bottom-nav.tsx");
 const legacyReceiverPage = read("app/(dashboard)/weighbridge/traffic/page.tsx");
@@ -65,6 +67,19 @@ check("the obsolete weighman receiver cabinet is removed from navigation and red
   assert.doesNotMatch(weighmanSidebar, /weighbridge\/traffic/);
   assert.doesNotMatch(weighmanMobile, /weighbridge\/traffic/);
   assert.match(legacyReceiverPage, /redirect\("\/weighbridge"\)/);
+});
+
+check("the harvest form follows the oldest loaded PTC trip without replacing an active draft", () => {
+  assert.match(ptcQueueRoute, /\.eq\("state",\s*"loaded"\)/);
+  assert.match(ptcQueueRoute, /Date\.parse\(left\.loadedAt\)\s*-\s*Date\.parse\(right\.loadedAt\)/);
+  assert.match(page, /form\.vehicleId\s*\|\|\s*form\.driverId\s*\|\|\s*form\.grossKg/);
+  assert.match(page, /const next = ptcQueue\[0\] \|\| null/);
+  assert.match(page, /setPtcQueue\(\(current\) => current\.filter\(\(item\) => item\.ptcEventId !== consumedPtcEventId\)\)/);
+  assert.match(page, /ptcQueueGenerationRef\.current \+= 1/);
+  assert.match(page, /generation === ptcQueueGenerationRef\.current/);
+  assert.match(page, /if \(form\.operationType === "harvest_incoming"\) void refreshPtcQueue\(\)/);
+  assert.match(liveRefresh, /"ptc_vehicle_states"/);
+  assert.match(liveRefresh, /"ptc_events"/);
 });
 
 console.log(JSON.stringify({ suite: "P0 weighbridge operator automation", passed, failed: 0 }, null, 2));
