@@ -22,8 +22,8 @@ const PUBLIC_MARKETING_ROUTES = new Set(["/", "/demo", "/privacy"]);
 export function PublicAwareProviders({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  // This exact route has independent, server-enforced PTC authentication.
-  // It never grants access to dashboard routes or the main application's session.
+  // The operator route keeps its compact PWA shell, but authentication is shared:
+  // unauthenticated visitors are sent to the canonical TravkinFlow login page.
   if (PUBLIC_MARKETING_ROUTES.has(pathname || "") || pathname === "/traffic-operator") {
     return <LanguageProvider>{children}</LanguageProvider>;
   }
