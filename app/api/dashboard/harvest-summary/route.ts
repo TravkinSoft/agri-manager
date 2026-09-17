@@ -7,6 +7,7 @@ import {
   resolveHarvestPeriod,
   type HarvestDashboardFilters,
   type HarvestOverview,
+  type HarvestPlotSummary,
   type HarvestPeriodPreset,
 } from "@/lib/dashboard/harvest-summary";
 import type { HarvestBatchSummary, WeighbridgeTicket } from "@/lib/types/weighbridge";
@@ -374,6 +375,127 @@ async function loadActivePtcPlotSelection(companyId: string): Promise<ActivePtcP
   };
 }
 
+async function loadHarvestPlotTimeline(
+  companyId: string,
+  period: { start: string; end: string },
+  activeSelection: HarvestOverview["activeWeighbridgeSelection"],
+): Promise<HarvestPlotSummary[]> {
+  const db = getServiceClient();
+  const { data: segments, error: segmentsError } = await db
+    .from("ptc_combine_field_segments")
+    .select("id,crop_structure_id,field_id,planned_area_ha,opened_at,closed_at,close_reason,hectares_segment")
+    .eq("company_id", companyId)
+    .lt("opened_at", period.end)
+    .or(`closed_at.gte.${period.start},closed_at.is.null`)
+    .order("opened_at", { ascending: true });
+  if (segmentsError) throw segmentsError;
+
+  const segmentRows = segments || [];
+  const allocationIds = uniqueIds([
+    ...segmentRows.map((row: any) => row.crop_structure_id),
+    activeSelection?.cropStructureAllocationId,
+  ]);
+  if (!allocationIds.length) return [];
+
+  const [{ data: structures, error: structuresError }, { data: progress, error: progressError }] = await Promise.all([
+    db
+      .from("crop_structure")
+      .select("id,field_id,season_id,crop_id,variety_id,reproduction_id,area")
+      .eq("company_id", companyId)
+      .in("id", allocationIds),
+    db
+      .from("ptc_field_progress")
+      .select("crop_structure_id,status,actual_completed_ha,updated_at")
+      .eq("company_id", companyId)
+      .in("crop_structure_id", allocationIds),
+  ]);
+  if (structuresError || progressError) throw structuresError || progressError;
+
+  const structureRows = structures || [];
+  const fieldIds = uniqueIds(structureRows.map((row: any) => row.field_id));
+  const cropIds = uniqueIds(structureRows.map((row: any) => row.crop_id));
+  const varietyIds = uniqueIds(structureRows.map((row: any) => row.variety_id));
+  const reproductionIds = uniqueIds(structureRows.map((row: any) => row.reproduction_id));
+  const [fieldsResult, cropsResult, varietiesResult, reproductionsResult] = await Promise.all([
+    fieldIds.length ? db.from("fields").select("id,name").eq("company_id", companyId).in("id", fieldIds) : Promise.resolve({ data: [], error: null } as any),
+    cropIds.length ? db.from("crops").select("id,name,name_ru,name_kz,name_en").in("id", cropIds) : Promise.resolve({ data: [], error: null } as any),
+    varietyIds.length ? db.from("varieties").select("id,name,name_ru,name_kz,name_en").in("id", varietyIds) : Promise.resolve({ data: [], error: null } as any),
+    reproductionIds.length ? db.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code").in("id", reproductionIds) : Promise.resolve({ data: [], error: null } as any),
+  ]);
+  const referenceError = fieldsResult.error || cropsResult.error || varietiesResult.error || reproductionsResult.error;
+  if (referenceError) throw referenceError;
+
+  const byId = (rows: any[]) => new Map(rows.map((row) => [String(row.id), row]));
+  const structureById = byId(structureRows);
+  const fieldById = byId(fieldsResult.data || []);
+  const cropById = byId(cropsResult.data || []);
+  const varietyById = byId(varietiesResult.data || []);
+  const reproductionById = byId(reproductionsResult.data || []);
+  const progressByAllocation = new Map((progress || []).map((row: any) => [String(row.crop_structure_id), row]));
+  const localizedName = (row: any) => String(row?.name_ru || row?.name || row?.name_kz || row?.name_en || row?.code || "").trim() || null;
+  const segmentsByAllocation = new Map<string, any[]>();
+  for (const segment of segmentRows) {
+    const allocationId = String(segment.crop_structure_id || "");
+    if (!allocationId) continue;
+    const rows = segmentsByAllocation.get(allocationId) || [];
+    rows.push(segment);
+    segmentsByAllocation.set(allocationId, rows);
+  }
+
+  return allocationIds
+    .map((allocationId): HarvestPlotSummary | null => {
+      const structure = structureById.get(allocationId);
+      const fallback = activeSelection?.cropStructureAllocationId === allocationId ? activeSelection : null;
+      if (!structure && !fallback) return null;
+      const plotSegments = segmentsByAllocation.get(allocationId) || [];
+      const firstSegment = plotSegments[0] || null;
+      const lastSegment = plotSegments[plotSegments.length - 1] || null;
+      const progressRow = progressByAllocation.get(allocationId);
+      const isCurrent = activeSelection?.cropStructureAllocationId === allocationId;
+      const progressStatus = String(progressRow?.status || "");
+      const status: HarvestPlotSummary["status"] = progressStatus === "completed"
+        ? "completed"
+        : isCurrent || progressStatus === "active"
+          ? "active"
+          : "paused";
+      const harvestedAreaHa = plotSegments.reduce((total: number, row: any) => {
+        const value = Number(row.hectares_segment);
+        return Number.isFinite(value) && value > 0 ? total + value : total;
+      }, 0);
+      const cropId = structure?.crop_id ? String(structure.crop_id) : fallback?.cropId || null;
+      const varietyId = structure?.variety_id ? String(structure.variety_id) : fallback?.varietyId || null;
+      const reproductionId = structure?.reproduction_id ? String(structure.reproduction_id) : fallback?.reproductionId || null;
+      const fieldId = structure?.field_id ? String(structure.field_id) : String(fallback?.fieldId || "");
+      const areaHa = Number(structure?.area ?? fallback?.areaHa);
+      const completedAreaHa = Number(progressRow?.actual_completed_ha);
+      const startedAt = String(firstSegment?.opened_at || fallback?.occurredAt || period.start);
+      const lastChangedAt = String(progressRow?.updated_at || lastSegment?.closed_at || lastSegment?.opened_at || fallback?.occurredAt || startedAt);
+      return {
+        cropStructureAllocationId: allocationId,
+        fieldId,
+        fieldName: String(fieldById.get(fieldId)?.name || fallback?.fieldName || "Поле не указано"),
+        seasonId: structure?.season_id ? String(structure.season_id) : fallback?.seasonId || null,
+        cropId,
+        cropName: localizedName(cropById.get(String(cropId || ""))) || fallback?.cropName || "Культура не указана",
+        varietyId,
+        varietyName: localizedName(varietyById.get(String(varietyId || ""))) || fallback?.varietyName || null,
+        reproductionId,
+        reproductionName: localizedName(reproductionById.get(String(reproductionId || ""))) || fallback?.reproductionName || null,
+        areaHa: Number.isFinite(areaHa) && areaHa > 0 ? areaHa : null,
+        completedAreaHa: Number.isFinite(completedAreaHa) && completedAreaHa >= 0 ? completedAreaHa : null,
+        harvestedAreaHa: harvestedAreaHa > 0 ? harvestedAreaHa : null,
+        acceptedKg: 0,
+        yieldTPerHa: null,
+        status,
+        isCurrent,
+        startedAt,
+        lastChangedAt,
+      };
+    })
+    .filter((row): row is HarvestPlotSummary => Boolean(row))
+    .sort((left, right) => Number(right.isCurrent) - Number(left.isCurrent) || Date.parse(right.lastChangedAt) - Date.parse(left.lastChangedAt));
+}
+
 function readFilters(request: NextRequest): HarvestDashboardFilters {
   const read = (key: string) => String(request.nextUrl.searchParams.get(key) || "").trim() || null;
   return { cropId: read("cropId"), varietyId: read("varietyId"), reproductionId: read("reproductionId"), fieldId: read("fieldId"), warehouseId: read("warehouseId") };
@@ -476,6 +598,7 @@ export async function GET(request: NextRequest) {
       loadWarehouseRows(supabase, getServiceClient(), companyId),
       loadActivePtcPlotSelection(companyId),
     ]);
+    const harvestPlots = await loadHarvestPlotTimeline(companyId, period, activePtcState.selection);
     const filterWarehouseRows = buildWarehouseHarvestRows(loadedWarehouseRows);
     if (section === "filters") {
       return NextResponse.json({
@@ -493,6 +616,7 @@ export async function GET(request: NextRequest) {
         filters,
         warehouseRows,
         activeSelection: activePtcState.selection,
+        harvestPlots,
         suppressInferredActiveSelection: activePtcState.suppressTicketInference,
       }),
     );

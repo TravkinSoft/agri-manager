@@ -168,10 +168,12 @@ export function HarvestDashboard() {
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [shiftReportOpen, setShiftReportOpen] = useState(false);
   const [harvestedHectares, setHarvestedHectares] = useState("");
+  const [selectedPlotId, setSelectedPlotId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const summaryRef = useRef<HarvestOverview | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const initialTrafficGroupSelectedRef = useRef(false);
+  const previousActivePlotRef = useRef<string | null>(null);
 
   const loadDashboard = useCallback(async () => {
     if (!companyId) {
@@ -214,12 +216,49 @@ export function HarvestDashboard() {
   }, []);
   useLiveRefresh({ enabled: Boolean(companyId), companyId, tables: LIVE_REFRESH_TABLES.weighbridge, intervalMs: 15_000, onRefresh: loadDashboard });
 
+  useEffect(() => {
+    const plots = summary?.harvestPlots || [];
+    const activePlotId = plots.find((plot) => plot.isCurrent)?.cropStructureAllocationId || null;
+    const previousActivePlotId = previousActivePlotRef.current;
+    setSelectedPlotId((current) => {
+      if (!plots.length) return null;
+      const stillAvailable = current && plots.some((plot) => plot.cropStructureAllocationId === current);
+      if (!stillAvailable || !current || (previousActivePlotId && current === previousActivePlotId && activePlotId !== previousActivePlotId)) {
+        return activePlotId || plots[0].cropStructureAllocationId;
+      }
+      return current;
+    });
+    previousActivePlotRef.current = activePlotId;
+  }, [summary?.harvestPlots]);
+
   const potatoParties = useMemo(() => (summary?.parties || []).filter((party) => isPotatoLabel(party.cropName)), [summary]);
   const receivedKg = summary?.potatoAcceptedKg || 0;
-  const currentPlotAcceptedKg = summary?.currentPlotAcceptedKg || 0;
+  const selectedPlot = summary?.harvestPlots.find((plot) => plot.cropStructureAllocationId === selectedPlotId)
+    || summary?.harvestPlots.find((plot) => plot.isCurrent)
+    || summary?.harvestPlots[0]
+    || null;
+  const currentPlotAcceptedKg = selectedPlot?.acceptedKg ?? summary?.currentPlotAcceptedKg ?? 0;
   const stockKg = potatoParties.reduce((total, party) => total + party.currentStockKg, 0);
   const waitingTare = potatoParties.flatMap((party) => party.openTickets).filter((ticket) => (ticket.waitingTareMinutes || 0) > 0);
-  const activeSelection = summary?.activeWeighbridgeSelection || null;
+  const liveSelection = summary?.activeWeighbridgeSelection || null;
+  const activeSelection = selectedPlot
+    ? {
+        ticketId: "",
+        occurredAt: selectedPlot.lastChangedAt,
+        fieldId: selectedPlot.fieldId,
+        fieldName: selectedPlot.fieldName,
+        cropStructureAllocationId: selectedPlot.cropStructureAllocationId,
+        harvestLotId: null,
+        seasonId: selectedPlot.seasonId,
+        cropId: selectedPlot.cropId,
+        cropName: selectedPlot.cropName,
+        varietyId: selectedPlot.varietyId,
+        varietyName: selectedPlot.varietyName,
+        reproductionId: selectedPlot.reproductionId,
+        reproductionName: selectedPlot.reproductionName,
+        areaHa: selectedPlot.areaHa,
+      }
+    : liveSelection;
   const activeCrop = activeSelection?.cropName || "Уборка";
   const activeField = activeSelection?.fieldName || "Поле не выбрано";
   const activeIdentity = activeSelection
@@ -239,6 +278,8 @@ export function HarvestDashboard() {
       ].filter(Boolean).join(" · ")
     : "Точный участок не выбран";
   const shiftIsOpen = activeShift?.status === "open";
+  const selectedPlotStatus = selectedPlot?.status === "completed" ? "Завершено" : "В работе";
+  const selectedPlotStatusActive = selectedPlot ? selectedPlot.status !== "completed" : shiftIsOpen;
   const selectedPartyStockKg = (summary?.parties || [])
     .filter((party) => activeSelection && (
       activeSelection.harvestLotId
@@ -252,10 +293,12 @@ export function HarvestDashboard() {
   const enteredHectares = Number(harvestedHectares.replace(",", "."));
   const hectares = enteredHectares > 0 ? enteredHectares : fieldHectares;
   const manualYieldTonnes = hectares && hectares > 0 ? selectedPartyStockKg / 1000 / hectares : null;
-  const liveYieldTonnes = summary?.currentPlotYieldTPerHa ?? null;
-  const liveYieldNote = summary?.currentPlotHarvestedAreaStatus === "verified"
-    ? `Убрано за рабочий день: ${summary.currentPlotHarvestedAreaHa?.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`
-    : summary?.currentPlotHarvestedAreaStatus === "field_has_multiple_plots"
+  const liveYieldTonnes = selectedPlot?.yieldTPerHa ?? (!selectedPlot ? summary?.currentPlotYieldTPerHa ?? null : null);
+  const liveYieldNote = selectedPlot?.harvestedAreaHa
+    ? `Убрано за рабочий день: ${selectedPlot.harvestedAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`
+    : summary?.currentPlotHarvestedAreaStatus === "verified"
+      ? `Убрано за рабочий день: ${summary.currentPlotHarvestedAreaHa?.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`
+      : summary?.currentPlotHarvestedAreaStatus === "field_has_multiple_plots"
       ? "Гектары смены связаны с полем, а не с точным участком"
       : summary?.currentPlotHarvestedAreaStatus === "no_closed_shift"
         ? "Нет закрытого отчёта смены с фактическими гектарами"
@@ -280,9 +323,9 @@ export function HarvestDashboard() {
           <section className="flex min-h-9 items-center border-y border-border py-1" aria-label="Текущее поле">
             <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
               <div className="flex shrink-0 items-center gap-1.5 text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
-                <span className={`flex items-center gap-1.5 font-semibold ${shiftIsOpen ? "text-emerald-700" : "text-rose-700"}`}>
-                  <span className={`h-1.5 w-1.5 rounded-full ${shiftIsOpen ? "bg-emerald-500" : "bg-rose-500"}`} />
-                  {shiftIsOpen ? "Live" : "Offline"}
+                <span className={`flex items-center gap-1.5 font-semibold ${selectedPlotStatusActive ? "text-emerald-700" : "text-muted-foreground"}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${selectedPlotStatusActive ? "bg-emerald-500" : "bg-muted-foreground"}`} />
+                  {selectedPlot ? selectedPlotStatus : shiftIsOpen ? "В работе" : "Нет активного поля"}
                 </span>
                 <span>·</span><span>{activeCrop}</span><span>·</span><span>{clock(traffic?.snapshot.serverTime || new Date(now).toISOString())}</span>
               </div>
@@ -291,6 +334,42 @@ export function HarvestDashboard() {
             </div>
           </section>
 
+          {summary.harvestPlots.length ? (
+            <section className="border-b border-border py-1.5" aria-label="Поля сегодняшней уборки">
+              <div role="tablist" aria-label="Активное и предыдущие поля" className="travkin-scrollbar flex gap-1.5 overflow-x-auto pb-0.5">
+                {summary.harvestPlots.map((plot) => {
+                  const selected = plot.cropStructureAllocationId === selectedPlot?.cropStructureAllocationId;
+                  const completed = plot.status === "completed";
+                  const identity = [plot.varietyName, compactReproductionLabel(plot.reproductionName)].filter((value) => value && value !== "—").join(" · ");
+                  return (
+                    <button
+                      key={plot.cropStructureAllocationId}
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      onClick={() => setSelectedPlotId(plot.cropStructureAllocationId)}
+                      className={`min-w-[210px] shrink-0 rounded-lg border px-3 py-2 text-left transition-colors ${selected ? "border-[color:var(--manor-brass-soft)] bg-[color:var(--manor-paper-raised)]" : "border-border bg-transparent hover:bg-card"}`}
+                      title={`${plot.fieldName} · ${identity || plot.cropName}`}
+                    >
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="truncate text-xs font-semibold text-foreground">{plot.fieldName}</span>
+                        {plot.isCurrent ? <span className="shrink-0 text-[9px] uppercase tracking-[0.08em] text-emerald-700">Текущее</span> : null}
+                      </span>
+                      <span className="mt-1 flex items-center justify-between gap-2 text-[10px]">
+                        <span className={`flex shrink-0 items-center gap-1 font-medium ${completed ? "text-muted-foreground" : "text-emerald-700"}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${completed ? "bg-muted-foreground" : "bg-emerald-500"}`} />
+                          {completed ? "Завершено" : "В работе"}
+                        </span>
+                        <span className="truncate text-muted-foreground">{identity || plot.cropName}</span>
+                        <span className="shrink-0 tabular-nums text-[color:var(--manor-brass-soft)]">{mass(plot.acceptedKg)}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+
           <section className="grid grid-cols-2 border-b border-border sm:grid-cols-4" aria-label="Главные показатели уборки">
             <div className="min-w-0 py-2 pr-2 sm:py-1 sm:pr-3">
               <div className="text-[9px] uppercase leading-none tracking-[0.11em] text-muted-foreground sm:text-[10px]">Сегодня принято картофеля</div>
@@ -298,7 +377,7 @@ export function HarvestDashboard() {
               <div className="mt-1 truncate text-[10px] text-muted-foreground">Все поля компании</div>
             </div>
             <div className="min-w-0 border-l border-border px-2 py-2 sm:px-3 sm:py-1">
-              <div className="text-[9px] uppercase leading-none tracking-[0.08em] text-muted-foreground sm:text-[10px]">С текущего участка</div>
+              <div className="text-[9px] uppercase leading-none tracking-[0.08em] text-muted-foreground sm:text-[10px]">С выбранного участка</div>
               <div className="mt-1 whitespace-nowrap text-base font-semibold leading-none tabular-nums text-foreground sm:text-lg">{activeSelection ? mass(currentPlotAcceptedKg) : "—"}</div>
               <div className="mt-1 truncate text-[10px] text-muted-foreground" title={currentPlotIdentity}>{activeSelection ? currentPlotIdentity : "Комбайнёр должен выбрать участок"}</div>
             </div>
