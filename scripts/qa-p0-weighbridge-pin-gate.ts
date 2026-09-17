@@ -70,6 +70,12 @@ check("server removes stale operator cookie after canonical lock", () => {
   assert.match(operatorSessionRoute, /if \(token && !Boolean\(payload\.operator_state\?\.unlocked\)\)/);
   assert.match(operatorSessionRoute, /response\.cookies\.set\(WEIGHBRIDGE_OPERATOR_COOKIE, "", \{ \.\.\.cookieOptions, maxAge: 0 \}\)/);
 });
+check("failed cookie bootstrap recovers only into the locked PIN picker", () => {
+  assert.match(operatorSessionRoute, /if \(token && error\.code !== "42501"\)/);
+  assert.match(operatorSessionRoute, /p_session_token: null,[\s\S]*?p_include_workspace: false/);
+  assert.match(operatorSessionRoute, /X-Weighbridge-Session-Recovered/);
+  assert.match(operatorSessionRoute, /initial workspace RPC failed[\s\S]*?code: error\.code[\s\S]*?hint: error\.hint/);
+});
 check("stale GET is generation guarded", () => assert.match(page, /generation !== operatorRequestGenerationRef\.current/));
 check("stale GET is aborted before PIN POST", () => assert.match(page, /const submitOperatorAction[\s\S]*?invalidateOperatorSessionRequest\(\)[\s\S]*?unlockWeighbridgeOperator/));
 check("business load waits for canonical unlock", () => {
@@ -115,5 +121,5 @@ check("manual close uses canonical reason", () => assert.match(shifts, /close_re
 check("operator access disable closes shift and revokes sessions", () => assert.match(migration, /close_weighbridge_shift_on_operator_access_disabled_v1[\s\S]*?close_reason = 'admin_revoked'[\s\S]*?status = 'revoked'/));
 check("shift expiry revokes all operator sessions", () => assert.match(migration, /where shift_id = v_shift\.id and status = 'active'/));
 
-assert.equal(passed, 38);
-console.log(`P0 weighbridge PIN gate regression PASS: ${passed}/38`);
+assert.equal(passed, 39);
+console.log(`P0 weighbridge PIN gate regression PASS: ${passed}/39`);

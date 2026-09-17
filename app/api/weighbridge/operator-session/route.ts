@@ -221,11 +221,48 @@ export async function GET(request: NextRequest) {
     const supabase = await getUserScopedClientFromRequest(request);
     const token = request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || null;
     const rpcStartedAt = performance.now();
-    const { data, error } = await supabase.rpc("weighbridge_initial_workspace_v1", {
+    let { data, error } = await supabase.rpc("weighbridge_initial_workspace_v1", {
       p_company_id: requestedCompanyId,
       p_session_token: token,
       p_include_workspace: includeWorkspace,
     });
+    let recoveredOperatorSession = false;
+    if (error) {
+      console.error("[weighbridge/operator-session] initial workspace RPC failed", {
+        companyId: requestedCompanyId,
+        includeWorkspace,
+        hasOperatorCookie: Boolean(token),
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
+
+      // A damaged/revoked workstation cookie must never strand the terminal on
+      // an error screen. Retry only as a locked terminal, through the same
+      // permission-checked RPC. This does not unlock the weighbridge or bypass
+      // PIN: it only restores the operator picker and clears the bad cookie.
+      if (token && error.code !== "42501") {
+        const fallback = await supabase.rpc("weighbridge_initial_workspace_v1", {
+          p_company_id: requestedCompanyId,
+          p_session_token: null,
+          p_include_workspace: false,
+        });
+        if (!fallback.error) {
+          data = fallback.data;
+          error = null;
+          recoveredOperatorSession = true;
+        } else {
+          console.error("[weighbridge/operator-session] locked-state recovery failed", {
+            companyId: requestedCompanyId,
+            code: fallback.error.code,
+            message: fallback.error.message,
+            details: fallback.error.details,
+            hint: fallback.error.hint,
+          });
+        }
+      }
+    }
     const rpcMs = performance.now() - rpcStartedAt;
     if (error) return NextResponse.json({ error: error.message }, { status: error.code === "42501" ? 403 : 400 });
     const payload = (data || {}) as Record<string, any>;
@@ -293,6 +330,7 @@ export async function GET(request: NextRequest) {
     if (token && !Boolean(payload.operator_state?.unlocked)) {
       response.cookies.set(WEIGHBRIDGE_OPERATOR_COOKIE, "", { ...cookieOptions, maxAge: 0 });
     }
+    if (recoveredOperatorSession) response.headers.set("X-Weighbridge-Session-Recovered", "1");
     return response;
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
