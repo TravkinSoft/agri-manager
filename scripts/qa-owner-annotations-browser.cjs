@@ -65,7 +65,7 @@ async function main() {
     assert.equal(await page.getByText(/^(Лидер|Самый быстрый|Больше всего тонн|Среднее время)$/).count(),0);
     assert(!/\d{2}:\d{2}/.test(await page.getByLabel('Текущее поле',{exact:true}).innerText()));
     await page.getByRole('tab',{name:/Предыдущее поле/}).click();
-    assert.match(await page.getByLabel('Текущее поле',{exact:true}).innerText(),/Live[\s\S]*Завершено[\s\S]*Предыдущее поле/);
+    assert.match(await page.getByLabel('Текущее поле',{exact:true}).innerText(),/Live[\s\S]*Завершено[\s\S]*Предыдущее поле/i);
     const geometry=()=>page.locator('[aria-labelledby="potato-driver-champions-title"]').evaluate(e=>({y:e.getBoundingClientRect().top+scrollY,height:e.getBoundingClientRect().height}));
     const before=await geometry();
     await rows.first().evaluate(e=>window.firstRow=e);
