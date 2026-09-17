@@ -102,6 +102,41 @@ check("current plot mass requires the exact field, allocation, season, crop, var
   assert.equal(result.currentPlotYieldTPerHa, null);
   assert.equal(result.currentPlotHarvestedAreaStatus, "no_closed_shift");
 });
+check("today plot rail keeps active and completed combine plots separate", () => {
+  const completedTicket = ticket({
+    id: "completed-plot-ticket", ticket_no: "COMPLETED-PLOT", field_id: "field-old", field_name_snapshot: "28",
+    crop_structure_allocation_id: "allocation-old", crop_name_snapshot: "Картофель", variety_name_snapshot: "Сорая",
+    net_weight_kg: 10_000, lines: potato.lines,
+  });
+  const activeTicket = ticket({
+    id: "active-plot-ticket", ticket_no: "ACTIVE-PLOT", field_id: "field-new", field_name_snapshot: "виноград",
+    crop_structure_allocation_id: "allocation-new", crop_name_snapshot: "Картофель", variety_name_snapshot: "Гала",
+    net_weight_kg: 12_000, lines: potato.lines,
+  });
+  const result = buildHarvestOverview([completedTicket, activeTicket], {
+    period,
+    harvestPlots: [
+      {
+        cropStructureAllocationId: "allocation-new", fieldId: "field-new", fieldName: "виноград", seasonId: "s1",
+        cropId: "c2", cropName: "Картофель", varietyId: "v2", varietyName: "Гала", reproductionId: "r2",
+        reproductionName: "Элита", areaHa: 54, completedAreaHa: 0, harvestedAreaHa: null, acceptedKg: 0,
+        yieldTPerHa: null, status: "active", isCurrent: true, startedAt: period.start, lastChangedAt: period.end,
+      },
+      {
+        cropStructureAllocationId: "allocation-old", fieldId: "field-old", fieldName: "28", seasonId: "s1",
+        cropId: "c2", cropName: "Картофель", varietyId: "v2", varietyName: "Сорая", reproductionId: "r2",
+        reproductionName: "1", areaHa: 12, completedAreaHa: 8.34, harvestedAreaHa: 8.34, acceptedKg: 0,
+        yieldTPerHa: null, status: "completed", isCurrent: false, startedAt: period.start, lastChangedAt: period.end,
+      },
+    ],
+  });
+  assert.equal(result.harvestPlots.length, 2);
+  assert.equal(result.harvestPlots[0].status, "active");
+  assert.equal(result.harvestPlots[0].acceptedKg, 12_000);
+  assert.equal(result.harvestPlots[1].status, "completed");
+  assert.equal(result.harvestPlots[1].acceptedKg, 10_000);
+  assert.equal(result.harvestPlots[1].yieldTPerHa, 10 / 8.34);
+});
 check("latest potato weighbridge ticket selects the live field and allocation", () => {
   const earlier = ticket({
     id: "potato-earlier",
@@ -555,7 +590,7 @@ check("dashboard API does not cap harvest at one thousand rows", () => assert.ma
 check("dashboard presents the live vegetable plot chain", () => {
   assert.match(dashboardUi, /Главные показатели уборки/);
   assert.match(dashboardUi, /Сегодня принято картофеля/);
-  assert.match(dashboardUi, /С текущего участка/);
+  assert.match(dashboardUi, /С выбранного участка/);
   assert.match(dashboardUi, /На складе/);
   assert.match(dashboardUi, /Живая урожайность/);
   assert.match(dashboardUi, /Текущее поле[\s\S]*Главные показатели уборки[\s\S]*Статусы машин PTC[\s\S]*PotatoDriverSummary/);
@@ -608,6 +643,8 @@ check("dashboard live state and timers follow the combine shift", () => {
   assert.match(dashboardUi, /shiftIsOpen \? "Live" : "Offline"/);
   assert.match(dashboardUi, /shiftIsOpen \? "Live" : "Offline"[\s\S]*?<span>·<\/span><span>\{activeCrop\}<\/span>/);
   assert.doesNotMatch(dashboardUi, /function clock\(|\{clock\(/);
+  assert.match(dashboardUi, /selectedPlotStatus = selectedPlot\?\.status === "completed" \? "Завершено" : "В работе"/);
+  assert.match(dashboardUi, /selectedPlot \? selectedPlotStatus : shiftIsOpen \? "В работе" : "Нет активного поля"/);
   assert.doesNotMatch(dashboardUi, /Смена не открыта|PTC загружается/);
   assert.match(dashboardUi, /group === "offline" \? null/);
   assert.match(dashboardUi, /group === "empty" && !shiftIsOpen \? "0 мин"/);

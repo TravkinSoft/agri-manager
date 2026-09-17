@@ -108,6 +108,28 @@ export type HarvestParty = {
   issues: HarvestIssue[];
 };
 
+export type HarvestPlotSummary = {
+  cropStructureAllocationId: string;
+  fieldId: string;
+  fieldName: string;
+  seasonId: string | null;
+  cropId: string | null;
+  cropName: string;
+  varietyId: string | null;
+  varietyName: string | null;
+  reproductionId: string | null;
+  reproductionName: string | null;
+  areaHa: number | null;
+  completedAreaHa: number | null;
+  harvestedAreaHa: number | null;
+  acceptedKg: number;
+  yieldTPerHa: number | null;
+  status: "active" | "paused" | "completed";
+  isCurrent: boolean;
+  startedAt: string;
+  lastChangedAt: string;
+};
+
 export type HarvestOverview = {
   period: HarvestPeriod;
   completedTripCount: number;
@@ -133,6 +155,7 @@ export type HarvestOverview = {
     reproductionName: string | null;
     areaHa: number | null;
   } | null;
+  harvestPlots: HarvestPlotSummary[];
   potatoDrivers: Array<{
     key: string;
     driverId: string | null;
@@ -511,6 +534,7 @@ export function buildHarvestOverview(
     now?: Date;
     warehouseRows?: WarehouseHarvestRow[];
     activeSelection?: HarvestOverview["activeWeighbridgeSelection"];
+    harvestPlots?: HarvestPlotSummary[];
     suppressInferredActiveSelection?: boolean;
   }
 ): HarvestOverview {
@@ -571,6 +595,17 @@ export function buildHarvestOverview(
         })
         .reduce((total, ticket) => total + harvestTicketHeaderNetKg(ticket), 0)
     : 0;
+  const harvestPlots = (options.harvestPlots || []).map((plot) => {
+    const acceptedKg = finalized
+      .filter((ticket) => ticket.crop_structure_allocation_id === plot.cropStructureAllocationId)
+      .reduce((total, ticket) => total + harvestTicketHeaderNetKg(ticket), 0);
+    const harvestedAreaHa = plot.harvestedAreaHa && plot.harvestedAreaHa > 0 ? plot.harvestedAreaHa : null;
+    return {
+      ...plot,
+      acceptedKg,
+      yieldTPerHa: harvestedAreaHa ? acceptedKg / 1000 / harvestedAreaHa : null,
+    };
+  });
 
   const cropMap = new Map<string, HarvestOverview["cropTotals"][number]>();
   const fieldMap = new Map<string, HarvestOverview["fields"][number]>();
@@ -939,6 +974,7 @@ export function buildHarvestOverview(
     currentPlotYieldTPerHa: null,
     currentPlotHarvestedAreaStatus: activeWeighbridgeSelection ? "no_closed_shift" : "no_selection",
     activeWeighbridgeSelection,
+    harvestPlots,
     potatoDrivers: Array.from(potatoDriverMap.values())
       .sort((a, b) => b.netWeightKg - a.netWeightKg || b.tripCount - a.tripCount || a.driverName.localeCompare(b.driverName, "ru")),
     parties: Array.from(partyMap.values())

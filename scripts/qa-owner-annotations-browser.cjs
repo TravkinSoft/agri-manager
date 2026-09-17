@@ -23,7 +23,7 @@ async function main() {
     window.snapshot={role:'harvester',companyId:'qa',personName:'QA',enabled:true,serverTime:'2026-09-17T07:20:30Z',fieldId:'field',fieldName:'28',combineShift:shift,vehicles:[car],events:[]};
     window.plot={cropStructureId:'plot',fieldId:'field',fieldName:'28',cropName:'Картофель',varietyName:'Сорая',reproductionName:'1',plannedAreaHa:12,actualCompletedHa:8.34,remainingAreaHa:3.66,status:'active'};
     const driver=(key,kg,trips)=>({key,driverId:key,driverName:key,netWeightKg:kg,tripCount:trips,averageNetWeightKg:kg/trips,vehicles:[{vehicleId:key,label:'МТЗ · '+key}],lastTripAt:'2026-09-17T07:00:00Z',averageTripMinutes:5,timedTripCount:1});
-    window.summary=(offset=0)=>({period:{label:offset?'16.09, 07:00 — 17.09, 07:00':'17.09, 07:00 — сейчас'},potatoAcceptedKg:offset?12000:4000,currentPlotAcceptedKg:4000,parties:[],potatoDrivers:offset?[driver('Вчера',12000,3)]:window.changed?[driver('A',9000,10),driver('B',3000,1)]:[driver('A',1000,10),driver('B',3000,1)]});
+    window.summary=(offset=0)=>({period:{label:offset?'16.09, 07:00 — 17.09, 07:00':'17.09, 07:00 — сейчас'},potatoAcceptedKg:offset||window.changed?12000:4000,currentPlotAcceptedKg:4000,parties:[],harvestPlots:[{...window.plot,cropStructureAllocationId:'plot',isCurrent:true,acceptedKg:3000,areaHa:12},{...window.plot,cropStructureAllocationId:'old',fieldName:'Предыдущее поле',status:'completed',acceptedKg:1000,areaHa:12}],potatoDrivers:offset?[driver('Вчера',12000,3)]:window.changed?[driver('A',9000,10),driver('B',3000,1)]:[driver('A',1000,10),driver('B',3000,1)]});
     createRoot(document.getElementById('app')).render(new URLSearchParams(location.search).has('operator')?
       <main style={{padding:12}}><TrafficShiftControls snapshot={window.snapshot} stale={false} refresh={async()=>{}} onCommitted={async()=>{}}/><TrafficBoard snapshot={window.snapshot} stale={false} error='' refresh={async()=>{}} onCommitted={()=>true}/></main>:
       <main style={{padding:12}}><HarvestDashboard/></main>);
@@ -64,6 +64,8 @@ async function main() {
     await page.locator('[data-rank="1"][data-driver-id="B"]').waitFor();
     assert.equal(await page.getByText(/^(Лидер|Самый быстрый|Больше всего тонн|Среднее время)$/).count(),0);
     assert(!/\d{2}:\d{2}/.test(await page.getByLabel('Текущее поле',{exact:true}).innerText()));
+    await page.getByRole('tab',{name:/Предыдущее поле/}).click();
+    assert.match(await page.getByLabel('Текущее поле',{exact:true}).innerText(),/Live[\s\S]*Завершено[\s\S]*Предыдущее поле/);
     const geometry=()=>page.locator('[aria-labelledby="potato-driver-champions-title"]').evaluate(e=>({y:e.getBoundingClientRect().top+scrollY,height:e.getBoundingClientRect().height}));
     const before=await geometry();
     await rows.first().evaluate(e=>window.firstRow=e);
