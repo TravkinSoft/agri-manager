@@ -601,7 +601,8 @@ check("driver champions are potato-only and follow the selected working day", ()
   assert.match(dashboardUi, /driverSummaryInitializedRef/);
   assert.match(dashboardUi, /driverDayOffsetRef\.current === 0 && !driverSummaryInitializedRef\.current/);
   assert.match(dashboardUi, /onOlderDay=\{showOlderDriverDay\}[\s\S]*onNewerDay=\{showNewerDriverDay\}[\s\S]*onToday=\{showTodayDrivers\}/);
-  assert.match(dashboardUi, /max-h-\[460px\][\s\S]*overflow-y-auto[\s\S]*\[scrollbar-width:none\]/);
+  assert.match(dashboardUi, /h-\[460px\][\s\S]*overflow-y-auto[\s\S]*\[scrollbar-width:none\]/);
+  assert.match(dashboardUi, /h-\[56dvh\][^\n]*lg:hidden/);
 });
 check("dashboard live state and timers follow the combine shift", () => {
   assert.match(dashboardUi, /shiftIsOpen \? "Live" : "Offline"/);

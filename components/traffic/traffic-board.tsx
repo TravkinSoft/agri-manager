@@ -76,9 +76,7 @@ const groupDots: Record<ManagerTrafficGroup, string> = {
 };
 const HARVESTER_SWIPE_SLOP_PX = 12;
 const HARVESTER_SWIPE_DIRECTION_RATIO = 1.4;
-const HARVESTER_SWIPE_MIN_PX = 104;
-const HARVESTER_SWIPE_MAX_PX = 160;
-const HARVESTER_SWIPE_WIDTH_RATIO = 0.4;
+const HARVESTER_SWIPE_WIDTH_RATIO = 0.7;
 type HarvesterSwipeGesture = {
   pointerId: number;
   vehicle: TrafficVehicle;
@@ -94,13 +92,10 @@ type HarvesterSwipeVisual = {
   distance: number;
   threshold: number;
   dragging: boolean;
+  departing?: boolean;
 };
 function harvesterSwipeThreshold(cardWidth: number): number {
-  if (!PTC_BOARD_V2) return Math.min(132, Math.max(84, cardWidth * 0.3));
-  return Math.min(
-    HARVESTER_SWIPE_MAX_PX,
-    Math.max(HARVESTER_SWIPE_MIN_PX, cardWidth * HARVESTER_SWIPE_WIDTH_RATIO),
-  );
+  return cardWidth * HARVESTER_SWIPE_WIDTH_RATIO;
 }
 function managerGroupForVehicle(vehicle: TrafficVehicle): ManagerTrafficGroup {
   if (vehicle.inRepair) return "repair";
@@ -138,6 +133,7 @@ export function TrafficBoard({
   const mobileListRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<PendingTrafficCommand[]>([]);
   const harvesterSwipeRef = useRef<HarvesterSwipeGesture | null>(null);
+  const harvesterDepartureRef = useRef<Animation | null>(null);
   const previousManagerGroupsRef = useRef<Map<string, ManagerTrafficGroup> | null>(null);
   const [harvesterSwipe, setHarvesterSwipe] = useState<HarvesterSwipeVisual | null>(null);
   const mounted = useRef(true);
@@ -158,6 +154,7 @@ export function TrafficBoard({
     return () => {
       mounted.current = false;
       harvesterSwipeRef.current = null;
+      harvesterDepartureRef.current?.cancel();
       window.clearInterval(tick);
     };
   }, []);
@@ -256,7 +253,7 @@ export function TrafficBoard({
     vehicle: TrafficVehicle,
     target: TrafficState,
   ) {
-    if (stale || !snapshot.enabled || pendingRef.current.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id)) return;
+    if (stale || !snapshot.enabled || harvesterDepartureRef.current || pendingRef.current.some(command => command.vehicle.vehicle_id === vehicle.vehicle_id)) return;
     if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) {
       if (harvesterSwipeRef.current) {
         harvesterSwipeRef.current = null;
@@ -322,7 +319,7 @@ export function TrafficBoard({
       dragging: true,
     });
   }
-  function finishHarvesterSwipe(event: ReactPointerEvent<HTMLButtonElement>) {
+  async function finishHarvesterSwipe(event: ReactPointerEvent<HTMLButtonElement>) {
     const active = harvesterSwipeRef.current;
     if (!active || active.pointerId !== event.pointerId) return;
     const dx = event.clientX - active.startX;
@@ -330,7 +327,7 @@ export function TrafficBoard({
     const shouldCommit = active.axis === "horizontal" &&
       dx >= active.threshold && dx >= dy * HARVESTER_SWIPE_DIRECTION_RATIO;
     harvesterSwipeRef.current = null;
-    setHarvesterSwipe(null);
+    const card = event.currentTarget;
     try {
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
@@ -338,7 +335,23 @@ export function TrafficBoard({
     } catch {
       // The browser may already have released capture on pointerup.
     }
-    if (shouldCommit) submitTransition(active.vehicle, active.target);
+    if (!shouldCommit) {
+      setHarvesterSwipe(null);
+      return;
+    }
+    const end = card.getBoundingClientRect().width + 16;
+    const animation = card.animate([
+      { transform: getComputedStyle(card).transform },
+      { transform: `translate3d(${end}px, 0, 0)` },
+    ], { duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 360, easing: "cubic-bezier(.4,0,.85,.4)", fill: "forwards" });
+    harvesterDepartureRef.current = animation;
+    setHarvesterSwipe({ vehicleId: active.vehicle.vehicle_id, distance: end, threshold: active.threshold, dragging: false, departing: true });
+    const completed = await animation.finished.then(() => true, () => false);
+    if (harvesterDepartureRef.current === animation) harvesterDepartureRef.current = null;
+    animation.cancel();
+    if (!mounted.current) return;
+    setHarvesterSwipe(null);
+    if (completed) submitTransition(active.vehicle, active.target);
   }
   function cancelHarvesterSwipe(event: ReactPointerEvent<HTMLButtonElement>) {
     const active = harvesterSwipeRef.current;
@@ -695,7 +708,7 @@ export function TrafficBoard({
                   : ""}`}
               aria-keyshortcuts={PTC_BOARD_V2 && usesHarvesterSwipe ? "ArrowRight Enter Space" : undefined}
               aria-busy={PTC_BOARD_V2 ? pendingVehicle || undefined : undefined}
-              disabled={pendingVehicle || stale || !snapshot.enabled || !harvesterShiftReady}
+              disabled={pendingVehicle || swipeVisual?.departing || stale || !snapshot.enabled || !harvesterShiftReady}
               onClick={usesHarvesterSwipe ? event => {
                 // A physical tap has detail > 0 and is intentionally inert.
                 // Keyboard and assistive technology synthesize detail === 0.
@@ -759,7 +772,7 @@ export function TrafficBoard({
                   data-testid={`traffic-swipe-track-${vehicle.vehicle_id}`}
                   className={`pointer-events-none absolute inset-0 flex items-center px-4 text-sm font-extrabold text-white transition-colors ${PTC_BOARD_V2 ? "duration-150 motion-reduce:transition-none " : ""}${swipeReady ? "bg-emerald-800" : "bg-emerald-700"}`}
                 >
-                  {swipeReady ? "✓ Отпустите — загружена" : "→ Проведите вправо"}
+                  {swipeVisual?.departing ? "→ Отправляем на весовую" : swipeReady ? "✓ Отпустите — загружена" : "→ Проведите вправо"}
                 </div>
               ) : null}
               {card}

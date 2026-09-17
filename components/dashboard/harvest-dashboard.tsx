@@ -134,7 +134,7 @@ function VehicleCard({ vehicle, now, group, shiftIsOpen }: { vehicle: TrafficVeh
   const brand = getFleetVehicleBrand(vehicle);
   const timer = group === "offline" ? null : group === "empty" && !shiftIsOpen ? "0 мин" : age(vehicle.inRepair ? vehicle.repairChangedAt || vehicle.since : vehicle.since, now);
   return (
-    <article data-traffic-vehicle-card={group} className={`grid min-h-[92px] grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2.5 rounded-[10px] px-3 py-3.5 animate-in fade-in slide-in-from-bottom-1 duration-200 ${VEHICLE_CARD_SURFACES[group]}`}>
+    <article data-traffic-vehicle-card={group} className={`grid min-h-[92px] grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2.5 rounded-[10px] px-3 py-3.5 ${VEHICLE_CARD_SURFACES[group]}`}>
       <span className={`relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${VEHICLE_STATUS_ICON_STYLE[group]}`} title={VEHICLE_STATUS_LABEL[group]} aria-label={VEHICLE_STATUS_LABEL[group]}>
         {group === "repair" ? <Wrench className="h-5 w-5" aria-hidden="true" /> : <Truck className="h-5 w-5" aria-hidden="true" />}
         {group === "loaded" ? <PackageCheck className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-[color:var(--manor-paper-raised)] p-0.5" aria-hidden="true" /> : null}
@@ -263,6 +263,21 @@ export function HarvestDashboard() {
   const showOlderDriverDay = useCallback(() => setDriverDayOffset((value) => Math.min(3_650, value + 1)), []);
   const showNewerDriverDay = useCallback(() => setDriverDayOffset((value) => Math.max(0, value - 1)), []);
   const showTodayDrivers = useCallback(() => setDriverDayOffset(0), []);
+  const refreshDrivers = useCallback(async () => {
+    driverAbortRef.current?.abort();
+    const controller = new AbortController();
+    driverAbortRef.current = controller;
+    setDriverLoading(true);
+    setDriverError("");
+    try {
+      const next = await getHarvestSummary<HarvestOverview>({ period: "current_day", dayOffset: driverDayOffsetRef.current, filters: {} }, { signal: controller.signal });
+      if (!controller.signal.aborted) setDriverSummary(next);
+    } catch (reason) {
+      if (!controller.signal.aborted) setDriverError(reason instanceof Error ? reason.message : "Не удалось обновить рейтинг");
+    } finally {
+      if (!controller.signal.aborted) setDriverLoading(false);
+    }
+  }, []);
 
   const potatoParties = useMemo(() => (summary?.parties || []).filter((party) => isPotatoLabel(party.cropName)), [summary]);
   const receivedKg = summary?.potatoAcceptedKg || 0;
@@ -390,9 +405,9 @@ export function HarvestDashboard() {
           </div>
           {!traffic ? <div className="flex min-h-28 items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка PTC...</div> : (
             <>
-              <div className="max-h-[56dvh] space-y-2 overflow-y-auto overscroll-contain py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" tabIndex={0} aria-label={`Машины: ${GROUPS.find((group) => group.key === selectedGroup)?.desktop || selectedGroup}`}>{grouped[selectedGroup].map((vehicle) => <VehicleCard key={vehicle.vehicle_id} vehicle={vehicle} now={now} group={selectedGroup} shiftIsOpen={shiftIsOpen} />)}{!grouped[selectedGroup].length ? <div className="py-4 text-sm text-muted-foreground">Машин в этом статусе нет.</div> : null}</div>
+              <div className="h-[56dvh] space-y-2 overflow-y-auto overscroll-contain py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:hidden" tabIndex={0} aria-label={`Машины: ${GROUPS.find((group) => group.key === selectedGroup)?.desktop || selectedGroup}`}>{grouped[selectedGroup].map((vehicle) => <VehicleCard key={vehicle.vehicle_id} vehicle={vehicle} now={now} group={selectedGroup} shiftIsOpen={shiftIsOpen} />)}{!grouped[selectedGroup].length ? <div className="py-4 text-sm text-muted-foreground">Машин в этом статусе нет.</div> : null}</div>
               <div className="hidden grid-cols-5 gap-5 lg:grid">
-                {GROUPS.map((group) => <section key={group.key} className="min-w-0"><header className="flex items-center justify-between gap-2 border-b border-border pb-2"><h3 className="text-xs font-medium text-muted-foreground">{group.desktop}</h3><strong className="text-lg tabular-nums">{grouped[group.key].length}</strong></header><div className="max-h-[460px] space-y-2 overflow-y-auto overscroll-contain pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" tabIndex={0} aria-label={`Машины: ${group.desktop}`}>{grouped[group.key].map((vehicle) => <VehicleCard key={vehicle.vehicle_id} vehicle={vehicle} now={now} group={group.key} shiftIsOpen={shiftIsOpen} />)}</div></section>)}
+                {GROUPS.map((group) => <section key={group.key} className="min-w-0"><header className="flex items-center justify-between gap-2 border-b border-border pb-2"><h3 className="text-xs font-medium text-muted-foreground">{group.desktop}</h3><strong className="text-lg tabular-nums">{grouped[group.key].length}</strong></header><div className="h-[460px] space-y-2 overflow-y-auto overscroll-contain pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" tabIndex={0} aria-label={`Машины: ${group.desktop}`}>{grouped[group.key].map((vehicle) => <VehicleCard key={vehicle.vehicle_id} vehicle={vehicle} now={now} group={group.key} shiftIsOpen={shiftIsOpen} />)}</div></section>)}
               </div>
             </>
           )}
@@ -400,7 +415,7 @@ export function HarvestDashboard() {
       ) : null}
 
       {driverError ? <div className="border-l-2 border-rose-400 px-3 py-2 text-sm text-rose-700">{driverError}</div> : null}
-      {driverSummary ? <PotatoDriverSummary rows={driverSummary.potatoDrivers} totalWeightKg={driverSummary.potatoAcceptedKg} periodLabel={driverSummary.period.label} dayOffset={driverDayOffset} onOlderDay={showOlderDriverDay} onNewerDay={showNewerDriverDay} onToday={showTodayDrivers} /> : driverLoading ? <section className="flex min-h-32 items-center justify-center rounded-xl border border-border bg-card/40 text-sm text-muted-foreground" aria-label="Загрузка дневной сводки"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка сводки рабочего дня...</section> : null}
+      {driverSummary ? <PotatoDriverSummary rows={driverSummary.potatoDrivers} totalWeightKg={driverSummary.potatoAcceptedKg} periodLabel={driverSummary.period.label} dayOffset={driverDayOffset} onOlderDay={showOlderDriverDay} onNewerDay={showNewerDriverDay} onToday={showTodayDrivers} onRefresh={refreshDrivers} refreshing={driverLoading} /> : driverLoading ? <section className="flex min-h-32 items-center justify-center rounded-xl border border-border bg-card/40 text-sm text-muted-foreground" aria-label="Загрузка дневной сводки"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка сводки рабочего дня...</section> : null}
 
       {profile && ["agronomist", "director"].includes(profile.role) && profile.company_id ? (
         <details className="group border-y border-border" onToggle={(event) => setShiftReportOpen(event.currentTarget.open)}>

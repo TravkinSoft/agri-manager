@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Check, ChevronRight, MapPin, Play, RefreshCw, Square, Wrench } from "lucide-react";
-import type { TrafficSnapshot } from "@/lib/traffic/model";
+import { stateAge, type TrafficSnapshot } from "@/lib/traffic/model";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { trafficRequest } from "./use-traffic";
 
@@ -35,6 +35,8 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
   const [loadingPlots, setLoadingPlots] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [now, setNow] = useState(Date.now);
+  const serverOffset = useMemo(() => Date.parse(snapshot.serverTime) - Date.now(), [snapshot.serverTime]);
   const shift = snapshot.combineShift;
   const open = shift?.status === "open";
   const needsPlot = open && !shift?.cropStructureId;
@@ -63,6 +65,12 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
   }, []);
 
   useEffect(() => { void loadPlots(); }, [loadPlots]);
+  useEffect(() => {
+    if (!open) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [open]);
 
   async function commit(body: Record<string, unknown>) {
     if (busy || stale || !snapshot.enabled) return;
@@ -236,9 +244,10 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
                   )}
                 </div>
                 {open ? (
-                  <span className="shrink-0 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-800">
-                    с {new Date(shift.openedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
-                  </span>
+                  <div className="shrink-0 text-right text-xs tabular-nums">
+                    <span className="rounded-full bg-emerald-500/15 px-3 py-1 font-semibold text-emerald-800">с {new Date(shift.openedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</span>
+                    <p className="mt-2 text-muted-foreground" data-testid="shift-elapsed">В работе {stateAge(shift.openedAt, now + serverOffset)}</p>
+                  </div>
                 ) : null}
               </div>
 
@@ -246,12 +255,13 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
                 <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border/70 pt-4 text-sm">
                   <div>
                     <p className="text-xs text-muted-foreground">Сделано по полю</p>
-                    <p className="mt-1 font-semibold text-foreground">{currentPlot.actualCompletedHa} га</p>
+                    <p className="mt-1 font-semibold text-foreground">{currentPlot.actualCompletedHa.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Площадь по структуре</p>
-                    <p className="mt-1 font-semibold text-foreground">{currentPlot.plannedAreaHa} га</p>
+                    <p className="text-xs text-muted-foreground">Осталось</p>
+                    <p className="mt-1 font-semibold text-foreground" data-testid="shift-remaining">{currentPlot.remainingAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га</p>
                   </div>
+                  <p className="col-span-2 text-xs text-muted-foreground">Площадь по структуре: {currentPlot.plannedAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га</p>
                 </div>
               ) : null}
             </section>

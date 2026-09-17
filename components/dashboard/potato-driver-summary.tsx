@@ -22,6 +22,8 @@ type PotatoDriverSummaryProps = {
   onOlderDay: () => void;
   onNewerDay: () => void;
   onToday: () => void;
+  onRefresh?: () => void;
+  refreshing?: boolean;
 };
 
 function dayTitle(dayOffset: number): string {
@@ -30,7 +32,7 @@ function dayTitle(dayOffset: number): string {
   return `${dayOffset} дн. назад`;
 }
 
-export const PotatoDriverSummary = memo(function PotatoDriverSummary({ rows, totalWeightKg, periodLabel, dayOffset, onOlderDay, onNewerDay, onToday }: PotatoDriverSummaryProps) {
+export const PotatoDriverSummary = memo(function PotatoDriverSummary({ rows, totalWeightKg, periodLabel, dayOffset, onOlderDay, onNewerDay, onToday, onRefresh, refreshing = false }: PotatoDriverSummaryProps) {
   const rankedRows = useMemo(
     () => [...rows].sort((left, right) => right.netWeightKg - left.netWeightKg || right.tripCount - left.tripCount || left.driverName.localeCompare(right.driverName, "ru")),
     [rows],
@@ -60,6 +62,7 @@ export const PotatoDriverSummary = memo(function PotatoDriverSummary({ rows, tot
             </button>
           </div>
           {dayOffset > 0 ? <button type="button" onClick={onToday} className="h-8 rounded-lg border border-border px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Сегодня</button> : null}
+          {onRefresh ? <button type="button" onClick={onRefresh} disabled={refreshing} aria-busy={refreshing} className="h-8 rounded-lg border border-border px-2.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50">Обновить</button> : null}
         </div>
       </header>
 
@@ -71,7 +74,7 @@ export const PotatoDriverSummary = memo(function PotatoDriverSummary({ rows, tot
 
       {rankedRows.length ? (
         <div role="table" aria-label="Рейтинг водителей по общему тоннажу">
-          <div role="row" className="hidden grid-cols-[48px_minmax(180px,1.3fr)_minmax(150px,1fr)_90px_110px_110px] gap-3 border-b border-border px-4 py-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground md:grid">
+          <div role="row" className="hidden grid-cols-[40px_minmax(0,1.3fr)_minmax(0,1fr)_72px_96px_96px] gap-3 border-b border-border px-4 py-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground md:grid">
             <div role="columnheader">Место</div><div role="columnheader">Водитель</div><div role="columnheader">Машина</div>
             <div role="columnheader" className="text-right">Рейсы</div><div role="columnheader" className="text-right">Всего</div>
             <div role="columnheader" className="text-right">Средний вес</div>
@@ -83,7 +86,7 @@ export const PotatoDriverSummary = memo(function PotatoDriverSummary({ rows, tot
                   role="row"
                   data-driver-id={row.driverId || row.key}
                   data-rank={index + 1}
-                  className="grid grid-cols-[42px_minmax(0,1fr)] gap-x-3 gap-y-2 px-3 py-3 md:grid-cols-[48px_minmax(180px,1.3fr)_minmax(150px,1fr)_90px_110px_110px] md:items-center md:px-4"
+                  className="grid grid-cols-[42px_minmax(0,1fr)] gap-x-3 gap-y-2 px-3 py-3 md:grid-cols-[40px_minmax(0,1.3fr)_minmax(0,1fr)_72px_96px_96px] md:items-center md:px-4"
                 >
                   <div role="cell" className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold tabular-nums ${index === 0 ? "bg-amber-500/15 text-amber-600" : index === 1 ? "bg-slate-400/15 text-slate-400" : index === 2 ? "bg-orange-700/15 text-orange-500" : "text-muted-foreground"}`}>
                     {index + 1}
