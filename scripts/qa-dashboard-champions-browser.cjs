@@ -28,11 +28,12 @@ function App(){
  const[climbed,setClimbed]=useState(false);
  const rows=climbed?[{...base[1],tripCount:6,netWeightKg:62100,averageNetWeightKg:10350,averageTripMinutes:24,timedTripCount:6},{...base[0],averageTripMinutes:31,timedTripCount:5},base[2],base[3]]:base;
  const receivedKg=1161180,currentPlotAcceptedKg=1161180,stockKg=8342100;
+ const activeSelection={};
  const currentPlotIdentity="Поле 9 · Baltic Rose · 4 р. · участок 34 га";
  const liveYieldTonnes=null,liveYieldNote="Гектары смены связаны с полем, а не с точным участком";
  const mass=n=>n>=1000?((n/1000).toLocaleString("ru-RU",{maximumFractionDigits:1})+" т"):(n+" кг");
  const setCalculatorOpen=()=>{};
- return <main className="mx-auto max-w-[1180px] space-y-4 p-3 sm:p-5"><div aria-label="Метрики">${metrics}</div><button id="climb" className="rounded border px-3 py-2" onClick={()=>setClimbed(true)}>Обновить рейтинг</button><PotatoDriverSummary rows={rows} periodLabel="Текущий рабочий день"/></main>;
+ return <main className="mx-auto max-w-[1180px] space-y-4 p-3 sm:p-5"><div aria-label="Метрики">${metrics}</div><button id="climb" className="rounded border px-3 py-2" onClick={()=>setClimbed(true)}>Обновить рейтинг</button><PotatoDriverSummary rows={rows} totalWeightKg={rows.reduce((sum,row)=>sum+row.netWeightKg,0)} periodLabel="Текущий рабочий день" dayOffset={0} onOlderDay={()=>{}} onNewerDay={()=>{}} onToday={()=>{}}/></main>;
 }
 createRoot(document.getElementById("app")).render(<App/>);
 `;
@@ -82,21 +83,18 @@ async function main() {
     });
     await page.goto("http://127.0.0.1:3198", { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "Таблица чемпионов" }).waitFor();
-    assert.equal(await page.locator('[role="columnheader"]').count(), 7);
+    assert.equal(await page.locator('[role="columnheader"]').count(), 6);
     assert.equal(await page.locator('[role="columnheader"]').first().evaluate((element) => getComputedStyle(element.parentElement).display), "grid");
     assert.equal(await page.locator('[role="row"][data-driver-id]').count(), 4);
-    assert.equal(await page.getByText("Самый быстрый", { exact: true }).count(), 0);
-    await page.getByText(/талон будет напрямую связан/).waitFor();
-    const kpi = await page.getByLabel("Главные показатели картофеля").boundingBox();
+    assert.equal(await page.getByText("Среднее время", { exact: true }).count(), 0);
+    assert.equal(await page.getByText(/^(Лидер|Больше всего тонн|Самый быстрый)$/).count(), 0);
+    const kpi = await page.getByLabel("Главные показатели уборки").boundingBox();
     assert(kpi && kpi.height < 100, `desktop KPI is too tall: ${kpi?.height}`);
     await page.locator("#climb").click();
-    await page.getByText("Самый быстрый", { exact: true }).waitFor();
+    await page.locator('[role="row"][data-rank="1"][data-driver-id="driver-b"]').waitFor();
     assert.equal(await page.locator('[role="row"][data-rank="1"]').getAttribute("data-driver-id"), "driver-b");
-    const durations = await page.evaluate(() => window.__championAnimations.map((item) => item.options?.duration));
-    assert(durations.includes(400), "FLIP 400ms animation did not run");
-    assert(durations.includes(900), "climb highlight did not run");
+    assert.equal(await page.evaluate(() => window.__championAnimations.length), 0, "table rows must not animate or jump");
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "desktop horizontal overflow");
-    await page.waitForTimeout(950);
     await page.screenshot({ path: path.join(output, "desktop.png"), fullPage: true });
 
     const reduced = await browser.newPage({ viewport: { width: 900, height: 900 }, reducedMotion: "reduce" });
@@ -110,19 +108,19 @@ async function main() {
     });
     await reduced.goto("http://127.0.0.1:3198", { waitUntil: "networkidle" });
     await reduced.locator("#climb").click();
-    await reduced.getByText("Самый быстрый", { exact: true }).waitFor();
+    await reduced.locator('[role="row"][data-rank="1"][data-driver-id="driver-b"]').waitFor();
     assert.equal(await reduced.evaluate(() => window.__championAnimations.length), 0);
     await reduced.close();
 
     await page.setViewportSize({ width: 360, height: 780 });
-    assert.equal(await page.locator('[role="columnheader"]').count(), 7);
+    assert.equal(await page.locator('[role="columnheader"]').count(), 6);
     assert.equal(await page.locator('[role="columnheader"]').first().evaluate((element) => getComputedStyle(element.parentElement).display), "none");
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "360px horizontal overflow");
-    const metricBox = await page.getByLabel("Главные показатели картофеля").boundingBox();
+    const metricBox = await page.getByLabel("Главные показатели уборки").boundingBox();
     assert(metricBox && metricBox.width <= 336, `mobile KPI width overflow: ${metricBox?.width}`);
     await page.screenshot({ path: path.join(output, "mobile-360.png"), fullPage: true });
     assert.deepEqual(pageErrors, []);
-    console.log(JSON.stringify({ passed: ["7 desktop columns", "stable driver ids", "no inferred fastest", "400ms FLIP", "climb highlight", "reduced motion", "desktop overflow", "360px overflow", "compact KPI"] }));
+    console.log(JSON.stringify({ passed: ["6 desktop columns", "weight-first ranking", "time removed", "status labels removed", "stable driver ids", "zero row animations", "desktop overflow", "360px overflow", "compact KPI"] }));
   } finally {
     await browser.close();
     server.close();

@@ -49,6 +49,12 @@ check("previous operational day is exact 24 hour boundary", () => {
   const previous = resolveHarvestPeriod({ preset: "previous_day", now: new Date("2026-08-12T07:00:00Z"), operationalDayStartHour: 7 });
   assert.equal(new Date(previous.end).getTime() - new Date(previous.start).getTime(), 86_400_000);
 });
+check("older operational days keep exact working-day boundaries", () => {
+  const older = resolveHarvestPeriod({ preset: "current_day", dayOffset: 3, now: new Date("2026-08-12T07:00:00Z"), operationalDayStartHour: 7 });
+  assert.equal(older.start, "2026-08-09T02:00:00.000Z");
+  assert.equal(older.end, "2026-08-10T02:00:00.000Z");
+  assert.equal(older.preset, "custom");
+});
 check("effective finalized contract", () => {
   assert.equal(isEffectiveFinalizedHarvestTicket(valid), true);
   assert.equal(isEffectiveFinalizedHarvestTicket(voided), false);
@@ -357,6 +363,31 @@ check("potato driver table groups only effective potato trips", () => {
     timedTripCount: 0,
   });
 });
+check("potato driver ranking uses total tonnes before trip count", () => {
+  const potatoLines = potato.lines;
+  const manyLightTrips = Array.from({ length: 3 }, (_, index) => ticket({
+    id: `many-light-${index}`,
+    ticket_no: `MANY-LIGHT-${index}`,
+    driver_id: "driver-many",
+    driver_name_snapshot: "Много рейсов",
+    crop_name_snapshot: "Картофель",
+    net_weight_kg: 2_000,
+    lines: potatoLines,
+  }));
+  const oneHeavyTrip = ticket({
+    id: "one-heavy",
+    ticket_no: "ONE-HEAVY",
+    driver_id: "driver-heavy",
+    driver_name_snapshot: "Больше тонн",
+    crop_name_snapshot: "Картофель",
+    net_weight_kg: 10_000,
+    lines: potatoLines,
+  });
+  const result = buildHarvestOverview([...manyLightTrips, oneHeavyTrip], { period });
+  assert.equal(result.potatoDrivers[0].driverId, "driver-heavy");
+  assert.equal(result.potatoDrivers[0].netWeightKg, 10_000);
+  assert.equal(result.potatoDrivers[1].tripCount, 3);
+});
 check("potato driver grouping reconciles legacy names, keeps anonymous trips separate, and uses the latest label", () => {
   const potatoLines = potato.lines;
   const rows = [
@@ -537,15 +568,15 @@ check("dashboard presents the live vegetable plot chain", () => {
   assert.doesNotMatch(dashboardUi, /Поступление по культурам|Завершено рейсов/);
 });
 check("dashboard shows the live driver champions table after the unchanged PTC status block", () => {
-  assert.match(dashboardUi, /Статусы машин PTC[\s\S]*<PotatoDriverSummary rows=\{summary\.potatoDrivers\}/);
+  assert.match(dashboardUi, /Статусы машин PTC[\s\S]*<PotatoDriverSummary rows=\{driverSummary\.potatoDrivers\}/);
   assert.match(dashboardUi, /\["agronomist", "director"\]\.includes\(profile\.role\)[\s\S]*?<TrafficShiftSummary/);
   assert.match(dashboardUi, /shiftReportOpen \? <div[\s\S]*?<TrafficShiftSummary/);
   assert.match(potatoDriverUi, /Таблица чемпионов/);
+  assert.match(potatoDriverUi, /memo\(function PotatoDriverSummary/);
   assert.match(potatoDriverUi, /data-driver-id=\{row\.driverId \|\| row\.key\}/);
-  assert.match(potatoDriverUi, /duration: 400/);
-  assert.match(potatoDriverUi, /prefers-reduced-motion: reduce/);
-  assert.match(potatoDriverUi, /Самый быстрый/);
-  assert.match(potatoDriverUi, /талон будет напрямую связан с завершённым циклом PTC/);
+  assert.match(potatoDriverUi, /Принято картофеля/);
+  assert.doesNotMatch(potatoDriverUi, /Лидер|Больше всего тонн|Самый быстрый|Среднее время|\.animate\(/);
+  assert.match(potatoDriverUi, /Показать предыдущий рабочий день/);
 });
 check("yield calculator uses selected party stock and defaults to the field area", () => {
   assert.match(dashboardUi, /selectedPartyStockKg \/ 1000 \/ hectares/);
@@ -562,15 +593,20 @@ check("live yield uses exact accepted mass and shift hectares only when plot own
   assert.match(dashboardApi, /suppressInferredActiveSelection: activePtcState\.suppressTicketInference/);
   assert.match(dashboardUi, /Недостаточно данных/);
 });
-check("driver champions are potato-only and season-wide", () => {
-  assert.match(dashboardApi, /const seasonPeriod = resolveHarvestPeriod/);
-  assert.match(dashboardApi, /preset: "season"/);
-  assert.match(dashboardApi, /potatoDrivers: seasonDrivers/);
+check("driver champions are potato-only and follow the selected working day", () => {
+  assert.match(dashboardApi, /dayOffset/);
+  assert.doesNotMatch(dashboardApi, /potatoDrivers: seasonDrivers/);
   assert.match(dashboardApi, /ptc_trip_minutes/);
+  assert.match(dashboardUi, /driverDayOffset/);
+  assert.match(dashboardUi, /driverSummaryInitializedRef/);
+  assert.match(dashboardUi, /driverDayOffsetRef\.current === 0 && !driverSummaryInitializedRef\.current/);
+  assert.match(dashboardUi, /onOlderDay=\{showOlderDriverDay\}[\s\S]*onNewerDay=\{showNewerDriverDay\}[\s\S]*onToday=\{showTodayDrivers\}/);
+  assert.match(dashboardUi, /max-h-\[460px\][\s\S]*overflow-y-auto[\s\S]*\[scrollbar-width:none\]/);
 });
 check("dashboard live state and timers follow the combine shift", () => {
   assert.match(dashboardUi, /shiftIsOpen \? "Live" : "Offline"/);
-  assert.match(dashboardUi, /shiftIsOpen \? "Live" : "Offline"[\s\S]*?<span>·<\/span><span>\{activeCrop\}<\/span><span>·<\/span><span>\{clock/);
+  assert.match(dashboardUi, /shiftIsOpen \? "Live" : "Offline"[\s\S]*?<span>·<\/span><span>\{activeCrop\}<\/span>/);
+  assert.doesNotMatch(dashboardUi, /function clock\(|\{clock\(/);
   assert.doesNotMatch(dashboardUi, /Смена не открыта|PTC загружается/);
   assert.match(dashboardUi, /group === "offline" \? null/);
   assert.match(dashboardUi, /group === "empty" && !shiftIsOpen \? "0 мин"/);

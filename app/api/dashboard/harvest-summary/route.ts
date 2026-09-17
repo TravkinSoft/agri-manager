@@ -458,20 +458,17 @@ export async function GET(request: NextRequest) {
     if (seasonResult.error || shiftResult.error || companyResult.error) throw seasonResult.error || shiftResult.error || companyResult.error;
     const presetRaw = String(request.nextUrl.searchParams.get("period") || "current_day") as HarvestPeriodPreset;
     const preset = PERIOD_PRESETS.has(presetRaw) ? presetRaw : "current_day";
+    const requestedDayOffset = Number(request.nextUrl.searchParams.get("dayOffset") || 0);
+    const dayOffset = Number.isFinite(requestedDayOffset) ? requestedDayOffset : 0;
     const period = resolveHarvestPeriod({
       preset,
+      dayOffset,
       customStart: request.nextUrl.searchParams.get("start"),
       customEnd: request.nextUrl.searchParams.get("end"),
       season: seasonResult.data,
       shift: shiftResult.data,
       operationalDayStartHour: Number(companyResult.data?.operational_day_start_hour ?? 7),
     });
-    const seasonPeriod = resolveHarvestPeriod({
-      preset: "season",
-      season: seasonResult.data,
-      operationalDayStartHour: Number(companyResult.data?.operational_day_start_hour ?? 7),
-    });
-
     const [loadedWarehouseRows, activePtcState] = await Promise.all([
       loadWarehouseRows(supabase, getServiceClient(), companyId),
       loadActivePtcPlotSelection(companyId),
@@ -496,8 +493,7 @@ export async function GET(request: NextRequest) {
         suppressInferredActiveSelection: activePtcState.suppressTicketInference,
       }),
     );
-    const seasonDrivers = buildHarvestOverview(tickets, { period: seasonPeriod }).potatoDrivers;
-    const summary = { ...periodSummary, potatoDrivers: seasonDrivers };
+    const summary = periodSummary;
     if (section === "bootstrap") {
       return NextResponse.json({
         summary: { ...summary, source: SUMMARY_SOURCE },

@@ -35,10 +35,6 @@ function mass(value: number): string {
   const tonnes = value / 1000;
   return `${tonnes.toLocaleString("ru-RU", { maximumFractionDigits: tonnes >= 100 ? 1 : 2 })} т`;
 }
-function clock(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-}
 function age(value: string, now: number): string {
   const started = Date.parse(value);
   if (!Number.isFinite(started)) return "—";
@@ -162,6 +158,10 @@ export function HarvestDashboard() {
   const canReadTraffic = Boolean(profile && ["agronomist", "company_admin", "global_admin", "fleet_manager"].includes(profile.role));
   const { payload: traffic, error: trafficError } = useDashboardTraffic(canReadTraffic);
   const [summary, setSummary] = useState<HarvestOverview | null>(null);
+  const [driverSummary, setDriverSummary] = useState<HarvestOverview | null>(null);
+  const [driverDayOffset, setDriverDayOffset] = useState(0);
+  const [driverLoading, setDriverLoading] = useState(false);
+  const [driverError, setDriverError] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [selectedGroup, setSelectedGroup] = useState<TrafficGroup>("loaded");
@@ -171,6 +171,9 @@ export function HarvestDashboard() {
   const [now, setNow] = useState(Date.now());
   const summaryRef = useRef<HarvestOverview | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const driverAbortRef = useRef<AbortController | null>(null);
+  const driverDayOffsetRef = useRef(0);
+  const driverSummaryInitializedRef = useRef(false);
   const initialTrafficGroupSelectedRef = useRef(false);
 
   const loadDashboard = useCallback(async () => {
@@ -191,6 +194,10 @@ export function HarvestDashboard() {
       if (controller.signal.aborted) return;
       summaryRef.current = next;
       setSummary(next);
+      if (driverDayOffsetRef.current === 0 && !driverSummaryInitializedRef.current) {
+        driverSummaryInitializedRef.current = true;
+        setDriverSummary(next);
+      }
     } catch (reason) {
       if (controller.signal.aborted) return;
       setError(reason instanceof Error ? reason.message : "Не удалось загрузить сводку");
@@ -203,16 +210,59 @@ export function HarvestDashboard() {
 
   useEffect(() => {
     summaryRef.current = null;
+    driverDayOffsetRef.current = 0;
+    driverSummaryInitializedRef.current = false;
     initialTrafficGroupSelectedRef.current = false;
     setSummary(null);
+    setDriverSummary(null);
+    setDriverDayOffset(0);
+    setDriverError("");
     void loadDashboard();
-    return () => abortRef.current?.abort();
+    return () => {
+      abortRef.current?.abort();
+      driverAbortRef.current?.abort();
+    };
   }, [companyId, loadDashboard]);
+  useEffect(() => {
+    driverDayOffsetRef.current = driverDayOffset;
+    driverAbortRef.current?.abort();
+    if (!companyId) return;
+    if (driverDayOffset === 0) {
+      driverSummaryInitializedRef.current = Boolean(summaryRef.current);
+      setDriverSummary(summaryRef.current);
+      setDriverLoading(false);
+      setDriverError("");
+      return;
+    }
+    const controller = new AbortController();
+    driverAbortRef.current = controller;
+    setDriverSummary(null);
+    setDriverLoading(true);
+    setDriverError("");
+    void getHarvestSummary<HarvestOverview>({ period: "current_day", dayOffset: driverDayOffset, filters: {} }, { signal: controller.signal })
+      .then((next) => {
+        if (!controller.signal.aborted) {
+          driverSummaryInitializedRef.current = true;
+          setDriverSummary(next);
+        }
+      })
+      .catch((reason) => {
+        if (!controller.signal.aborted) setDriverError(reason instanceof Error ? reason.message : "Не удалось загрузить рейтинг");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setDriverLoading(false);
+      });
+    return () => controller.abort();
+  }, [companyId, driverDayOffset]);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
   useLiveRefresh({ enabled: Boolean(companyId), companyId, tables: LIVE_REFRESH_TABLES.weighbridge, intervalMs: 15_000, onRefresh: loadDashboard });
+
+  const showOlderDriverDay = useCallback(() => setDriverDayOffset((value) => Math.min(3_650, value + 1)), []);
+  const showNewerDriverDay = useCallback(() => setDriverDayOffset((value) => Math.max(0, value - 1)), []);
+  const showTodayDrivers = useCallback(() => setDriverDayOffset(0), []);
 
   const potatoParties = useMemo(() => (summary?.parties || []).filter((party) => isPotatoLabel(party.cropName)), [summary]);
   const receivedKg = summary?.potatoAcceptedKg || 0;
@@ -284,7 +334,7 @@ export function HarvestDashboard() {
                   <span className={`h-1.5 w-1.5 rounded-full ${shiftIsOpen ? "bg-emerald-500" : "bg-rose-500"}`} />
                   {shiftIsOpen ? "Live" : "Offline"}
                 </span>
-                <span>·</span><span>{activeCrop}</span><span>·</span><span>{clock(traffic?.snapshot.serverTime || new Date(now).toISOString())}</span>
+                <span>·</span><span>{activeCrop}</span>
               </div>
               <h2 className="shrink-0 text-sm font-semibold text-foreground">{activeField}</h2>
               <div className="min-w-0 truncate text-[11px] text-muted-foreground">{fieldDetail || activeCrop}</div>
@@ -340,16 +390,17 @@ export function HarvestDashboard() {
           </div>
           {!traffic ? <div className="flex min-h-28 items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка PTC...</div> : (
             <>
-              <div className="space-y-2 py-2 lg:hidden">{grouped[selectedGroup].map((vehicle) => <VehicleCard key={vehicle.vehicle_id} vehicle={vehicle} now={now} group={selectedGroup} shiftIsOpen={shiftIsOpen} />)}{!grouped[selectedGroup].length ? <div className="py-4 text-sm text-muted-foreground">Машин в этом статусе нет.</div> : null}</div>
+              <div className="max-h-[56dvh] space-y-2 overflow-y-auto overscroll-contain py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" tabIndex={0} aria-label={`Машины: ${GROUPS.find((group) => group.key === selectedGroup)?.desktop || selectedGroup}`}>{grouped[selectedGroup].map((vehicle) => <VehicleCard key={vehicle.vehicle_id} vehicle={vehicle} now={now} group={selectedGroup} shiftIsOpen={shiftIsOpen} />)}{!grouped[selectedGroup].length ? <div className="py-4 text-sm text-muted-foreground">Машин в этом статусе нет.</div> : null}</div>
               <div className="hidden grid-cols-5 gap-5 lg:grid">
-                {GROUPS.map((group) => <section key={group.key} className="min-w-0"><header className="flex items-center justify-between gap-2 border-b border-border pb-2"><h3 className="text-xs font-medium text-muted-foreground">{group.desktop}</h3><strong className="text-lg tabular-nums">{grouped[group.key].length}</strong></header><div className="space-y-2 pt-2">{grouped[group.key].map((vehicle) => <VehicleCard key={vehicle.vehicle_id} vehicle={vehicle} now={now} group={group.key} shiftIsOpen={shiftIsOpen} />)}</div></section>)}
+                {GROUPS.map((group) => <section key={group.key} className="min-w-0"><header className="flex items-center justify-between gap-2 border-b border-border pb-2"><h3 className="text-xs font-medium text-muted-foreground">{group.desktop}</h3><strong className="text-lg tabular-nums">{grouped[group.key].length}</strong></header><div className="max-h-[460px] space-y-2 overflow-y-auto overscroll-contain pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" tabIndex={0} aria-label={`Машины: ${group.desktop}`}>{grouped[group.key].map((vehicle) => <VehicleCard key={vehicle.vehicle_id} vehicle={vehicle} now={now} group={group.key} shiftIsOpen={shiftIsOpen} />)}</div></section>)}
               </div>
             </>
           )}
         </section>
       ) : null}
 
-      {summary ? <PotatoDriverSummary rows={summary.potatoDrivers} periodLabel="Текущий рабочий день" /> : null}
+      {driverError ? <div className="border-l-2 border-rose-400 px-3 py-2 text-sm text-rose-700">{driverError}</div> : null}
+      {driverSummary ? <PotatoDriverSummary rows={driverSummary.potatoDrivers} totalWeightKg={driverSummary.potatoAcceptedKg} periodLabel={driverSummary.period.label} dayOffset={driverDayOffset} onOlderDay={showOlderDriverDay} onNewerDay={showNewerDriverDay} onToday={showTodayDrivers} /> : driverLoading ? <section className="flex min-h-32 items-center justify-center rounded-xl border border-border bg-card/40 text-sm text-muted-foreground" aria-label="Загрузка дневной сводки"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка сводки рабочего дня...</section> : null}
 
       {profile && ["agronomist", "director"].includes(profile.role) && profile.company_id ? (
         <details className="group border-y border-border" onToggle={(event) => setShiftReportOpen(event.currentTarget.open)}>

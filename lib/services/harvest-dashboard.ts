@@ -3,6 +3,7 @@ import type { HarvestDashboardFilters, HarvestPeriodPreset } from "@/lib/dashboa
 
 export type HarvestDashboardQuery = {
   period: HarvestPeriodPreset;
+  dayOffset?: number;
   start?: string | null;
   end?: string | null;
   filters?: HarvestDashboardFilters;
@@ -18,6 +19,7 @@ function queryString(section: HarvestDashboardSection, query?: HarvestDashboardQ
   const params = new URLSearchParams({ section });
   if (query) {
     params.set("period", query.period);
+    if (query.dayOffset && query.dayOffset > 0) params.set("dayOffset", String(Math.floor(query.dayOffset)));
     if (query.start) params.set("start", query.start);
     if (query.end) params.set("end", query.end);
     for (const [key, value] of Object.entries(query.filters || {})) if (value) params.set(key, value);

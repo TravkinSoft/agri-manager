@@ -261,6 +261,7 @@ function formatPeriodPoint(value: Date, timeZone: string): string {
 export function resolveHarvestPeriod(input: {
   preset?: HarvestPeriodPreset;
   now?: Date;
+  dayOffset?: number;
   customStart?: string | null;
   customEnd?: string | null;
   shift?: { opened_at?: string | null; closed_at?: string | null; status?: string | null } | null;
@@ -277,12 +278,19 @@ export function resolveHarvestPeriod(input: {
     : { year: localNow.year, month: localNow.month, day: localNow.day };
   const currentStart = localDateTimeToUtc({ ...operationalDate, hour: operationalDayStartHour }, timeZone);
   const requestedPreset = input.preset || "current_day";
+  const dayOffset = Math.min(3_650, Math.max(0, Math.floor(Number(input.dayOffset || 0))));
   let preset = requestedPreset;
   let start = currentStart;
   let end = now;
   const shiftAvailable = Boolean(input.shift?.opened_at && input.shift?.status === "open");
 
-  if (requestedPreset === "previous_day") {
+  if (requestedPreset === "current_day" && dayOffset > 0) {
+    const selectedDate = moveLocalDate(operationalDate, -dayOffset);
+    const nextDate = moveLocalDate(selectedDate, 1);
+    start = localDateTimeToUtc({ ...selectedDate, hour: operationalDayStartHour }, timeZone);
+    end = localDateTimeToUtc({ ...nextDate, hour: operationalDayStartHour }, timeZone);
+    preset = dayOffset === 1 ? "previous_day" : "custom";
+  } else if (requestedPreset === "previous_day") {
     const previousDate = moveLocalDate(operationalDate, -1);
     start = localDateTimeToUtc({ ...previousDate, hour: operationalDayStartHour }, timeZone);
     end = currentStart;
@@ -932,7 +940,7 @@ export function buildHarvestOverview(
     currentPlotHarvestedAreaStatus: activeWeighbridgeSelection ? "no_closed_shift" : "no_selection",
     activeWeighbridgeSelection,
     potatoDrivers: Array.from(potatoDriverMap.values())
-      .sort((a, b) => b.tripCount - a.tripCount || b.netWeightKg - a.netWeightKg || a.driverName.localeCompare(b.driverName, "ru")),
+      .sort((a, b) => b.netWeightKg - a.netWeightKg || b.tripCount - a.tripCount || a.driverName.localeCompare(b.driverName, "ru")),
     parties: Array.from(partyMap.values())
       .filter((party) => party.currentStockKg > 0 || party.receivedKg > 0 || party.openTicketCount > 0)
       .sort((a, b) => b.openTicketCount - a.openTicketCount || b.receivedKg - a.receivedKg || b.currentStockKg - a.currentStockKg),
