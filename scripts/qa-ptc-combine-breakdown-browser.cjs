@@ -72,6 +72,7 @@ async function main() {
 
   const transport = `
     export async function trafficRequest(url,method,body){
+      if(url==='/api/traffic/operator/plots'&&method==='GET')return {plots:[]};
       if(url!=='/api/traffic/operator/combine-breakdown')throw new Error('Unexpected test request: '+url);
       const entry={url,method,body};
       window.calls.push(entry);
@@ -112,7 +113,6 @@ async function main() {
     path.join(root, "components/traffic/traffic-board.tsx"),
     path.join(root, "components/traffic/traffic-shift-controls.tsx"),
     path.join(root, "components/ui/dialog.tsx"),
-    path.join(root, "components/ui/dropdown-menu.tsx"),
   ];
   const css = (await postcss([tailwind(config)]).process(
     fs.readFileSync(path.join(root, "app/globals.css"), "utf8"),
@@ -138,7 +138,9 @@ async function main() {
   }
 
   try {
-    for (const [engineName, engine] of [["chromium", chromium], ["webkit", webkit]]) {
+    const availableEngines = [["chromium", chromium], ["webkit", webkit]];
+    const requestedEngines = (process.env.PTC_BROWSER_MATRIX || "chromium,webkit").split(",");
+    for (const [engineName, engine] of availableEngines.filter(([name]) => requestedEngines.includes(name))) {
       const browser = await engine.launch({
         headless: true,
         ...(engineName === "chromium" ? { channel: "chrome" } : {}),
@@ -155,24 +157,21 @@ async function main() {
         const browserErrors = [];
         page.on("pageerror", (error) => browserErrors.push(error.message));
         await page.goto(`${base}/?view=harvester`);
-        const menuButton = page.getByRole("button", { name: "Меню комбайнёра" });
+        const healthyButton = page.getByRole("button", { name: "Комбайн работает. Сообщить о поломке" });
 
         check(await page.getByTestId("traffic-combine-breakdown-banner").count(), 0, `${engineName}/healthy/no-banner`);
-        await menuButton.tap();
-        check(await page.getByText("Статус комбайна", { exact: true }).count(), 1, `${engineName}/menu/status-label`);
-        check(await page.getByText("Работает", { exact: true }).count(), 1, `${engineName}/menu/healthy-status`);
-        check(await page.getByText("Смена комбайнёра", { exact: true }).count(), 1, `${engineName}/menu/shift-preserved`);
+        check(await healthyButton.count(), 1, `${engineName}/healthy/direct-status-button`);
+        check(await page.getByRole("button", { name: "Управление сменой комбайнёра" }).count(), 1, `${engineName}/healthy/shift-control-preserved`);
 
         page.once("dialog", (dialog) => void dialog.dismiss());
-        await page.getByRole("menuitem", { name: "Сообщить о поломке" }).tap();
+        await healthyButton.tap();
         await page.waitForTimeout(100);
         check(await page.evaluate(() => window.calls.length), 0, `${engineName}/cancel/zero-post`);
         check(await page.evaluate(() => window.committed), 0, `${engineName}/cancel/no-refresh`);
         check(await page.getByTestId("traffic-combine-breakdown-banner").count(), 0, `${engineName}/cancel/no-banner`);
 
-        await menuButton.tap();
         page.once("dialog", (dialog) => void dialog.accept());
-        await page.getByRole("menuitem", { name: "Сообщить о поломке" }).tap();
+        await healthyButton.tap();
         await page.waitForFunction(() => window.calls.length === 1 && window.committed === 1);
         const firstCall = await page.evaluate(() => window.calls[0]);
         check(firstCall.url, "/api/traffic/operator/combine-breakdown", `${engineName}/breakdown/url`);
@@ -184,16 +183,15 @@ async function main() {
         check(await page.getByTestId("traffic-combine-breakdown-banner").count(), 1, `${engineName}/breakdown/banner`);
         check((await page.getByTestId("traffic-combine-breakdown-banner").innerText()).includes("Комбайнёр Тестовый"), true, `${engineName}/breakdown/name`);
 
-        await menuButton.tap();
-        check(await page.getByText("Поломка", { exact: true }).count(), 1, `${engineName}/menu/broken-status`);
+        const brokenButton = page.getByRole("button", { name: "Комбайн сломан. Изменить статус" });
+        check(await brokenButton.count(), 1, `${engineName}/breakdown/direct-status-button`);
         page.once("dialog", (dialog) => void dialog.dismiss());
-        await page.getByRole("menuitem", { name: "Комбайн снова работает" }).tap();
+        await brokenButton.tap();
         await page.waitForTimeout(100);
         check(await page.evaluate(() => window.calls.length), 1, `${engineName}/recover-cancel/zero-post`);
 
-        await menuButton.tap();
         page.once("dialog", (dialog) => void dialog.accept());
-        await page.getByRole("menuitem", { name: "Комбайн снова работает" }).tap();
+        await brokenButton.tap();
         await page.waitForFunction(() => window.calls.length === 2 && window.committed === 2);
         const secondCall = await page.evaluate(() => window.calls[1]);
         check(secondCall.body.isBroken, false, `${engineName}/recover/value`);
@@ -227,7 +225,7 @@ async function main() {
             check(await emptyHeading.count(), 1, `${label}/empty-state-present`);
             const positions = await Promise.all([banner.boundingBox(), emptyHeading.boundingBox()]);
             check(Boolean(positions[0] && positions[1] && positions[0].y < positions[1].y), true, `${label}/banner-before-empty-state`);
-            check(await matrixPage.getByRole("button", { name: "Меню комбайнёра" }).count(), view === "harvester" ? 1 : 0, `${label}/harvester-controls-only`);
+            check(await matrixPage.getByRole("button", { name: "Управление сменой комбайнёра" }).count(), view === "harvester" ? 1 : 0, `${label}/harvester-controls-only`);
             check(errors, [], `${label}/no-browser-errors`);
             await matrixPage.close();
           }
