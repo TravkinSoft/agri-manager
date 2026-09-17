@@ -11,6 +11,7 @@ import {
   resolveTransportIdentity,
 } from "@/lib/weighbridge/transport";
 import { isPtcEligibleReferenceVehicle } from "@/lib/traffic/vehicle-eligibility";
+import { getServiceClient } from "@/lib/supabase/service";
 import { WEIGHBRIDGE_PIN_REQUIRED } from "@/lib/weighbridge/operator-access-mode";
 
 const OPERATOR_SESSION_ROLES = ["global_admin", "company_admin", "director", "weighman"] as const;
@@ -283,8 +284,11 @@ export async function GET(request: NextRequest) {
         .eq("archived", false)
         .order("name", { ascending: true })
       : Promise.resolve({ data: [], error: null });
+    // ptc_vehicle_states intentionally has no authenticated SELECT policy.
+    // Session/company access is resolved above, so read only this protected,
+    // company-scoped projection with the server client.
     const ptcStatesPromise = initialWorkspace
-      ? supabase
+      ? getServiceClient()
         .from("ptc_vehicle_states")
         .select("vehicle_id,assigned")
         .eq("company_id", companyId)

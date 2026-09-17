@@ -68,10 +68,10 @@ check("stock and operation details load only after source selection and are cach
   assert.match(page, /\.abortSignal\(controller\.signal\)/);
 });
 
-check("weighbridge page has no idle polling fan-out", () => {
+check("weighbridge page keeps one bounded fallback refresh", () => {
   const liveRefresh = page.match(/useLiveRefresh\(\{[\s\S]*?\n  \}\);/)?.[0] || "";
-  assert.match(liveRefresh, /intervalMs:\s*0/);
-  assert.doesNotMatch(liveRefresh, /60_000/);
+  assert.match(liveRefresh, /intervalMs:\s*60_000/);
+  assert.match(liveRefresh, /minRefreshIntervalMs:\s*10_000/);
 });
 
 check("processing workspace has no idle polling", () => {
@@ -136,8 +136,11 @@ check("processing summary scope is bounded and has no ledger N plus one", () => 
 
 check("default warehouse summaries remain backward compatible", () => {
   assert.match(summariesRoute, /v_stock_balance_identity/);
-  assert.match(summariesRoute, /warehouse_id,product_id,quantity,uom,batch_class/);
-  assert.match(summariesRoute, /stock_ledger_entries/);
+  assert.match(summariesRoute, /warehouse_id,product_id,quantity,uom,batch_class,batch_id,last_movement_at/);
+  assert.match(summariesRoute, /loadHarvestBalanceBatchIds/);
+  assert.match(summariesRoute, /Promise\.all\(chunks\.map/);
+  assert.doesNotMatch(summariesRoute, /loadWarehouseLedgerRows/);
+  assert.doesNotMatch(summariesRoute, /\.from\("stock_ledger_entries"\)/);
   assert.match(summariesRoute, /lastMovementByWarehouse/);
   assert.match(warehouseService, /options\?: \{ scope\?: "processing_cards"; signal\?: AbortSignal \}/);
 });

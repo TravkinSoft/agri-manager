@@ -9,6 +9,7 @@ import {
   resolveTransportIdentity,
 } from "@/lib/weighbridge/transport";
 import { isPtcEligibleReferenceVehicle } from "@/lib/traffic/vehicle-eligibility";
+import { getServiceClient } from "@/lib/supabase/service";
 import { vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
 
 export const runtime = "nodejs";
@@ -65,6 +66,11 @@ export async function GET(request: NextRequest) {
     const { companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
+    // PTC state is deliberately hidden from browser/user-scoped PostgREST
+    // reads. The request is already authenticated and company-scoped above;
+    // use the server-only client for this one protected projection instead of
+    // weakening the table SELECT policy for every authenticated user.
+    const ptcStateDb = getServiceClient();
 
     const settled = await Promise.allSettled([
       supabase
@@ -74,7 +80,7 @@ export async function GET(request: NextRequest) {
         .eq("is_active", true)
         .eq("archived", false)
         .order("name", { ascending: true }),
-      supabase
+      ptcStateDb
         .from("ptc_vehicle_states")
         .select("vehicle_id,assigned")
         .eq("company_id", companyId)

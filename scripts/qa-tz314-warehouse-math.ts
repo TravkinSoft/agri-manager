@@ -86,7 +86,7 @@ assert.match(summariesRoute, /position_count:\s*countColdWarehousePositions/);
 assert.match(page, /Остаток превышает указанную вместимость/);
 assert.doesNotMatch(page, /Math\.min\(100, Math\.round\(\(harvestWeightKg \/ capacity\)/);
 assert.match(lotRoute, /const warehouseTrips = trips\.filter/);
-assert.match(lotRoute, /fieldSummaries: warehouseFieldSummaries/);
+assert.match(lotRoute, /fieldSummaries: \(originsByLotWarehouse\.get\(`\$\{lot\.id\}:\$\{stock\.warehouse_id\}`\) \|\| \[\]\)\.map/);
 assert.match(lotRoute, /tripBatches: warehouseOriginTrips/);
 assert.match(lotRoute, /originState: warehouseOriginTrips\.length > 0/);
 assert.match(lotDialog, /Талонное происхождение на этом складе отсутствует/);

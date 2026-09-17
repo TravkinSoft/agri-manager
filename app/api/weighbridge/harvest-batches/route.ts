@@ -835,6 +835,9 @@ async function loadAggregateHarvestLotSummaries(
                 !batchIsSharedImpuritySelectable(candidate.batch, candidate.sourceTicketId)
               ))
             ) return null;
+            const availableKg = potentialPairBatches.reduce((total, candidate) => (
+              total + Number(exactBalanceByBatchId.get(String(candidate.batch?.id || "")) || 0)
+            ), 0);
             const sourceCrop = cropsById.get(String(structure.crop_id || lot.crop_id || ""));
             const sourceVariety = varietiesById.get(String(structure.variety_id || lot.variety_id || ""));
             const sourceReproduction = reproductionsById.get(String(structure.reproduction_id || lot.reproduction_id || ""));
@@ -851,6 +854,11 @@ async function loadAggregateHarvestLotSummaries(
               reproductionId: structure.reproduction_id ? String(structure.reproduction_id) : null,
               reproductionName: localizedName(sourceReproduction, "ru", ["name", "code"]) || "",
               areaHa: Number(structure.area || 0) || null,
+              availableKg,
+              // One inventory batch is one accepted trip. Keep the full
+              // lineage on the server, but expose one logical picker row per
+              // crop-structure source instead of one row per trip.
+              tripCount: potentialPairBatches.length,
             };
           })
           .filter(Boolean)

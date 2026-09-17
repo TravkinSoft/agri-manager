@@ -65,6 +65,8 @@ check("both bootstrap paths expose only the complete PTC fleet", () => {
   assert.match(operatorSession, /\.eq\("ptc_enabled", true\)/);
   assert.match(resources, /ptcAssigned:/);
   assert.match(operatorSession, /ptcAssigned:/);
+  assert.match(resources, /const ptcStateDb = getServiceClient\(\)[\s\S]*?ptcStateDb[\s\S]*?\.from\("ptc_vehicle_states"\)/);
+  assert.match(operatorSession, /const ptcStatesPromise = initialWorkspace[\s\S]*?getServiceClient\(\)[\s\S]*?\.from\("ptc_vehicle_states"\)/);
 });
 
 check("the obsolete weighman receiver cabinet is removed from navigation and redirects", () => {
@@ -78,7 +80,9 @@ check("the obsolete weighman receiver cabinet is removed from navigation and red
 check("the harvest form follows the oldest loaded PTC trip without replacing an active draft", () => {
   assert.match(ptcQueueRoute, /\.eq\("state",\s*"loaded"\)/);
   assert.match(ptcQueueRoute, /Date\.parse\(left\.loadedAt\)\s*-\s*Date\.parse\(right\.loadedAt\)/);
-  assert.match(page, /form\.vehicleId\s*\|\|\s*form\.driverId\s*\|\|\s*form\.grossKg/);
+  assert.match(page, /!workspaceReady \|\| !coreDataReady[\s\S]*?form\.operationType !== "harvest_incoming" \|\| form\.grossKg/);
+  assert.match(page, /const transportIsEmpty = !form\.vehicleId && !form\.driverId/);
+  assert.match(page, /if \(!transportIsEmpty && !completingSameQueuedVehicle\) return/);
   assert.match(page, /const next = ptcQueue\[0\] \|\| null/);
   assert.match(page, /setPtcQueue\(\(current\) => current\.filter\(\(item\) => item\.ptcEventId !== consumedPtcEventId\)\)/);
   assert.match(page, /ptcQueueGenerationRef\.current \+= 1/);

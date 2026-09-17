@@ -67,7 +67,7 @@ check("server summary reads positive aggregate stock by warehouse", () => {
 check("soil lot labels use ticket field names without exposing technical lot codes", () => {
   assert.match(batchesRoute, /\.select\("harvest_lot_id,inventory_batch_id,source_ticket_id"\)/);
   assert.match(batchesRoute, /\.select\("id,product_id,display_name,source_ticket_id,source_field_id,/);
-  assert.match(batchesRoute, /\.in\("id", chunk\)\)\.catch\(\(\) => \[\]\)/);
+  assert.match(batchesRoute, /loadInChunks<any>\([\s\S]*?\.in\("id", chunk\)\)/);
   assert.match(batchesRoute, /fieldsResult\.error \? \[\] : fieldsResult\.data \|\| \[\]/);
   assert.match(batchesRoute, /sourceTicketsById[\s\S]*?summarizeAggregateHarvestLotFields[\s\S]*?fieldName: fieldOrigin\.fieldName/);
   const pickerStart = page.indexOf("const impuritySourceOptions");
@@ -75,6 +75,9 @@ check("soil lot labels use ticket field names without exposing technical lot cod
   const picker = pickerStart >= 0 && pickerEnd > pickerStart ? page.slice(pickerStart, pickerEnd) : "";
   assert.match(picker, /label: `Вся партия · \$\{buildHarvestLotOptionLabel\(batch\)\}`/);
   assert.match(picker, /fieldName,[\s\S]*?cropName,[\s\S]*?varietyName/);
+  assert.match(batchesRoute, /availableKg,[\s\S]*?tripCount: potentialPairBatches\.length/);
+  assert.match(picker, /"Единая партия участка"[\s\S]*?рейсов объединено[\s\S]*?доступно:/);
+  assert.match(picker, /cleanMassKg: availableKg/);
   assert.doesNotMatch(picker, /label:[^\n]*batch\.batchCode/);
 });
 
@@ -106,6 +109,9 @@ check("weighbridge vehicle picker exposes only active PTC fleet rows", () => {
   assert.match(resourcesRoute, /filter\(isPtcEligibleReferenceVehicle\)/);
   assert.match(operatorSessionRoute, /\.eq\("ptc_enabled", true\)/);
   assert.match(operatorSessionRoute, /filter\(isPtcEligibleReferenceVehicle\)/);
+  assert.match(resourcesRoute, /const ptcStateDb = getServiceClient\(\)/);
+  assert.match(resourcesRoute, /ptcStateDb[\s\S]*?\.from\("ptc_vehicle_states"\)/);
+  assert.match(operatorSessionRoute, /getServiceClient\(\)[\s\S]*?\.from\("ptc_vehicle_states"\)/);
   assert.match(page, /source: "reference_vehicles" \| "reference_machines"/);
   assert.match(page, /vehicle_source: selectedVehicle\?\.source \|\| "reference_vehicles"/);
 });

@@ -3488,14 +3488,29 @@ export default function WeighbridgeOperationsPage() {
   };
 
   useEffect(() => {
-    if (!coreDataReady || form.operationType !== "harvest_incoming" || form.vehicleId || form.driverId || form.grossKg) return;
+    // Wait until the persisted workspace has been restored. Otherwise the
+    // queue can populate the empty initial form and draft hydration can erase
+    // the suggested vehicle a moment later.
+    if (!workspaceReady || !coreDataReady || form.operationType !== "harvest_incoming" || form.grossKg) return;
     const next = ptcQueue[0] || null;
     if (!next) return;
+    const transportIsEmpty = !form.vehicleId && !form.driverId;
+    const completingSameQueuedVehicle = form.vehicleId === next.vehicleId
+      && !form.driverId
+      && (!form.ptcEventId || form.ptcEventId === next.ptcEventId);
+    // Never replace a choice the weighman has already made. We only fill a
+    // blank draft, or complete the driver for the same frozen queue vehicle.
+    if (!transportIsEmpty && !completingSameQueuedVehicle) return;
     const allocation = next.fieldId && next.cropStructureId
       ? (harvestStructureByField[next.fieldId] || []).find((item) => item.allocationId === next.cropStructureId) || null
       : null;
     setForm((previous) => {
-      if (previous.operationType !== "harvest_incoming" || previous.vehicleId || previous.driverId || previous.grossKg) return previous;
+      if (previous.operationType !== "harvest_incoming" || previous.grossKg) return previous;
+      const previousTransportIsEmpty = !previous.vehicleId && !previous.driverId;
+      const previousMatchesQueuedVehicle = previous.vehicleId === next.vehicleId
+        && !previous.driverId
+        && (!previous.ptcEventId || previous.ptcEventId === next.ptcEventId);
+      if (!previousTransportIsEmpty && !previousMatchesQueuedVehicle) return previous;
       return {
         ...previous,
         vehicleId: next.vehicleId,
@@ -3511,7 +3526,7 @@ export default function WeighbridgeOperationsPage() {
         } : {}),
       };
     });
-  }, [coreDataReady, form.operationType, form.vehicleId, form.driverId, form.grossKg, ptcQueue, harvestStructureByField]);
+  }, [workspaceReady, coreDataReady, form.operationType, form.vehicleId, form.driverId, form.grossKg, form.ptcEventId, ptcQueue, harvestStructureByField]);
 
   const setActiveHarvestForm = (route: ActiveHarvestRoute | null, clearTransient = false) => {
     setForm((previous) => ({
@@ -3960,6 +3975,11 @@ export default function WeighbridgeOperationsPage() {
         const varietyName = String(source.varietyName || batch.varietyName || "").trim();
         const reproductionName = String(source.reproductionName || batch.reproductionName || "").trim();
         const areaHa = Number(source.areaHa);
+        const sourceAvailableKg = Number(source.availableKg);
+        const sourceTripCount = Number(source.tripCount);
+        const availableKg = Number.isFinite(sourceAvailableKg) && sourceAvailableKg > 0
+          ? sourceAvailableKg
+          : Number(batch.cleanMassKg || 0);
         const identityParts = [
           fieldName,
           cropName,
@@ -3970,7 +3990,13 @@ export default function WeighbridgeOperationsPage() {
         pushOption({
           key: `${harvestLotId}:${cropStructureId}`,
           label: identityParts.join(" · "),
-          description: "Точный участок · остаток показан по связанной партии",
+          description: [
+            "Единая партия участка",
+            Number.isFinite(sourceTripCount) && sourceTripCount > 0
+              ? `${sourceTripCount.toLocaleString("ru-RU")} рейсов объединено`
+              : "рейсы объединены",
+            `доступно: ${formatWeightKg(availableKg)}`,
+          ].join(" · "),
           groupLabel: fieldName,
           supportsSharedSelection: true,
           batchId: batch.id,
@@ -3979,7 +4005,7 @@ export default function WeighbridgeOperationsPage() {
           warehouseId: batch.warehouseId,
           productId: batch.productId,
           cropId: source.cropId || batch.cropId || null,
-          cleanMassKg: Number(batch.cleanMassKg || 0),
+          cleanMassKg: availableKg,
         });
       });
     });

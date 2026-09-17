@@ -14,36 +14,84 @@ import {
 } from "@/app/api/warehouses/_helpers";
 import { rowHasQaDataMarker } from "@/lib/utils/qa-data";
 import { buildWarehouseMassBreakdown } from "@/lib/warehouse/warehouse-summary-math";
-import { isHarvestLedgerRow, loadHarvestLedgerOriginRefs } from "@/lib/warehouse/harvest-ledger-origin";
 import { countColdWarehousePositions } from "@/lib/warehouse/harvest-batch-selection";
-import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
 import { compareWarehouseDisplayOrder } from "@/lib/warehouse/warehouse-order";
 
 export const dynamic = "force-dynamic";
 
-const LEDGER_PAGE_SIZE = 1000;
-const LEDGER_SELECT = "id,warehouse_id,product_id,direction,quantity,delta_qty_signed,uom,batch_class,inventory_batch_id,batch_id,batch_id_text,ticket_id,occurred_at,created_at,unit_contract_version";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const QUERY_CHUNK_SIZE = 300;
 
-async function loadWarehouseLedgerRows(
-  supabase: Awaited<ReturnType<typeof getUserScopedClientFromRequest>>,
-  companyId: string,
-  warehouseIds: string[],
+async function loadRowsInChunks<T>(
+  values: string[],
+  read: (chunk: string[]) => PromiseLike<{ data: T[] | null; error: any }>,
 ) {
-  const rows: any[] = [];
-  for (let from = 0; ; from += LEDGER_PAGE_SIZE) {
-    const result = await supabase
-      .from("stock_ledger_entries")
-      .select(LEDGER_SELECT)
-      .eq("company_id", companyId)
-      .in("warehouse_id", warehouseIds)
-      .order("id", { ascending: true })
-      .range(from, from + LEDGER_PAGE_SIZE - 1);
-    if (result.error) return { data: [] as any[], error: result.error };
-    const page = (result.data || []) as any[];
-    rows.push(...page);
-    if (page.length < LEDGER_PAGE_SIZE) break;
+  const chunks: string[][] = [];
+  for (let index = 0; index < values.length; index += QUERY_CHUNK_SIZE) {
+    chunks.push(values.slice(index, index + QUERY_CHUNK_SIZE));
   }
-  return { data: rows, error: null };
+  const pages = await Promise.all(chunks.map(async (chunk) => {
+    const result = await read(chunk);
+    if (result.error) throw result.error;
+    return result.data || [];
+  }));
+  return pages.flat();
+}
+
+async function loadHarvestBalanceBatchIds(
+  db: ReturnType<typeof getServiceClient>,
+  companyId: string,
+  balanceRows: any[],
+) {
+  const candidateBatchIds = Array.from(new Set(
+    balanceRows
+      .map((row) => String(row.batch_id || "").trim())
+      .filter((batchId) => UUID_RE.test(batchId)),
+  ));
+  if (!candidateBatchIds.length) return new Set<string>();
+
+  // The compact balance view already reduced tens of thousands of ledger rows
+  // to physical batch identities. Resolve only those identities back to the
+  // harvest lineage, instead of downloading the complete ledger on every
+  // warehouse-page refresh.
+  const [inventoryRows, directLinks] = await Promise.all([
+    loadRowsInChunks<any>(candidateBatchIds, (chunk) => db
+      .from("inventory_batches")
+      .select("id,source_ticket_id")
+      .eq("company_id", companyId)
+      .in("id", chunk)),
+    loadRowsInChunks<any>(candidateBatchIds, (chunk) => db
+      .from("harvest_lot_batches")
+      .select("inventory_batch_id,source_ticket_id")
+      .eq("company_id", companyId)
+      .in("inventory_batch_id", chunk)),
+  ]);
+  const sourceTicketIds = Array.from(new Set(
+    inventoryRows.map((row) => String(row.source_ticket_id || "").trim()).filter(Boolean),
+  ));
+  const ticketLinks = sourceTicketIds.length
+    ? await loadRowsInChunks<any>(sourceTicketIds, (chunk) => db
+        .from("harvest_lot_batches")
+        .select("inventory_batch_id,source_ticket_id")
+        .eq("company_id", companyId)
+        .in("source_ticket_id", chunk))
+    : [];
+  const harvestTicketIds = new Set(
+    [...directLinks, ...ticketLinks]
+      .map((row) => String(row.source_ticket_id || "").trim())
+      .filter(Boolean),
+  );
+  const harvestBatchIds = new Set(
+    [...directLinks, ...ticketLinks]
+      .map((row) => String(row.inventory_batch_id || "").trim())
+      .filter(Boolean),
+  );
+  inventoryRows.forEach((row) => {
+    if (harvestTicketIds.has(String(row.source_ticket_id || "").trim())) {
+      harvestBatchIds.add(String(row.id));
+    }
+  });
+  return harvestBatchIds;
 }
 
 export async function GET(request: NextRequest) {
@@ -118,10 +166,10 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const [balancesResult, harvestLotsResult, ledgerResult] = await Promise.all([
+    const [balancesResult, harvestLotsResult] = await Promise.all([
       supabase
         .from("v_stock_balance_identity")
-        .select("warehouse_id,product_id,quantity,uom,batch_class")
+        .select("warehouse_id,product_id,quantity,uom,batch_class,batch_id,last_movement_at")
         .eq("company_id", companyId)
         .in("warehouse_id", warehouseIds),
       harvestStockSupabase
@@ -130,15 +178,17 @@ export async function GET(request: NextRequest) {
         .eq("company_id", companyId)
         .in("warehouse_id", warehouseIds)
         .gt("current_weight_kg", 0.0001),
-      loadWarehouseLedgerRows(supabase, companyId, warehouseIds),
     ]);
 
     const error = balancesResult.error
-      || harvestLotsResult.error
-      || ledgerResult.error;
+      || harvestLotsResult.error;
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    const ledgerRows = (ledgerResult.data || []) as any[];
-    const harvestOriginRefs = await loadHarvestLedgerOriginRefs(supabase, companyId, ledgerRows);
+    const balanceRows = (balancesResult.data || []) as any[];
+    const harvestBalanceBatchIds = await loadHarvestBalanceBatchIds(
+      harvestStockSupabase,
+      companyId,
+      balanceRows,
+    );
 
     const materialBalances = new Map<string, {
       warehouse_id: string;
@@ -148,25 +198,13 @@ export async function GET(request: NextRequest) {
       quantity: number;
       harvest_represented_quantity: number;
     }>();
-    for (const row of ledgerRows) {
+    for (const row of balanceRows) {
       const warehouseId = String((row as any).warehouse_id || "");
       const productId = String((row as any).product_id || "");
       const batchClass = String((row as any).batch_class || "commodity").trim().toLowerCase() || "commodity";
-      let uom = String((row as any).uom || "").trim().toLowerCase();
-      if (Number((row as any).unit_contract_version) !== 2) {
-        try {
-          uom = `legacy/${normalizeStockUom((row as any).uom).baseUom}`;
-        } catch {
-          uom = "legacy/unknown";
-        }
-      }
+      const uom = String((row as any).uom || "").trim().toLowerCase();
       if (!warehouseId || !productId) continue;
-      const deltaValue = (row as any).delta_qty_signed;
-      const signedQuantity = deltaValue != null && Number.isFinite(Number(deltaValue))
-        ? Number(deltaValue)
-        : String((row as any).direction || "").toLowerCase() === "in"
-          ? Number((row as any).quantity || 0)
-          : -Number((row as any).quantity || 0);
+      const signedQuantity = Number((row as any).quantity || 0);
       const key = `${warehouseId}|${productId}|${batchClass}|${uom}`;
       const current = materialBalances.get(key) || {
         warehouse_id: warehouseId,
@@ -177,7 +215,9 @@ export async function GET(request: NextRequest) {
         harvest_represented_quantity: 0,
       };
       current.quantity += signedQuantity;
-      if (isHarvestLedgerRow(row, harvestOriginRefs)) current.harvest_represented_quantity += signedQuantity;
+      if (harvestBalanceBatchIds.has(String((row as any).batch_id || "").trim())) {
+        current.harvest_represented_quantity += signedQuantity;
+      }
       materialBalances.set(key, current);
     }
     const materialBalanceRows = Array.from(materialBalances.values()).map((row) => ({
@@ -201,9 +241,9 @@ export async function GET(request: NextRequest) {
     }
 
     const lastMovementByWarehouse = new Map<string, string>();
-    for (const row of ledgerRows) {
+    for (const row of balanceRows) {
       const warehouseId = String((row as any).warehouse_id || "");
-      const timestamp = String((row as any).occurred_at || (row as any).created_at || "");
+      const timestamp = String((row as any).last_movement_at || "");
       if (warehouseId && timestamp && timestamp > (lastMovementByWarehouse.get(warehouseId) || "")) {
         lastMovementByWarehouse.set(warehouseId, timestamp);
       }

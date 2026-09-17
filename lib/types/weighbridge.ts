@@ -286,6 +286,8 @@ export interface HarvestBatchCropStructureSource {
   reproductionId?: string | null;
   reproductionName?: string | null;
   areaHa?: number | null;
+  availableKg?: number | null;
+  tripCount?: number | null;
 }
 
 export interface HarvestBatchSummary {
