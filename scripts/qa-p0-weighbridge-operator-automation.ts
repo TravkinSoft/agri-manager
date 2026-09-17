@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { mergeWeighbridgeTransportCatalog } from "../lib/weighbridge/transport";
+import { isPtcEligibleReferenceVehicle } from "../lib/traffic/vehicle-eligibility";
 import { preferredDriverForVehicle } from "../lib/weighbridge/transport-pairing";
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
@@ -53,12 +54,17 @@ check("last manually selected combine operator survives ticket creation and plot
   assert.match(page, /combineOperatorPersonId:\s*prev\.combineOperatorPersonId/);
 });
 
-check("both bootstrap paths keep canonical vehicles and suppress linked machine duplicates", () => {
-  assert.match(resources, /source_machine_id/);
-  assert.doesNotMatch(resources, /\.is\("source_machine_id",\s*null\)/);
-  assert.match(resources, /mergeWeighbridgeTransportCatalog\(vehicleRows, machineRows\)/);
-  assert.match(operatorSession, /mergeWeighbridgeTransportCatalog\(vehicleRows, machineRows\)/);
-  assert.match(operatorSession, /canonicalMachineLinks/);
+check("both bootstrap paths expose only the complete PTC fleet", () => {
+  assert.equal(isPtcEligibleReferenceVehicle({ ptc_enabled: true, type: "truck" }), true);
+  assert.equal(isPtcEligibleReferenceVehicle({ ptc_enabled: false, type: "truck" }), false);
+  assert.equal(isPtcEligibleReferenceVehicle({ ptc_enabled: true, type: "light_vehicle" }), false);
+  assert.match(resources, /filter\(isPtcEligibleReferenceVehicle\)/);
+  assert.match(operatorSession, /filter\(isPtcEligibleReferenceVehicle\)/);
+  assert.doesNotMatch(resources, /from\("reference_machines"\)/);
+  assert.doesNotMatch(operatorSession, /from\("reference_machines"\)/);
+  assert.match(operatorSession, /\.eq\("ptc_enabled", true\)/);
+  assert.match(resources, /ptcAssigned:/);
+  assert.match(operatorSession, /ptcAssigned:/);
 });
 
 check("the obsolete weighman receiver cabinet is removed from navigation and redirects", () => {

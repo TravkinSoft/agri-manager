@@ -104,7 +104,7 @@ check("driver search covers name and surname text", () => {
 });
 
 check("recent choices are groups inside normal selects", () => {
-  assert.match(transportSelects, /group: recentOrder\.has\(vehicle\.id\) \? "Недавно использованные" : "Остальные"/);
+  assert.match(transportSelects, /vehicle\.ptcAssigned[\s\S]*?"На линии"[\s\S]*?recentOrder\.has\(vehicle\.id\)[\s\S]*?"Недавно использованные"[\s\S]*?"Не на линии"/);
   assert.match(transportSelects, /group: recentOrder\.has\(driver\.id\) \? "Недавно использованные" : "Остальные"/);
   assert.doesNotMatch(page, /Недавние связки/);
 });

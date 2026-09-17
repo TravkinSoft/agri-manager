@@ -6,9 +6,9 @@ import {
 } from "@/app/api/weighbridge/_auth";
 import {
   isTrailerTransport,
-  mergeWeighbridgeTransportCatalog,
   resolveTransportIdentity,
 } from "@/lib/weighbridge/transport";
+import { isPtcEligibleReferenceVehicle } from "@/lib/traffic/vehicle-eligibility";
 import { vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
 
 export const runtime = "nodejs";
@@ -19,7 +19,7 @@ const WEIGHBRIDGE_PERSONNEL_ROLES = new Set(["driver", "mechanic_operator"]);
 type ResourceError = {
   resource:
     | "reference_vehicles"
-    | "reference_machines"
+    | "ptc_vehicle_states"
     | "company_people"
     | "reference_specialists"
     | "profiles"
@@ -34,9 +34,9 @@ const RESOURCE_ERROR_COPY: Record<ResourceError["resource"], Omit<ResourceError,
     code: "WB_RESOURCES_VEHICLES",
     message: "Не удалось загрузить транспорт. Остальные данные сохранены.",
   },
-  reference_machines: {
-    code: "WB_RESOURCES_MACHINES",
-    message: "Не удалось загрузить тракторы и технику. Остальные данные сохранены.",
+  ptc_vehicle_states: {
+    code: "WB_RESOURCES_PTC_STATES",
+    message: "Не удалось обновить быстрый список машин на линии. Полный парк PTC загружен.",
   },
   company_people: {
     code: "WB_RESOURCES_DRIVERS",
@@ -69,18 +69,16 @@ export async function GET(request: NextRequest) {
     const settled = await Promise.allSettled([
       supabase
         .from("reference_vehicles")
-        .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name,type,fleet_type,primary_responsible_personnel_id,source_machine_id,is_active,archived,transport_model:transport_model_id(full_name,category)")
+        .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name,source_clean_name,import_source,inventory_number,type,fleet_type,ptc_enabled,primary_responsible_personnel_id,source_machine_id,is_active,archived,transport_model:transport_model_id(full_name,category)")
         .eq("company_id", companyId)
         .eq("is_active", true)
         .eq("archived", false)
         .order("name", { ascending: true }),
       supabase
-        .from("reference_machines")
-        .select("id,name,full_name,brand,model,series,license_plate,source_raw_name,type,category,machinery_type,status,is_active,archived,global_model:global_machine_model_id(full_name,category)")
+        .from("ptc_vehicle_states")
+        .select("vehicle_id,assigned")
         .eq("company_id", companyId)
-        .eq("is_active", true)
-        .eq("archived", false)
-        .order("name", { ascending: true }),
+        .eq("assigned", true),
       supabase
         .from("company_people")
         .select("id,full_name,role_type,position,department,status,deleted_at")
@@ -113,7 +111,7 @@ export async function GET(request: NextRequest) {
 
     const resourceNames: ResourceError["resource"][] = [
       "reference_vehicles",
-      "reference_machines",
+      "ptc_vehicle_states",
       "company_people",
       "reference_specialists",
       "profiles",
@@ -142,14 +140,15 @@ export async function GET(request: NextRequest) {
     };
 
     const vehicleSourceRows = readRows(0);
-    const machineSourceRows = readRows(1);
+    const ptcStateRows = readRows(1);
     const peopleRows = readRows(2);
     const legacyDriverRows = readRows(3);
     const profileRows = readRows(4);
     const fieldRows = readRows(5);
     const warehouseRows = readRows(6);
 
-    const vehicleRows = vehicleSourceRows.map((row: any) => {
+    const ptcAssignedVehicleIds = new Set(ptcStateRows.map((row: any) => String(row.vehicle_id || "")).filter(Boolean));
+    const mapVehicleRow = (row: any) => {
       const transportModel = Array.isArray(row.transport_model)
         ? row.transport_model[0]
         : row.transport_model;
@@ -165,35 +164,19 @@ export async function GET(request: NextRequest) {
         transportCategory: String(transportModel?.category || ""),
         source: "reference_vehicles" as const,
         sourceMachineId: row.source_machine_id ? String(row.source_machine_id) : null,
+        ptcAssigned: ptcAssignedVehicleIds.has(String(row.id)),
         primaryPersonnelId: row.primary_responsible_personnel_id
           ? String(row.primary_responsible_personnel_id)
           : null,
       };
-    });
-    const machineRows = machineSourceRows.map((row: any) => {
-      const globalModel = Array.isArray(row.global_model)
-        ? row.global_model[0]
-        : row.global_model;
-      const identity = resolveTransportIdentity({
-        ...row,
-        plate: row.license_plate,
-      });
-      return {
-        id: String(row.id),
-        name: identity.name,
-        model: String(globalModel?.full_name || row.full_name || row.model || row.name || ""),
-        plate: identity.plate,
-        searchTerms: identity.searchTerms,
-        type: String(row.type || row.machinery_type || ""),
-        fleetType: String(row.machinery_type || row.type || ""),
-        transportCategory: String(globalModel?.category || row.category || ""),
-        source: "reference_machines" as const,
-        primaryPersonnelId: null,
-      };
-    });
-    const vehicles = mergeWeighbridgeTransportCatalog(vehicleRows, machineRows)
+    };
+    const allVehicleRows = vehicleSourceRows.map(mapVehicleRow);
+    const vehicleRows = vehicleSourceRows
+      .filter(isPtcEligibleReferenceVehicle)
+      .map(mapVehicleRow);
+    const vehicles = vehicleRows
       .sort((a, b) => a.name.localeCompare(b.name, "ru"));
-    const trailers = vehicleRows.filter((row) => isTrailerTransport(row));
+    const trailers = allVehicleRows.filter((row) => isTrailerTransport(row));
 
     const legacyPersonById = new Map<string, { personId: string; personnelType: string }>();
     const driverNames: Record<string, string> = {};

@@ -114,11 +114,12 @@ check("optimistic ticket preserves canonical operator person", () => {
   assert.match(page, /opened_by_person_name:\s*operatorState\.operator\?\.name/);
 });
 
-check("picker resources prefer the canonical fleet identity and suppress linked source duplicates", () => {
+check("picker resources use only canonical PTC fleet identities", () => {
   assert.match(resourcesRoute, /resolveTransportIdentity\(row\)/);
   assert.match(resourcesRoute, /source:\s*"reference_vehicles"/);
-  assert.match(resourcesRoute, /from\("reference_machines"\)/);
-  assert.match(resourcesRoute, /mergeWeighbridgeTransportCatalog\(vehicleRows, machineRows\)/);
+  assert.doesNotMatch(resourcesRoute, /from\("reference_machines"\)/);
+  assert.match(resourcesRoute, /filter\(isPtcEligibleReferenceVehicle\)/);
+  assert.match(resourcesRoute, /ptcAssigned:/);
   assert.match(resourcesRoute, /sourceMachineId:\s*row\.source_machine_id/);
   assert.doesNotMatch(resourcesRoute, /\.is\("source_machine_id",\s*null\)/);
 });

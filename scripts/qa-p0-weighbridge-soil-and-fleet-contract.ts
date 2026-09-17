@@ -101,12 +101,12 @@ check("finalization uses the atomic impurity allocation path", () => {
   assert.match(migration, /security_invoker = true/);
 });
 
-check("weighbridge exposes both direct vehicles and company machines without PTC proxies", () => {
-  assert.match(resourcesRoute, /from\("reference_machines"\)/);
-  assert.match(resourcesRoute, /\.is\("source_machine_id", null\)/);
-  assert.match(operatorSessionRoute, /from\("reference_machines"\)/);
+check("weighbridge vehicle picker exposes only active PTC fleet rows", () => {
+  assert.doesNotMatch(resourcesRoute, /from\("reference_machines"\)/);
+  assert.match(resourcesRoute, /filter\(isPtcEligibleReferenceVehicle\)/);
+  assert.match(operatorSessionRoute, /\.eq\("ptc_enabled", true\)/);
+  assert.match(operatorSessionRoute, /filter\(isPtcEligibleReferenceVehicle\)/);
   assert.match(page, /source: "reference_vehicles" \| "reference_machines"/);
-  assert.match(page, /vehicle\.source === "reference_vehicles" \|\| vehicle\.source === "reference_machines"/);
   assert.match(page, /vehicle_source: selectedVehicle\?\.source \|\| "reference_vehicles"/);
 });
 

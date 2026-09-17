@@ -135,6 +135,7 @@ type VehicleOption = Option & {
   transportCategory: string;
   source: "reference_vehicles" | "reference_machines";
   primaryPersonnelId: string | null;
+  ptcAssigned?: boolean;
   searchTerms: string[];
 };
 type DriverOption = Option & {
@@ -801,7 +802,7 @@ const harvestContextCache = new Map<string, HarvestContextState>();
 type AbortableRequest<T> = { controller: AbortController; promise: Promise<T> };
 type SharedAbortableRequest<T> = AbortableRequest<T> & { subscribers: number };
 const harvestContextRequestCache = new Map<string, SharedAbortableRequest<HarvestContextState>>();
-const WEIGHBRIDGE_WORKSPACE_CACHE_VERSION = 3;
+const WEIGHBRIDGE_WORKSPACE_CACHE_VERSION = 4;
 const WEIGHBRIDGE_WORKSPACE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const MODE_RESOURCE_STABILITY_DELAY_MS = 75;
 const HARVEST_BATCH_REQUEST_TIMEOUT_MS = 12_000;
@@ -1591,9 +1592,10 @@ export default function WeighbridgeOperationsPage() {
             transportCategory: String(row.transportCategory || ""),
             source: row.source === "reference_machines" ? "reference_machines" as const : "reference_vehicles" as const,
             primaryPersonnelId: row.primaryPersonnelId ? String(row.primaryPersonnelId) : null,
+            ptcAssigned: Boolean(row.ptcAssigned),
             searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
           }));
-          if (!failedResources.has("reference_vehicles") && !failedResources.has("reference_machines") && assignmentRevision === vehicleAssignmentRevisionRef.current) {
+          if (!failedResources.has("reference_vehicles") && assignmentRevision === vehicleAssignmentRevisionRef.current) {
             setVehicles(mappedVehicles);
           }
           if (!failedResources.has("reference_vehicles")) {
@@ -1601,6 +1603,7 @@ export default function WeighbridgeOperationsPage() {
               id: String(row.id), name: String(row.name || "Прицеп"), model: String(row.model || row.name || ""),
               plate: String(row.plate || ""), type: String(row.type || "trailer"), fleetType: String(row.fleetType || "tractor_trailer"),
               transportCategory: String(row.transportCategory || "trailer"), source: "reference_vehicles", primaryPersonnelId: null,
+              ptcAssigned: false,
               searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
             })));
           }
@@ -1890,6 +1893,7 @@ export default function WeighbridgeOperationsPage() {
       transportCategory: String(row.transportCategory || ""),
       source: row.source === "reference_machines" ? "reference_machines" as const : "reference_vehicles" as const,
       primaryPersonnelId: row.primaryPersonnelId ? String(row.primaryPersonnelId) : null,
+      ptcAssigned: Boolean(row.ptcAssigned),
       searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
     })));
     setTrailers(((resources.trailers || []) as any[]).map((row: any) => ({
@@ -1902,6 +1906,7 @@ export default function WeighbridgeOperationsPage() {
       transportCategory: String(row.transportCategory || "trailer"),
       source: "reference_vehicles" as const,
       primaryPersonnelId: null,
+      ptcAssigned: false,
       searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
     })));
     setDrivers(((resources.drivers || []) as any[]).map((row: any) => ({
@@ -2117,7 +2122,11 @@ export default function WeighbridgeOperationsPage() {
         const refreshedVehicles = new Map<string, any>((resources.vehicles || []).map((vehicle: any) => [String(vehicle.id), vehicle]));
         setVehicles((current) => current.map((vehicle) => {
           const refreshed = refreshedVehicles.get(vehicle.id);
-          return refreshed ? { ...vehicle, primaryPersonnelId: refreshed.primaryPersonnelId ? String(refreshed.primaryPersonnelId) : null } : vehicle;
+          return refreshed ? {
+            ...vehicle,
+            primaryPersonnelId: refreshed.primaryPersonnelId ? String(refreshed.primaryPersonnelId) : null,
+            ptcAssigned: Boolean(refreshed.ptcAssigned),
+          } : vehicle;
         }));
         setDriverNames((current) => ({ ...current, ...(resources.driverNames || {}) }));
       }).catch((error) => {

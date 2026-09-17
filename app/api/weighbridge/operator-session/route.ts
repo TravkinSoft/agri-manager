@@ -8,9 +8,9 @@ import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
 import {
   isTrailerTransport,
-  mergeWeighbridgeTransportCatalog,
   resolveTransportIdentity,
 } from "@/lib/weighbridge/transport";
+import { isPtcEligibleReferenceVehicle } from "@/lib/traffic/vehicle-eligibility";
 import { WEIGHBRIDGE_PIN_REQUIRED } from "@/lib/weighbridge/operator-access-mode";
 
 const OPERATOR_SESSION_ROLES = ["global_admin", "company_admin", "director", "weighman"] as const;
@@ -53,17 +53,16 @@ function jsonWithOperatorCookie(payload: Record<string, any>) {
 function normalizeInitialWorkspace(
   payload: Record<string, any> | null | undefined,
   assignmentBridges: Record<string, any>[] = [],
-  machineSourceRows: Record<string, any>[] = [],
-  canonicalMachineLinks: Record<string, any>[] = [],
+  ptcVehicleSourceRows: Record<string, any>[] = [],
+  ptcStateRows: Record<string, any>[] = [],
   resourceErrors: Record<string, string>[] = [],
 ) {
   if (!payload) return null;
-  const linkByVehicleId = new Map(canonicalMachineLinks.map((row: any) => [
-    String(row.id || ""),
-    row.source_machine_id ? String(row.source_machine_id) : null,
-  ]));
   const rawVehicles = Array.isArray(payload.vehicles) ? payload.vehicles : [];
-  const vehicleRows = rawVehicles.map((row: any) => {
+  const ptcAssignedVehicleIds = new Set(
+    ptcStateRows.map((row: any) => String(row.vehicle_id || "")).filter(Boolean),
+  );
+  const mapVehicleRow = (row: any) => {
     const transportModel = Array.isArray(row.transport_model)
       ? row.transport_model[0]
       : row.transport_model;
@@ -78,33 +77,17 @@ function normalizeInitialWorkspace(
       fleetType: String(row.fleet_type || ""),
       transportCategory: String(transportModel?.category || ""),
       source: "reference_vehicles" as const,
-      sourceMachineId: linkByVehicleId.get(String(row.id)) || null,
+      sourceMachineId: row.source_machine_id ? String(row.source_machine_id) : null,
+      ptcAssigned: ptcAssignedVehicleIds.has(String(row.id)),
       primaryPersonnelId: row.primary_responsible_personnel_id
         ? String(row.primary_responsible_personnel_id)
         : null,
     };
-  });
-  const machineRows = machineSourceRows.map((row: any) => {
-    const globalModel = Array.isArray(row.global_model)
-      ? row.global_model[0]
-      : row.global_model;
-    const identity = resolveTransportIdentity({
-      ...row,
-      plate: row.license_plate,
-    });
-    return {
-      id: String(row.id),
-      name: identity.name,
-      model: String(globalModel?.full_name || row.full_name || row.model || row.name || ""),
-      plate: identity.plate,
-      searchTerms: identity.searchTerms,
-      type: String(row.type || row.machinery_type || ""),
-      fleetType: String(row.machinery_type || row.type || ""),
-      transportCategory: String(globalModel?.category || row.category || ""),
-      source: "reference_machines" as const,
-      primaryPersonnelId: null,
-    };
-  });
+  };
+  const allVehicleRows = rawVehicles.map(mapVehicleRow);
+  const vehicleRows = ptcVehicleSourceRows
+    .filter(isPtcEligibleReferenceVehicle)
+    .map(mapVehicleRow);
 
   const legacyDrivers = Array.isArray(payload.legacyDrivers) ? payload.legacyDrivers : [];
   const people = Array.isArray(payload.people) ? payload.people : [];
@@ -199,9 +182,9 @@ function normalizeInitialWorkspace(
         .filter((row: any) => !hasQaDataMarker(String(row.name || ""))),
       destinations: (Array.isArray(payload.destinations) ? payload.destinations : [])
         .filter((row: any) => !hasQaDataMarker(String(row.name || ""))),
-      vehicles: mergeWeighbridgeTransportCatalog(vehicleRows, machineRows)
+      vehicles: vehicleRows
         .sort((a, b) => a.name.localeCompare(b.name, "ru")),
-      trailers: vehicleRows.filter((row) => isTrailerTransport(row)),
+      trailers: allVehicleRows.filter((row) => isTrailerTransport(row)),
       drivers,
       driverNames,
       combineOperators,
@@ -289,32 +272,31 @@ export async function GET(request: NextRequest) {
         .eq("company_id", companyId)
         .in("id", assignmentBridgeIds)
       : Promise.resolve({ data: [], error: null });
-    const machinesStartedAt = performance.now();
-    const machinePromise = initialWorkspace
+    const fleetStartedAt = performance.now();
+    const ptcVehiclesPromise = initialWorkspace
       ? supabase
-        .from("reference_machines")
-        .select("id,name,full_name,brand,model,series,license_plate,source_raw_name,type,category,machinery_type,status,is_active,archived,global_model:global_machine_model_id(full_name,category)")
+        .from("reference_vehicles")
+        .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name,source_clean_name,import_source,inventory_number,type,fleet_type,ptc_enabled,primary_responsible_personnel_id,source_machine_id,is_active,archived,transport_model:transport_model_id(full_name,category)")
         .eq("company_id", companyId)
+        .eq("ptc_enabled", true)
         .eq("is_active", true)
         .eq("archived", false)
         .order("name", { ascending: true })
       : Promise.resolve({ data: [], error: null });
-    const canonicalMachineLinksPromise = initialWorkspace
+    const ptcStatesPromise = initialWorkspace
       ? supabase
-        .from("reference_vehicles")
-        .select("id,source_machine_id")
+        .from("ptc_vehicle_states")
+        .select("vehicle_id,assigned")
         .eq("company_id", companyId)
-        .eq("is_active", true)
-        .eq("archived", false)
-        .not("source_machine_id", "is", null)
+        .eq("assigned", true)
       : Promise.resolve({ data: [], error: null });
-    const [bridgeResult, machineResult, canonicalMachineLinksResult] = await Promise.all([
+    const [bridgeResult, ptcVehiclesResult, ptcStatesResult] = await Promise.all([
       bridgePromise,
-      machinePromise,
-      canonicalMachineLinksPromise,
+      ptcVehiclesPromise,
+      ptcStatesPromise,
     ]);
     const bridgesMs = performance.now() - bridgesStartedAt;
-    const machinesMs = performance.now() - machinesStartedAt;
+    const fleetMs = performance.now() - fleetStartedAt;
     if (bridgeResult.error) {
       return NextResponse.json(
         { error: "Не удалось проверить актуальные привязки водителей." },
@@ -322,28 +304,33 @@ export async function GET(request: NextRequest) {
       );
     }
     const assignmentBridges = (bridgeResult.data || []) as Record<string, any>[];
-    const initialMachines = (machineResult.data || []) as Record<string, any>[];
-    const canonicalMachineLinks = (canonicalMachineLinksResult.data || []) as Record<string, any>[];
-    const initialResourceErrors = machineResult.error || canonicalMachineLinksResult.error
-      ? [{
-          resource: "reference_machines",
-          code: "WB_RESOURCES_MACHINES",
-          message: "Не удалось загрузить тракторы и технику. Остальные данные сохранены.",
-        }]
-      : [];
+    const ptcVehicles = (ptcVehiclesResult.data || []) as Record<string, any>[];
+    const ptcStates = (ptcStatesResult.data || []) as Record<string, any>[];
+    const initialResourceErrors = [
+      ...(ptcVehiclesResult.error ? [{
+        resource: "reference_vehicles",
+        code: "WB_RESOURCES_VEHICLES",
+        message: "Не удалось загрузить парк PTC. Остальные данные сохранены.",
+      }] : []),
+      ...(ptcStatesResult.error ? [{
+        resource: "ptc_vehicle_states",
+        code: "WB_RESOURCES_PTC_STATES",
+        message: "Не удалось обновить быстрый список машин на линии. Полный парк PTC загружен.",
+      }] : []),
+    ];
     const response = NextResponse.json({
       ...(payload.operator_state || {}),
       initial_workspace: normalizeInitialWorkspace(
         initialWorkspace,
         assignmentBridges,
-        initialMachines,
-        canonicalMachineLinks,
+        ptcVehicles,
+        ptcStates,
         initialResourceErrors,
       ),
     });
     response.headers.set(
       "Server-Timing",
-      `initial_workspace_rpc;dur=${rpcMs.toFixed(1)}, assignment_bridges;dur=${bridgesMs.toFixed(1)}, machines;dur=${machinesMs.toFixed(1)}, total;dur=${(performance.now() - startedAt).toFixed(1)}`
+      `initial_workspace_rpc;dur=${rpcMs.toFixed(1)}, assignment_bridges;dur=${bridgesMs.toFixed(1)}, ptc_fleet;dur=${fleetMs.toFixed(1)}, total;dur=${(performance.now() - startedAt).toFixed(1)}`
     );
     // A revoked, expired, or unknown operator cookie must not linger on a
     // workstation after the server has already returned the canonical locked

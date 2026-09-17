@@ -6,6 +6,7 @@ import vm from "node:vm";
 import ts from "typescript";
 import * as transport from "../lib/weighbridge/transport";
 import * as driverNames from "../lib/vehicles/driver-name";
+import * as vehicleEligibility from "../lib/traffic/vehicle-eligibility";
 import { sanitizeClientTicketAuditJson } from "../lib/weighbridge/ticket-audit";
 import {
   preferredDriverForVehicle,
@@ -222,9 +223,11 @@ async function checkCurrentResourceAssignmentBridges() {
     reference_vehicles: bridges.map((_, index) => ({
       id: `vehicle-${index}`, company_id: "company", name: index === 1 ? "МТЗ" : "KAMAZ",
       type: index === 1 ? "tractor" : "truck", fleet_type: index === 1 ? "tractor" : "truck",
-      primary_responsible_personnel_id: `bridge-${index}`, source_machine_id: null, is_active: true, archived: false,
+      ptc_enabled: true, primary_responsible_personnel_id: `bridge-${index}`, source_machine_id: null,
+      is_active: true, archived: false,
     })),
-    reference_machines: [], profiles: [], fields: [], warehouses: [],
+    ptc_vehicle_states: [{ company_id: "company", vehicle_id: "vehicle-0", assigned: true }],
+    profiles: [], fields: [], warehouses: [],
   };
   const db = {
     from(table: string) {
@@ -252,6 +255,7 @@ async function checkCurrentResourceAssignmentBridges() {
       asSessionErrorResponse: () => null,
     },
     "@/lib/weighbridge/transport": transport,
+    "@/lib/traffic/vehicle-eligibility": vehicleEligibility,
     "@/lib/vehicles/driver-name": driverNames,
   };
   const loaded = { exports: {} as any };
@@ -320,11 +324,14 @@ async function checkInitialWorkspaceAssignmentBridges() {
       return { data: { operator_state: {}, initial_workspace: payload }, error: null };
     },
     from(table: string) {
-      if (table === "reference_machines" || table === "reference_vehicles") {
+      if (table === "reference_vehicles" || table === "ptc_vehicle_states") {
         const query: any = {
-          select() { return query; }, eq() { return query; }, order() { return query; }, not() { return query; },
+          select() { return query; }, eq() { return query; }, order() { return query; },
           then(done: (value: unknown) => unknown, failed: (reason: unknown) => unknown) {
-            return Promise.resolve({ data: [], error: null }).then(done, failed);
+            const data = table === "reference_vehicles"
+              ? payload.vehicles.map((vehicle) => ({ ...vehicle, ptc_enabled: true }))
+              : [];
+            return Promise.resolve({ data, error: null }).then(done, failed);
           },
         };
         return query;
@@ -363,6 +370,7 @@ async function checkInitialWorkspaceAssignmentBridges() {
     },
     "@/lib/utils/qa-data": { hasQaDataMarker: () => false },
     "@/lib/weighbridge/transport": transport,
+    "@/lib/traffic/vehicle-eligibility": vehicleEligibility,
     "@/lib/vehicles/driver-name": driverNames,
     "@/lib/weighbridge/operator-access-mode": { WEIGHBRIDGE_PIN_REQUIRED: true },
   };
