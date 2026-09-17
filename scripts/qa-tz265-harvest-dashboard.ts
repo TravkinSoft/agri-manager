@@ -667,6 +667,9 @@ check("dashboard temporarily hides lower operational lists", () => {
   assert.doesNotMatch(dashboardUi, />Последние рейсы</);
   assert.doesNotMatch(dashboardUi, />Размещение</);
 });
+check("dashboard omits the redundant tare waiting banner", () => {
+  assert.doesNotMatch(dashboardUi, /waitingTare|машин(?:а|ы)? жд(?:ё|у)т[^\n]*тары на весовой/);
+});
 check("live refresh uses existing weighbridge tables", () => assert.match(dashboardUi, /LIVE_REFRESH_TABLES\.weighbridge/));
 
 console.log(`TZ265 PASS ${checks.length}/${checks.length}`);

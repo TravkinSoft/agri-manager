@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowDownToLine, ChevronDown, Clock3, Loader2, PackageCheck, Truck, Wrench } from "lucide-react";
+import { ArrowDownToLine, ChevronDown, Clock3, Loader2, PackageCheck, Truck, Wrench } from "lucide-react";
 import { TrafficShiftSummary } from "@/components/dashboard/traffic-shift-summary";
 import { PotatoDriverSummary } from "@/components/dashboard/potato-driver-summary";
 import { HarvestDaySummary } from "@/components/dashboard/harvest-day-summary";
@@ -264,7 +264,6 @@ export function HarvestDashboard() {
     || null;
   const currentPlotAcceptedKg = selectedPlot?.acceptedKg ?? summary?.currentPlotAcceptedKg ?? 0;
   const stockKg = potatoParties.reduce((total, party) => total + party.currentStockKg, 0);
-  const waitingTare = potatoParties.flatMap((party) => party.openTickets).filter((ticket) => (ticket.waitingTareMinutes || 0) > 0);
   const liveSelection = summary?.activeWeighbridgeSelection || null;
   const activeSelection = selectedPlot
     ? {
@@ -430,7 +429,6 @@ export function HarvestDashboard() {
             </section>
           ) : null}
 
-          {waitingTare.length ? <div className="flex items-start gap-2 border-l-2 border-amber-400 px-3 py-2 text-sm text-amber-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{waitingTare.length} {waitingTare.length === 1 ? "машина ждёт" : "машины ждут"} тары на весовой</div> : null}
         </>
       ) : null}
 
