@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 const read = (path: string) => readFileSync(path, "utf8");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
 const impurityPicker = read("components/weighbridge/impurity-source-picker.tsx");
+const weighbridgeService = read("lib/services/weighbridge.ts");
 const batchesRoute = read("app/api/weighbridge/harvest-batches/route.ts");
 const ticketsRoute = read("app/api/weighbridge/tickets/route.ts");
 const finalizeRoute = read("app/api/weighbridge/tickets/[id]/finalize/route.ts");
@@ -25,6 +26,14 @@ check("soil picker requests only the selected warehouse", () => {
   assert.match(page, /const requestKey = `\$\{companyId\}:\$\{warehouseId\}`/);
   assert.match(page, /listHarvestBatchSummaries\(companyId, \{[\s\S]*?warehouseId,[\s\S]*?aggregateLots: true,[\s\S]*?summaryOnly: true/);
   assert.match(page, /refreshHarvestBatches\(\{ warehouseId: form\.warehouseFromId \}\)/);
+});
+
+check("legacy Windows browsers keep the aggregate-lot query string", () => {
+  assert.doesNotMatch(weighbridgeService, /query\.size/);
+  assert.match(weighbridgeService, /function withSearchParams[\s\S]*?const queryString = query\.toString\(\)[\s\S]*?queryString \? `\$\{path\}\?\$\{queryString\}` : path/);
+  assert.match(weighbridgeService, /if \(options\?\.aggregateLots\) query\.set\("view", "lots"\)/);
+  assert.match(weighbridgeService, /if \(options\?\.summaryOnly\) query\.set\("detail", "summary"\)/);
+  assert.match(weighbridgeService, /withSearchParams\("\/api\/weighbridge\/harvest-batches", query\)/);
 });
 
 check("warehouse changes cannot reuse another warehouse result", () => {

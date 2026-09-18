@@ -25,6 +25,11 @@ async function parseJsonOrThrow(response: Response) {
   return payload;
 }
 
+function withSearchParams(path: string, query: URLSearchParams) {
+  const queryString = query.toString();
+  return queryString ? `${path}?${queryString}` : path;
+}
+
 export async function listTickets(
   companyId?: string,
   _userId?: string,
@@ -34,7 +39,7 @@ export async function listTickets(
   const query = new URLSearchParams();
   if (companyId) query.set("companyId", companyId);
   if (options?.workspace) query.set("workspace", "true");
-  const url = `/api/weighbridge/tickets${query.size ? `?${query.toString()}` : ""}`;
+  const url = withSearchParams("/api/weighbridge/tickets", query);
   const response = await fetch(url, {
     method: "GET",
     cache: "no-store",
@@ -109,7 +114,7 @@ export async function getWeighbridgeBootstrap(
   const query = new URLSearchParams();
   if (companyId) query.set("companyId", companyId);
   if (options?.includeSummary) query.set("summary", "true");
-  const url = `/api/weighbridge/bootstrap${query.size ? `?${query.toString()}` : ""}`;
+  const url = withSearchParams("/api/weighbridge/bootstrap", query);
   const response = await fetch(url, {
     method: "GET",
     cache: "no-store",
@@ -124,7 +129,7 @@ export async function getReconciliationControls(companyId?: string) {
   const headers = await buildClientAuthHeaders("none");
   const query = new URLSearchParams();
   if (companyId) query.set("companyId", companyId);
-  const response = await fetch(`/api/weighbridge/reconciliation-controls${query.size ? `?${query}` : ""}`, {
+  const response = await fetch(withSearchParams("/api/weighbridge/reconciliation-controls", query), {
     method: "GET",
     cache: "no-store",
     credentials: "include",
@@ -142,7 +147,7 @@ export async function saveReconciliationControl(input: {
   const headers = await buildClientAuthHeaders("json");
   const query = new URLSearchParams();
   if (input.companyId) query.set("companyId", input.companyId);
-  const response = await fetch(`/api/weighbridge/reconciliation-controls${query.size ? `?${query}` : ""}`, {
+  const response = await fetch(withSearchParams("/api/weighbridge/reconciliation-controls", query), {
     method: "PUT",
     cache: "no-store",
     credentials: "include",
@@ -202,7 +207,7 @@ export async function listHarvestBatchSummaries(
   if (options?.summaryOnly) query.set("detail", "summary");
   if (options?.originsOnly) query.set("detail", "origins");
   if (options?.lotId) query.set("lotId", options.lotId);
-  const url = `/api/weighbridge/harvest-batches${query.size ? `?${query.toString()}` : ""}`;
+  const url = withSearchParams("/api/weighbridge/harvest-batches", query);
   const response = await fetch(url, { method: "GET", cache: "no-store", headers, signal: options?.signal });
   const payload = await parseJsonOrThrow(response);
   return (payload.batches || []) as HarvestBatchSummary[];
@@ -292,7 +297,7 @@ export async function getWeighbridgeOperatorState(
   const headers = await buildClientAuthHeaders("none");
   const query = new URLSearchParams();
   if (options?.includeWorkspace) query.set("workspace", "true");
-  const url = `/api/weighbridge/operator-session${query.size ? `?${query.toString()}` : ""}`;
+  const url = withSearchParams("/api/weighbridge/operator-session", query);
   const response = await fetch(url, { method: "GET", cache: "no-store", headers, signal: options?.signal });
   return parseJsonOrThrow(response) as Promise<WeighbridgeOperatorState>;
 }
