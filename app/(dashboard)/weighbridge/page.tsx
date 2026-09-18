@@ -1120,6 +1120,7 @@ export default function WeighbridgeOperationsPage() {
     reconciliationRows: [],
   });
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
+  const [shiftClosing, setShiftClosing] = useState(false);
   const [operatorState, setOperatorState] = useState<WeighbridgeOperatorState>({ shift: null, unlocked: false, operators: [] });
   const [operatorSessionStatus, setOperatorSessionStatus] = useState<"unknown" | "checking" | "ready" | "error">("checking");
   const [operatorDialogOpen, setOperatorDialogOpen] = useState(false);
@@ -5657,16 +5658,16 @@ export default function WeighbridgeOperationsPage() {
   };
 
   const closeShiftAction = async () => {
-    if (!profile?.company_id || !profile?.id || !activeShift) return;
+    if (!profile?.company_id || !profile?.id || !activeShift || shiftClosing) return;
+    setShiftClosing(true);
     try {
       await closeShift(profile.company_id, profile.id, {
-        closingNote: "manual close from weighbridge page",
-        handoverNote: shiftHandoverNote.trim() || undefined,
+        shiftId: activeShift.id,
       });
       setClosingTare("");
       setClosingMoisture("");
       setCommentOpen(false);
-      toast({ title: "Смена закрыта", description: "Смена успешно закрыта." });
+      toast({ title: "Смена закрыта", description: "Итог сохранён автоматически и доступен в сводке." });
       setShiftHandoverNote("");
       setShiftDialogOpen(false);
       updateOperatorState((state) => ({ ...state, shift: null, unlocked: false, operator: null, session_expires_at: null, shift_expires_at: null }));
@@ -5677,9 +5678,11 @@ export default function WeighbridgeOperationsPage() {
     } catch (e: any) {
       toast({
         title: "Не удалось закрыть смену",
-        description: e?.message || "Проверьте незакрытые талоны и handover note",
+        description: e?.message || "Не удалось подтвердить закрытие. Обновите состояние смены.",
         variant: "destructive",
       });
+    } finally {
+      setShiftClosing(false);
     }
   };
 
@@ -7186,7 +7189,7 @@ export default function WeighbridgeOperationsPage() {
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="col-span-2 rounded-md border p-3">
               <div className="text-muted-foreground">Весовщик</div>
-              <div className="mt-1 font-semibold">{operatorState.operator?.name || (activeShift ? "Требуется PIN" : "—")}</div>
+              <div className="mt-1 font-semibold">{operatorState.operator?.name || (activeShift ? "Выберите весовщика" : "—")}</div>
             </div>
             <div className="rounded-md border p-3"><div className="text-muted-foreground">Рейсы</div><div className="mt-1 text-xl font-semibold">{shiftSummary.trips}</div></div>
             <div className="rounded-md border p-3"><div className="text-muted-foreground">Нетто</div><div className="mt-1 text-xl font-semibold">{formatTonnes(shiftSummary.netKg)}</div></div>
@@ -7196,8 +7199,7 @@ export default function WeighbridgeOperationsPage() {
           </div>
           {activeShift ? (
             <div className="space-y-2">
-              <Label>Комментарий</Label>
-              <Textarea value={shiftHandoverNote} onChange={(event) => setShiftHandoverNote(event.target.value)} rows={3} placeholder="Необязательно" />
+              <p className="text-sm text-muted-foreground">Ничего заполнять не нужно. Итоги по талонам сохранятся автоматически. Остатки складов и сбор с участков продолжат обновляться.</p>
               {shiftCounters.activeTickets > 0 ? (
                 <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
                   Сначала закройте все открытые талоны.
@@ -7208,7 +7210,7 @@ export default function WeighbridgeOperationsPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShiftDialogOpen(false)}>Отмена</Button>
             {activeShift ? (
-              <Button onClick={closeShiftAction} disabled={shiftCounters.activeTickets > 0}>Закрыть смену</Button>
+              <Button onClick={closeShiftAction} disabled={shiftClosing}>{shiftClosing ? "Сохраняем итог…" : "Закрыть смену и сохранить итог"}</Button>
             ) : (
               <Button onClick={async () => { await openShiftAction(); setShiftDialogOpen(false); }}>Открыть смену</Button>
             )}

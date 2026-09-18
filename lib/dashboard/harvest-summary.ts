@@ -1,5 +1,6 @@
 import type { HarvestBatchSummary, WeighbridgeTicket } from "@/lib/types/weighbridge";
 import { transportPickerLabel } from "@/lib/weighbridge/transport";
+import { harvestCleanKg } from "@/lib/dashboard/harvest-clean-mass";
 
 export const HARVEST_TIME_ZONE = "Asia/Qyzylorda";
 export const ASTYK_STEM_OPERATIONAL_DAY_START_HOUR = 7;
@@ -122,7 +123,13 @@ export type HarvestPlotSummary = {
   areaHa: number | null;
   completedAreaHa: number | null;
   harvestedAreaHa: number | null;
+  areaPending?: boolean;
+  latestShiftAreaHa?: number | null;
+  combineShiftOpen?: boolean;
+  /** Accepted mass inside the requested dashboard period; used for period yield. */
   acceptedKg: number;
+  /** Accepted mass for this exact crop-structure allocation across all dates. */
+  totalAcceptedKg: number;
   yieldTPerHa: number | null;
   status: "active" | "paused" | "completed";
   isCurrent: boolean;
@@ -131,11 +138,17 @@ export type HarvestPlotSummary = {
 };
 
 export type HarvestOverview = {
+  weighbridgeShifts?: Array<{ id: string; status: string; opened_at: string; closed_at: string | null; summary_json: {
+    version?: string; potatoCleanKg?: number; potatoNetKg?: number; impuritiesRemovedKg?: number; closedTicketCount?: number;
+  } | null }>;
   period: HarvestPeriod;
   completedTripCount: number;
   openTicketCount: number;
   potatoAcceptedKg: number;
+  /** Accepted mass for the active plot inside the requested dashboard period. */
   currentPlotAcceptedKg: number;
+  /** Accepted mass for the active plot across all dates of this exact allocation. */
+  currentPlotTotalAcceptedKg: number;
   currentPlotHarvestedAreaHa: number | null;
   currentPlotYieldTPerHa: number | null;
   currentPlotHarvestedAreaStatus: "verified" | "no_selection" | "field_has_multiple_plots" | "no_closed_shift";
@@ -544,7 +557,17 @@ export function buildHarvestOverview(
   const endMs = new Date(options.period.end).getTime();
   const ticketById = new Map(tickets.map((ticket) => [ticket.id, ticket]));
   const harvestTickets = tickets.filter((ticket) => ticket.op_type === "harvest_incoming" && ticketMatchesFilters(ticket, filters));
-  const finalized = harvestTickets.filter((ticket) => isEffectiveFinalizedHarvestTicket(ticket) && ticketTime(ticket, ticketById) >= startMs && ticketTime(ticket, ticketById) < endMs);
+  const effectiveFinalized = harvestTickets.filter(isEffectiveFinalizedHarvestTicket);
+  const finalized = effectiveFinalized.filter((ticket) => ticketTime(ticket, ticketById) >= startMs && ticketTime(ticket, ticketById) < endMs);
+  const matchesPlot = (ticket: WeighbridgeTicket, plot: NonNullable<HarvestOverview["activeWeighbridgeSelection"]> | HarvestPlotSummary) => {
+    const identity = ticketIdentity(ticket);
+    return ticket.field_id === plot.fieldId
+      && ticket.crop_structure_allocation_id === plot.cropStructureAllocationId
+      && (ticket.season_id || null) === plot.seasonId
+      && identity.cropId === plot.cropId
+      && identity.varietyId === plot.varietyId
+      && identity.reproductionId === plot.reproductionId;
+  };
   const open = harvestTickets.filter(isOpenHarvestTicket);
   const warehouseRows = options.warehouseRows || [];
   const activeWeighbridgeTicket = harvestTickets
@@ -581,7 +604,7 @@ export function buildHarvestOverview(
   const activeWeighbridgeSelection = options.activeSelection
     || (options.suppressInferredActiveSelection ? null : inferredActiveWeighbridgeSelection);
   const potatoFinalized = finalized.filter((ticket) => isPotatoLabel(ticketIdentity(ticket).crop));
-  const potatoAcceptedKg = potatoFinalized.reduce((total, ticket) => total + harvestTicketHeaderNetKg(ticket), 0);
+  const potatoAcceptedKg = potatoFinalized.reduce((total, ticket) => total + harvestCleanKg(ticket), 0);
   const currentPlotAcceptedKg = activeWeighbridgeSelection
     ? finalized
         .filter((ticket) => {
@@ -593,17 +616,22 @@ export function buildHarvestOverview(
             && identity.varietyId === activeWeighbridgeSelection.varietyId
             && identity.reproductionId === activeWeighbridgeSelection.reproductionId;
         })
-        .reduce((total, ticket) => total + harvestTicketHeaderNetKg(ticket), 0)
+        .reduce((total, ticket) => total + harvestCleanKg(ticket), 0)
+    : 0;
+  const currentPlotTotalAcceptedKg = activeWeighbridgeSelection
+    ? effectiveFinalized.filter((ticket) => matchesPlot(ticket, activeWeighbridgeSelection)).reduce((sum, ticket) => sum + harvestCleanKg(ticket), 0)
     : 0;
   const harvestPlots = (options.harvestPlots || []).map((plot) => {
     const acceptedKg = finalized
-      .filter((ticket) => ticket.crop_structure_allocation_id === plot.cropStructureAllocationId)
-      .reduce((total, ticket) => total + harvestTicketHeaderNetKg(ticket), 0);
+      .filter((ticket) => matchesPlot(ticket, plot))
+      .reduce((total, ticket) => total + harvestCleanKg(ticket), 0);
+    const totalAcceptedKg = effectiveFinalized.filter((ticket) => matchesPlot(ticket, plot)).reduce((sum, ticket) => sum + harvestCleanKg(ticket), 0);
     const harvestedAreaHa = plot.harvestedAreaHa && plot.harvestedAreaHa > 0 ? plot.harvestedAreaHa : null;
     return {
       ...plot,
       acceptedKg,
-      yieldTPerHa: harvestedAreaHa ? acceptedKg / 1000 / harvestedAreaHa : null,
+      totalAcceptedKg,
+      yieldTPerHa: harvestedAreaHa && !plot.areaPending ? totalAcceptedKg / 1000 / harvestedAreaHa : null,
     };
   });
 
@@ -970,6 +998,7 @@ export function buildHarvestOverview(
     openTicketCount: open.length,
     potatoAcceptedKg,
     currentPlotAcceptedKg,
+    currentPlotTotalAcceptedKg,
     currentPlotHarvestedAreaHa: null,
     currentPlotYieldTPerHa: null,
     currentPlotHarvestedAreaStatus: activeWeighbridgeSelection ? "no_closed_shift" : "no_selection",

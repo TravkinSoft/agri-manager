@@ -224,6 +224,8 @@ export interface WeighbridgeTicket {
   gross_weight_kg?: number | null;
   tare_weight_kg?: number | null;
   net_weight_kg?: number | null;
+  /** Read-only dashboard projection; never persisted into a ticket. */
+  harvest_clean_weight_kg?: number | null;
   physical_net_kg?: number | null;
   explicit_deductions_kg?: number | null;
   accepted_weight_kg?: number | null;

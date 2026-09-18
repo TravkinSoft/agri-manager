@@ -176,7 +176,12 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
   const specialistById = byId(specialists || []);
 
   const ticketIds = rows.map((row) => String(row.id));
-  const lotByTicketId = await loadLotByTicketId(supabase, companyId, ticketIds);
+  const [lotByTicketId, impurityResult] = await Promise.all([
+    loadLotByTicketId(supabase, companyId, ticketIds),
+    getServiceClient().rpc("harvest_impurities_by_receipt_v1", { p_company_id: companyId }),
+  ]);
+  if (impurityResult.error) throw impurityResult.error;
+  const impurityByTicketId = new Map<string, number>(Object.entries(impurityResult.data || {}).map(([id, kg]) => [id, Number(kg)]));
   const ptcEventIds = uniqueIds(rows.map((row) => row.ptc_event_id));
   const service = getServiceClient();
   const loadedPtcResult = ptcEventIds.length
@@ -214,6 +219,7 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
     });
     return {
       ...row,
+      harvest_clean_weight_kg: Math.max(0, Number(row.accepted_weight_kg ?? row.net_weight_kg ?? 0) - (impurityByTicketId.get(String(row.id)) || 0)),
       driver_id: canonicalDriverId,
       ptc_trip_minutes: tripMinutesByEvent.get(String(row.ptc_event_id || "")) ?? null,
       harvest_lot_id: lotByTicketId.get(String(row.id)) || null,
@@ -383,10 +389,9 @@ async function loadHarvestPlotTimeline(
   const db = getServiceClient();
   const { data: segments, error: segmentsError } = await db
     .from("ptc_combine_field_segments")
-    .select("id,crop_structure_id,field_id,planned_area_ha,opened_at,closed_at,close_reason,hectares_segment")
+    .select("id,shift_id,crop_structure_id,field_id,planned_area_ha,opened_at,closed_at,close_reason,hectares_segment")
     .eq("company_id", companyId)
     .lt("opened_at", period.end)
-    .or(`closed_at.gte.${period.start},closed_at.is.null`)
     .order("opened_at", { ascending: true });
   if (segmentsError) throw segmentsError;
 
@@ -462,6 +467,9 @@ async function loadHarvestPlotTimeline(
         const value = Number(row.hectares_segment);
         return Number.isFinite(value) && value > 0 ? total + value : total;
       }, 0);
+      const latestShiftSegments = plotSegments.filter((row: any) => row.shift_id === lastSegment?.shift_id);
+      const areaPending = latestShiftSegments.some((row: any) => !row.closed_at || row.hectares_segment == null);
+      const latestShiftAreaHa = areaPending ? null : latestShiftSegments.reduce((total: number, row: any) => total + Number(row.hectares_segment || 0), 0);
       const cropId = structure?.crop_id ? String(structure.crop_id) : fallback?.cropId || null;
       const varietyId = structure?.variety_id ? String(structure.variety_id) : fallback?.varietyId || null;
       const reproductionId = structure?.reproduction_id ? String(structure.reproduction_id) : fallback?.reproductionId || null;
@@ -484,7 +492,11 @@ async function loadHarvestPlotTimeline(
         areaHa: Number.isFinite(areaHa) && areaHa > 0 ? areaHa : null,
         completedAreaHa: Number.isFinite(completedAreaHa) && completedAreaHa >= 0 ? completedAreaHa : null,
         harvestedAreaHa: harvestedAreaHa > 0 ? harvestedAreaHa : null,
+        areaPending,
+        latestShiftAreaHa,
+        combineShiftOpen: plotSegments.some((row: any) => !row.closed_at),
         acceptedKg: 0,
+        totalAcceptedKg: 0,
         yieldTPerHa: null,
         status,
         isCurrent,
@@ -492,7 +504,7 @@ async function loadHarvestPlotTimeline(
         lastChangedAt,
       };
     })
-    .filter((row): row is HarvestPlotSummary => Boolean(row))
+    .filter((row): row is HarvestPlotSummary => Boolean(row) && (!activeSelection?.seasonId || row?.seasonId === activeSelection.seasonId))
     .sort((left, right) => Number(right.isCurrent) - Number(left.isCurrent) || Date.parse(right.lastChangedAt) - Date.parse(left.lastChangedAt));
 }
 
@@ -508,6 +520,13 @@ async function attachVerifiedCurrentPlotYield(
 ): Promise<HarvestOverview> {
   const selection = summary.activeWeighbridgeSelection;
   if (!selection) return summary;
+  const plot = summary.harvestPlots.find((row) => row.cropStructureAllocationId === selection.cropStructureAllocationId);
+  if (plot) return {
+    ...summary,
+    currentPlotHarvestedAreaHa: plot.harvestedAreaHa,
+    currentPlotYieldTPerHa: plot.yieldTPerHa,
+    currentPlotHarvestedAreaStatus: plot.yieldTPerHa == null ? "no_closed_shift" : "verified",
+  };
 
   let allocationQuery = supabase
     .from("crop_structure")
@@ -535,7 +554,6 @@ async function attachVerifiedCurrentPlotYield(
     .eq("company_id", companyId)
     .eq("crop_structure_id", selection.cropStructureAllocationId)
     .not("closed_at", "is", null)
-    .gte("closed_at", summary.period.start)
     .lt("closed_at", summary.period.end)
     .order("closed_at", { ascending: true });
   if (segmentsError) throw segmentsError;
@@ -553,7 +571,7 @@ async function attachVerifiedCurrentPlotYield(
   return {
     ...summary,
     currentPlotHarvestedAreaHa: harvestedAreaHa,
-    currentPlotYieldTPerHa: summary.currentPlotAcceptedKg / 1000 / harvestedAreaHa,
+    currentPlotYieldTPerHa: summary.currentPlotTotalAcceptedKg / 1000 / harvestedAreaHa,
     currentPlotHarvestedAreaStatus: "verified",
   };
 }
@@ -571,13 +589,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ rows, source: "v_harvest_lot_stock_v2" });
     }
 
-    const [tickets, seasonResult, shiftResult, companyResult] = await Promise.all([
+    const [tickets, seasonResult, shiftResult, companyResult, shiftHistoryResult] = await Promise.all([
       loadTickets(supabase, companyId),
       supabase.from("seasons").select("id,year,start_date,end_date").eq("company_id", companyId).eq("archived", false).order("year", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("weighbridge_shifts").select("id,status,opened_at,closed_at").eq("company_id", companyId).eq("status", "open").order("opened_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("companies").select("id,name,operational_day_start_hour").eq("id", companyId).maybeSingle(),
+      getServiceClient().from("weighbridge_shifts").select("id,status,opened_at,closed_at,summary_json").eq("company_id", companyId).order("opened_at", { ascending: false }).limit(7),
     ]);
-    if (seasonResult.error || shiftResult.error || companyResult.error) throw seasonResult.error || shiftResult.error || companyResult.error;
+    if (seasonResult.error || shiftResult.error || companyResult.error || shiftHistoryResult.error) throw seasonResult.error || shiftResult.error || companyResult.error || shiftHistoryResult.error;
     const presetRaw = String(request.nextUrl.searchParams.get("period") || "current_day") as HarvestPeriodPreset;
     const preset = PERIOD_PRESETS.has(presetRaw) ? presetRaw : "current_day";
     const requestedDayOffset = Number(request.nextUrl.searchParams.get("dayOffset") || 0);
@@ -617,7 +636,7 @@ export async function GET(request: NextRequest) {
         suppressInferredActiveSelection: activePtcState.suppressTicketInference,
       }),
     );
-    const summary = periodSummary;
+    const summary = { ...periodSummary, weighbridgeShifts: shiftHistoryResult.data || [] };
     if (section === "bootstrap") {
       return NextResponse.json({
         summary: { ...summary, source: SUMMARY_SOURCE },

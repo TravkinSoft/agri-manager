@@ -92,12 +92,17 @@ check("current plot mass requires the exact field, allocation, season, crop, var
     ...exactOne, id: "plot-exact-2", ticket_no: "PLOT-EXACT-2", net_weight_kg: 9_000,
     created_at: "2026-08-12T06:00:00Z", finalized_at: "2026-08-12T06:30:00Z", updated_at: "2026-08-12T06:30:00Z",
   });
+  const priorDayExact = ticket({
+    ...exactOne, id: "plot-exact-prior-day", ticket_no: "PLOT-EXACT-PRIOR-DAY", net_weight_kg: 6_000,
+    created_at: "2026-08-11T06:00:00Z", finalized_at: "2026-08-11T06:30:00Z", updated_at: "2026-08-11T06:30:00Z",
+  });
   const otherAllocation = ticket({ ...exactOne, id: "plot-other-allocation", ticket_no: "PLOT-OTHER", crop_structure_allocation_id: "allocation-11", net_weight_kg: 50_000 });
   const otherField = ticket({ ...exactOne, id: "plot-other-field", ticket_no: "PLOT-OTHER-FIELD", field_id: "field-10", net_weight_kg: 60_000 });
   const invalid = ticket({ ...exactOne, id: "plot-voided", ticket_no: "PLOT-VOIDED", is_voided: true, status: "voided", net_weight_kg: 70_000 });
-  const result = buildHarvestOverview([exactOne, exactTwo, otherAllocation, otherField, invalid], { period });
+  const result = buildHarvestOverview([exactOne, exactTwo, priorDayExact, otherAllocation, otherField, invalid], { period });
   assert.equal(result.potatoAcceptedKg, 127_000);
   assert.equal(result.currentPlotAcceptedKg, 17_000);
+  assert.equal(result.currentPlotTotalAcceptedKg, 23_000);
   assert.equal(result.currentPlotHarvestedAreaHa, null);
   assert.equal(result.currentPlotYieldTPerHa, null);
   assert.equal(result.currentPlotHarvestedAreaStatus, "no_closed_shift");
@@ -119,13 +124,13 @@ check("today plot rail keeps active and completed combine plots separate", () =>
       {
         cropStructureAllocationId: "allocation-new", fieldId: "field-new", fieldName: "виноград", seasonId: "s1",
         cropId: "c2", cropName: "Картофель", varietyId: "v2", varietyName: "Гала", reproductionId: "r2",
-        reproductionName: "Элита", areaHa: 54, completedAreaHa: 0, harvestedAreaHa: null, acceptedKg: 0,
+        reproductionName: "Элита", areaHa: 54, completedAreaHa: 0, harvestedAreaHa: null, acceptedKg: 0, totalAcceptedKg: 0,
         yieldTPerHa: null, status: "active", isCurrent: true, startedAt: period.start, lastChangedAt: period.end,
       },
       {
         cropStructureAllocationId: "allocation-old", fieldId: "field-old", fieldName: "28", seasonId: "s1",
         cropId: "c2", cropName: "Картофель", varietyId: "v2", varietyName: "Сорая", reproductionId: "r2",
-        reproductionName: "1", areaHa: 12, completedAreaHa: 8.34, harvestedAreaHa: 8.34, acceptedKg: 0,
+        reproductionName: "1", areaHa: 12, completedAreaHa: 8.34, harvestedAreaHa: 8.34, acceptedKg: 0, totalAcceptedKg: 0,
         yieldTPerHa: null, status: "completed", isCurrent: false, startedAt: period.start, lastChangedAt: period.end,
       },
     ],
@@ -133,8 +138,10 @@ check("today plot rail keeps active and completed combine plots separate", () =>
   assert.equal(result.harvestPlots.length, 2);
   assert.equal(result.harvestPlots[0].status, "active");
   assert.equal(result.harvestPlots[0].acceptedKg, 12_000);
+  assert.equal(result.harvestPlots[0].totalAcceptedKg, 12_000);
   assert.equal(result.harvestPlots[1].status, "completed");
   assert.equal(result.harvestPlots[1].acceptedKg, 10_000);
+  assert.equal(result.harvestPlots[1].totalAcceptedKg, 10_000);
   assert.equal(result.harvestPlots[1].yieldTPerHa, 10 / 8.34);
 });
 check("latest potato weighbridge ticket selects the live field and allocation", () => {
@@ -270,6 +277,7 @@ check("latest carrot ticket replaces the previous potato plot and counts only th
   assert.equal(result.activeWeighbridgeSelection?.cropName, "Морковь");
   assert.equal(result.activeWeighbridgeSelection?.cropStructureAllocationId, "allocation-carrot");
   assert.equal(result.currentPlotAcceptedKg, 14_000);
+  assert.equal(result.currentPlotTotalAcceptedKg, 14_000);
   assert.equal(result.potatoAcceptedKg, 1_000);
 });
 check("an open legacy combine shift suppresses the misleading latest-ticket plot", () => {
@@ -286,6 +294,7 @@ check("an open legacy combine shift suppresses the misleading latest-ticket plot
   const result = buildHarvestOverview([latest], { period, suppressInferredActiveSelection: true });
   assert.equal(result.activeWeighbridgeSelection, null);
   assert.equal(result.currentPlotAcceptedKg, 0);
+  assert.equal(result.currentPlotTotalAcceptedKg, 0);
   assert.equal(result.currentPlotHarvestedAreaStatus, "no_selection");
 });
 check("moisture is mass weighted", () => {
@@ -602,11 +611,13 @@ check("dashboard API does not cap harvest at one thousand rows", () => assert.ma
 check("dashboard presents the live vegetable plot chain", () => {
   assert.match(dashboardUi, /Главные показатели уборки/);
   assert.match(dashboardUi, /Сегодня принято картофеля/);
-  assert.match(dashboardUi, /С выбранного участка/);
+  assert.match(dashboardUi, /С выбранного участка · всего/);
   assert.match(dashboardUi, /На складе/);
   assert.match(dashboardUi, /Живая урожайность/);
   assert.match(dashboardUi, /Текущее поле[\s\S]*Главные показатели уборки[\s\S]*Статусы машин PTC[\s\S]*PotatoDriverSummary/);
   assert.match(dashboardUi, /summary\?\.activeWeighbridgeSelection/);
+  assert.match(dashboardUi, /selectedPlot\?\.totalAcceptedKg \?\? summary\?\.currentPlotTotalAcceptedKg/);
+  assert.match(dashboardUi, /mass\(plot\.totalAcceptedKg\)/);
   assert.match(dashboardUi, /const activeCrop = activeSelection\?\.cropName \|\| "Уборка"/);
   assert.match(dashboardUi, /Комбайнёр должен выбрать участок/);
   assert.doesNotMatch(dashboardUi, /traffic\?\.snapshot\.fieldName/);
@@ -626,13 +637,14 @@ check("dashboard shows the live driver champions table after the unchanged PTC s
   assert.doesNotMatch(potatoDriverUi, /Показать предыдущий рабочий день/);
   assert.match(readFileSync(resolve(root, "components/dashboard/harvest-day-summary.tsx"), "utf8"), /Показать предыдущий рабочий день/);
 });
-check("yield calculator uses selected party stock and defaults to the field area", () => {
-  assert.match(dashboardUi, /selectedPartyStockKg \/ 1000 \/ hectares/);
-  assert.match(dashboardUi, /enteredHectares > 0 \? enteredHectares : fieldHectares/);
+check("yield calculator uses cumulative exact plot mass and confirmed area, never party stock", () => {
+  assert.match(dashboardUi, /selectedPlotTotalAcceptedKg \/ 1000 \/ hectares/);
+  assert.doesNotMatch(dashboardUi, /selectedPartyStockKg/);
+  assert.match(dashboardUi, /selectedPlot\?\.harvestedAreaHa/);
   assert.match(dashboardUi, /Убрано, га/);
 });
 check("live yield uses exact accepted mass and shift hectares only when plot ownership is verified", () => {
-  assert.match(dashboardApi, /currentPlotAcceptedKg \/ 1000 \/ harvestedAreaHa/);
+  assert.match(dashboardApi, /currentPlotTotalAcceptedKg \/ 1000 \/ harvestedAreaHa/);
   assert.match(dashboardApi, /ptc_combine_field_segments/);
   assert.match(dashboardApi, /Number\(row\.hectares_segment\)/);
   assert.match(dashboardApi, /crop_structure_id", selection\.cropStructureAllocationId/);
@@ -653,10 +665,9 @@ check("driver champions cover the season independently of daily summaries", () =
   assert.match(dashboardUi, /h-\[56dvh\][^\n]*lg:hidden/);
 });
 check("dashboard live state and timers follow the combine shift", () => {
-  assert.match(dashboardUi, /shiftIsOpen \? "Live" : "Offline"/);
-  assert.match(dashboardUi, /shiftIsOpen \? "Live" : "Offline"[\s\S]*?<span>·<\/span><span>\{activeCrop\}<\/span>/);
+  assert.match(dashboardUi, /selectedPlot\?\.combineShiftOpen \? "Смена открыта" : "Нет открытой работы"/);
   assert.doesNotMatch(dashboardUi, /function clock\(|\{clock\(/);
-  assert.match(dashboardUi, /selectedPlotStatus = selectedPlot\?\.status === "completed" \? "Завершено" : "В работе"/);
+  assert.match(dashboardUi, /selectedPlotStatus = selectedPlot\?\.status === "completed" \? "Завершено"/);
   assert.match(dashboardUi, /selectedPlot \? selectedPlotStatus : shiftIsOpen \? "В работе" : "Нет активного поля"/);
   assert.doesNotMatch(dashboardUi, /Смена не открыта|PTC загружается/);
   assert.match(dashboardUi, /group === "offline" \? null/);
@@ -672,5 +683,11 @@ check("dashboard omits the redundant tare waiting banner", () => {
 });
 check("live refresh uses existing weighbridge tables", () => assert.match(dashboardUi, /LIVE_REFRESH_TABLES\.weighbridge/));
 
+check("clean summary excludes soil without reducing driver net or using warehouse stock", () => {
+  const receipt = ticket({ ...potato, id: "clean-potato", net_weight_kg: 10000, harvest_clean_weight_kg: 8000 });
+  const clean = buildHarvestOverview([receipt], { period, warehouseRows: [] });
+  assert.equal(clean.potatoAcceptedKg, 8000);
+  assert.equal(clean.potatoDrivers.reduce((sum, row) => sum + row.netWeightKg, 0), 10000);
+});
 console.log(`TZ265 PASS ${checks.length}/${checks.length}`);
 for (const name of checks) console.log(`PASS ${name}`);

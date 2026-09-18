@@ -338,7 +338,7 @@ export async function openShift(companyId?: string, _actorUserId?: string, openi
 export async function closeShift(
   companyId?: string,
   _actorUserId?: string,
-  params?: { closingNote?: string; handoverNote?: string; force?: boolean }
+  params?: { closingNote?: string; handoverNote?: string; force?: boolean; shiftId?: string }
 ) {
   const headers = await buildClientAuthHeaders("json");
   const response = await fetch("/api/weighbridge/shifts", {
@@ -347,6 +347,7 @@ export async function closeShift(
     body: JSON.stringify({
       companyId,
       closingNote: params?.closingNote,
+      shiftId: params?.shiftId,
       handoverNote: params?.handoverNote,
       force: Boolean(params?.force),
     }),

@@ -34,7 +34,7 @@ const GROUPS: Array<{ key: TrafficGroup; desktop: string; mobile: string }> = [
 function mass(value: number): string {
   if (!Number.isFinite(value)) return "—";
   const tonnes = value / 1000;
-  return `${tonnes.toLocaleString("ru-RU", { maximumFractionDigits: tonnes >= 100 ? 1 : 2 })} т`;
+  return `${tonnes.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т`;
 }
 function age(value: string, now: number): string {
   const started = Date.parse(value);
@@ -223,6 +223,8 @@ export function HarvestDashboard() {
 
   useEffect(() => {
     summaryRef.current = null;
+    previousActivePlotRef.current = null;
+    setSelectedPlotId(null);
     initialTrafficGroupSelectedRef.current = false;
     setSummary(null);
     setDriverSummary(null);
@@ -240,6 +242,7 @@ export function HarvestDashboard() {
     return () => window.clearInterval(timer);
   }, []);
   useLiveRefresh({ enabled: Boolean(companyId), companyId, tables: LIVE_REFRESH_TABLES.weighbridge, intervalMs: 15_000, onRefresh: loadDashboard });
+  useEffect(() => { setHarvestedHectares(""); }, [selectedPlotId]);
 
   useEffect(() => {
     const plots = summary?.harvestPlots || [];
@@ -262,7 +265,7 @@ export function HarvestDashboard() {
     || summary?.harvestPlots.find((plot) => plot.isCurrent)
     || summary?.harvestPlots[0]
     || null;
-  const currentPlotAcceptedKg = selectedPlot?.acceptedKg ?? summary?.currentPlotAcceptedKg ?? 0;
+  const selectedPlotTotalAcceptedKg = selectedPlot?.totalAcceptedKg ?? summary?.currentPlotTotalAcceptedKg ?? 0;
   const stockKg = potatoParties.reduce((total, party) => total + party.currentStockKg, 0);
   const liveSelection = summary?.activeWeighbridgeSelection || null;
   const activeSelection = selectedPlot
@@ -302,24 +305,14 @@ export function HarvestDashboard() {
       ].filter(Boolean).join(" · ")
     : "Точный участок не выбран";
   const shiftIsOpen = activeShift?.status === "open";
-  const selectedPlotStatus = selectedPlot?.status === "completed" ? "Завершено" : "В работе";
-  const selectedPlotStatusActive = selectedPlot ? selectedPlot.status !== "completed" : shiftIsOpen;
-  const selectedPartyStockKg = (summary?.parties || [])
-    .filter((party) => activeSelection && (
-      activeSelection.harvestLotId
-        ? party.key === `lot:${activeSelection.harvestLotId}`
-        : party.seasonId === activeSelection.seasonId
-          && party.cropId === activeSelection.cropId
-          && party.varietyId === activeSelection.varietyId
-          && party.reproductionId === activeSelection.reproductionId
-    ))
-    .reduce((total, party) => total + party.currentStockKg, 0);
+  const selectedPlotStatus = selectedPlot?.status === "completed" ? "Завершено" : selectedPlot?.status === "paused" ? "Приостановлено" : "В работе";
+  const selectedPlotStatusActive = selectedPlot ? selectedPlot.status === "active" : shiftIsOpen;
   const enteredHectares = Number(harvestedHectares.replace(",", "."));
-  const hectares = enteredHectares > 0 ? enteredHectares : fieldHectares;
-  const manualYieldTonnes = hectares && hectares > 0 ? selectedPartyStockKg / 1000 / hectares : null;
+  const hectares = harvestedHectares.trim() ? (Number.isFinite(enteredHectares) && enteredHectares > 0 ? enteredHectares : null) : selectedPlot?.harvestedAreaHa;
+  const manualYieldTonnes = hectares && hectares > 0 ? selectedPlotTotalAcceptedKg / 1000 / hectares : null;
   const liveYieldTonnes = selectedPlot?.yieldTPerHa ?? (!selectedPlot ? summary?.currentPlotYieldTPerHa ?? null : null);
   const liveYieldNote = selectedPlot?.harvestedAreaHa
-    ? `Убрано за рабочий день: ${selectedPlot.harvestedAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`
+    ? `Всего подтверждено: ${selectedPlot.harvestedAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га${selectedPlot.areaPending ? " · гектары текущей смены ещё не указаны" : ""}`
     : summary?.currentPlotHarvestedAreaStatus === "verified"
       ? `Убрано за рабочий день: ${summary.currentPlotHarvestedAreaHa?.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`
       : summary?.currentPlotHarvestedAreaStatus === "field_has_multiple_plots"
@@ -347,7 +340,7 @@ export function HarvestDashboard() {
           <section className="flex min-h-9 items-center border-y border-border py-1" aria-label="Текущее поле">
             <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
               <div className="flex shrink-0 items-center gap-1.5 text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
-                <span className={`font-semibold ${shiftIsOpen ? "text-emerald-700" : "text-rose-700"}`}>{shiftIsOpen ? "Live" : "Offline"}</span>
+                <span className={`font-semibold ${selectedPlot?.combineShiftOpen ? "text-emerald-700" : "text-muted-foreground"}`}>{selectedPlot?.combineShiftOpen ? "Смена открыта" : "Нет открытой работы"}</span>
                 <span>·</span>
                 <span className={`flex items-center gap-1.5 font-semibold ${selectedPlotStatusActive ? "text-emerald-700" : "text-muted-foreground"}`}>
                   <span className={`h-1.5 w-1.5 rounded-full ${selectedPlotStatusActive ? "bg-emerald-500" : "bg-muted-foreground"}`} />
@@ -384,10 +377,10 @@ export function HarvestDashboard() {
                       <span className="mt-1 flex items-center justify-between gap-2 text-[10px]">
                         <span className={`flex shrink-0 items-center gap-1 font-medium ${completed ? "text-muted-foreground" : "text-emerald-700"}`}>
                           <span className={`h-1.5 w-1.5 rounded-full ${completed ? "bg-muted-foreground" : "bg-emerald-500"}`} />
-                          {completed ? "Завершено" : "В работе"}
+                          {completed ? "Завершено" : plot.status === "paused" ? "Приостановлено" : "В работе"}
                         </span>
                         <span className="truncate text-muted-foreground">{identity || plot.cropName}</span>
-                        <span className="shrink-0 tabular-nums text-[color:var(--manor-brass-soft)]">{mass(plot.acceptedKg)}</span>
+                        <span className="shrink-0 tabular-nums text-[color:var(--manor-brass-soft)]" title="Всего принято с участка">{mass(plot.totalAcceptedKg)}</span>
                       </span>
                     </button>
                   );
@@ -400,11 +393,11 @@ export function HarvestDashboard() {
             <div className="min-w-0 py-2 pr-2 sm:py-1 sm:pr-3">
               <div className="text-[9px] uppercase leading-none tracking-[0.11em] text-muted-foreground sm:text-[10px]">Сегодня принято картофеля</div>
               <div className="mt-1 whitespace-nowrap text-base font-semibold leading-none tabular-nums text-[color:var(--manor-brass-soft)] sm:text-lg">{mass(receivedKg)}</div>
-              <div className="mt-1 truncate text-[10px] text-muted-foreground">Все поля компании</div>
+              <div className="mt-1 text-[10px] text-muted-foreground" title={summary.period.label}>Все поля · с {summary.period.operationalDayStartHour}:00 · без учтённой земли</div>
             </div>
             <div className="min-w-0 border-l border-border px-2 py-2 sm:px-3 sm:py-1">
-              <div className="text-[9px] uppercase leading-none tracking-[0.08em] text-muted-foreground sm:text-[10px]">С выбранного участка</div>
-              <div className="mt-1 whitespace-nowrap text-base font-semibold leading-none tabular-nums text-foreground sm:text-lg">{activeSelection ? mass(currentPlotAcceptedKg) : "—"}</div>
+              <div className="text-[9px] uppercase leading-none tracking-[0.08em] text-muted-foreground sm:text-[10px]">С выбранного участка · всего</div>
+              <div className="mt-1 whitespace-nowrap text-base font-semibold leading-none tabular-nums text-foreground sm:text-lg">{activeSelection ? mass(selectedPlotTotalAcceptedKg) : "—"}</div>
               <div className="mt-1 truncate text-[10px] text-muted-foreground" title={currentPlotIdentity}>{activeSelection ? currentPlotIdentity : "Комбайнёр должен выбрать участок"}</div>
             </div>
             <div className="min-w-0 border-t border-border py-2 pr-2 sm:border-l sm:border-t-0 sm:px-3 sm:py-1">
@@ -415,7 +408,8 @@ export function HarvestDashboard() {
             <button type="button" onClick={() => setCalculatorOpen((value) => !value)} className="min-h-9 min-w-0 border-l border-t border-border px-2 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:border-t-0 sm:px-3 sm:py-1">
               <div className="text-[9px] uppercase leading-none tracking-[0.08em] text-muted-foreground sm:text-[10px]">Живая урожайность</div>
               <div className={`mt-1 leading-none tabular-nums text-foreground ${liveYieldTonnes == null ? "text-xs font-medium sm:text-sm" : "whitespace-nowrap text-sm font-semibold sm:text-lg"}`}>{liveYieldTonnes == null ? "Недостаточно данных" : `${liveYieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div>
-              <div className="mt-1 truncate text-[10px] text-muted-foreground" title={liveYieldNote}>{liveYieldNote}</div>
+              <div className="mt-1 text-[10px] text-muted-foreground" title={liveYieldNote}>{liveYieldNote}</div>
+              {selectedPlot?.latestShiftAreaHa != null ? <div className="mt-1 text-[10px] text-muted-foreground">Последняя смена на участке: {selectedPlot.latestShiftAreaHa.toLocaleString("ru-RU")} га</div> : null}
             </button>
           </section>
 
@@ -423,13 +417,25 @@ export function HarvestDashboard() {
             <section className="grid max-w-md grid-cols-[minmax(0,1fr)_minmax(112px,.8fr)] items-end gap-3 rounded-lg bg-card px-3 py-2.5 shadow-manor-sm" aria-label="Калькулятор урожайности">
               <h3 className="col-span-2 text-xs font-semibold text-foreground">Калькулятор урожайности</h3>
               <label className="text-[11px] text-muted-foreground">Убрано, га
-                <Input inputMode="decimal" value={harvestedHectares} onChange={(event) => setHarvestedHectares(event.target.value)} placeholder={fieldHectares ? `По участку: ${fieldHectares.toLocaleString("ru-RU")}` : "Например, 2,4"} className="mt-1 h-9" />
+                <Input inputMode="decimal" value={harvestedHectares} onChange={(event) => setHarvestedHectares(event.target.value)} placeholder={selectedPlot?.harvestedAreaHa ? `Подтверждено: ${selectedPlot.harvestedAreaHa.toLocaleString("ru-RU")}` : "Например, 2,4"} className="mt-1 h-9" />
               </label>
                <div className="min-w-0"><div className="text-[11px] text-muted-foreground">Урожайность</div><div className="mt-1 truncate text-lg font-semibold tabular-nums text-[color:var(--manor-brass-soft)]">{manualYieldTonnes == null ? "—" : `${manualYieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div></div>
             </section>
           ) : null}
 
         </>
+      ) : null}
+
+      {summary?.weighbridgeShifts?.length ? (
+        <details className="rounded-lg border border-border px-3 py-2" aria-label="Итоги смен весовой">
+          <summary className="cursor-pointer text-xs font-medium">Смены весовой · {summary.weighbridgeShifts[0].status === "open" ? "текущая смена открыта" : "смена закрыта"}</summary>
+          <div className="mt-2 space-y-2">
+            {summary.weighbridgeShifts.map((shift) => <div key={shift.id} className="border-t border-border pt-2 text-xs">
+              <div>{new Date(shift.opened_at).toLocaleString("ru-RU", { timeZone: "Asia/Qyzylorda" })} — {shift.closed_at ? new Date(shift.closed_at).toLocaleString("ru-RU", { timeZone: "Asia/Qyzylorda" }) : "идёт сейчас"}</div>
+              {shift.summary_json?.version === "weighbridge_shift_snapshot_v1" ? <div className="mt-1 text-muted-foreground">Зафиксировано: картофель без учтённой земли {mass(Number(shift.summary_json.potatoCleanKg || 0))} · по талонам {mass(Number(shift.summary_json.potatoNetKg || 0))} · закрыто талонов {shift.summary_json.closedTicketCount}. Поздние операции меняют живую сводку, но не этот снимок.</div> : <div className="mt-1 text-muted-foreground">{shift.status === "open" ? "Весовщик закроет смену — система сохранит итог автоматически." : "Смена закрыта ранее без сохранённого отчёта. Итог не реконструируется задним числом."}</div>}
+            </div>)}
+          </div>
+        </details>
       ) : null}
 
       {canReadTraffic ? (
@@ -454,7 +460,7 @@ export function HarvestDashboard() {
       ) : null}
 
       {driverError ? <div className="border-l-2 border-rose-400 px-3 py-2 text-sm text-rose-700">{driverError}</div> : null}
-      {driverSummary ? <PotatoDriverSummary rows={driverSummary.potatoDrivers} totalWeightKg={driverSummary.potatoAcceptedKg} periodLabel={driverSummary.period.label} onRefresh={refreshDrivers} refreshing={driverLoading} /> : driverLoading ? <section className="flex min-h-32 items-center justify-center rounded-xl border border-border bg-card/40 text-sm text-muted-foreground" aria-label="Загрузка рейтинга за сезон"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка рейтинга за сезон...</section> : null}
+      {driverSummary ? <PotatoDriverSummary rows={driverSummary.potatoDrivers} totalWeightKg={driverSummary.potatoDrivers.reduce((sum, row) => sum + row.netWeightKg, 0)} periodLabel={driverSummary.period.label} onRefresh={refreshDrivers} refreshing={driverLoading} /> : driverLoading ? <section className="flex min-h-32 items-center justify-center rounded-xl border border-border bg-card/40 text-sm text-muted-foreground" aria-label="Загрузка рейтинга за сезон"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка рейтинга за сезон...</section> : null}
       {companyId ? <HarvestDaySummary key={companyId} companyId={companyId} /> : null}
 
       {profile && ["agronomist", "director"].includes(profile.role) && profile.company_id ? (
