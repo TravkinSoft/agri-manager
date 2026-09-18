@@ -93,11 +93,14 @@ function harness(role: model.TrafficRole, input = vehicles, options: {
   canManage?: boolean;
   fleet?: FleetVehicle[];
   released?: boolean;
+  shiftOpen?: boolean;
 } = {}) {
   const snapshot: model.TrafficSnapshot = {
     role, companyId: "company-a", personName: "", enabled: true, fieldId: null, fieldName: null, serverTime: "2026-09-04T10:08:00Z",
     vehicles: model.visibleVehicles(input, role), events: [],
-    combineShift: { id: "qa-shift", operatorName: "QA", status: "open", openedAt: "2026-09-04T07:00:00Z", closedAt: null, cropStructureId: "qa-plot", hectaresShift: null, hectaresFieldTotal: null },
+    combineShift: options.shiftOpen === false
+      ? { id: "qa-shift", operatorName: "QA", status: "closed", openedAt: "2026-09-04T07:00:00Z", closedAt: "2026-09-04T10:00:00Z", cropStructureId: "qa-plot", hectaresShift: 3, hectaresFieldTotal: 3 }
+      : { id: "qa-shift", operatorName: "QA", status: "open", openedAt: "2026-09-04T07:00:00Z", closedAt: null, cropStructureId: "qa-plot", hectaresShift: null, hectaresFieldTotal: null },
   };
   const state: any[] = [], refs: any[] = [], calls: any[] = [], commits: any[] = [], managedVehicles: string[] = [];
   const requests: ReturnType<typeof deferred<model.TrafficCommit>>[] = [];
@@ -333,6 +336,16 @@ async function main() {
     performSwipe(cardNodes(exactLegacyThreshold.render())[0], { width: 200, dx: 140 });
     await flush();
     check(exactLegacyThreshold.calls.length, 1);
+  }
+
+  {
+    const closedHarvester = harness("harvester", [vehicles[1]], { shiftOpen: false });
+    const closedTree = closedHarvester.render();
+    const closedCard = cardNodes(closedTree)[0];
+    check(Boolean(closedCard), true);
+    check(closedCard.props.disabled, true);
+    check(words(closedCard).includes("Свайп вправо"), false);
+    check(nodes(closedTree).some(node => String(node.props?.["data-testid"] || "").startsWith("traffic-swipe-track-")), false);
   }
 
   const movingManager = harness("manager", [vehicles[1]]);

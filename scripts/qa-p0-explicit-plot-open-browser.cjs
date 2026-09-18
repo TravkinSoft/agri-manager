@@ -17,6 +17,7 @@ async function main() {
     import React from "react";
     import { createRoot } from "react-dom/client";
     import { TrafficShiftControls } from "./components/traffic/traffic-shift-controls";
+    import { TrafficBoard } from "./components/traffic/traffic-board";
 
     window.shiftCalls = [];
     const snapshot = {
@@ -34,9 +35,15 @@ async function main() {
       combineBreakdowns: [],
     };
 
-    createRoot(document.getElementById("root")).render(
+    const closedSnapshot = {
+      ...snapshot,
+      vehicles: [{ vehicle_id: "car-closed", name: "КамАЗ", plate: "244 AP 15", driver: "Кабия Жастлек Берикулы", state: "empty", version: 1, since: new Date().toISOString(), cycle: 1, assigned: true }],
+      combineShift: { id: "closed-shift", operatorName: "Комбайнёр", status: "closed", openedAt: "2026-09-17T01:57:00Z", closedAt: "2026-09-17T18:44:00Z", cropStructureId: "plot-28", hectaresShift: 8.34, hectaresFieldTotal: 8.34 },
+    };
+    createRoot(document.getElementById("root")).render(<>
       <TrafficShiftControls snapshot={snapshot} stale={false} refresh={async () => {}} onCommitted={async () => {}} />
-    );
+      <TrafficBoard snapshot={closedSnapshot} stale={false} error="" refresh={async () => {}} />
+    </>);
   `;
   const transport = `
     const plots = [
@@ -44,7 +51,7 @@ async function main() {
       { cropStructureId: "plot-28", fieldId: "field-28", fieldName: "28", cropName: "Картофель", varietyName: "Сорая", reproductionName: "1 р.", plannedAreaHa: 12, actualCompletedHa: 8.34, remainingAreaHa: 3.66, status: "active" },
     ];
     export async function trafficRequest(url, method, body) {
-      if (url === "/api/traffic/operator/plots" && method === "GET") return { plots };
+      if (url === "/api/traffic/operator/plots" && method === "GET") return { suggestedCropStructureId: "plot-28", plots };
       if (url === "/api/traffic/operator/shift" && method === "POST") {
         window.shiftCalls.push(body);
         return { ok: true };
@@ -74,6 +81,7 @@ async function main() {
   const config = req(path.join(root, "tailwind.config.ts")).default;
   config.content = [
     path.join(root, "components/traffic/traffic-shift-controls.tsx"),
+    path.join(root, "components/traffic/traffic-board.tsx"),
     path.join(root, "components/ui/dialog.tsx"),
   ];
   const css = (await postcss([tailwind(config)]).process(
@@ -95,8 +103,14 @@ async function main() {
     const pageErrors = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.goto(base);
+    const closedCard = page.getByTestId("traffic-vehicle-car-closed");
+    assert.equal(await closedCard.isDisabled(), true, "Закрытая смена должна блокировать карточку");
+    assert.equal((await closedCard.innerText()).includes("Свайп вправо"), false, "Подпись свайпа не должна просвечивать при закрытой смене");
+    assert.equal(await page.getByTestId("traffic-swipe-track-car-closed").count(), 0, "Скрытая свайп-подложка не должна существовать при закрытой смене");
     await page.getByRole("button", { name: "Управление сменой комбайнёра" }).click();
-    await page.getByRole("button", { name: "Открыть смену и выбрать участок" }).click();
+    const continueField28 = page.getByRole("button", { name: "Продолжить · поле 28" });
+    assert.equal(await continueField28.isEnabled(), true, "Последнее незавершённое поле должно открываться одним действием");
+    await page.getByRole("button", { name: "Выбрать другое поле" }).click();
     await page.waitForTimeout(300);
 
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "Форма не должна расширять мобильный экран");
@@ -115,9 +129,9 @@ async function main() {
 
     await field28.click();
     assert.equal(await field28.getAttribute("aria-pressed"), "true");
-    const selectedSubmit = page.getByRole("button", { name: "Открыть · поле 28" });
-    assert.equal(await selectedSubmit.isEnabled(), true);
-    await selectedSubmit.click();
+    await page.getByRole("button", { name: "Отмена" }).click();
+    await page.getByRole("button", { name: "Управление сменой комбайнёра" }).click();
+    await page.getByRole("button", { name: "Продолжить · поле 28" }).click();
     await page.waitForFunction(() => window.shiftCalls.length === 1);
     const call = await page.evaluate(() => window.shiftCalls[0]);
     assert.equal(call.action, "open");
@@ -129,7 +143,7 @@ async function main() {
     await new Promise((resolve) => server.close(resolve));
   }
 
-  console.log("Explicit plot browser PASS: blank initial selection, blocked submit, explicit field 28 payload; no hosted writes.");
+  console.log("Plot continuation browser PASS: field 28 offered directly, alternative list stays blank, direct payload uses only the server suggestion; no hosted writes.");
 }
 
 main().catch((error) => {

@@ -627,7 +627,10 @@ export function TrafficBoard({
           const target = nextState(snapshot.role, vehicle.state, vehicle.inRepair);
           const repairPhase = trafficRepairPhase(vehicle);
           const statusSince = trafficStatusSince(vehicle, snapshot.role);
-          const usesHarvesterSwipe = snapshot.role === "harvester" && target === "loaded";
+          // Never render the green swipe track under a disabled translucent
+          // card: its label otherwise shines through and overlaps vehicle text.
+          const usesHarvesterSwipe = snapshot.role === "harvester" && target === "loaded"
+            && harvesterShiftReady && !stale && snapshot.enabled;
           const pendingCommand = PTC_BOARD_V2
             ? pendingCommands.find(command => command.vehicle.vehicle_id === vehicle.vehicle_id)
             : undefined;

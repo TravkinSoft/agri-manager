@@ -31,6 +31,7 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
   const [managingShift, setManagingShift] = useState(false);
   const [plotDialog, setPlotDialog] = useState<PlotDialogMode>(null);
   const [plots, setPlots] = useState<HarvestPlot[]>([]);
+  const [suggestedPlotId, setSuggestedPlotId] = useState("");
   const [selectedPlotId, setSelectedPlotId] = useState("");
   const [loadingPlots, setLoadingPlots] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -50,6 +51,10 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
     () => plots.find((plot) => plot.cropStructureId === selectedPlotId) || null,
     [plots, selectedPlotId],
   );
+  const continuationPlot = useMemo(
+    () => plots.find((plot) => plot.cropStructureId === suggestedPlotId && plot.status !== "completed") || null,
+    [plots, suggestedPlotId],
+  );
   const currentFieldName = currentPlot?.fieldName || snapshot.fieldName;
 
   const loadPlots = useCallback(async () => {
@@ -57,6 +62,7 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
     try {
       const payload = await trafficRequest("/api/traffic/operator/plots", "GET");
       setPlots(Array.isArray(payload?.plots) ? payload.plots : []);
+      setSuggestedPlotId(typeof payload?.suggestedCropStructureId === "string" ? payload.suggestedCropStructureId : "");
     } catch (caught) {
       setError((caught as Error).message);
     } finally {
@@ -119,9 +125,9 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
   }
 
   function beginPlotDialog(mode: Exclude<PlotDialogMode, null>) {
-    // Opening the dialog must never silently choose the first plot. The plot
-    // becomes operational context for the whole shift and every dispatched
-    // vehicle, so the combine operator has to make an explicit choice.
+    // Choosing a different plot must never silently choose the first row. A
+    // server-confirmed unfinished plot is continued by the separate primary
+    // action; this dialog is only for an intentional override.
     setSelectedPlotId("");
     setManagingShift(false);
     setPlotDialog(mode);
@@ -191,7 +197,7 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
               {open ? "Смена открыта" : "Смена закрыта"}
             </span>
             <span className="mt-0.5 block truncate text-sm font-semibold text-foreground">
-              {needsPlot ? "Выберите участок" : open ? currentFieldName ? `Поле ${currentFieldName}` : "Участок выбран" : "Открыть смену"}
+              {needsPlot ? "Выберите участок" : open ? currentFieldName ? `Поле ${currentFieldName}` : "Участок выбран" : continuationPlot ? `Продолжить поле ${continuationPlot.fieldName}` : "Открыть смену"}
             </span>
             {open && currentPlot ? (
               <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
@@ -240,7 +246,10 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
                         : "Подробности участка обновляются…"}</p>
                     </>
                   ) : (
-                    <p className="mt-2 text-sm text-muted-foreground">Чтобы отправлять машины, откройте смену и явно выберите участок.</p>
+                    continuationPlot ? <>
+                      <p className="mt-2 text-lg font-semibold text-foreground">Продолжить поле {continuationPlot.fieldName}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{[continuationPlot.cropName, continuationPlot.varietyName, continuationPlot.reproductionName].filter(Boolean).join(" · ")} · сделано {continuationPlot.actualCompletedHa} из {continuationPlot.plannedAreaHa} га</p>
+                    </> : <p className="mt-2 text-sm text-muted-foreground">Чтобы отправлять машины, откройте смену и выберите фактический участок.</p>
                   )}
                 </div>
                 {open ? (
@@ -296,14 +305,33 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
                 </button>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={() => beginPlotDialog("open")}
-                disabled={busy || loadingPlots || !selectablePlots.length}
-                className="flex min-h-[58px] w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 font-semibold text-primary-foreground disabled:opacity-45"
-              >
-                <Play aria-hidden size={18} /> Открыть смену и выбрать участок
-              </button>
+              <div className="space-y-2">
+                {continuationPlot ? (
+                  <button
+                    type="button"
+                    onClick={() => void commit({ action: "open", cropStructureId: continuationPlot.cropStructureId })}
+                    disabled={busy || loadingPlots}
+                    className="flex min-h-[58px] w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 font-semibold text-primary-foreground disabled:opacity-45"
+                  >
+                    <Play aria-hidden size={18} /> {busy ? "Открываем…" : `Продолжить · поле ${continuationPlot.fieldName}`}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => beginPlotDialog("open")}
+                    disabled={busy || loadingPlots || !selectablePlots.length}
+                    className="flex min-h-[58px] w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 font-semibold text-primary-foreground disabled:opacity-45"
+                  >
+                    <Play aria-hidden size={18} /> Открыть смену и выбрать участок
+                  </button>
+                )}
+                {continuationPlot && selectablePlots.length > 1 ? (
+                  <button type="button" onClick={() => beginPlotDialog("open")} disabled={busy || loadingPlots}
+                    className="min-h-[48px] w-full rounded-xl border border-border px-4 text-sm font-medium text-foreground disabled:opacity-45">
+                    Выбрать другое поле
+                  </button>
+                ) : null}
+              </div>
             )}
 
             {loadingPlots ? <p role="status" className="text-center text-xs text-muted-foreground">Загружаем участки…</p> : null}
@@ -316,7 +344,9 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
         <DialogContent className="w-[calc(100%-1.5rem)] max-w-xl rounded-2xl p-0">
           <DialogHeader className="border-b border-border px-5 pb-4 pt-5 text-left sm:px-6">
             <DialogTitle>{plotDialog === "open" ? "Открыть смену" : needsPlot ? "Выбрать текущий участок" : "Перейти на другое поле"}</DialogTitle>
-            <DialogDescription>Ничего не подставляется автоматически. Нажмите на тот участок, где комбайн работает фактически.</DialogDescription>
+            <DialogDescription>{plotDialog === "open" && continuationPlot
+              ? `Поле ${continuationPlot.fieldName} уже предложено для продолжения. Здесь можно выбрать другое фактическое поле.`
+              : "Нажмите на тот участок, где комбайн работает фактически."}</DialogDescription>
           </DialogHeader>
           <form onSubmit={submitPlot} className="space-y-4 px-5 pb-5 sm:px-6 sm:pb-6">
             {plotDialog === "switch" && !needsPlot ? <>
