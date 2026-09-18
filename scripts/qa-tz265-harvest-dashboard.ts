@@ -641,6 +641,7 @@ check("yield calculator uses cumulative exact plot mass and confirmed area, neve
   assert.match(dashboardUi, /selectedPlotTotalAcceptedKg \/ 1000 \/ hectares/);
   assert.doesNotMatch(dashboardUi, /selectedPartyStockKg/);
   assert.match(dashboardUi, /selectedPlot\?\.harvestedAreaHa/);
+  assert.match(dashboardUi, /selectedPlot\?\.areaPending \? null : selectedPlot\?\.harvestedAreaHa/);
   assert.match(dashboardUi, /Убрано, га/);
 });
 check("live yield uses exact accepted mass and shift hectares only when plot ownership is verified", () => {

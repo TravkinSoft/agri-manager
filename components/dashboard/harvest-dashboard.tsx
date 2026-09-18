@@ -308,7 +308,9 @@ export function HarvestDashboard() {
   const selectedPlotStatus = selectedPlot?.status === "completed" ? "Завершено" : selectedPlot?.status === "paused" ? "Приостановлено" : "В работе";
   const selectedPlotStatusActive = selectedPlot ? selectedPlot.status === "active" : shiftIsOpen;
   const enteredHectares = Number(harvestedHectares.replace(",", "."));
-  const hectares = harvestedHectares.trim() ? (Number.isFinite(enteredHectares) && enteredHectares > 0 ? enteredHectares : null) : selectedPlot?.harvestedAreaHa;
+  const hectares = harvestedHectares.trim()
+    ? (Number.isFinite(enteredHectares) && enteredHectares > 0 ? enteredHectares : null)
+    : selectedPlot?.areaPending ? null : selectedPlot?.harvestedAreaHa;
   const manualYieldTonnes = hectares && hectares > 0 ? selectedPlotTotalAcceptedKg / 1000 / hectares : null;
   const liveYieldTonnes = selectedPlot?.yieldTPerHa ?? (!selectedPlot ? summary?.currentPlotYieldTPerHa ?? null : null);
   const liveYieldNote = selectedPlot?.harvestedAreaHa
