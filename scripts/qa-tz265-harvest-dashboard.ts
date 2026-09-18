@@ -690,5 +690,10 @@ check("clean summary excludes soil without reducing driver net or using warehous
   assert.equal(clean.potatoAcceptedKg, 8000);
   assert.equal(clean.potatoDrivers.reduce((sum, row) => sum + row.netWeightKg, 0), 10000);
 });
+check("weighbridge exposes its shift close dialog without extra data entry", () => {
+  const weighbridgeUi = readFileSync(resolve(root, "app/(dashboard)/weighbridge/page.tsx"), "utf8");
+  assert.match(weighbridgeUi, /canUseOperatorSession && activeShift[\s\S]*?onClick=\{\(\) => setShiftDialogOpen\(true\)\}/);
+  assert.match(weighbridgeUi, /Закрыть смену и сохранить итог/);
+});
 console.log(`TZ265 PASS ${checks.length}/${checks.length}`);
 for (const name of checks) console.log(`PASS ${name}`);

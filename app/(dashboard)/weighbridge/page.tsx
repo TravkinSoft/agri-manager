@@ -5870,6 +5870,20 @@ export default function WeighbridgeOperationsPage() {
       aria-hidden={operatorGateBlocked ? true : undefined}
       className={`tf-estate-weighbridge w-full space-y-2 pb-4 ${operatorGateBlocked ? "pointer-events-none select-none blur-sm opacity-35" : ""}`}
     >
+      {canUseOperatorSession && activeShift ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+          <span className="text-xs text-muted-foreground">Весовщик: {operatorState.operator?.name || "Выберите весовщика"} · смена открыта</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setShiftDialogOpen(true)}
+            disabled={submitting || finalizing || ticketCloseLocked || shiftClosing}
+          >
+            Закрыть смену
+          </Button>
+        </div>
+      ) : null}
       <UniversalWorkspaceTabs
         tabs={workspaceTabs}
         selectedId={selectedWorkspaceId}
