@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { mergeWeighbridgeTransportCatalog } from "../lib/weighbridge/transport";
+import {
+  mergeWeighbridgeTransportCatalog,
+  transportPickerOptionLabel,
+} from "../lib/weighbridge/transport";
 import { isPtcEligibleReferenceVehicle } from "../lib/traffic/vehicle-eligibility";
 import { preferredDriverForVehicle } from "../lib/weighbridge/transport-pairing";
 
@@ -34,6 +37,12 @@ check("canonical fleet card keeps its plate and hides only the linked technical 
   );
   assert.deepEqual(catalog.map((row) => row.id), ["vehicle-howo", "vehicle-kamaz", "machine-unlinked"]);
   assert.equal((catalog[0] as { plate: string }).plate, "754");
+});
+
+check("short PTC fleet numbers stay visible in the weighbridge picker", () => {
+  assert.equal(transportPickerOptionLabel({ name: "HOWO", plate: "754" }), "HOWO · 754");
+  assert.equal(transportPickerOptionLabel({ name: "SHACMAN", plate: "683" }), "SHACMAN · 683");
+  assert.equal(transportPickerOptionLabel({ name: "ЗИЛ", plate: "665" }), "ЗИЛ · 665");
 });
 
 check("vehicle choice suggests the latest completed-ticket driver but remains editable", () => {

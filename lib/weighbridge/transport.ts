@@ -112,6 +112,10 @@ export function isRealVehiclePlate(value: unknown) {
   const plate = String(value || "").trim();
   if (!plate || INVALID_PLATE_PATTERNS.some((pattern) => pattern.test(plate))) return false;
   const compact = plate.replace(/[^\p{L}\p{N}]+/gu, "");
+  // PTC also uses short, stable fleet numbers (for example 754, 683 and 665)
+  // as the operator-facing vehicle identifier. They are stored explicitly in
+  // plate_number/license_plate and must stay visible in the weighbridge picker.
+  if (/^\d{3}$/u.test(compact)) return true;
   return compact.length >= 4 && /\d/u.test(compact);
 }
 
