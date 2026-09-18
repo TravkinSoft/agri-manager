@@ -61,28 +61,31 @@ check("background business reconciliation remains behind canonical unlock", () =
 });
 
 check("default destination is isolated by company and workstation", () => {
-  assert.match(workspace, /travkin\.weighbridge\.defaultDestination\.v1\.\$\{company\}\.\$\{workstation\}/);
+  assert.match(workspace, /travkin\.weighbridge\.defaultDestination\.v2\.\$\{company\}\.\$\{workstation\}/);
   assert.match(page, /getWeighbridgeDefaultDestinationId[\s\S]*?profile\.company_id,[\s\S]*?workstationId/);
 });
 
-check("only an active YARD is eligible for automatic default", () => {
-  assert.match(page, /warehouses\.filter\(\(warehouse\) => warehouse\.placeType === "YARD"\)/);
-  assert.match(page, /yards\.length === 1 \? yards\[0\] : null/);
+check("legacy destination is not silently reused", () => {
+  assert.doesNotMatch(workspace, /defaultDestination\.v1/);
+  assert.doesNotMatch(page, /yards\.length === 1 \? yards\[0\] : null/);
 });
 
-check("operator can override destination without changing terminal default", () => {
-  assert.match(page, /onValueChange=\{\(warehouseToId\) => setForm/);
+check("operator destination change requires confirmation and updates terminal lock", () => {
+  assert.match(page, /const changeHarvestDestination = async/);
+  assert.match(page, /title: currentWarehouse \? "Сменить место приёмки\?" : "Зафиксировать место приёмки\?"/);
+  assert.match(page, /setWeighbridgeDefaultDestinationId\(/);
+  assert.match(page, /workspace\.form\.operationType === "harvest_incoming"[\s\S]*?warehouseToId: nextWarehouse\.id/);
   const harvestPicker = page.slice(page.indexOf("<Label>Место приёмки *"), page.indexOf("isImpurityRemoval", page.indexOf("<Label>Место приёмки *")));
-  assert.doesNotMatch(harvestPicker, /setWeighbridgeDefaultDestinationId/);
+  assert.match(harvestPicker, /changeHarvestDestination\(warehouseToId\)/);
+  assert.match(harvestPicker, /Смена — только вручную с подтверждением/);
 });
 
-check("automatic YARD does not make an otherwise empty form dirty", () => {
+check("locked destination does not make an otherwise empty form dirty", () => {
   const switchHandler = page.slice(
     page.indexOf("const selectOperation = async"),
     page.indexOf("const validate =", page.indexOf("const selectOperation = async"))
   );
-  assert.match(switchHandler, /automaticHarvestDestinationId/);
-  assert.match(switchHandler, /automaticHarvestDestinationId === form\.warehouseToId[\s\S]*?warehouseToId: ""/);
+  assert.match(switchHandler, /harvestDestinationLockRef\.current === form\.warehouseToId[\s\S]*?warehouseToId: ""/);
   assert.match(switchHandler, /isUniversalWorkspaceDirty\(dirtyCheckForm, INITIAL_FORM/);
 });
 

@@ -14,6 +14,7 @@
     "qa:fields-map:matching": "npx --no-install tsx scripts/qa-fields-map-matching.ts",
     "qa:fields-map:stem": "npx --no-install tsx scripts/qa-fields-map-stem-archive.ts",
     "typecheck": "tsc --noEmit --incremental false",
+    "qa:p0:weighbridge-destination-lock": "npx --no-install tsx scripts/qa-p0-weighbridge-destination-lock.ts",
     "qa:tz239": "npx tsx scripts/qa-tz239-simplified-issue.ts",
     "qa:tz240": "npx --no-install tsx scripts/qa-tz240-fallow-operations.ts",
     "qa:tz241": "npx --no-install tsx scripts/qa-tz241-crops-varieties.ts",

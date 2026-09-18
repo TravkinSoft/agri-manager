@@ -76,6 +76,7 @@ import {
 import {
   UNIVERSAL_WORKSPACE_MAX_TABS,
   UNIVERSAL_WORKSPACE_SCHEMA_VERSION,
+  clearWeighbridgeDefaultDestinationId,
   createUniversalWorkspace,
   getWeighbridgeDefaultDestinationId,
   getWeighbridgeWorkstationId,
@@ -1079,6 +1080,8 @@ export default function WeighbridgeOperationsPage() {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("workspace-default");
   const [workspaceHydratedKey, setWorkspaceHydratedKey] = useState("");
   const [workstationId, setWorkstationId] = useState("");
+  const harvestDestinationLockRef = useRef("");
+  const [lockedHarvestDestinationId, setLockedHarvestDestinationId] = useState("");
   const [pendingOpenTicket, setPendingOpenTicket] = useState<WeighbridgeTicket | null>(null);
   const [activeTicket, setActiveTicket] = useState<WeighbridgeTicket | null>(null);
   const [closingTare, setClosingTare] = useState("");
@@ -2535,43 +2538,12 @@ export default function WeighbridgeOperationsPage() {
   }, []);
 
   useEffect(() => {
-    if (
-      typeof window === "undefined"
-      || !workspaceReady
-      || !profile?.company_id
-      || !workstationId
-      || form.operationType !== "harvest_incoming"
-      || form.warehouseToId
-    ) return;
-
-    const yards = warehouses.filter((warehouse) => warehouse.placeType === "YARD");
-    if (yards.length === 0) return;
-    const savedDefaultId = getWeighbridgeDefaultDestinationId(
-      window.localStorage,
-      profile.company_id,
-      workstationId
-    );
-    const savedYard = yards.find((warehouse) => warehouse.id === savedDefaultId);
-    const defaultYard = savedYard || (yards.length === 1 ? yards[0] : null);
-    if (!defaultYard) return;
-    if (!savedYard) {
-      setWeighbridgeDefaultDestinationId(
-        window.localStorage,
-        profile.company_id,
-        workstationId,
-        defaultYard.id
-      );
-    }
-    setForm((current) => current.operationType === "harvest_incoming" && !current.warehouseToId
-      ? { ...current, warehouseToId: defaultYard.id }
-      : current);
-  }, [workspaceReady, profile?.company_id, workstationId, form.operationType, form.warehouseToId, warehouses]);
-
-  useEffect(() => {
     setActiveHarvestSeasonId(null);
     setActiveHarvestSeasonYear(null);
     setHarvestAllocationsReady(false);
     setWorkspaceHydratedKey("");
+    harvestDestinationLockRef.current = "";
+    setLockedHarvestDestinationId("");
   }, [profile?.company_id]);
 
   useEffect(() => {
@@ -2593,11 +2565,24 @@ export default function WeighbridgeOperationsPage() {
       INITIAL_FORM
     );
     const fallback = createEmptyWorkspace("harvest_incoming", "workspace-default");
-    const nextState = migrated || {
+    const restoredState = migrated || {
       version: UNIVERSAL_WORKSPACE_SCHEMA_VERSION,
       selectedId: fallback.id,
       workspaces: [fallback],
       migratedLegacyHarvest: false,
+    };
+    const lockedDestinationId = getWeighbridgeDefaultDestinationId(
+      localStorage,
+      profile?.company_id,
+      workstationId
+    );
+    harvestDestinationLockRef.current = lockedDestinationId;
+    setLockedHarvestDestinationId(lockedDestinationId);
+    const nextState = {
+      ...restoredState,
+      workspaces: restoredState.workspaces.map((workspace) => workspace.form.operationType === "harvest_incoming"
+        ? { ...workspace, form: { ...workspace.form, warehouseToId: lockedDestinationId } }
+        : workspace),
     };
     const selected = nextState.workspaces.find((workspace) => workspace.id === nextState.selectedId)
       || nextState.workspaces[0];
@@ -2614,7 +2599,7 @@ export default function WeighbridgeOperationsPage() {
     }
     hydratedWorkspaceKeyRef.current = universalWorkspacePersistKey;
     setWorkspaceHydratedKey(universalWorkspacePersistKey);
-  }, [universalWorkspacePersistKey, legacyHarvestDraftPersistKey]);
+  }, [universalWorkspacePersistKey, legacyHarvestDraftPersistKey, profile?.company_id, workstationId]);
 
   useEffect(() => {
     if (!universalWorkspacePersistKey || workspaceHydratedKey !== universalWorkspacePersistKey) return;
@@ -2644,6 +2629,44 @@ export default function WeighbridgeOperationsPage() {
     }, 80);
     return () => window.clearTimeout(timer);
   }, [universalWorkspacePersistKey, workspaceHydratedKey, selectedWorkspaceId, workspaces]);
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined"
+      || !workspaceReady
+      || !coreDataReady
+      || !profile?.company_id
+      || !workstationId
+      || !lockedHarvestDestinationId
+      || warehouses.some((warehouse) => warehouse.id === lockedHarvestDestinationId)
+    ) return;
+    clearWeighbridgeDefaultDestinationId(
+      window.localStorage,
+      profile.company_id,
+      workstationId
+    );
+    harvestDestinationLockRef.current = "";
+    setLockedHarvestDestinationId("");
+    setForm((current) => current.operationType === "harvest_incoming"
+      ? { ...current, warehouseToId: "" }
+      : current);
+    setWorkspaces((current) => current.map((workspace) => workspace.form.operationType === "harvest_incoming"
+      ? { ...workspace, form: { ...workspace.form, warehouseToId: "" } }
+      : workspace));
+    toast({
+      title: "Место приёмки нужно выбрать заново",
+      description: "Ранее зафиксированный склад больше недоступен.",
+      variant: "destructive",
+    });
+  }, [
+    workspaceReady,
+    coreDataReady,
+    profile?.company_id,
+    workstationId,
+    lockedHarvestDestinationId,
+    warehouses,
+    toast,
+  ]);
 
   const stockSourcePlaceType = warehouses.find((warehouse) => warehouse.id === form.warehouseFromId)?.placeType || "";
 
@@ -3351,8 +3374,11 @@ export default function WeighbridgeOperationsPage() {
   ]);
 
   const activateWorkspace = (workspace: WeighbridgeWorkspace) => {
+    const nextForm = workspace.form.operationType === "harvest_incoming"
+      ? { ...workspace.form, warehouseToId: harvestDestinationLockRef.current }
+      : workspace.form;
     setSelectedWorkspaceId(workspace.id);
-    setForm(workspace.form);
+    setForm(nextForm);
     setSupplierReceiptLines(workspace.supplierReceiptLines || []);
     setShowSupplierExtraFields(workspace.showSupplierExtraFields === true);
     setClosingTare("");
@@ -3379,7 +3405,10 @@ export default function WeighbridgeOperationsPage() {
       toast({ title: "Можно открыть не более 6 рабочих вкладок." });
       return;
     }
-    const next = createEmptyWorkspace(operationType);
+    const created = createEmptyWorkspace(operationType);
+    const next = operationType === "harvest_incoming"
+      ? { ...created, form: { ...created.form, warehouseToId: harvestDestinationLockRef.current } }
+      : created;
     setWorkspaces((current) => [
       ...current.map((workspace) => workspace.id === selectedWorkspaceId
         ? { ...workspace, form, supplierReceiptLines, showSupplierExtraFields }
@@ -3535,6 +3564,47 @@ export default function WeighbridgeOperationsPage() {
     });
   }, [workspaceReady, coreDataReady, form.operationType, form.vehicleId, form.driverId, form.grossKg, form.ptcEventId, ptcQueue, harvestStructureByField]);
 
+  const changeHarvestDestination = async (warehouseToId: string) => {
+    const nextWarehouse = warehouses.find((warehouse) =>
+      warehouse.id === warehouseToId
+      && isHarvestDestinationPlace(warehouse.warehouseType, warehouse.placeType)
+    ) || null;
+    if (!nextWarehouse) return false;
+    const currentWarehouseId = harvestDestinationLockRef.current || form.warehouseToId;
+    if (currentWarehouseId === nextWarehouse.id) return true;
+    const currentWarehouse = warehouses.find((warehouse) => warehouse.id === currentWarehouseId) || null;
+    const confirmed = await siteConfirm({
+      title: currentWarehouse ? "Сменить место приёмки?" : "Зафиксировать место приёмки?",
+      description: currentWarehouse
+        ? `Все новые талоны этого терминала будут направляться: ${currentWarehouse.name} → ${nextWarehouse.name}. Самостоятельно склад больше не переключится.`
+        : `Все новые талоны этого терминала будут направляться в «${nextWarehouse.name}». Самостоятельно склад больше не переключится.`,
+      actionLabel: currentWarehouse ? "Сменить склад" : "Зафиксировать склад",
+    });
+    if (!confirmed) return false;
+
+    harvestDestinationLockRef.current = nextWarehouse.id;
+    setLockedHarvestDestinationId(nextWarehouse.id);
+    if (typeof window !== "undefined" && profile?.company_id && workstationId) {
+      setWeighbridgeDefaultDestinationId(
+        window.localStorage,
+        profile.company_id,
+        workstationId,
+        nextWarehouse.id
+      );
+    }
+    setForm((previous) => previous.operationType === "harvest_incoming"
+      ? { ...previous, warehouseToId: nextWarehouse.id }
+      : previous);
+    setWorkspaces((current) => current.map((workspace) => workspace.form.operationType === "harvest_incoming"
+      ? { ...workspace, form: { ...workspace.form, warehouseToId: nextWarehouse.id } }
+      : workspace));
+    toast({
+      title: "Место приёмки зафиксировано",
+      description: `${nextWarehouse.name}. Изменить можно только вручную с подтверждением.`,
+    });
+    return true;
+  };
+
   const setActiveHarvestForm = (route: ActiveHarvestRoute | null, clearTransient = false) => {
     setForm((previous) => ({
       ...previous,
@@ -3544,7 +3614,7 @@ export default function WeighbridgeOperationsPage() {
       cropId: route?.cropId || "",
       varietyId: route?.varietyId || "",
       reproductionId: route?.reproductionId || "",
-      warehouseToId: route?.warehouseId || "",
+      warehouseToId: harvestDestinationLockRef.current,
       ...(clearTransient ? { vehicleId: "", driverId: "", grossKg: "", notes: "" } : {}),
     }));
   };
@@ -3560,6 +3630,11 @@ export default function WeighbridgeOperationsPage() {
       });
       if (!confirmed) return;
     }
+    if (
+      route.warehouseId
+      && route.warehouseId !== harvestDestinationLockRef.current
+      && !(await changeHarvestDestination(route.warehouseId))
+    ) return;
     setSelectedActiveHarvestId(route.id);
     setActiveHarvestForm(route, true);
     setClosingTare("");
@@ -3672,6 +3747,11 @@ export default function WeighbridgeOperationsPage() {
       });
       if (!confirmed) return;
     }
+    if (
+      route.id === selectedActiveHarvestId
+      && warehouseId !== harvestDestinationLockRef.current
+      && !(await changeHarvestDestination(warehouseId))
+    ) return;
 
     const nextRoute: ActiveHarvestRoute = {
       ...route,
@@ -4318,23 +4398,7 @@ export default function WeighbridgeOperationsPage() {
   const selectOperation = async (operationType: OperationType) => {
     if (!workspaceReady || submittingRef.current || finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return false;
     if (operationType === form.operationType) return true;
-    const automaticHarvestDestinationId = (() => {
-      if (
-        typeof window === "undefined"
-        || form.operationType !== "harvest_incoming"
-        || !profile?.company_id
-        || !workstationId
-      ) return "";
-      const yards = warehouses.filter((warehouse) => warehouse.placeType === "YARD");
-      const savedDefaultId = getWeighbridgeDefaultDestinationId(
-        window.localStorage,
-        profile.company_id,
-        workstationId
-      );
-      const savedYard = yards.find((warehouse) => warehouse.id === savedDefaultId);
-      return savedYard?.id || (yards.length === 1 ? yards[0].id : "");
-    })();
-    const dirtyCheckForm = automaticHarvestDestinationId === form.warehouseToId
+    const dirtyCheckForm = harvestDestinationLockRef.current === form.warehouseToId
       ? { ...form, warehouseToId: "" }
       : form;
     if (isUniversalWorkspaceDirty(dirtyCheckForm, INITIAL_FORM, supplierReceiptLines.length)) {
@@ -4347,7 +4411,13 @@ export default function WeighbridgeOperationsPage() {
     }
     setSupplierReceiptLines([]);
     setShowSupplierExtraFields(false);
-    setForm({ ...INITIAL_FORM, operationType });
+    setForm({
+      ...INITIAL_FORM,
+      operationType,
+      warehouseToId: operationType === "harvest_incoming"
+        ? harvestDestinationLockRef.current
+        : "",
+    });
     return true;
   };
 
@@ -4377,6 +4447,9 @@ export default function WeighbridgeOperationsPage() {
       }
       if (!form.warehouseToId) {
         return "Выберите склад назначения";
+      }
+      if (form.warehouseToId !== harvestDestinationLockRef.current) {
+        return "Место приёмки не подтверждено. Выберите склад вручную ещё раз";
       }
       if (!fieldHarvestOptions.some((x) => x.allocationId === form.cropStructureAllocationId)) {
         return "Выбранная посевная строка не связана с этим полем";
@@ -6016,13 +6089,18 @@ export default function WeighbridgeOperationsPage() {
                         group: storagePlaceTypeGroupLabel(warehouse.placeType),
                         keywords: [warehouse.warehouseType, warehouse.placeType],
                       }))}
-                      onValueChange={(warehouseToId) => setForm((previous) => ({ ...previous, warehouseToId }))}
+                      onValueChange={(warehouseToId) => { void changeHarvestDestination(warehouseToId); }}
                       placeholder="Выберите место приёмки"
                       searchPlaceholder="Поиск места приёмки"
                       emptyLabel="Место приёмки не найдено"
                       ariaLabel="Место приёмки"
                       disabled={loading || submitting}
                     />
+                    <div className={lockedHarvestDestinationId ? "text-xs text-emerald-700" : "text-xs text-amber-800"}>
+                      {lockedHarvestDestinationId
+                        ? "Зафиксировано для всего терминала. Смена — только вручную с подтверждением."
+                        : "Выберите и подтвердите склад один раз. Автоматически он меняться не будет."}
+                    </div>
                   </div>
                 </div>
                 {harvestWarehouses.length === 0 ? (
