@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Check, ChevronRight, MapPin, Play, RefreshCw, Square, Wrench } from "lucide-react";
 import { stateAge, type TrafficSnapshot } from "@/lib/traffic/model";
+import { parseHectaresInput } from "@/lib/traffic/hectares-input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { trafficRequest } from "./use-traffic";
 
@@ -129,6 +130,7 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
     // server-confirmed unfinished plot is continued by the separate primary
     // action; this dialog is only for an intentional override.
     setSelectedPlotId("");
+    setError("");
     setManagingShift(false);
     setPlotDialog(mode);
   }
@@ -141,6 +143,21 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
 
   function confirmOutside(total: number, target: string) {
     return window.confirm(`Указано ${total} га при площади участка ${currentPlot?.plannedAreaHa || 0} га. Всё равно ${target}?`);
+  }
+
+  function readFieldHectares(form: FormData): number | null {
+    const total = parseHectaresInput(form.get("hectaresFieldTotal"));
+    if (total === null) {
+      setError("Укажите гектары числом: например, 8,3 или 8.34. Допустимо до 3 знаков после запятой, от 0 до 1 000 000 га.");
+      return null;
+    }
+    const alreadyCompleted = currentPlot?.actualCompletedHa ?? shift?.hectaresFieldTotal ?? 0;
+    if (total < alreadyCompleted) {
+      setError(`На этом поле уже учтено ${alreadyCompleted.toLocaleString("ru-RU")} га. Укажите общий итог по полю, включая предыдущие смены.`);
+      return null;
+    }
+    setError("");
+    return total;
   }
 
   function submitPlot(event: FormEvent<HTMLFormElement>) {
@@ -157,7 +174,8 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
       return;
     }
     const form = new FormData(event.currentTarget);
-    const hectaresFieldTotal = Number(form.get("hectaresFieldTotal"));
+    const hectaresFieldTotal = readFieldHectares(form);
+    if (hectaresFieldTotal === null) return;
     const fieldFinished = form.get("fieldFinished") === "on";
     const outside = shouldConfirmOutside(hectaresFieldTotal, fieldFinished);
     if (outside && !confirmOutside(hectaresFieldTotal, "завершить поле и перейти на другое")) return;
@@ -169,7 +187,8 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
     event.preventDefault();
     if (!shift || shift.status !== "open") return;
     const form = new FormData(event.currentTarget);
-    const hectaresFieldTotal = Number(form.get("hectaresFieldTotal"));
+    const hectaresFieldTotal = readFieldHectares(form);
+    if (hectaresFieldTotal === null) return;
     const fieldFinished = form.get("fieldFinished") === "on";
     const outside = shouldConfirmOutside(hectaresFieldTotal, fieldFinished);
     if (outside && !confirmOutside(hectaresFieldTotal, "завершить поле")) return;
@@ -292,7 +311,7 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setManagingShift(false); setClosing(true); }}
+                  onClick={() => { setError(""); setManagingShift(false); setClosing(true); }}
                   disabled={busy}
                   className="flex min-h-[58px] w-full items-center gap-3 rounded-2xl border border-border px-4 text-left hover:bg-accent/35 disabled:opacity-45"
                 >
@@ -355,10 +374,11 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
                 <p className="mt-1 text-base font-semibold text-foreground">{currentPlot ? `Поле ${currentPlot.fieldName} · ${currentPlot.varietyName}` : "Текущий участок"}</p>
               </section>
               <label className="block text-sm font-medium text-foreground">Сделано на текущем поле всего, га
-                <input name="hectaresFieldTotal" type="number" inputMode="decimal" min={currentPlot?.actualCompletedHa || 0} max="1000000" step="0.001" required
+                <input name="hectaresFieldTotal" type="text" inputMode="decimal" maxLength={18} required placeholder="Например, 8,3"
                   defaultValue={currentPlot?.actualCompletedHa ?? shift?.hectaresFieldTotal ?? 0}
                   className="mt-2 min-h-[48px] w-full rounded-xl border border-border bg-background px-3 text-base outline-none focus:border-amber-300" />
               </label>
+              <p className="text-xs text-muted-foreground">Всего по этому полю, включая предыдущие смены. Можно вводить через запятую или точку.</p>
               <label className="flex min-h-[48px] items-center gap-3 rounded-xl border border-border px-3 text-sm"><input name="fieldFinished" type="checkbox" className="h-5 w-5" /> Поле закончено</label>
             </> : null}
             <fieldset>
@@ -387,6 +407,7 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
                 })}
               </div>
             </fieldset>
+            {error ? <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</p> : null}
             <div className="grid grid-cols-2 gap-2 border-t border-border pt-4">
               <button type="button" disabled={busy} onClick={() => setPlotDialog(null)} className="min-h-[48px] rounded-xl border border-border disabled:opacity-50">Отмена</button>
               <button type="submit" disabled={busy || !selectedPlotId} className="min-h-[48px] rounded-xl bg-primary font-semibold text-primary-foreground disabled:opacity-50">
@@ -402,14 +423,16 @@ export function TrafficShiftControls({ snapshot, stale, refresh, onCommitted }: 
           <DialogHeader><DialogTitle>Закрыть смену</DialogTitle><DialogDescription>Укажите только общий фактический итог по полю. За смену система посчитает сама.</DialogDescription></DialogHeader>
           <form onSubmit={closeShift} className="space-y-4">
             <label className="block text-sm text-foreground">Сделано на поле всего, га
-              <input name="hectaresFieldTotal" type="number" inputMode="decimal" min={currentPlot?.actualCompletedHa || 0} max="1000000" step="0.001" required
+              <input name="hectaresFieldTotal" type="text" inputMode="decimal" maxLength={18} required placeholder="Например, 8,3"
                 defaultValue={currentPlot?.actualCompletedHa ?? shift?.hectaresFieldTotal ?? 0}
                 className="mt-2 min-h-[48px] w-full rounded-xl border border-border bg-background px-3 text-base outline-none focus:border-amber-300" />
             </label>
+            <p className="text-xs text-muted-foreground">Всего по этому полю, включая предыдущие смены. Можно вводить через запятую или точку.</p>
             <label className="flex min-h-[48px] items-center gap-3 rounded-xl border border-border px-3 text-sm"><input name="fieldFinished" type="checkbox" className="h-5 w-5" /> Поле закончено</label>
             {currentPlot ? <p className="text-xs text-muted-foreground">По структуре: {currentPlot.plannedAreaHa} га. Обычное отклонение: ±{Math.max(1, currentPlot.plannedAreaHa * 0.03).toFixed(1)} га.</p>
               : needsPlot ? <p className="text-xs text-amber-800">Это смена, открытая до обновления. Она закроется без изменения машин и рейсов.</p>
                 : <p className="text-xs text-muted-foreground">Параметры участка обновляются. Машины и рейсы при закрытии смены не изменяются.</p>}
+            {error ? <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</p> : null}
             <div className="grid grid-cols-2 gap-2">
               <button type="button" disabled={busy} onClick={() => setClosing(false)} className="min-h-[48px] rounded-xl border border-border disabled:opacity-50">Отмена</button>
               <button type="submit" disabled={busy} className="min-h-[48px] rounded-xl bg-primary font-semibold text-primary-foreground disabled:opacity-50">{busy ? "Сохраняем…" : "Закрыть смену"}</button>

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
+import { parseHectaresInput } from "../lib/traffic/hectares-input";
 
 let checks = 0;
 const equal = (actual: unknown, expected: unknown) => { assert.deepEqual(actual, expected); checks += 1; };
@@ -137,6 +138,25 @@ async function main() {
     [harvester, legacyShift, randomUUID()],
   )).rows[0].value;
   equal({ status: legacyClosed.status, shift: Number(legacyClosed.hectaresShift) }, { status: "closed", shift: 5 });
+
+  // Locale-safe form values keep fractional hectares through the SQL close and
+  // the next shift's delta, without changing vehicle states or creating trips.
+  const vehicleBeforeDecimals = (await db.query("select * from ptc_vehicle_states")).rows;
+  for (const [typedTotal, expectedDelta] of [["8,3", 3.3], ["8.34", 0.04]] as const) {
+    const continued = (await db.query<{ value: any }>(
+      "select ptc_set_combine_shift_v2($1,'open',null,$2,null,null,false,$3) value",
+      [harvester, structure2, randomUUID()],
+    )).rows[0].value;
+    const decimalClose = (await db.query<{ value: any }>(
+      "select ptc_set_combine_shift_v2($1,'close',$2,null,$3,false,false,$4) value",
+      [harvester, continued.shiftId, parseHectaresInput(typedTotal), randomUUID()],
+    )).rows[0].value;
+    equal(decimalClose.status, "closed");
+    equal(Number(decimalClose.hectaresFieldTotal), parseHectaresInput(typedTotal));
+    equal(Number(decimalClose.hectaresShift), expectedDelta);
+    equal((await db.query<any>("select actual_completed_ha::float8 as total from ptc_field_progress where crop_structure_id=$1", [structure2])).rows[0].total, parseHectaresInput(typedTotal));
+  }
+  equal((await db.query("select * from ptc_vehicle_states")).rows, vehicleBeforeDecimals);
 
   await db.exec("reset role");
   for (const role of ["anon", "authenticated"]) {
