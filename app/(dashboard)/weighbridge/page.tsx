@@ -52,6 +52,7 @@ import {
 import { HarvestAllocationPicker } from "@/components/weighbridge/active-harvest-tabs";
 import { UniversalWorkspaceTabs, type UniversalWorkspaceTab } from "@/components/weighbridge/universal-workspace-tabs";
 import { TransportDriverSelects } from "@/components/weighbridge/transport-driver-picker";
+import { OpenTicketCard } from "@/components/weighbridge/open-ticket-card";
 import { subscribeVehicleDriverAssignments } from "@/lib/vehicles/driver-assignment-client";
 import { ProcessingWorkspace } from "@/components/weighbridge/processing-workspace";
 import { isOpenProcessingWorkItem, processingMassSnapshot } from "@/lib/weighbridge/processing-work-state";
@@ -6583,56 +6584,18 @@ export default function WeighbridgeOperationsPage() {
               const driverName = driverNameForId(t.driver_id) || "Без водителя";
               const harvestRoute = activeHarvestForTicket(t);
               const harvestField = harvestRoute?.fieldName || fields.find((field) => field.id === t.field_id)?.name || t.field_name_snapshot || "Поле не указано";
-              const harvestIdentity = harvestIdentityLabel(
-                harvestRoute?.cropName || t.crop_name_snapshot || productSummary(t),
-                harvestRoute?.varietyName || t.variety_name_snapshot,
-                harvestRoute?.reproductionName || t.reproduction_name_snapshot
-              );
-              const correctionOriginal = t.correction_of_ticket_id ? ticketById.get(t.correction_of_ticket_id) : null;
               return (
-                <button key={`open-${t.id}`} type="button" disabled={ticketRowDisabled} onClick={() => setActiveTicket(t)} className={ticketRowDisabled ? "w-full cursor-wait border-b border-yellow-500/25 bg-yellow-500/5 px-1 py-3 text-left disabled:opacity-70" : "w-full border-b border-border px-1 py-3 text-left transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-bold text-foreground">{driverName}</div>
-                      <div className="mt-0.5 truncate text-xs font-semibold text-foreground">{vehicleLabel}</div>
-                    </div>
-                    <Badge className="h-5 shrink-0 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 text-[10px] text-amber-800">{isPending ? "Сохраняется" : correctionOriginal ? "Исправляется" : ticketStageLabel(t)}</Badge>
-                  </div>
-                  <div className="mt-2 space-y-0.5 border-t border-border pt-2">
-                    {isHarvestTicket(t) ? (
-                      <>
-                      <div className="truncate text-xs font-semibold text-amber-800">Поле {harvestField}</div>
-                      <div className="truncate text-xs text-foreground">{harvestIdentity || "Культура не указана"}</div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="truncate text-xs font-semibold text-amber-800">{ticketRouteSummary(t)}</div>
-                        <div className="truncate text-xs text-foreground">{productSummary(t)}</div>
-                        {sharedImpuritySourceCount(t) > 1 ? (
-                          <div className="text-[11px] font-medium text-amber-800">Вес по участкам не распределён</div>
-                        ) : null}
-                      </>
-                    )}
-                  </div>
-                  {correctionOriginal ? (
-                    <div className="mt-2 grid gap-1 border-l-2 border-yellow-400/50 bg-yellow-500/5 px-2.5 py-2 text-xs">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-muted-foreground">Исходный талон</span>
-                        <span className="font-semibold text-foreground">{ticketQuantitySummary(correctionOriginal)}</span>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-amber-800">Новое исправление</span>
-                        <span className="font-semibold text-amber-800">{ticketQuantitySummary(t)}</span>
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className="mt-2 flex items-center justify-between gap-2 text-xs">
-                    <span className="truncate font-semibold text-foreground">{ticketQuantitySummary(t)}</span>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">{fmt(t.created_at, lang)}</span>
-                  </div>
-                  <div className="mt-1 truncate text-[10px] text-muted-foreground">{isHarvestTicket(t) ? `Комбайнер: ${combineOperatorNameForTicket(t) || "Не указан"}` : operationUiLabel(t.op_type)} • № {t.ticket_no}</div>
-                  {harvestRoute ? <div className="mt-1 truncate text-[10px] font-medium text-amber-800">Уборка: {harvestRoute.fieldName} → {harvestRoute.warehouseName}</div> : null}
-                </button>
+                <OpenTicketCard
+                  key={`open-${t.id}`}
+                  driverName={driverName}
+                  vehicleLabel={vehicleLabel}
+                  fieldLabel={/^поле\s/iu.test(harvestField) ? harvestField : `Поле ${harvestField}`}
+                  weightLabel={ticketQuantitySummary(t)}
+                  outgoing={t.direction === "outgoing"}
+                  disabled={ticketRowDisabled}
+                  pending={isPending}
+                  onOpen={() => setActiveTicket(t)}
+                />
               );
             })}
           </CardContent>
