@@ -2,32 +2,49 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { resolveUniqueLoadedPtcTripByDriver } from "../lib/weighbridge/ptc-driver-trip";
 
 type Row = Record<string, unknown>;
-const migrationPath = resolve(
-  process.cwd(),
+const migrationPaths = [
   "supabase/migrations/20260917161613_p0_weighbridge_ptc_auto_handoff_v1.sql",
-);
+  "supabase/migrations/20260918095931_p0_weighbridge_ptc_driver_fallback_v2.sql",
+].map((path) => resolve(process.cwd(), path));
 const ids = {
   company: "10000000-0000-0000-0000-000000000001",
   actor: "10000000-0000-0000-0000-000000000002",
   field: "10000000-0000-0000-0000-000000000003",
   plot: "10000000-0000-0000-0000-000000000004",
   driver: "10000000-0000-0000-0000-000000000005",
+  driverB: "10000000-0000-0000-0000-000000000006",
+  driverC: "10000000-0000-0000-0000-000000000007",
+  driverFallback: "10000000-0000-0000-0000-000000000008",
+  driverAmbiguous: "10000000-0000-0000-0000-000000000009",
   vehicleA: "20000000-0000-0000-0000-000000000001",
   vehicleB: "20000000-0000-0000-0000-000000000002",
   vehicleC: "20000000-0000-0000-0000-000000000003",
   vehicleD: "20000000-0000-0000-0000-000000000004",
+  vehicleAlias: "20000000-0000-0000-0000-000000000005",
+  vehicleE: "20000000-0000-0000-0000-000000000006",
+  vehicleF: "20000000-0000-0000-0000-000000000007",
+  vehicleG: "20000000-0000-0000-0000-000000000008",
   loadedA: "30000000-0000-0000-0000-000000000001",
   loadedB: "30000000-0000-0000-0000-000000000002",
   loadedC: "30000000-0000-0000-0000-000000000003",
+  loadedE: "30000000-0000-0000-0000-000000000004",
+  loadedF: "30000000-0000-0000-0000-000000000005",
+  loadedG: "30000000-0000-0000-0000-000000000006",
   keyA: "40000000-0000-0000-0000-000000000001",
   keyB: "40000000-0000-0000-0000-000000000002",
   keyC: "40000000-0000-0000-0000-000000000003",
+  keyE: "40000000-0000-0000-0000-000000000004",
+  keyF: "40000000-0000-0000-0000-000000000005",
+  keyG: "40000000-0000-0000-0000-000000000006",
   ticketA: "50000000-0000-0000-0000-000000000001",
   ticketB: "50000000-0000-0000-0000-000000000002",
   ticketC: "50000000-0000-0000-0000-000000000003",
   ticketD: "50000000-0000-0000-0000-000000000004",
+  ticketE: "50000000-0000-0000-0000-000000000005",
+  ticketF: "50000000-0000-0000-0000-000000000006",
 };
 
 const rows = async (db: PGlite, sql: string, params: unknown[] = []) =>
@@ -86,24 +103,33 @@ async function bootstrap(db: PGlite) {
       is_finalized boolean not null default false,
       status text not null default 'active',
       voided_by uuid,
-      closed_by uuid
+      closed_by uuid,
+      created_at timestamptz not null default now()
     );
   `);
-  await db.exec(readFileSync(migrationPath, "utf8"));
+  for (const migrationPath of migrationPaths) {
+    await db.exec(readFileSync(migrationPath, "utf8"));
+  }
   await db.exec(`
     insert into public.ptc_vehicle_states(company_id,vehicle_id,state,version,cycle)
     values
       ('${ids.company}','${ids.vehicleA}','loaded',7,3),
       ('${ids.company}','${ids.vehicleB}','loaded',4,9),
       ('${ids.company}','${ids.vehicleC}','loaded',2,5),
-      ('${ids.company}','${ids.vehicleD}','empty',8,2);
+      ('${ids.company}','${ids.vehicleD}','empty',8,2),
+      ('${ids.company}','${ids.vehicleE}','loaded',5,4),
+      ('${ids.company}','${ids.vehicleF}','loaded',6,7),
+      ('${ids.company}','${ids.vehicleG}','loaded',9,8);
     insert into public.ptc_events(
       id,company_id,vehicle_id,actor_user_id,actor_name,field_id,crop_structure_id,driver_id,
       idempotency_key,expected_version,from_state,to_state,cycle
     ) values
       ('${ids.loadedA}','${ids.company}','${ids.vehicleA}','${ids.actor}','Комбайнёр','${ids.field}','${ids.plot}','${ids.driver}','${ids.keyA}',6,'empty','loaded',3),
-      ('${ids.loadedB}','${ids.company}','${ids.vehicleB}','${ids.actor}','Комбайнёр','${ids.field}','${ids.plot}','${ids.driver}','${ids.keyB}',3,'empty','loaded',9),
-      ('${ids.loadedC}','${ids.company}','${ids.vehicleC}','${ids.actor}','Комбайнёр','${ids.field}','${ids.plot}','${ids.driver}','${ids.keyC}',1,'empty','loaded',5);
+      ('${ids.loadedB}','${ids.company}','${ids.vehicleB}','${ids.actor}','Комбайнёр','${ids.field}','${ids.plot}','${ids.driverB}','${ids.keyB}',3,'empty','loaded',9),
+      ('${ids.loadedC}','${ids.company}','${ids.vehicleC}','${ids.actor}','Комбайнёр','${ids.field}','${ids.plot}','${ids.driverC}','${ids.keyC}',1,'empty','loaded',5),
+      ('${ids.loadedE}','${ids.company}','${ids.vehicleE}','${ids.actor}','Комбайнёр','${ids.field}','${ids.plot}','${ids.driverFallback}','${ids.keyE}',4,'empty','loaded',4),
+      ('${ids.loadedF}','${ids.company}','${ids.vehicleF}','${ids.actor}','Комбайнёр','${ids.field}','${ids.plot}','${ids.driverAmbiguous}','${ids.keyF}',5,'empty','loaded',7),
+      ('${ids.loadedG}','${ids.company}','${ids.vehicleG}','${ids.actor}','Комбайнёр','${ids.field}','${ids.plot}','${ids.driverAmbiguous}','${ids.keyG}',8,'empty','loaded',8);
   `);
 }
 
@@ -141,7 +167,7 @@ async function main() {
     await db.query(`insert into public.tickets(
       id,company_id,ticket_no,op_type,vehicle_id,created_by,field_id,crop_structure_allocation_id,driver_id
     ) values($1,$2,'WB-B','harvest_incoming',$3,$4,$5,$6,$7)`, [
-      ids.ticketB, ids.company, ids.vehicleB, ids.actor, ids.field, ids.plot, ids.driver,
+      ids.ticketB, ids.company, ids.vehicleB, ids.actor, ids.field, ids.plot, ids.driverB,
     ]);
     await db.query("update public.tickets set is_voided=true,status='voided',voided_by=$2 where id=$1", [ids.ticketB, ids.actor]);
     assert.equal(await scalar(db, "select state from public.ptc_vehicle_states where vehicle_id=$1", [ids.vehicleB]), "loaded");
@@ -163,6 +189,54 @@ async function main() {
       ids.ticketD, ids.company, ids.vehicleD, ids.actor,
     ]);
     assert.equal(await scalar(db, "select state from public.ptc_vehicle_states where vehicle_id=$1", [ids.vehicleD]), "empty");
+  });
+
+  await check("a duplicated vehicle id falls back to the driver's one unique loaded trip", async () => {
+    await db.query(`insert into public.tickets(
+      id,company_id,ticket_no,op_type,vehicle_id,created_by,field_id,crop_structure_allocation_id,driver_id
+    ) values($1,$2,'WB-E','harvest_incoming',$3,$4,$5,$6,$7)`, [
+      ids.ticketE, ids.company, ids.vehicleAlias, ids.actor, ids.field, ids.plot, ids.driverFallback,
+    ]);
+    assert.equal(await scalar(db, "select state from public.ptc_vehicle_states where vehicle_id=$1", [ids.vehicleE]), "unloading");
+    const ticket = (await rows(db, "select vehicle_id,ptc_event_id,ptc_cycle from public.tickets where id=$1", [ids.ticketE]))[0];
+    assert.equal(ticket.vehicle_id, ids.vehicleE);
+    assert.equal(ticket.ptc_event_id, ids.loadedE);
+    assert.equal(Number(ticket.ptc_cycle), 4);
+  });
+
+  await check("two loaded trips for one driver remain ambiguous and are never guessed", async () => {
+    await db.query(`insert into public.tickets(
+      id,company_id,ticket_no,op_type,vehicle_id,created_by,field_id,crop_structure_allocation_id,driver_id
+    ) values($1,$2,'WB-F','harvest_incoming',$3,$4,$5,$6,$7)`, [
+      ids.ticketF, ids.company, ids.vehicleAlias, ids.actor, ids.field, ids.plot, ids.driverAmbiguous,
+    ]);
+    assert.equal(await scalar(db, "select state from public.ptc_vehicle_states where vehicle_id=$1", [ids.vehicleF]), "loaded");
+    assert.equal(await scalar(db, "select state from public.ptc_vehicle_states where vehicle_id=$1", [ids.vehicleG]), "loaded");
+    const ticket = (await rows(db, "select vehicle_id,ptc_event_id,ptc_cycle from public.tickets where id=$1", [ids.ticketF]))[0];
+    assert.equal(ticket.vehicle_id, ids.vehicleAlias);
+    assert.equal(ticket.ptc_event_id, null);
+    assert.equal(ticket.ptc_cycle, null);
+  });
+
+  await check("server-side driver matcher follows the same unique-only rule", async () => {
+    const matched = resolveUniqueLoadedPtcTripByDriver({
+      driverId: ids.driverFallback,
+      states: [{ vehicle_id: ids.vehicleE, assigned: true, state: "loaded", cycle: 4 }],
+      events: [{ id: ids.loadedE, vehicle_id: ids.vehicleE, driver_id: ids.driverFallback, to_state: "loaded", cycle: 4 }],
+    });
+    assert.equal(matched.status, "matched");
+    const ambiguous = resolveUniqueLoadedPtcTripByDriver({
+      driverId: ids.driverAmbiguous,
+      states: [
+        { vehicle_id: ids.vehicleF, assigned: true, state: "loaded", cycle: 7 },
+        { vehicle_id: ids.vehicleG, assigned: true, state: "loaded", cycle: 8 },
+      ],
+      events: [
+        { id: ids.loadedF, vehicle_id: ids.vehicleF, driver_id: ids.driverAmbiguous, to_state: "loaded", cycle: 7 },
+        { id: ids.loadedG, vehicle_id: ids.vehicleG, driver_id: ids.driverAmbiguous, to_state: "loaded", cycle: 8 },
+      ],
+    });
+    assert.equal(ambiguous.status, "ambiguous");
   });
 
   await db.close();

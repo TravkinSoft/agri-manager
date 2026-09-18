@@ -32,6 +32,7 @@ import {
 } from "@/lib/weighbridge/ticket-history-cursor";
 import { sanitizeClientTicketAuditJson } from "@/lib/weighbridge/ticket-audit";
 import { getServiceClient } from "@/lib/supabase/service";
+import { resolveUniqueLoadedPtcTripByDriver } from "@/lib/weighbridge/ptc-driver-trip";
 
 function buildTicketNo(companyId: string): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -717,6 +718,73 @@ export async function POST(request: NextRequest) {
       if (harvestContext.status !== "ready") {
         return NextResponse.json({ error: harvestContext.message }, { status: 409 });
       }
+      if (
+        !ticket.ptc_event_id
+        && ticket.ptc_cycle == null
+        && ticket.driver_id
+        && ticket.weigh_method !== "manual_override_with_reason"
+      ) {
+        const ptc = getServiceClient();
+        const { data: driverLoadedEvents, error: driverLoadedEventsError } = await ptc
+          .from("ptc_events")
+          .select("id,vehicle_id,driver_id,to_state,cycle,created_at")
+          .eq("company_id", companyId)
+          .eq("driver_id", String(ticket.driver_id))
+          .eq("to_state", "loaded")
+          .order("created_at", { ascending: false })
+          .limit(64);
+        const candidateVehicleIds = Array.from(new Set(
+          (driverLoadedEvents || []).map((row: any) => String(row.vehicle_id || "")).filter(Boolean)
+        ));
+        const driverLoadedStatesResult = !driverLoadedEventsError && candidateVehicleIds.length > 0
+          ? await ptc
+              .from("ptc_vehicle_states")
+              .select("vehicle_id,assigned,state,cycle")
+              .eq("company_id", companyId)
+              .eq("assigned", true)
+              .eq("state", "loaded")
+              .in("vehicle_id", candidateVehicleIds)
+          : { data: [], error: driverLoadedEventsError };
+
+        if (!driverLoadedEventsError && !driverLoadedStatesResult.error) {
+          const resolvedTrip = resolveUniqueLoadedPtcTripByDriver({
+            driverId: ticket.driver_id,
+            states: driverLoadedStatesResult.data || [],
+            events: driverLoadedEvents || [],
+          });
+          if (resolvedTrip.status === "matched") {
+            const transportAudit = ticket.audit_json?.transport as Record<string, unknown> | undefined;
+            ticket.vehicle_id = resolvedTrip.vehicleId;
+            ticket.ptc_event_id = resolvedTrip.eventId;
+            ticket.ptc_cycle = resolvedTrip.cycle;
+            ticket.audit_json = {
+              ...((ticket.audit_json || {}) as Record<string, unknown>),
+              transport: {
+                ...((transportAudit || {}) as Record<string, unknown>),
+                vehicle_source: "reference_vehicles",
+                ptc_driver_fallback: {
+                  driver_id: String(ticket.driver_id),
+                  event_id: resolvedTrip.eventId,
+                  cycle: resolvedTrip.cycle,
+                },
+              },
+            };
+            console.info("weighbridge_ptc_driver_fallback_matched", {
+              companyId,
+              driverId: String(ticket.driver_id),
+              vehicleId: resolvedTrip.vehicleId,
+              eventId: resolvedTrip.eventId,
+              cycle: resolvedTrip.cycle,
+            });
+          } else if (resolvedTrip.status === "ambiguous") {
+            console.warn("weighbridge_ptc_driver_fallback_ambiguous", {
+              companyId,
+              driverId: String(ticket.driver_id),
+              candidateCount: resolvedTrip.candidateCount,
+            });
+          }
+        }
+      }
       const hasPtcEvent = Boolean(ticket.ptc_event_id);
       const hasPtcCycle = ticket.ptc_cycle != null;
       if (hasPtcEvent !== hasPtcCycle) {
@@ -754,6 +822,7 @@ export async function POST(request: NextRequest) {
         if (
           !tripEvent?.id || tripEvent.to_state !== "loaded"
           || String(tripEvent.vehicle_id) !== String(ticket.vehicle_id || "")
+          || (ticket.driver_id && String(tripEvent.driver_id || "") !== String(ticket.driver_id))
           || Number(tripEvent.cycle) !== Number(ticket.ptc_cycle)
           || (tripHasExactPlot && (
             String(tripEvent.field_id || "") !== String(ticket.field_id || "")
