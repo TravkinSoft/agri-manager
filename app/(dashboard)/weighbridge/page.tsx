@@ -6544,7 +6544,7 @@ export default function WeighbridgeOperationsPage() {
               <Badge className="border border-border bg-background text-foreground">{visibleActiveTickets.length}</Badge>
             </CardTitle>
           </CardHeader>
-          <CardContent className="max-h-[clamp(190px,36vh,420px)] space-y-2 overflow-y-auto px-3 pb-3 pt-1 travkin-scrollbar">
+          <CardContent className="max-h-[clamp(190px,36vh,420px)] space-y-4 overflow-y-auto px-3 pb-3 pt-1 travkin-scrollbar">
             {ticketCloseState.phase !== "idle" ? (
               <div
                 role="status"
