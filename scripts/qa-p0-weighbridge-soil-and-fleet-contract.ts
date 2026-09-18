@@ -52,8 +52,8 @@ check("loading and read errors are never mislabeled as an empty warehouse", () =
   assert.match(page, /setHarvestBatchOptionsStatus\("ready"\)/);
   assert.match(page, /setHarvestBatchOptionsStatus\(fallbackRows\.length \? "stale" : "error"\)/);
   assert.match(page, /Не удалось загрузить партии урожая\. Нажмите «Повторить»/);
-  assert.match(impurityPicker, /!groupedOptions\.length/);
-  assert.match(impurityPicker, /На складе нет доступных источников/);
+  assert.match(impurityPicker, /!filteredOptions\.length/);
+  assert.match(impurityPicker, /На складе нет доступных партий/);
   assert.doesNotMatch(page, /На складе нет принятых партий урожая/);
 });
 
@@ -82,10 +82,11 @@ check("soil lot labels use ticket field names without exposing technical lot cod
   const pickerStart = page.indexOf("const impuritySourceOptions");
   const pickerEnd = page.indexOf("const impuritySourceOptionByKey", pickerStart);
   const picker = pickerStart >= 0 && pickerEnd > pickerStart ? page.slice(pickerStart, pickerEnd) : "";
-  assert.match(picker, /label: `Вся партия · \$\{buildHarvestLotOptionLabel\(batch\)\}`/);
+  assert.match(picker, /label: `Вся партия · \$\{buildHarvestLotOptionLabel\(\{ \.\.\.batch, includeMass: false \}\)\}`/);
   assert.match(picker, /fieldName,[\s\S]*?cropName,[\s\S]*?varietyName/);
   assert.match(batchesRoute, /availableKg,[\s\S]*?tripCount: potentialPairBatches\.length/);
-  assert.match(picker, /"Единая партия участка"[\s\S]*?рейсов объединено[\s\S]*?доступно:/);
+  assert.match(picker, /description: `Остаток партии: \$\{formatWeightTonnes\(availableKg\)\}`/);
+  assert.doesNotMatch(picker, /рейсов объединено|Единая партия участка/);
   assert.match(picker, /cleanMassKg: availableKg/);
   assert.doesNotMatch(picker, /label:[^\n]*batch\.batchCode/);
 });

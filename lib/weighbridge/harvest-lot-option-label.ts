@@ -30,6 +30,7 @@ export function buildHarvestLotOptionLabel(input: {
   varietyName: unknown;
   reproductionName: unknown;
   cleanMassKg: unknown;
+  includeMass?: boolean;
 }) {
   const identity = [input.cropName, input.varietyName, input.reproductionName]
     .map(cleanText)
@@ -42,6 +43,6 @@ export function buildHarvestLotOptionLabel(input: {
   return [
     cleanText(input.fieldName) || "Поле не указано",
     identity,
-    `остаток ${formattedMass} кг`,
+    input.includeMass === false ? "" : `остаток ${formattedMass} кг`,
   ].filter(Boolean).join(" · ");
 }

@@ -41,4 +41,14 @@ const fallback = buildHarvestLotOptionLabel({
 });
 assert.match(fallback, /^Поле не указано · Картофель \/ Коломбо \/ F1 · остаток 260(?:\s|\u00a0)260 кг$/u);
 
-console.log("P0 weighbridge lot field label PASS: 5/5");
+const withoutMass = buildHarvestLotOptionLabel({
+  fieldName: "28",
+  cropName: "Картофель",
+  varietyName: "Сорая",
+  reproductionName: "1 репродукция",
+  cleanMassKg: 462_200,
+  includeMass: false,
+});
+assert.equal(withoutMass, "28 · Картофель / Сорая / 1 репродукция");
+
+console.log("P0 weighbridge lot field label PASS: 6/6");

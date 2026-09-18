@@ -672,6 +672,12 @@ const sourceCountLabel = (count: number) => {
   return `${normalized} ${noun}`;
 };
 
+const formatWeightTonnes = (valueKg: unknown) => {
+  const kilograms = Number(valueKg);
+  if (!Number.isFinite(kilograms)) return "—";
+  return `${formatWeightNumber(kilograms / 1000)} т`;
+};
+
 type ProcessingOutputRole = "GRAIN" | "SCREENINGS" | "FEED" | "WASTE" | "TRIER_WASTE" | "OTHER";
 
 const processingOutputRoleLabels: Record<ProcessingOutputRole, string> = {
@@ -3951,10 +3957,8 @@ export default function WeighbridgeOperationsPage() {
       if (sources.length === 0) {
         pushOption({
           key: `legacy:${batch.id}`,
-          label: `Вся партия · ${buildHarvestLotOptionLabel(batch)}`,
-          description: batch.sharedImpurityPool
-            ? `Общая физическая партия после примеси · доступно: ${formatWeightKg(batch.cleanMassKg)}`
-            : `Одиночный режим · доступно в партии: ${formatWeightKg(batch.cleanMassKg)}`,
+          label: `Вся партия · ${buildHarvestLotOptionLabel({ ...batch, includeMass: false })}`,
+          description: `Остаток партии: ${formatWeightTonnes(batch.cleanMassKg)}`,
           groupLabel: "Партия без точной привязки",
           supportsSharedSelection: false,
           batchId: batch.id,
@@ -3977,7 +3981,6 @@ export default function WeighbridgeOperationsPage() {
         const reproductionName = String(source.reproductionName || batch.reproductionName || "").trim();
         const areaHa = Number(source.areaHa);
         const sourceAvailableKg = Number(source.availableKg);
-        const sourceTripCount = Number(source.tripCount);
         const availableKg = Number.isFinite(sourceAvailableKg) && sourceAvailableKg > 0
           ? sourceAvailableKg
           : Number(batch.cleanMassKg || 0);
@@ -3991,13 +3994,7 @@ export default function WeighbridgeOperationsPage() {
         pushOption({
           key: `${harvestLotId}:${cropStructureId}`,
           label: identityParts.join(" · "),
-          description: [
-            "Единая партия участка",
-            Number.isFinite(sourceTripCount) && sourceTripCount > 0
-              ? `${sourceTripCount.toLocaleString("ru-RU")} рейсов объединено`
-              : "рейсы объединены",
-            `доступно: ${formatWeightKg(availableKg)}`,
-          ].join(" · "),
+          description: `Остаток партии: ${formatWeightTonnes(availableKg)}`,
           groupLabel: fieldName,
           supportsSharedSelection: true,
           batchId: batch.id,
@@ -5031,10 +5028,13 @@ export default function WeighbridgeOperationsPage() {
           harvestYear: prev.harvestYear,
           productId: prev.productId,
           stockIdentityKey: prev.stockIdentityKey,
-          // The just-created ticket owns/reserves its sources. Reusing that
-          // selection makes the refreshed list look blocked for the next trip.
-          sourceBatchId: "",
-          impuritySourceSelections: [],
+          // The weighman normally removes several loads from the same party.
+          // Keep that party until it is changed by hand; canonical stock refresh
+          // still validates that a positive balance remains before submission.
+          sourceBatchId: prev.operationType === "impurity_removal" ? prev.sourceBatchId : "",
+          impuritySourceSelections: prev.operationType === "impurity_removal"
+            ? prev.impuritySourceSelections.map((source) => ({ ...source }))
+            : [],
           impurityType: prev.impurityType,
           processingOutputRole: prev.processingOutputRole,
           processingTransformationId: prev.processingTransformationId,
@@ -6036,11 +6036,11 @@ export default function WeighbridgeOperationsPage() {
             ) : null}
 
 	            {isImpurityRemoval ? (
-	              <section data-weighbridge-section="impurity-batch" aria-label="Источники и тип примеси" className={formSectionClass}>
-	                <WorkflowSectionHeading title="2 · Источники и тип примеси" description="Выберите один или несколько участков и вид отделяемой примеси" />
+	              <section data-weighbridge-section="impurity-batch" aria-label="Партия и тип примеси" className={formSectionClass}>
+	                <WorkflowSectionHeading title="2 · Партия и тип примеси" description="Выберите партию один раз — она сохранится до ручной смены" />
 	                <div className="space-y-3">
-	                  <div className="min-h-[7.75rem] space-y-1.5">
-	                    <Label>Участки / партии урожая *</Label>
+	                  <div className="space-y-1.5">
+	                    <Label>Партия урожая *</Label>
                       <ImpuritySourcePicker
                         options={impuritySourceOptions}
                         value={impuritySourceSelectionKeys}
@@ -6053,7 +6053,7 @@ export default function WeighbridgeOperationsPage() {
                             ? "Загружаем источники..."
                             : harvestBatchOptionsStatus === "error"
                               ? "Не удалось загрузить источники"
-                              : "Выберите участки или партии урожая"}
+                              : "Выберите партию урожая"}
                       />
 	                    {form.warehouseFromId && (harvestBatchOptionsStatus === "error" || harvestBatchOptionsStatus === "stale") ? (
 	                      <div className="flex flex-wrap items-center gap-2 border-l-2 border-red-400/70 bg-red-50 px-3 py-2 text-xs text-red-800" role="alert">
@@ -6077,23 +6077,6 @@ export default function WeighbridgeOperationsPage() {
                   {hasDuplicateImpurityCropStructureSources ? (
                     <div className="border-l-4 border-red-400 bg-red-50 px-3 py-3 text-sm font-medium text-red-900" role="alert">
                       Один и тот же участок выбран несколько раз. Оставьте только один источник этого участка.
-                    </div>
-                  ) : hasMultipleExactImpuritySources ? (
-                    <div className="border-l-4 border-amber-400 bg-amber-50 px-3 py-3 text-sm text-amber-950" role="status" aria-live="polite">
-                      <div className="font-semibold">
-                        Один физический талон связан с {sourceCountLabel(impuritySourceSelectionKeys.length)}.
-                      </div>
-                      <div className="mt-1">Вес по участкам не распределяется — фиксируется только общий вес примеси.</div>
-                      {selectedImpuritySourceOptions.length ? (
-                        <div className="mt-2 text-xs">
-                          {selectedImpuritySourceOptions.map((source) => source.label).join("; ")}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : hasExactImpuritySourceScope ? (
-                    <div className="border-l-4 border-emerald-500 bg-emerald-50 px-3 py-3 text-sm text-emerald-950" role="status" aria-live="polite">
-                      <div className="font-semibold">Выбран точный участок.</div>
-                      <div className="mt-1">Талон и списание будут связаны только с источниками этого участка.</div>
                     </div>
                   ) : selectedHarvestBatch?.detailLevel === "full" ? (
                     <div className={`${formDataStripClass} text-xs sm:grid-cols-3`}>

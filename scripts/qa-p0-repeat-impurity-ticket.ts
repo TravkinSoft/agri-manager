@@ -37,18 +37,18 @@ assert.equal(
 );
 assert.match(
   page,
-  /The just-created ticket owns\/reserves its sources[\s\S]*?sourceBatchId: "",\s*impuritySourceSelections: \[\],/,
-  "creating a ticket must reset its consumed source before the next ticket"
+  /Keep that party until it is changed by hand[\s\S]*?sourceBatchId: prev\.operationType === "impurity_removal" \? prev\.sourceBatchId : "",[\s\S]*?prev\.impuritySourceSelections\.map/,
+  "creating an impurity ticket must retain the manually selected party"
 );
 assert.match(
   picker,
-  /const availableSelection = normalizeImpuritySourceSelection\(selected, options\)[\s\S]*?onChange\(\[\.\.\.availableSelection, option\.key\]\)/,
-  "a stale selection must be discarded when the weighman selects a valid source"
+  /onChange\(\[option\.key\]\);\s*close\(\);/,
+  "one click must replace the party and close the simple picker"
 );
 assert.doesNotMatch(
   picker,
-  /unavailableKeys\.length \|\| isImpuritySourceSelectionBlocked/,
-  "a stale source must not block the next source"
+  /normalizeImpuritySourceSelection|isImpuritySourceSelectionBlocked|Готово/,
+  "the operator picker must not expose the old multi-selection workflow"
 );
 
 console.log("P0 repeat impurity ticket 7/7 PASS");
