@@ -16,6 +16,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/contexts/auth-context";
+import { WeighbridgeShiftCloseDialog } from "@/components/weighbridge/shift-close-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
 import { useLanguage } from "@/lib/contexts/language-context";
@@ -5658,12 +5659,13 @@ export default function WeighbridgeOperationsPage() {
     }
   };
 
-  const closeShiftAction = async () => {
+  const closeShiftAction = async (reviewToken: string) => {
     if (!profile?.company_id || !profile?.id || !activeShift || shiftClosing) return;
     setShiftClosing(true);
     try {
       await closeShift(profile.company_id, profile.id, {
         shiftId: activeShift.id,
+        reviewToken,
       });
       setClosingTare("");
       setClosingMoisture("");
@@ -5682,6 +5684,7 @@ export default function WeighbridgeOperationsPage() {
         description: e?.message || "Не удалось подтвердить закрытие. Обновите состояние смены.",
         variant: "destructive",
       });
+      throw e;
     } finally {
       setShiftClosing(false);
     }
@@ -7214,47 +7217,14 @@ export default function WeighbridgeOperationsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog open={shiftDialogOpen} onOpenChange={setShiftDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Смена весовой</DialogTitle>
-            <DialogDescription>
-              {activeShift
-                ? `Открыта ${fmt(activeShift.opened_at, lang)}${shiftGuard.stale ? ` · ${Math.max(1, Math.floor(shiftGuard.ageHours))} ч без закрытия` : ""}`
-                : "Смена сейчас закрыта"}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="col-span-2 rounded-md border p-3">
-              <div className="text-muted-foreground">Весовщик</div>
-              <div className="mt-1 font-semibold">{operatorState.operator?.name || (activeShift ? "Выберите весовщика" : "—")}</div>
-            </div>
-            <div className="rounded-md border p-3"><div className="text-muted-foreground">Рейсы</div><div className="mt-1 text-xl font-semibold">{shiftSummary.trips}</div></div>
-            <div className="rounded-md border p-3"><div className="text-muted-foreground">Нетто</div><div className="mt-1 text-xl font-semibold">{formatTonnes(shiftSummary.netKg)}</div></div>
-            <div className="rounded-md border p-3"><div className="text-muted-foreground">Незакрытые</div><div className="mt-1 text-xl font-semibold">{shiftSummary.open}</div></div>
-            <div className="rounded-md border p-3"><div className="text-muted-foreground">Аннулированные</div><div className="mt-1 text-xl font-semibold">{shiftSummary.voided}</div></div>
-            <div className="col-span-2 rounded-md border p-3"><div className="text-muted-foreground">Ручные корректировки</div><div className="mt-1 text-xl font-semibold">{shiftSummary.manualCorrections}</div></div>
-          </div>
-          {activeShift ? (
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">Ничего заполнять не нужно. Итоги по талонам сохранятся автоматически. Остатки складов и сбор с участков продолжат обновляться.</p>
-              {shiftCounters.activeTickets > 0 ? (
-                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
-                  Сначала закройте все открытые талоны.
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShiftDialogOpen(false)}>Отмена</Button>
-            {activeShift ? (
-              <Button onClick={closeShiftAction} disabled={shiftClosing}>{shiftClosing ? "Сохраняем итог…" : "Закрыть смену и сохранить итог"}</Button>
-            ) : (
-              <Button onClick={async () => { await openShiftAction(); setShiftDialogOpen(false); }}>Открыть смену</Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <WeighbridgeShiftCloseDialog
+        open={shiftDialogOpen}
+        onOpenChange={setShiftDialogOpen}
+        companyId={profile?.company_id || ""}
+        shiftId={activeShift?.id || null}
+        onConfirm={closeShiftAction}
+        onOpenShift={async () => { await openShiftAction(); setShiftDialogOpen(false); }}
+      />
       <AlertDialog open={confirmOpen} onOpenChange={(open) => { if (!open) resolveConfirm(false); }}>
         <AlertDialogContent>
           <AlertDialogHeader>

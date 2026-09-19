@@ -1,6 +1,7 @@
 import type { ActiveHarvestRoute, HarvestBatchSummary, ImpuritySourceScopeInput, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket, WeighingInput } from "@/lib/types/weighbridge";
 import { buildClientAuthHeaders, fetchWithClientAuth } from "@/lib/supabase/client-auth";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
+import { isWeighbridgeShiftReport, type WeighbridgeShiftReport } from "@/lib/weighbridge/shift-report";
 import {
   normalizeWeighbridgeTransportPickerData,
   type WeighbridgeTransportPickerData,
@@ -335,10 +336,19 @@ export async function openShift(companyId?: string, _actorUserId?: string, openi
   return parseJsonOrThrow(response);
 }
 
+export async function getWeighbridgeShiftPreview(companyId: string, shiftId: string, signal?: AbortSignal): Promise<WeighbridgeShiftReport> {
+  const headers = await buildClientAuthHeaders("none");
+  const query = new URLSearchParams({ companyId, shiftId, preview: "true" });
+  const response = await fetch(`/api/weighbridge/shifts?${query}`, { cache: "no-store", headers, signal });
+  const payload = await parseJsonOrThrow(response);
+  if (!isWeighbridgeShiftReport(payload.report) || payload.report.shiftId !== shiftId) throw new Error("Не удалось подтвердить полный отчёт смены. Обновите страницу.");
+  return payload.report;
+}
+
 export async function closeShift(
   companyId?: string,
   _actorUserId?: string,
-  params?: { closingNote?: string; handoverNote?: string; force?: boolean; shiftId?: string }
+  params?: { closingNote?: string; handoverNote?: string; force?: boolean; shiftId?: string; reviewToken?: string }
 ) {
   const headers = await buildClientAuthHeaders("json");
   const response = await fetch("/api/weighbridge/shifts", {
@@ -348,6 +358,7 @@ export async function closeShift(
       companyId,
       closingNote: params?.closingNote,
       shiftId: params?.shiftId,
+      reviewToken: params?.reviewToken,
       handoverNote: params?.handoverNote,
       force: Boolean(params?.force),
     }),

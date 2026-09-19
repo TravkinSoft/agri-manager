@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownToLine, ChevronDown, Clock3, Loader2, PackageCheck, Truck, Wrench } from "lucide-react";
 import { TrafficShiftSummary } from "@/components/dashboard/traffic-shift-summary";
+import { WeighbridgeShiftReportView } from "@/components/weighbridge/shift-report";
+import { isWeighbridgeShiftReport } from "@/lib/weighbridge/shift-report";
 import { PotatoDriverSummary } from "@/components/dashboard/potato-driver-summary";
 import { HarvestDaySummary } from "@/components/dashboard/harvest-day-summary";
 import { Input } from "@/components/ui/input";
@@ -437,7 +439,7 @@ export function HarvestDashboard() {
           <div className="mt-2 space-y-2">
             {summary.weighbridgeShifts.map((shift) => <div key={shift.id} className="border-t border-border pt-2 text-xs">
               <div>{new Date(shift.opened_at).toLocaleString("ru-RU", { timeZone: "Asia/Qyzylorda" })} — {shift.closed_at ? new Date(shift.closed_at).toLocaleString("ru-RU", { timeZone: "Asia/Qyzylorda" }) : "идёт сейчас"}</div>
-              {shift.summary_json?.version === "weighbridge_shift_snapshot_v1" ? <div className="mt-1 text-muted-foreground">{shift.summary_json.periodAccountingBasis === "receipt_net_minus_period_removals_v1"
+              {isWeighbridgeShiftReport(shift.summary_json) ? <details className="mt-2 rounded border border-border p-3"><summary className="cursor-pointer font-semibold">Отчёт смены · {shift.summary_json.potatoPeriodResultKg != null ? mass(shift.summary_json.potatoPeriodResultKg) : "требует проверки"} · {shift.summary_json.closedTicketCount} талонов</summary><div className="mt-3"><WeighbridgeShiftReportView report={shift.summary_json} /></div></details> : shift.summary_json?.version === "weighbridge_shift_snapshot_v1" ? <div className="mt-1 text-muted-foreground">{shift.summary_json.periodAccountingBasis === "receipt_net_minus_period_removals_v1"
                 ? `Зафиксирован итог смены: ${shift.summary_json.potatoPeriodResultKg != null ? mass(shift.summary_json.potatoPeriodResultKg) : "требуется уточнение примесей"} · приход ${mass(Number(shift.summary_json.potatoNetKg || 0))} − примеси ${shift.summary_json.potatoPeriodImpuritiesKg != null ? mass(shift.summary_json.potatoPeriodImpuritiesKg) : "—"}`
                 : `Сохранённый расчёт по поступлениям: ${mass(Number(shift.summary_json.potatoCleanKg || 0))} · по талонам ${mass(Number(shift.summary_json.potatoNetKg || 0))}`}. Закрыто талонов: {shift.summary_json.closedTicketCount}. Поздние операции не меняют этот снимок.</div> : <div className="mt-1 text-muted-foreground">{shift.status === "open" ? "Весовщик закроет смену — система сохранит итог автоматически." : "Смена закрыта ранее без сохранённого отчёта. Итог не реконструируется задним числом."}</div>}
             </div>)}
