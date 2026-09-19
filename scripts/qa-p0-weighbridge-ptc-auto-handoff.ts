@@ -10,6 +10,7 @@ const migrationPaths = [
   "supabase/migrations/20260917161613_p0_weighbridge_ptc_auto_handoff_v1.sql",
   "supabase/migrations/20260918095931_p0_weighbridge_ptc_driver_fallback_v2.sql",
   "supabase/migrations/20260919065424_p1_driver_vehicle_replacement.sql",
+  "supabase/migrations/20260919074748_ptc_empty_queue_reentry_clock.sql",
 ].map((path) => resolve(process.cwd(), path));
 const ids = {
   company: "10000000-0000-0000-0000-000000000001",
@@ -346,6 +347,21 @@ async function main() {
     const canonical=currentTripEvents(events as any[]);
     assert.equal(canonical.filter(e=>e.to_state==='loaded').length,2); // load + void returns to loaded; replacements add none
     assert.equal(canonical.filter(e=>e.to_state==='loaded' && e.idempotency_key===replacementKey).length,0);
+  });
+  await check("empty vehicle replacement enters at the queue tail and retry keeps its place", async () => {
+    await db.query("update public.ptc_vehicle_states set since=now()-interval '12 days' where vehicle_id=$1", [ids.vehicleB]);
+    const source = (await rows(db, "select version,since from public.ptc_vehicle_states where vehicle_id=$1", [ids.vehicleB]))[0];
+    const targetVersion = await scalar<number>(db, "select version from public.ptc_vehicle_states where vehicle_id=$1", [ids.vehicleAlias]);
+    const command = { source:ids.vehicleB, sourceVersion:source.version, target:ids.vehicleAlias, targetVersion,
+      key:"60000000-0000-0000-0000-000000000003" };
+    const eventCount = await scalar<number>(db, "select count(*)::int from public.ptc_events");
+    await replace(command);
+    const after = (await rows(db, "select state,since,version from public.ptc_vehicle_states where vehicle_id=$1", [ids.vehicleAlias]))[0];
+    assert.equal(after.state, 'empty');
+    assert.ok(Date.parse(String(after.since)) > Date.parse(String(source.since)));
+    assert.equal(await scalar(db, "select count(*)::int from public.ptc_events"), eventCount, 'no fake cargo trip');
+    await replace(command);
+    assert.deepEqual((await rows(db, "select state,since,version from public.ptc_vehicle_states where vehicle_id=$1", [ids.vehicleAlias]))[0], after);
   });
   await db.close();
   console.log(JSON.stringify({ suite: "P0 weighbridge PTC atomic handoff", passed, failed: 0 }, null, 2));
