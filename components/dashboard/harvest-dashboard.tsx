@@ -11,7 +11,7 @@ import { isPotatoLabel, type HarvestFilterOptions, type HarvestOverview } from "
 import { getHarvestBootstrap, getHarvestSummary } from "@/lib/services/harvest-dashboard";
 import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
 import { getFleetVehicleBrand, type FleetVehicle } from "@/lib/fleet/model";
-import type { TrafficSnapshot, TrafficVehicle } from "@/lib/traffic/model";
+import { trafficStatusSince, type TrafficSnapshot, type TrafficVehicle } from "@/lib/traffic/model";
 import { trafficRequest } from "@/components/traffic/use-traffic";
 import { compactReproductionLabel } from "@/lib/agronomy/reproduction-display";
 
@@ -133,7 +133,7 @@ const VEHICLE_STATUS_LABEL: Record<TrafficGroup, string> = {
 
 function VehicleCard({ vehicle, now, group, shiftIsOpen }: { vehicle: TrafficVehicle; now: number; group: TrafficGroup; shiftIsOpen: boolean }) {
   const brand = getFleetVehicleBrand(vehicle);
-  const timer = group === "offline" ? null : group === "empty" && !shiftIsOpen ? "0 мин" : age(vehicle.inRepair ? vehicle.repairChangedAt || vehicle.since : vehicle.since, now);
+  const timer = group === "offline" ? null : group === "empty" && !shiftIsOpen ? "0 мин" : age(trafficStatusSince(vehicle, "manager"), now);
   return (
     <article data-traffic-vehicle-card={group} className={`grid min-h-[92px] grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2.5 rounded-[10px] px-3 py-3.5 ${VEHICLE_CARD_SURFACES[group]}`}>
       <span className={`relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${VEHICLE_STATUS_ICON_STYLE[group]}`} title={VEHICLE_STATUS_LABEL[group]} aria-label={VEHICLE_STATUS_LABEL[group]}>
