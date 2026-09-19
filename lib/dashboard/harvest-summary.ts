@@ -140,11 +140,19 @@ export type HarvestPlotSummary = {
 export type HarvestOverview = {
   weighbridgeShifts?: Array<{ id: string; status: string; opened_at: string; closed_at: string | null; summary_json: {
     version?: string; potatoCleanKg?: number; potatoNetKg?: number; impuritiesRemovedKg?: number; closedTicketCount?: number;
+    potatoPeriodResultKg?: number | null; potatoPeriodImpuritiesKg?: number | null; periodAccountingBasis?: string;
   } | null }>;
   period: HarvestPeriod;
   completedTripCount: number;
   openTicketCount: number;
   potatoAcceptedKg: number;
+  /** Period flows, not receipt-cohort clean mass: net receipts minus removals in this period. */
+  potatoPeriodMovement: {
+    receivedNetKg: number;
+    removedImpuritiesKg: number | null;
+    netAfterRemovalsKg: number | null;
+    unresolvedTicketCount: number;
+  };
   /** Accepted mass for the active plot inside the requested dashboard period. */
   currentPlotAcceptedKg: number;
   /** Accepted mass for the active plot across all dates of this exact allocation. */
@@ -475,6 +483,67 @@ function ticketTime(ticket: WeighbridgeTicket, ticketById: ReadonlyMap<string, W
   return Date.parse(harvestTicketBusinessTime(ticket, ticketById));
 }
 
+export function buildPotatoPeriodMovement(
+  harvestTickets: WeighbridgeTicket[],
+  impurityTickets: WeighbridgeTicket[],
+  period: HarvestPeriod,
+  filters: HarvestDashboardFilters = {},
+): HarvestOverview["potatoPeriodMovement"] {
+  const ticketById = new Map([...harvestTickets, ...impurityTickets].map((ticket) => [ticket.id, ticket]));
+  const start = Date.parse(period.start);
+  const end = Date.parse(period.end);
+  const inPeriod = (ticket: WeighbridgeTicket) => {
+    const time = ticketTime(ticket, ticketById);
+    return time >= start && time < end;
+  };
+  const received = Array.from(new Map(harvestTickets.map((ticket) => [ticket.id, ticket])).values())
+    .filter((ticket) => isEffectiveFinalizedHarvestTicket(ticket)
+      && inPeriod(ticket) && ticketMatchesFilters(ticket, filters)
+      && isPotatoLabel(ticketIdentity(ticket).crop));
+  // Integer grams retain the ticket's kg precision without cumulative float drift.
+  const invalidReceipts = received.filter((ticket) => ticket.net_weight_kg == null
+    || !Number.isFinite(Number(ticket.net_weight_kg)) || Number(ticket.net_weight_kg) < 0);
+  const receivedGrams = received.filter((ticket) => !invalidReceipts.includes(ticket))
+    .reduce((sum, ticket) => sum + Math.round(Number(ticket.net_weight_kg) * 1000), 0);
+  let removedGrams = 0;
+  let unresolvedTicketCount = invalidReceipts.length;
+  for (const ticket of Array.from(new Map(impurityTickets.map((row) => [row.id, row])).values())) {
+    if (ticket.op_type !== "weighbridge_impurities" || ticket.status !== "finalized"
+      || !ticket.is_finalized || ticket.is_voided || ticket.replacement_ticket_id || !inPeriod(ticket)) continue;
+    if (filters.warehouseId && ticket.warehouse_from_id !== filters.warehouseId) continue;
+    const lines = ticket.lines || [];
+    const knownLines = lines.filter((line) => line.crop_id && cleanLabel(line.crop_name));
+    const potatoLines = knownLines.filter((line) => isPotatoLabel(line.crop_name));
+    if (knownLines.length === lines.length && knownLines.length > 0 && !potatoLines.length) continue;
+    if (filters.cropId && knownLines.length === lines.length && knownLines.length > 0
+      && knownLines.every((line) => line.crop_id !== filters.cropId)) continue;
+    // Never silently assign an unknown/mixed removal, or a multi-field pool,
+    // to a specific filtered source. Surface incomplete attribution instead.
+    const attribution = [
+      [filters.fieldId, ticket.field_id],
+      [filters.varietyId, lines.length === 1 ? lines[0].variety_id : null],
+      [filters.reproductionId, lines.length === 1 ? lines[0].reproduction_id : null],
+    ];
+    if (attribution.some(([expected, actual]) => expected && actual && expected !== actual)) continue;
+    const kg = Number(ticket.net_weight_kg);
+    if (!lines.length || potatoLines.length !== lines.length
+      || attribution.some(([expected, actual]) => expected && !actual)
+      || ticket.net_weight_kg == null || !Number.isFinite(kg) || kg < 0) {
+      unresolvedTicketCount += 1;
+      continue;
+    }
+    // Use physical ticket net, NOT accepted_weight_kg or historical allocation.
+    removedGrams += Math.round(kg * 1000);
+  }
+  return {
+    receivedNetKg: receivedGrams / 1000,
+    removedImpuritiesKg: unresolvedTicketCount ? null : removedGrams / 1000,
+    // Negative is valid when old stock is cleaned on a day without receipts.
+    netAfterRemovalsKg: unresolvedTicketCount ? null : (receivedGrams - removedGrams) / 1000,
+    unresolvedTicketCount,
+  };
+}
+
 function weighbridgeSelectionTime(ticket: WeighbridgeTicket): number {
   return new Date(ticket.weighing_1_at || ticket.created_at).getTime();
 }
@@ -549,6 +618,7 @@ export function buildHarvestOverview(
     activeSelection?: HarvestOverview["activeWeighbridgeSelection"];
     harvestPlots?: HarvestPlotSummary[];
     suppressInferredActiveSelection?: boolean;
+    impurityTickets?: WeighbridgeTicket[];
   }
 ): HarvestOverview {
   const now = options.now || new Date();
@@ -997,6 +1067,7 @@ export function buildHarvestOverview(
     completedTripCount: finalized.length,
     openTicketCount: open.length,
     potatoAcceptedKg,
+    potatoPeriodMovement: buildPotatoPeriodMovement(tickets, options.impurityTickets || [], options.period, filters),
     currentPlotAcceptedKg,
     currentPlotTotalAcceptedKg,
     currentPlotHarvestedAreaHa: null,

@@ -21,7 +21,8 @@ export const HarvestDaySummary = memo(function HarvestDaySummary({ companyId }: 
   }, [companyId, dayOffset]);
 
   const trips = summary?.potatoDrivers.reduce((total, driver) => total + driver.tripCount, 0);
-  const tonnes = summary ? `${(summary.potatoAcceptedKg / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} т` : "—";
+  const movement = summary?.potatoPeriodMovement;
+  const tonnes = movement?.netAfterRemovalsKg != null ? `${(movement.netAfterRemovalsKg / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т` : "—";
   return (
     <section aria-labelledby="harvest-day-summary-title" className="overflow-hidden rounded-xl border border-border bg-card/40">
       <header className="flex flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-4">
@@ -36,10 +37,11 @@ export const HarvestDaySummary = memo(function HarvestDaySummary({ companyId }: 
         </div>
       </header>
       <div className="grid grid-cols-3 border-t border-border" aria-label="Итоги выбранного рабочего дня">
-        {[['Принято картофеля', tonnes], ['Рейсов', trips ?? '—'], ['Водителей', summary?.potatoDrivers.length ?? '—']].map(([label, value]) => (
+        {[['Итог по картофелю', tonnes], ['Рейсов', trips ?? '—'], ['Водителей', summary?.potatoDrivers.length ?? '—']].map(([label, value]) => (
           <div key={label} className="min-w-0 border-r border-border px-3 py-2.5 last:border-r-0 sm:px-4"><span className="block text-[10px] uppercase tracking-[0.08em] text-muted-foreground">{label}</span><strong className="mt-1 block text-base tabular-nums">{value}</strong></div>
         ))}
       </div>
+      {movement?.removedImpuritiesKg != null ? <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">Приход {movement.receivedNetKg.toLocaleString("ru-RU")} кг − вывоз примесей {movement.removedImpuritiesKg.toLocaleString("ru-RU")} кг за выбранный рабочий день.</p> : summary ? <p className="px-3 py-2 text-xs text-muted-foreground">Не удалось определить культуру или источник примесей.</p> : null}
     </section>
   );
 });

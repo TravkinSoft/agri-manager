@@ -610,7 +610,9 @@ check("legal operator remains read-only at the database boundary", () => {
 check("dashboard API does not cap harvest at one thousand rows", () => assert.match(dashboardApi, /\.range\(from, from \+ pageSize - 1\)/));
 check("dashboard presents the live vegetable plot chain", () => {
   assert.match(dashboardUi, /Главные показатели уборки/);
-  assert.match(dashboardUi, /Сегодня принято картофеля/);
+  assert.match(dashboardUi, /Итог дня · картофель/);
+  assert.match(dashboardUi, /periodMovement\.netAfterRemovalsKg/);
+  assert.match(dashboardUi, /приход − вывоз примесей/);
   assert.match(dashboardUi, /С выбранного участка · всего/);
   assert.match(dashboardUi, /На складе/);
   assert.match(dashboardUi, /Живая урожайность/);

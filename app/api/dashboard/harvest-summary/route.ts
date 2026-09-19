@@ -245,6 +245,31 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
   }) as WeighbridgeTicket[];
 }
 
+async function loadImpurityTickets(supabase: any, companyId: string): Promise<WeighbridgeTicket[]> {
+  const rows: WeighbridgeTicket[] = [];
+  // Keep correction roots, including those outside the requested period.
+  // A failed/partial read must fail the summary, never masquerade as zero removals.
+  for (let from = 0; ; from += LINEAGE_QUERY_PAGE_SIZE) {
+    const { data, error } = await supabase.from("tickets").select(`
+      id,op_type,status,is_finalized,is_voided,net_weight_kg,field_id,warehouse_from_id,
+      finalized_at,weighing_2_at,created_at,updated_at,correction_of_ticket_id,replacement_ticket_id,audit_json,
+      lines:ticket_lines(crop_id,variety_id,reproduction_id,crop:crop_id(name,name_ru,name_kz,name_en))
+    `).eq("company_id", companyId).eq("op_type", "weighbridge_impurities")
+      .order("created_at", { ascending: false }).order("id", { ascending: false })
+      .range(from, from + LINEAGE_QUERY_PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = (data || []).map((row: any) => ({
+      ...row,
+      lines: (row.lines || []).map((line: any) => ({
+        ...line,
+        crop_name: String(line.crop?.name_ru || line.crop?.name || line.crop?.name_kz || line.crop?.name_en || ""),
+      })),
+    })) as WeighbridgeTicket[];
+    rows.push(...page);
+    if (page.length < LINEAGE_QUERY_PAGE_SIZE) return rows;
+  }
+}
+
 async function loadWarehouseRows(
   supabase: any,
   harvestStockSupabase: any,
@@ -589,12 +614,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ rows, source: "v_harvest_lot_stock_v2" });
     }
 
-    const [tickets, seasonResult, shiftResult, companyResult, shiftHistoryResult] = await Promise.all([
+    const [tickets, seasonResult, shiftResult, companyResult, shiftHistoryResult, impurityTickets] = await Promise.all([
       loadTickets(supabase, companyId),
       supabase.from("seasons").select("id,year,start_date,end_date").eq("company_id", companyId).eq("archived", false).order("year", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("weighbridge_shifts").select("id,status,opened_at,closed_at").eq("company_id", companyId).eq("status", "open").order("opened_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("companies").select("id,name,operational_day_start_hour").eq("id", companyId).maybeSingle(),
       getServiceClient().from("weighbridge_shifts").select("id,status,opened_at,closed_at,summary_json").eq("company_id", companyId).order("opened_at", { ascending: false }).limit(7),
+      loadImpurityTickets(supabase, companyId),
     ]);
     if (seasonResult.error || shiftResult.error || companyResult.error || shiftHistoryResult.error) throw seasonResult.error || shiftResult.error || companyResult.error || shiftHistoryResult.error;
     const presetRaw = String(request.nextUrl.searchParams.get("period") || "current_day") as HarvestPeriodPreset;
@@ -634,6 +660,7 @@ export async function GET(request: NextRequest) {
         activeSelection: activePtcState.selection,
         harvestPlots,
         suppressInferredActiveSelection: activePtcState.suppressTicketInference,
+        impurityTickets,
       }),
     );
     const summary = { ...periodSummary, weighbridgeShifts: shiftHistoryResult.data || [] };

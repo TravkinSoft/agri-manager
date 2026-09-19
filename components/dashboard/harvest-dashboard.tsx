@@ -260,7 +260,7 @@ export function HarvestDashboard() {
   }, [summary?.harvestPlots]);
 
   const potatoParties = useMemo(() => (summary?.parties || []).filter((party) => isPotatoLabel(party.cropName)), [summary]);
-  const receivedKg = summary?.potatoAcceptedKg || 0;
+  const periodMovement = summary?.potatoPeriodMovement;
   const selectedPlot = summary?.harvestPlots.find((plot) => plot.cropStructureAllocationId === selectedPlotId)
     || summary?.harvestPlots.find((plot) => plot.isCurrent)
     || summary?.harvestPlots[0]
@@ -393,9 +393,12 @@ export function HarvestDashboard() {
 
           <section className="grid grid-cols-2 border-b border-border sm:grid-cols-4" aria-label="Главные показатели уборки">
             <div className="min-w-0 py-2 pr-2 sm:py-1 sm:pr-3">
-              <div className="text-[9px] uppercase leading-none tracking-[0.11em] text-muted-foreground sm:text-[10px]">Сегодня принято картофеля</div>
-              <div className="mt-1 whitespace-nowrap text-base font-semibold leading-none tabular-nums text-[color:var(--manor-brass-soft)] sm:text-lg">{mass(receivedKg)}</div>
-              <div className="mt-1 text-[10px] text-muted-foreground" title={summary.period.label}>Все поля · с {summary.period.operationalDayStartHour}:00 · без учтённой земли</div>
+              <div className="text-[9px] uppercase leading-none tracking-[0.11em] text-muted-foreground sm:text-[10px]">Итог дня · картофель</div>
+              <div className="mt-1 whitespace-nowrap text-base font-semibold leading-none tabular-nums text-[color:var(--manor-brass-soft)] sm:text-lg">{periodMovement?.netAfterRemovalsKg != null ? mass(periodMovement.netAfterRemovalsKg) : "Нет данных"}</div>
+              <div className="mt-1 text-[10px] text-muted-foreground" title={summary.period.label}>Все поля · с {summary.period.operationalDayStartHour}:00 · приход − вывоз примесей</div>
+              <div className="mt-1 text-[10px] text-muted-foreground">{periodMovement?.removedImpuritiesKg != null
+                ? `Приход ${mass(periodMovement.receivedNetKg)} − примеси ${mass(periodMovement.removedImpuritiesKg)}`
+                : "Не удалось определить культуру или источник примесей"}</div>
             </div>
             <div className="min-w-0 border-l border-border px-2 py-2 sm:px-3 sm:py-1">
               <div className="text-[9px] uppercase leading-none tracking-[0.08em] text-muted-foreground sm:text-[10px]">С выбранного участка · всего</div>
@@ -434,7 +437,9 @@ export function HarvestDashboard() {
           <div className="mt-2 space-y-2">
             {summary.weighbridgeShifts.map((shift) => <div key={shift.id} className="border-t border-border pt-2 text-xs">
               <div>{new Date(shift.opened_at).toLocaleString("ru-RU", { timeZone: "Asia/Qyzylorda" })} — {shift.closed_at ? new Date(shift.closed_at).toLocaleString("ru-RU", { timeZone: "Asia/Qyzylorda" }) : "идёт сейчас"}</div>
-              {shift.summary_json?.version === "weighbridge_shift_snapshot_v1" ? <div className="mt-1 text-muted-foreground">Зафиксировано: картофель без учтённой земли {mass(Number(shift.summary_json.potatoCleanKg || 0))} · по талонам {mass(Number(shift.summary_json.potatoNetKg || 0))} · закрыто талонов {shift.summary_json.closedTicketCount}. Поздние операции меняют живую сводку, но не этот снимок.</div> : <div className="mt-1 text-muted-foreground">{shift.status === "open" ? "Весовщик закроет смену — система сохранит итог автоматически." : "Смена закрыта ранее без сохранённого отчёта. Итог не реконструируется задним числом."}</div>}
+              {shift.summary_json?.version === "weighbridge_shift_snapshot_v1" ? <div className="mt-1 text-muted-foreground">{shift.summary_json.periodAccountingBasis === "receipt_net_minus_period_removals_v1"
+                ? `Зафиксирован итог смены: ${shift.summary_json.potatoPeriodResultKg != null ? mass(shift.summary_json.potatoPeriodResultKg) : "требуется уточнение примесей"} · приход ${mass(Number(shift.summary_json.potatoNetKg || 0))} − примеси ${shift.summary_json.potatoPeriodImpuritiesKg != null ? mass(shift.summary_json.potatoPeriodImpuritiesKg) : "—"}`
+                : `Сохранённый расчёт по поступлениям: ${mass(Number(shift.summary_json.potatoCleanKg || 0))} · по талонам ${mass(Number(shift.summary_json.potatoNetKg || 0))}`}. Закрыто талонов: {shift.summary_json.closedTicketCount}. Поздние операции не меняют этот снимок.</div> : <div className="mt-1 text-muted-foreground">{shift.status === "open" ? "Весовщик закроет смену — система сохранит итог автоматически." : "Смена закрыта ранее без сохранённого отчёта. Итог не реконструируется задним числом."}</div>}
             </div>)}
           </div>
         </details>
