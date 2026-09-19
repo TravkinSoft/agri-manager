@@ -3,11 +3,13 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { resolveUniqueLoadedPtcTripByDriver } from "../lib/weighbridge/ptc-driver-trip";
+import { currentTripEvents } from "../lib/traffic/analytics";
 
 type Row = Record<string, unknown>;
 const migrationPaths = [
   "supabase/migrations/20260917161613_p0_weighbridge_ptc_auto_handoff_v1.sql",
   "supabase/migrations/20260918095931_p0_weighbridge_ptc_driver_fallback_v2.sql",
+  "supabase/migrations/20260919065424_p1_driver_vehicle_replacement.sql",
 ].map((path) => resolve(process.cwd(), path));
 const ids = {
   company: "10000000-0000-0000-0000-000000000001",
@@ -56,6 +58,7 @@ async function bootstrap(db: PGlite) {
   await db.exec(`
     create role anon;
     create role authenticated;
+    create role service_role;
     create schema private;
     create table public.ptc_vehicle_states (
       company_id uuid not null,
@@ -106,6 +109,33 @@ async function bootstrap(db: PGlite) {
       closed_by uuid,
       created_at timestamptz not null default now()
     );
+    alter table public.tickets add column finalized_at timestamptz, add column tare_weight_kg numeric,
+      add column audit_json jsonb;
+    create table public.companies(id uuid primary key);
+    create table public.profiles(id uuid primary key,company_id uuid,status text,role text,full_name text);
+    create table public.company_people(id uuid primary key,company_id uuid,user_id uuid,status text,deleted_at timestamptz,role_type text,full_name text);
+    create table public.reference_specialists(id uuid primary key,company_id uuid,person_id uuid,archived boolean,status text);
+    create table public.reference_vehicles(id uuid primary key,company_id uuid,primary_responsible_personnel_id uuid,
+      ptc_enabled boolean default true,is_active boolean default true,archived boolean default false);
+    create table public.ptc_flows(company_id uuid primary key,enabled boolean,field_id uuid,updated_at timestamptz default now());
+    create table public.fleet_vehicle_repairs(company_id uuid,vehicle_id uuid,in_repair boolean);
+    create table public.ptc_last_vehicle_markers(company_id uuid primary key,vehicle_id uuid);
+    create table public.ptc_last_vehicle_events(company_id uuid,vehicle_id uuid,actor_user_id uuid,actor_name text,command text,action text,idempotency_key uuid);
+    create table public.ptc_combine_shifts(company_id uuid,operator_user_id uuid,closed_at timestamptz,opened_at timestamptz,
+      field_id uuid,current_crop_structure_id uuid);
+    insert into public.companies values('${ids.company}');
+    insert into public.profiles values('${ids.actor}','${ids.company}','active','weighman','Весовщик');
+    insert into public.company_people values('${ids.driver}','${ids.company}',null,'active',null,'driver','Водитель А');
+    insert into public.company_people values('${ids.driverB}','${ids.company}',null,'active',null,'driver','Водитель Б');
+    insert into public.company_people values('${ids.driverC}','${ids.company}',null,'active',null,'driver','Водитель В');
+    insert into public.reference_specialists select id,company_id,id,false,'active' from public.company_people;
+    insert into public.reference_vehicles(id,company_id,primary_responsible_personnel_id) values
+      ('${ids.vehicleA}','${ids.company}','${ids.driver}'),
+      ('${ids.vehicleB}','${ids.company}','${ids.driverB}'),
+      ('${ids.vehicleC}','${ids.company}','${ids.driverC}'),
+      ('${ids.vehicleD}','${ids.company}',null),
+      ('${ids.vehicleAlias}','${ids.company}',null);
+    insert into public.ptc_flows(company_id,enabled,field_id) values('${ids.company}',true,'${ids.field}');
   `);
   for (const migrationPath of migrationPaths) {
     await db.exec(readFileSync(migrationPath, "utf8"));
@@ -157,8 +187,8 @@ async function main() {
   });
 
   await check("tare close atomically moves the same vehicle to empty exactly once", async () => {
-    await db.query("update public.tickets set is_finalized=true,status='finalized',closed_by=$2 where id=$1", [ids.ticketA, ids.actor]);
-    await db.query("update public.tickets set is_finalized=true,status='finalized',closed_by=$2 where id=$1", [ids.ticketA, ids.actor]);
+    await db.query("update public.tickets set is_finalized=true,status='finalized',finalized_at=now(),tare_weight_kg=8000,closed_by=$2 where id=$1", [ids.ticketA, ids.actor]);
+    await db.query("update public.tickets set is_finalized=true,status='finalized',finalized_at=now(),tare_weight_kg=8000,closed_by=$2 where id=$1", [ids.ticketA, ids.actor]);
     assert.equal(await scalar(db, "select state from public.ptc_vehicle_states where vehicle_id=$1", [ids.vehicleA]), "empty");
     assert.equal(await scalar(db, "select count(*)::int from public.ptc_events where vehicle_id=$1 and to_state='empty'", [ids.vehicleA]), 1);
   });
@@ -191,17 +221,14 @@ async function main() {
     assert.equal(await scalar(db, "select state from public.ptc_vehicle_states where vehicle_id=$1", [ids.vehicleD]), "empty");
   });
 
-  await check("a duplicated vehicle id falls back to the driver's one unique loaded trip", async () => {
-    await db.query(`insert into public.tickets(
+  await check("a manually selected different vehicle is never silently overwritten", async () => {
+    await assert.rejects(db.query(`insert into public.tickets(
       id,company_id,ticket_no,op_type,vehicle_id,created_by,field_id,crop_structure_allocation_id,driver_id
     ) values($1,$2,'WB-E','harvest_incoming',$3,$4,$5,$6,$7)`, [
       ids.ticketE, ids.company, ids.vehicleAlias, ids.actor, ids.field, ids.plot, ids.driverFallback,
-    ]);
-    assert.equal(await scalar(db, "select state from public.ptc_vehicle_states where vehicle_id=$1", [ids.vehicleE]), "unloading");
-    const ticket = (await rows(db, "select vehicle_id,ptc_event_id,ptc_cycle from public.tickets where id=$1", [ids.ticketE]))[0];
-    assert.equal(ticket.vehicle_id, ids.vehicleE);
-    assert.equal(ticket.ptc_event_id, ids.loadedE);
-    assert.equal(Number(ticket.ptc_cycle), 4);
+    ]), /PTC_VEHICLE_REPLACEMENT_REQUIRED/);
+    assert.equal(await scalar(db, "select state from public.ptc_vehicle_states where vehicle_id=$1", [ids.vehicleE]), "loaded");
+    assert.equal(await scalar(db, "select count(*)::int from public.tickets where id=$1", [ids.ticketE]), 0);
   });
 
   await check("two loaded trips for one driver remain ambiguous and are never guessed", async () => {
@@ -239,6 +266,87 @@ async function main() {
     assert.equal(ambiguous.status, "ambiguous");
   });
 
+  const replacementKey = "60000000-0000-0000-0000-000000000001";
+  await db.query("update public.tickets set is_voided=true,status='voided' where id=$1", [ids.ticketF]);
+  const replace = (overrides: Record<string, unknown> = {}) => {
+    const p = { actor: ids.actor, company: ids.company, driver: ids.driverB, source: ids.vehicleB, target: ids.vehicleAlias,
+      sourceVersion: 6, targetVersion: 0, sourceAssignment: ids.driverB, targetAssignment: null, key: replacementKey, ...overrides };
+    return db.query<{result: any}>("select public.ptc_replace_driver_vehicle_v1($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) as result",
+      [p.actor,p.company,p.driver,p.source,p.target,p.sourceVersion,p.targetVersion,p.sourceAssignment,p.targetAssignment,p.key]);
+  };
+  await check("loaded driver replacement preserves trip and keeps old history", async () => {
+    const before = await rows(db,"select * from public.ptc_events where vehicle_id=$1 order by id",[ids.vehicleB]);
+    const result = (await replace()).rows[0].result as any;
+    assert.equal(result.vehicleId,ids.vehicleAlias);
+    assert.equal(result.driverId,ids.driverB);
+    assert.equal(result.state,"loaded");
+    assert.deepEqual(await rows(db,"select * from public.ptc_events where vehicle_id=$1 order by id",[ids.vehicleB]),before);
+    assert.equal(await scalar(db,"select assigned from public.ptc_vehicle_states where vehicle_id=$1",[ids.vehicleB]),false);
+    assert.equal(await scalar(db,"select primary_responsible_personnel_id from public.reference_vehicles where id=$1",[ids.vehicleAlias]),ids.driverB);
+    // Voided ticket is historical, not rewritten by the replacement.
+    assert.equal(await scalar(db,"select vehicle_id from public.tickets where id=$1",[ids.ticketB]),ids.vehicleB);
+    assert.equal(await scalar(db,"select count(*)::int from public.ptc_vehicle_replacements"),1);
+  });
+  await check("lost response retry returns the receipt without a second move", async () => {
+    const result = (await replace()).rows[0].result as any;
+    assert.equal(result.replayed,true);
+    assert.equal(await scalar(db,"select count(*)::int from public.ptc_vehicle_replacements"),1);
+  });
+  await check("closed historical driver tonnage is unchanged", async () => {
+    assert.equal(await scalar(db,"select vehicle_id from public.tickets where id=$1",[ids.ticketA]),ids.vehicleA);
+    assert.equal(await scalar(db,"select driver_id from public.tickets where id=$1",[ids.ticketA]),ids.driver);
+  });
+  await check("occupied target is rejected without changing source or assignments", async () => {
+    await assert.rejects(replace({source:ids.vehicleAlias,sourceVersion:1,target:ids.vehicleD,targetVersion:8,key:ids.keyA}),/PTC_REPLACE_TARGET_BUSY/);
+    assert.equal(await scalar(db,"select state from public.ptc_vehicle_states where vehicle_id=$1",[ids.vehicleAlias]),"loaded");
+  });
+  await check("stale driver/version, cross-company and unauthorized role are rejected", async () => {
+    await assert.rejects(replace({source:ids.vehicleAlias,sourceVersion:999,key:ids.keyB}),/PTC_REPLACE_INVALID|PTC_REPLACE_CONFLICT/);
+    await assert.rejects(replace({company:ids.field,key:ids.keyB}),/PTC_REPLACE_FORBIDDEN/);
+    await db.exec(`update public.profiles set role='director' where id='${ids.actor}'`);
+    await assert.rejects(replace(),/PTC_REPLACE_FORBIDDEN/);
+    await db.exec(`update public.profiles set role='weighman' where id='${ids.actor}'`);
+  });
+  await check("repair target is unavailable and key reuse cannot redirect a retry", async () => {
+    await db.exec(`insert into public.fleet_vehicle_repairs values('${ids.company}','${ids.vehicleB}',true)`);
+    await assert.rejects(replace({source:ids.vehicleAlias,sourceVersion:1,target:ids.vehicleB,targetVersion:7,key:ids.keyC}),/PTC_REPLACE_TARGET_BUSY/);
+    await assert.rejects(replace({target:ids.vehicleD}),/PTC_KEY_CONFLICT/);
+    await db.exec("delete from public.fleet_vehicle_repairs");
+  });
+  await check("replacement can follow an OPEN ticket without closing or changing its weight", async () => {
+    await db.query(`insert into public.tickets(id,company_id,ticket_no,op_type,vehicle_id,created_by,field_id,crop_structure_allocation_id,driver_id)
+      values($1,$2,'WB-REPLACED','harvest_incoming',$3,$4,$5,$6,$7)`,[ids.ticketE,ids.company,ids.vehicleAlias,ids.actor,ids.field,ids.plot,ids.driverB]);
+    const result=(await replace({source:ids.vehicleAlias,sourceVersion:2,target:ids.vehicleB,targetVersion:7,key:ids.ticketD})).rows[0].result as any;
+    assert.equal(result.state,'unloading');
+    const t=(await rows(db,"select * from public.tickets where id=$1",[ids.ticketE]))[0];
+    assert.equal(t.vehicle_id,ids.vehicleB); assert.equal(t.driver_id,ids.driverB);
+    assert.equal(t.is_finalized,false); assert.equal(t.tare_weight_kg,null);
+    assert.equal(t.ptc_event_id,result.ptcEventId); assert.equal(t.ptc_cycle,result.ptcCycle);
+  });
+  await check("opening a ticket and typing tare does NOT make it empty", async () => {
+    await rows(db,"select * from public.tickets where id=$1",[ids.ticketE]);
+    await db.query("update public.tickets set tare_weight_kg=8400 where id=$1",[ids.ticketE]);
+    assert.equal(await scalar(db,"select state from public.ptc_vehicle_states where vehicle_id=$1",[ids.vehicleB]),'unloading');
+    await assert.rejects(db.query("update public.tickets set is_finalized=true where id=$1",[ids.ticketE]),/PTC_CONFIRMED_CLOSE_REQUIRED/);
+  });
+  await check("legacy receiver cannot make it empty while ticket is open", async () => {
+    await db.exec(`update public.profiles set role='vegetable_brigadier' where id='${ids.actor}'; update public.company_people set user_id='${ids.actor}' where id='${ids.driverB}'`);
+    const version=await scalar<number>(db,"select version from public.ptc_vehicle_states where vehicle_id=$1",[ids.vehicleB]);
+    await assert.rejects(db.query("select public.ptc_actor_transition_v1($1,$2,$3,'empty',$4)",[ids.actor,ids.vehicleB,version,ids.ticketF]),/PTC_OPEN_TICKET_WAITING_TARE/);
+    assert.equal(await scalar(db,"select state from public.ptc_vehicle_states where vehicle_id=$1",[ids.vehicleB]),'unloading');
+    await db.exec(`update public.profiles set role='weighman' where id='${ids.actor}'`);
+  });
+  await check("confirmed tare closes the replacement vehicle exactly once", async () => {
+    await db.query("update public.tickets set is_finalized=true,status='finalized',finalized_at=now(),closed_by=$2 where id=$1",[ids.ticketE,ids.actor]);
+    assert.equal(await scalar(db,"select state from public.ptc_vehicle_states where vehicle_id=$1",[ids.vehicleB]),'empty');
+    assert.equal(await scalar(db,"select count(*)::int from public.ptc_events where vehicle_id=$1 and to_state='empty'",[ids.vehicleB]),1);
+  });
+  await check("two vehicle replacements do not double count a single driver's load",async()=>{
+    const events=await rows(db,"select * from public.ptc_events where driver_id=$1",[ids.driverB]);
+    const canonical=currentTripEvents(events as any[]);
+    assert.equal(canonical.filter(e=>e.to_state==='loaded').length,2); // load + void returns to loaded; replacements add none
+    assert.equal(canonical.filter(e=>e.to_state==='loaded' && e.idempotency_key===replacementKey).length,0);
+  });
   await db.close();
   console.log(JSON.stringify({ suite: "P0 weighbridge PTC atomic handoff", passed, failed: 0 }, null, 2));
 }

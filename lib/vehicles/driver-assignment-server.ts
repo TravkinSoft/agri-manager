@@ -42,7 +42,7 @@ type VehicleRow = {
 };
 type Person = { id: string; full_name: string; role_type: "driver" | "mechanic_operator" };
 type Specialist = { id: string; person_id: string | null; personnel_type: string; status: string };
-type Context = { db: Db; companyId: string; creatorAuthUserId: string; canEdit: boolean };
+type Context = { db: Db; companyId: string; actorId: string; creatorAuthUserId: string; canEdit: boolean };
 
 export function assignmentResponse(data: unknown, status = 200) {
   return NextResponse.json(data, {
@@ -83,7 +83,7 @@ export async function assignmentContext(request: NextRequest, companyId: string 
     const supabase = await getUserScopedClientFromRequest(request);
     await requireWeighbridgeOperatorSession(request, { companyId: selectedCompany, supabase });
   }
-  return { db, companyId: selectedCompany, creatorAuthUserId: actor.authUserId, canEdit };
+  return { db, companyId: selectedCompany, actorId: actor.id, creatorAuthUserId: actor.authUserId, canEdit };
 }
 async function vehicleRow(context: Context, id: string): Promise<VehicleRow> {
   const result = await context.db.from("reference_vehicles").select(vehicleColumns)

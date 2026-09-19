@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getServiceClient } from "@/lib/supabase/service";
 import { ptcVehicleDisplayPlate } from "@/lib/traffic/vehicle-eligibility";
+import { currentTripEvents } from "@/lib/traffic/analytics";
 import {
   buildTrafficClosedShiftSummary,
   type ClosedTrafficShiftRow,
@@ -177,7 +178,7 @@ async function readShiftEvents(
     const pageSize = Math.min(EVENT_PAGE_SIZE, remainingBudget);
     let query = db
       .from("ptc_events")
-      .select("id,vehicle_id,actor_user_id,from_state,to_state,cycle,created_at")
+      .select("id,vehicle_id,actor_user_id,from_state,to_state,cycle,created_at,replaces_event_id")
       .eq("company_id", companyId)
       .gte("created_at", openedAt)
       .lte("created_at", closedAt)
@@ -201,7 +202,7 @@ async function readShiftEvents(
       events.push(...page.slice(0, pageSize));
     } else {
       events.push(...page);
-      return events;
+      return currentTripEvents(events);
     }
     const last = events[events.length - 1];
     if (!last?.created_at || !last.id) {

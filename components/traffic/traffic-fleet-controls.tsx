@@ -5,12 +5,13 @@ import { UserRound, Wrench, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { VehicleDriverAssignment } from "@/components/vehicles/vehicle-driver-assignment";
+import { DriverVehicleReplacement } from "@/components/vehicles/driver-vehicle-replacement";
 import { getFleetVehicleCardIdentity, isFleetRepairReceipt, type FleetVehicle } from "@/lib/fleet/model";
 import { STATE_LABEL, type TrafficSnapshot, type TrafficVehicle } from "@/lib/traffic/model";
 import { publishTrafficChanged } from "@/lib/traffic/changes";
 import { trafficRequest, type ManagerData } from "./use-traffic";
 
-type Panel = "actions" | "driver" | "repair" | "remove" | null;
+type Panel = "actions" | "driver" | "vehicle" | "repair" | "remove" | null;
 export function TrafficFleetControls({ managed, snapshot, selected, onSelected, stale, refresh }: {
   managed: ManagerData; snapshot: TrafficSnapshot; selected: TrafficVehicle | null;
   onSelected: (vehicle: TrafficVehicle | null) => void;
@@ -90,7 +91,9 @@ export function TrafficFleetControls({ managed, snapshot, selected, onSelected, 
       vehicleId={current.id} companyId={snapshot.companyId} driverName={current.driver}
       vehicleLabel={`${current.name} · ${current.plate || "без номера"}`}
       onClosed={close} onAssigned={() => { publishTrafficChanged(snapshot.companyId, "fleet"); void refresh(true); }} /> : null}
-    {panel && panel !== "driver" ? <Dialog open onOpenChange={open => { if (!open) close(); }}>
+    {panel === "vehicle" && current ? <DriverVehicleReplacement autoOpen companyId={snapshot.companyId} vehicleId={current.id}
+      onClosed={close} onReplaced={() => refresh(true)} /> : null}
+    {panel && panel !== "driver" && panel !== "vehicle" ? <Dialog open onOpenChange={open => { if (!open) close(); }}>
       <DialogContent hideCloseButton data-testid="vehicle-actions"
         className="flex max-h-[90dvh] w-[calc(100%-2rem)] max-w-md flex-col overflow-y-auto rounded-2xl border-border bg-background p-4 text-foreground">
         <DialogHeader className="shrink-0 pr-10 text-left">
@@ -102,6 +105,7 @@ export function TrafficFleetControls({ managed, snapshot, selected, onSelected, 
         <Button type="button" variant="ghost" aria-label="Закрыть" onClick={close} className="absolute right-1 top-2 h-12 w-12 p-0"><X size={20} /></Button>
         {panel === "actions" && current ? <div className="space-y-2">
           <Button variant="outline" className="min-h-[48px] w-full justify-start gap-2" onClick={() => setPanel("driver")}><UserRound size={18} />{current.driver ? "Сменить водителя" : "Назначить водителя"}</Button>
+          {current.assigned && current.driver ? <Button variant="outline" disabled={stale || pending} className="min-h-[48px] w-full justify-start" onClick={() => setPanel("vehicle")}>Заменить машину у водителя</Button> : null}
           {managed.canManageRepairs ? <Button variant="outline" disabled={stale || pending} className="min-h-[48px] w-full justify-start gap-2" onClick={() => setPanel("repair")}><Wrench size={18} />{current.inRepair ? "Вернуть из ремонта" : "Отправить на ремонт"}</Button> : null}
           {current.assigned ? <Button variant="outline" disabled={stale || pending || current.state !== "empty"} className="min-h-[48px] w-full justify-start" onClick={() => setPanel("remove")}>Убрать с линии</Button> : !current.inRepair ? <Button disabled={stale || pending} className="min-h-[48px] w-full" onClick={() => void mutate("line", current, [current.id], true)}>Вывести на линию</Button> : null}
           {current.assigned && current.state !== "empty" ? <p className="text-xs text-muted-foreground">Снять с линии можно после разгрузки. Отметка ремонта сохраняет груз.</p> : null}

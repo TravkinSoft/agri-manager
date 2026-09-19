@@ -1,11 +1,19 @@
 import type { TrafficAnalytics, TrafficCombineShift, TrafficState } from "./model";
 
 export interface TrafficAnalyticsEvent {
+  id?: string;
+  replaces_event_id?: string | null;
   vehicle_id: string;
   from_state: TrafficState;
   to_state: TrafficState;
   cycle: number;
   created_at: string;
+}
+
+/** A vehicle replacement carries the same trip forward, it is not another load. */
+export function currentTripEvents<T extends TrafficAnalyticsEvent>(events: T[]): T[] {
+  const replaced = new Set(events.flatMap(event => event.replaces_event_id ? [event.replaces_event_id] : []));
+  return events.filter(event => !event.id || !replaced.has(event.id));
 }
 
 const MINUTE = 60_000;
@@ -34,7 +42,7 @@ export function calculateTrafficAnalytics(
   const windowEndedAt = shift?.closedAt ?? serverTime;
   const start = Date.parse(windowStartedAt);
   const end = Date.parse(windowEndedAt);
-  const ordered = events
+  const ordered = currentTripEvents(events)
     .filter((event) => {
       const at = Date.parse(event.created_at);
       return Number.isFinite(at) && at >= start && at <= end;

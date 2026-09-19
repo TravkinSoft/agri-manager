@@ -54,6 +54,7 @@ import { UniversalWorkspaceTabs, type UniversalWorkspaceTab } from "@/components
 import { TransportDriverSelects } from "@/components/weighbridge/transport-driver-picker";
 import { OpenTicketCard } from "@/components/weighbridge/open-ticket-card";
 import { subscribeVehicleDriverAssignments } from "@/lib/vehicles/driver-assignment-client";
+import { DriverVehicleReplacement } from "@/components/vehicles/driver-vehicle-replacement";
 import { ProcessingWorkspace } from "@/components/weighbridge/processing-workspace";
 import { isOpenProcessingWorkItem, processingMassSnapshot } from "@/lib/weighbridge/processing-work-state";
 import { DailyReconciliation } from "@/components/weighbridge/daily-reconciliation";
@@ -6493,6 +6494,18 @@ export default function WeighbridgeOperationsPage() {
                 onBlockedAssignment={(assignment) => void handleBlockedTransportAssignment(assignment)}
                 onComplete={() => grossInputRef.current?.focus()}
               />
+              {form.operationType === "harvest_incoming" && form.driverId ? <DriverVehicleReplacement
+                companyId={profile?.company_id || undefined} driverId={form.driverId}
+                disabled={loading || submitting || ticketCloseLocked}
+                onReplaced={async receipt => {
+                  setForm(previous => previous.driverId === receipt.driverId ? {
+                    ...previous, vehicleId: receipt.vehicleId,
+                    ptcEventId: receipt.state === "loaded" ? receipt.ptcEventId || "" : "",
+                    ptcCycle: receipt.state === "loaded" ? receipt.ptcCycle : null,
+                  } : previous);
+                  toast({ title: "Машина заменена", description: "Водитель и текущий рейс сохранены. ПТС обновлён." });
+                  await Promise.allSettled([load(undefined, true), refreshTickets(), refreshPtcQueue()]);
+                }} /> : null}
               {drivers.length === 0 ? (
                 <div className="mt-1 text-xs text-amber-800">
                   {profile?.role === "company_admin" || profile?.role === "global_admin"
@@ -6884,6 +6897,17 @@ export default function WeighbridgeOperationsPage() {
 
               {canOperate ? (
                 <div className="flex shrink-0 flex-col items-center gap-3 pt-1">
+                  {activeTicket.op_type === "harvest_incoming" && !activeTicket.is_finalized && !activeTicket.is_voided ?
+                    <DriverVehicleReplacement companyId={profile?.company_id || undefined} vehicleId={activeTicket.vehicle_id || undefined}
+                      driverId={activeTicket.driver_id || undefined} disabled={ticketCloseLocked}
+                      onReplaced={async receipt => {
+                        // Receipt changes identity only. Keep the tare currently being typed.
+                        setActiveTicket(previous => previous && receipt.ticketIds.includes(previous.id)
+                          ? { ...previous, vehicle_id: receipt.vehicleId, vehicle_name_snapshot: null, vehicle_plate_snapshot: null,
+                            ptc_event_id: receipt.ptcEventId, ptc_cycle: receipt.ptcCycle } : previous);
+                        toast({ title: "Машина заменена в ПТС и талоне" });
+                        await Promise.allSettled([load(undefined, true), refreshTickets()]);
+                      }} /> : null}
                   {ticketCloseRetry ? (
                     <div role="alert" className="w-full max-w-sm rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-800">
                       <p>{ticketCloseState.message}</p>

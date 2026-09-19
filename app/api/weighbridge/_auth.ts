@@ -158,6 +158,13 @@ export function weighbridgeUserError(message: unknown): string {
   const raw = String(message || "").trim();
   const lower = raw.toLowerCase();
 
+  if (raw.includes("PTC_VEHICLE_REPLACEMENT_REQUIRED")) {
+    return "У водителя в ПТС другая машина. Нажмите «Заменить машину у водителя» и подтвердите замену. Выбранная машина не изменена.";
+  }
+  if (raw.includes("PTC_CONFIRMED_CLOSE_REQUIRED")) {
+    return "Переход в «Пустые» возможен только после подтверждённого закрытия талона с тарой.";
+  }
+
   if (raw.includes("IMPURITY_WEIGHT_EXCEEDS_AVAILABLE|")) {
     const available = Number(raw.split("IMPURITY_WEIGHT_EXCEEDS_AVAILABLE|")[1]?.split(/\s/)[0]);
     const label = Number.isFinite(available)

@@ -753,8 +753,10 @@ export async function POST(request: NextRequest) {
             events: driverLoadedEvents || [],
           });
           if (resolvedTrip.status === "matched") {
+            if (ticket.vehicle_id !== resolvedTrip.vehicleId) {
+              return NextResponse.json({ error: "У водителя в ПТС другая машина. Нажмите «Заменить машину у водителя» и подтвердите замену. Выбранная машина не изменена." }, { status: 409 });
+            }
             const transportAudit = ticket.audit_json?.transport as Record<string, unknown> | undefined;
-            ticket.vehicle_id = resolvedTrip.vehicleId;
             ticket.ptc_event_id = resolvedTrip.eventId;
             ticket.ptc_cycle = resolvedTrip.cycle;
             ticket.audit_json = {
