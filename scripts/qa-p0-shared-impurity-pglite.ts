@@ -927,6 +927,12 @@ async function main() {
       }
       if (nonblockingV5) await db.exec((await readFile(join(process.cwd(), "supabase/migrations/20260920084008_p0_shared_impurity_nonblocking_v5.sql"), "utf8")).replace(/\r\n/g, "\n"));
     }
+    if (process.argv.includes("--identity-index")) {
+      await db.exec(`begin; ${(await readFile(join(process.cwd(), "supabase/migrations/20260920134731_p0_impurity_ledger_identity_index_v1.sql"), "utf8"))} commit;`);
+      await check("exact ledger identity index is valid before full accounting regressions", async () => {
+        assert.equal(await scalar(db, "select indisvalid from pg_index where indexrelid='public.idx_stock_ledger_exact_batch_identity_v1'::regclass"), true);
+      });
+    }
     await check("settled-source release migration compiles after member settlement", () => undefined);
 
     await check("legacy single-lot RPC definition remains byte-for-byte unchanged and callable", async () => {
