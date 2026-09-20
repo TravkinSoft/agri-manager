@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownToLine, ChevronDown, Clock3, Loader2, PackageCheck, Truck, Wrench } from "lucide-react";
 import { TrafficShiftSummary } from "@/components/dashboard/traffic-shift-summary";
 import { WeighbridgeShiftHistory } from "@/components/dashboard/weighbridge-shift-history";
-import { PotatoDriverSummary } from "@/components/dashboard/potato-driver-summary";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { isPotatoLabel, type HarvestFilterOptions, type HarvestOverview } from "@/lib/dashboard/harvest-summary";
@@ -37,14 +36,6 @@ function mass(value: number): string {
   return `${tonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т`;
 }
 
-type ChampionPeriod = "today" | "previous_shift" | "month" | "all_time";
-
-const CHAMPION_PERIOD_QUERY = {
-  today: "current_day",
-  previous_shift: "previous_shift",
-  month: "current_month",
-  all_time: "all_time",
-} as const;
 function age(value: string, now: number): string {
   const started = Date.parse(value);
   if (!Number.isFinite(started)) return "—";
@@ -168,10 +159,6 @@ export function HarvestDashboard() {
   const canReadTraffic = Boolean(profile && ["agronomist", "company_admin", "global_admin", "fleet_manager"].includes(profile.role));
   const { payload: traffic, error: trafficError } = useDashboardTraffic(canReadTraffic);
   const [summary, setSummary] = useState<HarvestOverview | null>(null);
-  const [driverSummary, setDriverSummary] = useState<HarvestOverview | null>(null);
-  const [championPeriod, setChampionPeriod] = useState<ChampionPeriod>("all_time");
-  const [driverLoading, setDriverLoading] = useState(false);
-  const [driverError, setDriverError] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [selectedGroup, setSelectedGroup] = useState<TrafficGroup>("loaded");
@@ -181,31 +168,9 @@ export function HarvestDashboard() {
   const [selectedPlotId, setSelectedPlotId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const summaryRef = useRef<HarvestOverview | null>(null);
-  const driverSummaryRef = useRef<HarvestOverview | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const driverAbortRef = useRef<AbortController | null>(null);
   const initialTrafficGroupSelectedRef = useRef(false);
   const previousActivePlotRef = useRef<string | null>(null);
-
-  const refreshDrivers = useCallback(async () => {
-    driverAbortRef.current?.abort();
-    if (!companyId) return;
-    const controller = new AbortController();
-    driverAbortRef.current = controller;
-    setDriverLoading(true);
-    setDriverError("");
-    try {
-      const next = await getHarvestSummary<HarvestOverview>({ period: CHAMPION_PERIOD_QUERY[championPeriod], filters: {} }, { signal: controller.signal });
-      if (!controller.signal.aborted) {
-        driverSummaryRef.current = next;
-        setDriverSummary(next);
-      }
-    } catch (reason) {
-      if (!controller.signal.aborted) setDriverError(reason instanceof Error ? reason.message : "Не удалось загрузить таблицу чемпионов");
-    } finally {
-      if (!controller.signal.aborted) setDriverLoading(false);
-    }
-  }, [championPeriod, companyId]);
 
   const loadDashboard = useCallback(async () => {
     if (!companyId) {
@@ -217,7 +182,7 @@ export function HarvestDashboard() {
     abortRef.current = controller;
     setLoading(!summaryRef.current);
     setError("");
-    const query = { period: "current_day" as const, start: null, end: null, filters: {} };
+    const query = { period: "current_day" as const, start: null, end: null, filters: {}, includeDriverStats: false };
     try {
       const next = summaryRef.current
         ? await getHarvestSummary<HarvestOverview>(query, { signal: controller.signal })
@@ -237,7 +202,6 @@ export function HarvestDashboard() {
 
   useEffect(() => {
     summaryRef.current = null;
-    driverSummaryRef.current = null;
     previousActivePlotRef.current = null;
     setSelectedPlotId(null);
     initialTrafficGroupSelectedRef.current = false;
@@ -248,19 +212,12 @@ export function HarvestDashboard() {
     };
   }, [companyId, loadDashboard]);
   useEffect(() => {
-    if (!companyId) return;
-    if (!driverSummaryRef.current) setDriverSummary(null);
-    setDriverError("");
-    void refreshDrivers();
-    return () => driverAbortRef.current?.abort();
-  }, [companyId, refreshDrivers]);
-  useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
   const refreshDashboardLive = useCallback(async () => {
-    await Promise.allSettled([loadDashboard(), refreshDrivers()]);
-  }, [loadDashboard, refreshDrivers]);
+    await loadDashboard();
+  }, [loadDashboard]);
   useLiveRefresh({ enabled: Boolean(companyId), companyId, tables: LIVE_REFRESH_TABLES.weighbridge, intervalMs: 15_000, onRefresh: refreshDashboardLive });
   useEffect(() => { setHarvestedHectares(""); }, [selectedPlotId]);
 
@@ -478,8 +435,6 @@ export function HarvestDashboard() {
         </section>
       ) : null}
 
-      {driverError ? <div className="border-l-2 border-rose-400 px-3 py-2 text-sm text-rose-700">{driverError}</div> : null}
-      {driverSummary ? <PotatoDriverSummary rows={driverSummary.potatoDrivers} totalWeightKg={driverSummary.potatoDrivers.reduce((sum, row) => sum + row.netWeightKg, 0)} periodLabel={driverSummary.period.label} period={championPeriod} onPeriodChange={setChampionPeriod} refreshing={driverLoading} /> : driverLoading ? <section className="flex min-h-32 items-center justify-center rounded-xl border border-border bg-card/40 text-sm text-muted-foreground" aria-label="Загрузка таблицы чемпионов"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка таблицы чемпионов...</section> : null}
 
       {profile && ["agronomist", "director"].includes(profile.role) && profile.company_id ? (
         <details className="group border-y border-border" onToggle={(event) => setShiftReportOpen(event.currentTarget.open)}>

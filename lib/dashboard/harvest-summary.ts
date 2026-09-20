@@ -638,6 +638,7 @@ export function buildHarvestOverview(
     harvestPlots?: HarvestPlotSummary[];
     suppressInferredActiveSelection?: boolean;
     impurityTickets?: WeighbridgeTicket[];
+    includeDriverStats?: boolean;
   }
 ): HarvestOverview {
   const now = options.now || new Date();
@@ -734,7 +735,7 @@ export function buildHarvestOverview(
   const knownPartyByIdentity = new Map<string, string>();
 
   const potatoDriverIdsByName = new Map<string, Set<string>>();
-  for (const ticket of finalized) {
+  for (const ticket of options.includeDriverStats === false ? [] : finalized) {
     if (!isPotatoLabel(ticketIdentity(ticket).crop)) continue;
     const driverId = cleanLabel(ticket.driver_id);
     const driverName = cleanLabel(ticket.driver_name_snapshot)?.replace(/\s+/gu, " ") || null;
@@ -747,7 +748,7 @@ export function buildHarvestOverview(
 
   const potatoDriverIdentityByTicketId = new Map<string, { key: string; driverId: string | null; driverName: string | null }>();
   const latestPotatoDriverNameByKey = new Map<string, { driverName: string; occurredAtMs: number; ticketId: string }>();
-  for (const ticket of finalized) {
+  for (const ticket of options.includeDriverStats === false ? [] : finalized) {
     if (!isPotatoLabel(ticketIdentity(ticket).crop)) continue;
     const snapshotDriverId = cleanLabel(ticket.driver_id);
     const driverName = cleanLabel(ticket.driver_name_snapshot)?.replace(/\s+/gu, " ") || null;
@@ -859,7 +860,7 @@ export function buildHarvestOverview(
     cropRow.trips += 1;
     cropMap.set(cropKey, cropRow);
 
-    if (isPotatoLabel(identity.crop)) {
+    if (options.includeDriverStats !== false && isPotatoLabel(identity.crop)) {
       const driverIdentity = potatoDriverIdentityByTicketId.get(ticket.id) || {
         key: `ticket:${ticket.id}`,
         driverId: null,

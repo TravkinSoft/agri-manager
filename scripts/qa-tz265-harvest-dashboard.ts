@@ -547,7 +547,6 @@ const dashboardPage = readFileSync(resolve(root, "app/(dashboard)/dashboard/page
 const dashboardApi = readFileSync(resolve(root, "app/api/dashboard/harvest-summary/route.ts"), "utf8");
 const dashboardUi = readFileSync(resolve(root, "components/dashboard/harvest-dashboard.tsx"), "utf8");
 const harvestSummarySource = readFileSync(resolve(root, "lib/dashboard/harvest-summary.ts"), "utf8");
-const potatoDriverUi = readFileSync(resolve(root, "components/dashboard/potato-driver-summary.tsx"), "utf8");
 const fieldMapPolicy = readFileSync(resolve(root, "lib/fields-map/access-policy.ts"), "utf8");
 const warehousePage = readFileSync(resolve(root, "app/(dashboard)/warehouses/page.tsx"), "utf8");
 const warehouseAuth = readFileSync(resolve(root, "app/api/warehouses/_helpers.ts"), "utf8");
@@ -650,7 +649,7 @@ check("dashboard presents the live vegetable plot chain", () => {
   assert.match(dashboardUi, /С выбранного участка · всего/);
   assert.match(dashboardUi, /На складе/);
   assert.match(dashboardUi, /Живая урожайность/);
-  assert.match(dashboardUi, /Текущая работа[\s\S]*Главные показатели уборки[\s\S]*Статусы машин PTC[\s\S]*PotatoDriverSummary/);
+  assert.match(dashboardUi, /Текущая работа[\s\S]*Главные показатели уборки[\s\S]*Статусы машин PTC/);
   assert.match(dashboardUi, /summary\?\.activeWeighbridgeSelection/);
   assert.match(dashboardUi, /selectedPlot\?\.totalAcceptedKg \?\? summary\?\.currentPlotTotalAcceptedKg/);
   assert.match(dashboardUi, /mass\(plot\.totalAcceptedKg\)/);
@@ -661,16 +660,10 @@ check("dashboard presents the live vegetable plot chain", () => {
   assert.match(dashboardUi, /potatoParties/);
   assert.doesNotMatch(dashboardUi, /Поступление по культурам|Завершено рейсов/);
 });
-check("dashboard shows the live driver champions table after the unchanged PTC status block", () => {
-  assert.match(dashboardUi, /Статусы машин PTC[\s\S]*<PotatoDriverSummary rows=\{driverSummary\.potatoDrivers\}/);
+check("dashboard omits driver champions and preserves the PTC report", () => {
+  assert.doesNotMatch(dashboardUi, /PotatoDriverSummary|driverSummary|refreshDrivers/);
   assert.match(dashboardUi, /\["agronomist", "director"\]\.includes\(profile\.role\)[\s\S]*?<TrafficShiftSummary/);
   assert.match(dashboardUi, /shiftReportOpen \? <div[\s\S]*?<TrafficShiftSummary/);
-  assert.match(potatoDriverUi, /Таблица чемпионов/);
-  assert.match(potatoDriverUi, /memo\(function PotatoDriverSummary/);
-  assert.match(potatoDriverUi, /data-driver-id=\{row\.driverId \|\| row\.key\}/);
-  assert.match(potatoDriverUi, /Чистый картофель/);
-  assert.doesNotMatch(potatoDriverUi, /Лидер|Больше всего тонн|Самый быстрый|Среднее время|\.animate\(/);
-  assert.doesNotMatch(potatoDriverUi, /Показать предыдущий рабочий день/);
   assert.match(readFileSync(resolve(root, "components/dashboard/harvest-day-summary.tsx"), "utf8"), /Показать предыдущий рабочий день/);
 });
 check("yield calculator uses cumulative exact plot mass and confirmed area, never party stock", () => {
@@ -692,16 +685,12 @@ check("live yield uses exact accepted mass and shift hectares only when plot own
   assert.match(dashboardUi, /Комбайнёр должен закрыть смену и указать убранные гектары/);
   assert.match(harvestSummarySource, /!plot\.areaPending && harvestedAreaHa/);
 });
-check("driver champions support live period filters and replace the redundant day summary", () => {
+check("dashboard background refresh excludes driver statistics", () => {
   assert.doesNotMatch(dashboardApi, /potatoDrivers: seasonDrivers/);
   assert.match(dashboardApi, /ptc_trip_minutes/);
-  assert.match(dashboardUi, /CHAMPION_PERIOD_QUERY\[championPeriod\]/);
+  assert.match(dashboardUi, /includeDriverStats: false/);
+  assert.doesNotMatch(dashboardUi, /CHAMPION_PERIOD_QUERY|championPeriod/);
   assert.match(dashboardUi, /useLiveRefresh[\s\S]*onRefresh: refreshDashboardLive/);
-  assert.doesNotMatch(potatoDriverUi, /dayOffset|onOlderDay|onNewerDay|onToday/);
-  assert.match(potatoDriverUi, /За сегодня/);
-  assert.match(potatoDriverUi, /За прошлую смену/);
-  assert.match(potatoDriverUi, /За месяц/);
-  assert.match(potatoDriverUi, /За всё время/);
   assert.doesNotMatch(dashboardUi, /HarvestDaySummary/);
   assert.match(dashboardUi, /h-\[460px\][\s\S]*overflow-y-auto[\s\S]*\[scrollbar-width:none\]/);
   assert.match(dashboardUi, /h-\[56dvh\][^\n]*lg:hidden/);

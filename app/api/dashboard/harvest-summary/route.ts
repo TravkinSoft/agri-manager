@@ -123,7 +123,7 @@ async function loadLotByTicketId(
   return lotByTicketIdFromLineage(lineage, ticketIds).lotByTicketId;
 }
 
-async function loadTickets(supabase: any, companyId: string): Promise<WeighbridgeTicket[]> {
+async function loadTickets(supabase: any, companyId: string, includeDriverStats = true): Promise<WeighbridgeTicket[]> {
   const rows: any[] = [];
   const pageSize = 1000;
   for (let from = 0; ; from += pageSize) {
@@ -182,7 +182,8 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
   ]);
   if (impurityResult.error) throw impurityResult.error;
   const impurityByTicketId = new Map<string, number>(Object.entries(impurityResult.data || {}).map(([id, kg]) => [id, Number(kg)]));
-  const ptcEventIds = uniqueIds(rows.map((row) => row.ptc_event_id));
+  // Travel-time lookups belonged only to the removed leaderboard.
+  const ptcEventIds = includeDriverStats ? uniqueIds(rows.map((row) => row.ptc_event_id)) : [];
   const service = getServiceClient();
   const loadedPtcResult = ptcEventIds.length
     ? await service.from("ptc_events").select("id,vehicle_id,cycle,created_at").eq("company_id", companyId).in("id", ptcEventIds)
@@ -608,6 +609,7 @@ export async function GET(request: NextRequest) {
       serverProfileRead: true,
     });
     const section = String(request.nextUrl.searchParams.get("section") || "summary");
+    const includeDriverStats = request.nextUrl.searchParams.get("includeDriverStats") !== "false";
     const filters = readFilters(request);
     if (section === "warehouses") {
       const rows = buildWarehouseHarvestRows(await loadWarehouseRows(supabase, getServiceClient(), companyId), filters);
@@ -615,7 +617,7 @@ export async function GET(request: NextRequest) {
     }
 
     const [tickets, seasonResult, shiftResult, companyResult, shiftHistoryResult, impurityTickets] = await Promise.all([
-      loadTickets(supabase, companyId),
+      loadTickets(supabase, companyId, includeDriverStats),
       supabase.from("seasons").select("id,year,start_date,end_date").eq("company_id", companyId).eq("archived", false).order("year", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("weighbridge_shifts").select("id,status,opened_at,closed_at").eq("company_id", companyId).eq("status", "open").order("opened_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("companies").select("id,name,operational_day_start_hour").eq("id", companyId).maybeSingle(),
@@ -662,6 +664,7 @@ export async function GET(request: NextRequest) {
         harvestPlots,
         suppressInferredActiveSelection: activePtcState.suppressTicketInference,
         impurityTickets,
+        includeDriverStats,
       }),
     );
     const summary = { ...periodSummary, weighbridgeShifts: shiftHistoryResult.data || [] };

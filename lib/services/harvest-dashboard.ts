@@ -7,6 +7,7 @@ export type HarvestDashboardQuery = {
   start?: string | null;
   end?: string | null;
   filters?: HarvestDashboardFilters;
+  includeDriverStats?: boolean;
 };
 
 type HarvestDashboardSection = "summary" | "warehouses" | "filters" | "bootstrap";
@@ -19,6 +20,7 @@ function queryString(section: HarvestDashboardSection, query?: HarvestDashboardQ
   const params = new URLSearchParams({ section });
   if (query) {
     params.set("period", query.period);
+    if (query.includeDriverStats === false) params.set("includeDriverStats", "false");
     if (query.dayOffset && query.dayOffset > 0) params.set("dayOffset", String(Math.floor(query.dayOffset)));
     if (query.start) params.set("start", query.start);
     if (query.end) params.set("end", query.end);

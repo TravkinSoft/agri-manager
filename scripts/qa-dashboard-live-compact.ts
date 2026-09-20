@@ -27,7 +27,7 @@ for (const label of ["Пустая машина", "Загруженная маш
 
 assert.match(dashboard, /Оборот машин · \{trafficVehicles\.filter/);
 assert.doesNotMatch(dashboard, />Последние рейсы|>Размещение/);
-assert.match(dashboard, /Статусы машин PTC[\s\S]*<PotatoDriverSummary rows=\{driverSummary\.potatoDrivers\}/);
+assert.doesNotMatch(dashboard, /PotatoDriverSummary|refreshDrivers/);
 for (const label of ["Сегодня принято", "С текущего участка", "На складе", "Живая урожайность"]) {
   assert.match(dashboard, new RegExp(label));
 }
