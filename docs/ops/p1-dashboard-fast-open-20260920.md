@@ -28,3 +28,12 @@
 ## Release gate
 
 Use a Production-target build without domain assignment first; only promote the verified READY artifact. Recheck current Production baseline to avoid overwriting a concurrent release. User has authorized publication of these dashboard fixes. Record deployment and post-release checks below after completion.
+
+## Production release
+
+- Runtime source commit: `93f7f174470ba218dc15d507e102fbc12a7f300a`, private GitHub branch `codex/p1-dashboard-fast-open-20260920` pushed successfully.
+- Deployment: `dpl_H4D5jHqHuWDUyidZoqpYJ3dezTud`, `agri-manager-dh3kzgiag-travkin-ais-projects.vercel.app`, READY, Next.js 13.5.1, build 57 seconds (build log). Build warnings about optional WebSocket modules and Browserslist already existed; typecheck and model smoke passed.
+- Built with Production environment and `--skip-domain`; health OK and unauthenticated summary 401 before promotion. Verified the live alias still pointed to the expected old deployment before switching.
+- Promoted successfully. `travkinflow.com` resolves to the new deployment. `/api/healthz` returned `ok:true`, correct deployment URL at `2026-09-20T09:05:22.980Z`. CLI health `commit:null` is not used as SHA proof.
+- Unauthenticated champions endpoint returns 401. Error/fatal runtime log scan scoped to this deployment through `09:05:18Z`: no matching entries (short window, not an authenticated UI load test).
+- Real authenticated Production loading latency remains NOT LIVE VERIFIED due to the browser-tool failure documented above. No universal instant-loading claim; local test timings remain explicitly local.
