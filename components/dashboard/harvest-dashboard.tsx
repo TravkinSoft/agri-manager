@@ -329,8 +329,13 @@ export function HarvestDashboard() {
     ? (Number.isFinite(enteredHectares) && enteredHectares > 0 ? enteredHectares : null)
     : selectedPlot?.areaPending ? null : selectedPlot?.harvestedAreaHa;
   const manualYieldTonnes = hectares && hectares > 0 ? selectedPlotTotalAcceptedKg / 1000 / hectares : null;
-  const liveYieldTonnes = selectedPlot?.yieldTPerHa ?? (!selectedPlot ? summary?.currentPlotYieldTPerHa ?? null : null);
-  const liveYieldNote = selectedPlot?.harvestedAreaHa
+  const liveYieldPending = Boolean(selectedPlot?.areaPending);
+  const liveYieldTonnes = liveYieldPending
+    ? null
+    : selectedPlot?.yieldTPerHa ?? (!selectedPlot ? summary?.currentPlotYieldTPerHa ?? null : null);
+  const liveYieldNote = liveYieldPending
+    ? "Комбайнёр должен закрыть смену и указать убранные гектары"
+    : selectedPlot?.harvestedAreaHa
     ? `Всего подтверждено: ${selectedPlot.harvestedAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га${selectedPlot.areaPending ? " · гектары текущей смены ещё не указаны" : ""}`
     : summary?.currentPlotHarvestedAreaStatus === "verified"
       ? `Убрано за рабочий день: ${summary.currentPlotHarvestedAreaHa?.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`
@@ -339,6 +344,10 @@ export function HarvestDashboard() {
       : summary?.currentPlotHarvestedAreaStatus === "no_closed_shift"
         ? "Нет закрытого отчёта смены с фактическими гектарами"
         : "Точный участок не выбран";
+  const periodImpurityPercent = periodMovement?.removedImpuritiesKg != null
+    && periodMovement.receivedNetKg > 0
+    ? periodMovement.removedImpuritiesKg / periodMovement.receivedNetKg * 100
+    : null;
   const trafficVehicles = useMemo(() => mergeTrafficVehicles(traffic?.snapshot || null, traffic?.fleet || []), [traffic]);
   const grouped = useMemo(() => Object.fromEntries(GROUPS.map((group) => [group.key, trafficVehicles.filter((vehicle) => vehicleGroup(vehicle) === group.key)])) as Record<TrafficGroup, TrafficVehicle[]>, [trafficVehicles]);
 
@@ -414,7 +423,7 @@ export function HarvestDashboard() {
               <div className="mt-1 whitespace-nowrap text-base font-semibold leading-none tabular-nums text-[color:var(--manor-brass-soft)] sm:text-lg">{periodMovement?.netAfterRemovalsKg != null ? mass(periodMovement.netAfterRemovalsKg) : "Нет данных"}</div>
               <div className="mt-1 text-[10px] text-muted-foreground" title={summary.period.label}>Все поля · с {summary.period.operationalDayStartHour}:00 · приход − вывоз примесей</div>
               <div className="mt-1 text-[10px] text-muted-foreground">{periodMovement?.removedImpuritiesKg != null
-                ? `Приход ${mass(periodMovement.receivedNetKg)} − примеси ${mass(periodMovement.removedImpuritiesKg)}`
+                ? `Приход ${mass(periodMovement.receivedNetKg)} − примеси ${mass(periodMovement.removedImpuritiesKg)}${periodImpurityPercent == null ? "" : ` (${periodImpurityPercent.toLocaleString("ru-RU", { maximumFractionDigits: 1 })}% от нетто)`}`
                 : "Не удалось определить культуру или источник примесей"}</div>
             </div>
             <div className="min-w-0 border-l border-border px-2 py-2 sm:px-3 sm:py-1">
@@ -429,7 +438,7 @@ export function HarvestDashboard() {
             </div>
             <button type="button" onClick={() => setCalculatorOpen((value) => !value)} className="min-h-9 min-w-0 border-l border-t border-border px-2 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:border-t-0 sm:px-3 sm:py-1">
               <div className="text-[9px] uppercase leading-none tracking-[0.08em] text-muted-foreground sm:text-[10px]">Живая урожайность</div>
-              <div className={`mt-1 leading-none tabular-nums text-foreground ${liveYieldTonnes == null ? "text-xs font-medium sm:text-sm" : "whitespace-nowrap text-sm font-semibold sm:text-lg"}`}>{liveYieldTonnes == null ? "Нет подтверждённых гектаров" : `${liveYieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div>
+              <div className={`mt-1 leading-none tabular-nums text-foreground ${liveYieldTonnes == null ? "text-xs font-medium sm:text-sm" : "whitespace-nowrap text-sm font-semibold sm:text-lg"}`}>{liveYieldTonnes == null ? "—" : `${liveYieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div>
               <div className="mt-1 text-[10px] text-muted-foreground" title={liveYieldNote}>{liveYieldNote}</div>
               {selectedPlot?.latestShiftAreaHa != null ? <div className="mt-1 text-[10px] text-muted-foreground">Последняя смена на участке: {selectedPlot.latestShiftAreaHa.toLocaleString("ru-RU")} га</div> : null}
             </button>

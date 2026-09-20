@@ -155,7 +155,7 @@ check("today plot rail keeps active and completed combine plots separate", () =>
   assert.equal(result.harvestPlots[0].status, "active");
   assert.equal(result.harvestPlots[0].acceptedKg, 12_000);
   assert.equal(result.harvestPlots[0].totalAcceptedKg, 12_000);
-  assert.equal(result.harvestPlots[0].yieldTPerHa, 12 / 8);
+  assert.equal(result.harvestPlots[0].yieldTPerHa, null, "open shift must not reuse hectares from earlier shifts");
   assert.equal(result.harvestPlots[1].status, "completed");
   assert.equal(result.harvestPlots[1].acceptedKg, 10_000);
   assert.equal(result.harvestPlots[1].totalAcceptedKg, 10_000);
@@ -546,6 +546,7 @@ const mobileNav = readFileSync(resolve(root, "components/layout/mobile-bottom-na
 const dashboardPage = readFileSync(resolve(root, "app/(dashboard)/dashboard/page.tsx"), "utf8");
 const dashboardApi = readFileSync(resolve(root, "app/api/dashboard/harvest-summary/route.ts"), "utf8");
 const dashboardUi = readFileSync(resolve(root, "components/dashboard/harvest-dashboard.tsx"), "utf8");
+const harvestSummarySource = readFileSync(resolve(root, "lib/dashboard/harvest-summary.ts"), "utf8");
 const potatoDriverUi = readFileSync(resolve(root, "components/dashboard/potato-driver-summary.tsx"), "utf8");
 const fieldMapPolicy = readFileSync(resolve(root, "lib/fields-map/access-policy.ts"), "utf8");
 const warehousePage = readFileSync(resolve(root, "app/(dashboard)/warehouses/page.tsx"), "utf8");
@@ -644,6 +645,8 @@ check("dashboard presents the live vegetable plot chain", () => {
   assert.match(dashboardUi, /Итог дня · картофель/);
   assert.match(dashboardUi, /periodMovement\.netAfterRemovalsKg/);
   assert.match(dashboardUi, /приход − вывоз примесей/);
+  assert.match(dashboardUi, /periodImpurityPercent/);
+  assert.match(dashboardUi, /% от нетто/);
   assert.match(dashboardUi, /С выбранного участка · всего/);
   assert.match(dashboardUi, /На складе/);
   assert.match(dashboardUi, /Живая урожайность/);
@@ -686,7 +689,8 @@ check("live yield uses exact accepted mass and shift hectares only when plot own
   assert.match(dashboardApi, /openShift && !openShift\.current_crop_structure_id[\s\S]*suppressTicketInference: true/);
   assert.match(dashboardApi, /suppressInferredActiveSelection: activePtcState\.suppressTicketInference/);
   assert.doesNotMatch(dashboardUi, /Недостаточно данных/);
-  assert.match(dashboardUi, /Нет подтверждённых гектаров/);
+  assert.match(dashboardUi, /Комбайнёр должен закрыть смену и указать убранные гектары/);
+  assert.match(harvestSummarySource, /!plot\.areaPending && harvestedAreaHa/);
 });
 check("driver champions support live period filters and replace the redundant day summary", () => {
   assert.doesNotMatch(dashboardApi, /potatoDrivers: seasonDrivers/);

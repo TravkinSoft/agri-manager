@@ -720,10 +720,9 @@ export function buildHarvestOverview(
       ...plot,
       acceptedKg,
       totalAcceptedKg,
-      // Keep the latest confirmed hectares as the denominator while a new
-      // combine shift is still open. The live mass continues to update, but a
-      // missing current-shift hectare entry must not erase the last known yield.
-      yieldTPerHa: harvestedAreaHa ? totalAcceptedKg / 1000 / harvestedAreaHa : null,
+      // A new open shift adds mass before its worked hectares are known.
+      // Do not divide that growing mass by hectares from earlier shifts.
+      yieldTPerHa: !plot.areaPending && harvestedAreaHa ? totalAcceptedKg / 1000 / harvestedAreaHa : null,
     };
   });
 
