@@ -32,6 +32,7 @@ yarn-error.log*
 .vercel
 
 # generated local artifacts
+/.artifacts/dashboard-fast-browser/
 /scripts/output/
 /supabase/.temp/
 /reports/

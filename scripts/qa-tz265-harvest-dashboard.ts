@@ -693,11 +693,13 @@ check("live yield uses exact accepted mass and shift hectares only when plot own
 check("driver champions support live period filters and replace the redundant day summary", () => {
   assert.doesNotMatch(dashboardApi, /potatoDrivers: seasonDrivers/);
   assert.match(dashboardApi, /ptc_trip_minutes/);
-  assert.match(dashboardUi, /champions\.data\.periods\[championPeriod\]/);
+  assert.match(dashboardUi, /champions\?\.periods\[championPeriod\]/);
   assert.match(dashboardUi, /useLiveRefresh[\s\S]*onRefresh: refreshDrivers/);
   assert.match(dashboardUi, /tables: \["tickets", "ticket_lines", "weighbridge_shifts"\]/);
-  assert.match(dashboardUi, /champions\?\.scope === championScope/);
-  assert.match(dashboardUi, /running\.pending = true/);
+  assert.match(dashboardUi, /useDashboardResource\(championScope, "champions"/);
+  const resourceHook = readFileSync(resolve(root, "hooks/use-dashboard-resource.ts"), "utf8");
+  assert.match(resourceHook, /snapshot\?\.scope === scope/);
+  assert.match(resourceHook, /running\.pending = true/);
   assert.doesNotMatch(dashboardUi, /\}, \[championPeriod, companyId\]\)/);
   assert.doesNotMatch(potatoDriverUi, /dayOffset|onOlderDay|onNewerDay|onToday/);
   assert.match(potatoDriverUi, /За сегодня/);
@@ -754,7 +756,8 @@ check("champions batch matches canonical totals for every period and refreshes a
   const mass = (rows: HarvestOverview["potatoDrivers"]) => rows.reduce((sum, row) => sum + row.netWeightKg, 0);
   assert.equal(mass(buildHarvestChampions([input[0], closed], context).periods.today.potatoDrivers), mass(batch.periods.today.potatoDrivers) + 4000);
   assert.equal(mass(buildHarvestChampions([{ ...input[0], is_voided: true }, closed], context).periods.today.potatoDrivers), 4000);
-  assert.ok(dashboardApi.indexOf("if (championsOnly)") < dashboardApi.indexOf("const [loadedWarehouseRows, activePtcState]"));
+  assert.match(dashboardApi, /championsOnly \? Promise\.resolve\(\[\]\) : timed\("stock"/);
+  assert.match(dashboardApi, /championsOnly \? Promise\.resolve\(\[\]\) : timed\("plots"/);
 });
 console.log(`TZ265 PASS ${checks.length}/${checks.length}`);
 for (const name of checks) console.log(`PASS ${name}`);

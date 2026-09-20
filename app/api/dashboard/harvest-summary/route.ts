@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
+import { createInFlightRead } from "@/lib/dashboard/in-flight-read";
 import { resolveWeighbridgeSession, asSessionErrorResponse } from "@/app/api/weighbridge/_auth";
 import {
   buildHarvestFilterOptions,
@@ -25,6 +27,7 @@ const LINEAGE_QUERY_CHUNK_SIZE = 200;
 const LINEAGE_QUERY_CONCURRENCY = 4;
 const LINEAGE_QUERY_PAGE_SIZE = 1000;
 const SUMMARY_SOURCE = "effective finalized harvest_incoming tickets";
+const shareTickets = createInFlightRead<WeighbridgeTicket[]>();
 
 const uniqueIds = (values: unknown[]) => Array.from(new Set(
   values.map((value) => String(value || "").trim()).filter(Boolean)
@@ -144,6 +147,7 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
       .eq("company_id", companyId)
       .eq("op_type", "harvest_incoming")
       .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
       .range(from, from + pageSize - 1);
     if (error) throw error;
     rows.push(...(data || []));
@@ -155,7 +159,10 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
   const warehouseIds = Array.from(new Set(rows.flatMap((row) => [String(row.warehouse_to_id || ""), ...(row.lines || []).map((line: any) => String(line.warehouse_to_id || ""))]).filter(Boolean)));
   const vehicleIds = Array.from(new Set(rows.map((row) => String(row.vehicle_id || "")).filter(Boolean)));
   const driverIds = Array.from(new Set(rows.map((row) => String(row.driver_id || "")).filter(Boolean)));
-  const [{ data: fields, error: fieldsError }, { data: allocations, error: allocationsError }, { data: warehouses, error: warehousesError }, { data: vehicles, error: vehiclesError }, { data: machines, error: machinesError }, { data: people, error: peopleError }, { data: specialists, error: specialistsError }, { data: driverProfiles, error: driverProfilesError }] = await Promise.all([
+  const ticketIds = rows.map((row) => String(row.id));
+  const ptcEventIds = uniqueIds(rows.map((row) => row.ptc_event_id));
+  const service = getServiceClient();
+  const [{ data: fields, error: fieldsError }, { data: allocations, error: allocationsError }, { data: warehouses, error: warehousesError }, { data: vehicles, error: vehiclesError }, { data: machines, error: machinesError }, { data: people, error: peopleError }, { data: specialists, error: specialistsError }, { data: driverProfiles, error: driverProfilesError }, lotByTicketId, impurityResult, tripMinutesByEvent] = await Promise.all([
     fieldIds.length ? supabase.from("fields").select("id,name").eq("company_id", companyId).in("id", fieldIds) : Promise.resolve({ data: [], error: null }),
     allocationIds.length ? supabase.from("crop_structure").select("id,field_id,area").eq("company_id", companyId).in("id", allocationIds) : Promise.resolve({ data: [], error: null }),
     warehouseIds.length ? supabase.from("warehouses").select("id,name").eq("company_id", companyId).in("id", warehouseIds) : Promise.resolve({ data: [], error: null }),
@@ -164,6 +171,20 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
     driverIds.length ? supabase.from("company_people").select("id,full_name").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
     driverIds.length ? supabase.from("reference_specialists").select("id,person_id,full_name,name_ru,name_kz,name_en").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
     driverIds.length ? supabase.from("profiles").select("id,full_name,email").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
+    loadLotByTicketId(supabase, companyId, ticketIds),
+    service.rpc("harvest_impurities_by_receipt_v1", { p_company_id: companyId }),
+    (async () => {
+      const loadedPtcRows = await loadInChunks<any>(ptcEventIds, (chunk) => service
+        .from("ptc_events").select("id,vehicle_id,cycle,created_at").eq("company_id", companyId).in("id", chunk).order("id"));
+      const unloadingPtcRows = await loadInChunks<any>(uniqueIds(loadedPtcRows.map((row) => row.vehicle_id)), (chunk) => service
+        .from("ptc_events").select("id,vehicle_id,cycle,created_at").eq("company_id", companyId).eq("to_state", "unloading").in("vehicle_id", chunk).order("created_at").order("id"));
+      const unloadingByTrip = new Map(unloadingPtcRows.map((row) => [`${row.vehicle_id}:${row.cycle}`, row]));
+      return new Map(loadedPtcRows.flatMap((loaded) => {
+        const unloading = unloadingByTrip.get(`${loaded.vehicle_id}:${loaded.cycle}`);
+        const minutes = unloading ? (Date.parse(unloading.created_at) - Date.parse(loaded.created_at)) / 60_000 : NaN;
+        return Number.isFinite(minutes) && minutes >= 0 ? [[String(loaded.id), minutes] as const] : [];
+      }));
+    })(),
   ]);
   if (fieldsError || allocationsError || warehousesError || vehiclesError || machinesError || peopleError || specialistsError || driverProfilesError) {
     throw fieldsError || allocationsError || warehousesError || vehiclesError || machinesError || peopleError || specialistsError || driverProfilesError;
@@ -176,30 +197,8 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
   const driverById = byId([...(people || []), ...(specialists || []), ...(driverProfiles || [])]);
   const specialistById = byId(specialists || []);
 
-  const ticketIds = rows.map((row) => String(row.id));
-  const [lotByTicketId, impurityResult] = await Promise.all([
-    loadLotByTicketId(supabase, companyId, ticketIds),
-    getServiceClient().rpc("harvest_impurities_by_receipt_v1", { p_company_id: companyId }),
-  ]);
   if (impurityResult.error) throw impurityResult.error;
   const impurityByTicketId = new Map<string, number>(Object.entries(impurityResult.data || {}).map(([id, kg]) => [id, Number(kg)]));
-  const ptcEventIds = uniqueIds(rows.map((row) => row.ptc_event_id));
-  const service = getServiceClient();
-  const loadedPtcResult = ptcEventIds.length
-    ? await service.from("ptc_events").select("id,vehicle_id,cycle,created_at").eq("company_id", companyId).in("id", ptcEventIds)
-    : { data: [], error: null } as any;
-  if (loadedPtcResult.error) throw loadedPtcResult.error;
-  const loadedPtcRows = loadedPtcResult.data || [];
-  const unloadingPtcResult = loadedPtcRows.length
-    ? await service.from("ptc_events").select("vehicle_id,cycle,created_at").eq("company_id", companyId).eq("to_state", "unloading").in("vehicle_id", uniqueIds(loadedPtcRows.map((row: any) => row.vehicle_id)))
-    : { data: [], error: null } as any;
-  if (unloadingPtcResult.error) throw unloadingPtcResult.error;
-  const unloadingByTrip = new Map((unloadingPtcResult.data || []).map((row: any) => [`${row.vehicle_id}:${row.cycle}`, row]));
-  const tripMinutesByEvent = new Map(loadedPtcRows.flatMap((loaded: any) => {
-    const unloading = unloadingByTrip.get(`${loaded.vehicle_id}:${loaded.cycle}`) as any;
-    const minutes = unloading ? (Date.parse(unloading.created_at) - Date.parse(loaded.created_at)) / 60_000 : NaN;
-    return Number.isFinite(minutes) && minutes >= 0 ? [[String(loaded.id), minutes] as const] : [];
-  }));
 
   return rows.map((row) => {
     const vehicle = vehicleById.get(String(row.vehicle_id || ""));
@@ -603,58 +602,81 @@ async function attachVerifiedCurrentPlotYield(
 }
 
 export async function GET(request: NextRequest) {
+  const startedAt = performance.now();
+  const timings: string[] = [];
+  const timed = async <T,>(name: string, load: () => Promise<T>): Promise<T> => {
+    const start = performance.now();
+    try { return await load(); } finally { timings.push(`${name};dur=${(performance.now() - start).toFixed(1)}`); }
+  };
+  const json = (body: unknown) => NextResponse.json(body, { headers: {
+    "Cache-Control": "private, no-store",
+    "Server-Timing": [...timings, `total;dur=${(performance.now() - startedAt).toFixed(1)}`].join(", "),
+  } });
   try {
-    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
+    const { actor, companyId, supabase } = await timed("auth", () => resolveWeighbridgeSession(request, {
       allowedRoles: DASHBOARD_ROLES,
       serverProfileRead: true,
-    });
+    }));
     const section = String(request.nextUrl.searchParams.get("section") || "summary");
     const filters = readFilters(request);
     if (section === "warehouses") {
       const rows = buildWarehouseHarvestRows(await loadWarehouseRows(supabase, getServiceClient(), companyId), filters);
-      return NextResponse.json({ rows, source: "v_harvest_lot_stock_v2" });
+      return json({ rows, source: "v_harvest_lot_stock_v2" });
     }
 
     const championsOnly = section === "champions";
-    const [tickets, seasonResult, shiftResult, companyResult, shiftHistoryResult, impurityTickets] = await Promise.all([
-      loadTickets(supabase, companyId),
+    // Authenticate EVERY request before joining a read. Include both the real and
+    // effective actor plus a credential fingerprint; never share across tenants,
+    // logins, roles or impersonation contexts. No settled server-result cache.
+    const readScope = createHash("sha256").update(JSON.stringify([
+      actor.authUserId, actor.id, companyId, actor.role, actor.isImpersonating,
+      actor.impersonatedProfileId, actor.impersonatedCompanyId,
+      request.headers.get("authorization"), request.headers.get("cookie"),
+    ])).digest("hex");
+    const contextPromise = timed("context", async () => {
+      const [seasonResult, shiftResult, companyResult, shiftHistoryResult] = await Promise.all([
       supabase.from("seasons").select("id,year,start_date,end_date").eq("company_id", companyId).eq("archived", false).order("year", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("weighbridge_shifts").select("id,status,opened_at,closed_at").eq("company_id", companyId).eq("status", "open").order("opened_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("companies").select("id,name,operational_day_start_hour").eq("id", companyId).maybeSingle(),
       getServiceClient().from("weighbridge_shifts").select("id,status,opened_at,closed_at,summary_json").eq("company_id", companyId).order("opened_at", { ascending: false }).limit(7),
-      championsOnly ? Promise.resolve([]) : loadImpurityTickets(supabase, companyId),
-    ]);
-    if (seasonResult.error || shiftResult.error || companyResult.error || shiftHistoryResult.error) throw seasonResult.error || shiftResult.error || companyResult.error || shiftHistoryResult.error;
-    if (championsOnly) {
-      return NextResponse.json(buildHarvestChampions(tickets, {
+      ]);
+      if (seasonResult.error || shiftResult.error || companyResult.error || shiftHistoryResult.error) throw seasonResult.error || shiftResult.error || companyResult.error || shiftHistoryResult.error;
+      const presetRaw = String(request.nextUrl.searchParams.get("period") || "current_day") as HarvestPeriodPreset;
+      const requestedDayOffset = Number(request.nextUrl.searchParams.get("dayOffset") || 0);
+      const periodOptions = {
         season: seasonResult.data,
         shift: shiftResult.data,
         previousShift: (shiftHistoryResult.data || []).find((shift: any) => shift.status === "closed" && shift.closed_at) || null,
         operationalDayStartHour: Number(companyResult.data?.operational_day_start_hour ?? 7),
-      }), { headers: { "Cache-Control": "private, no-store" } });
-    }
-    const presetRaw = String(request.nextUrl.searchParams.get("period") || "current_day") as HarvestPeriodPreset;
-    const preset = PERIOD_PRESETS.has(presetRaw) ? presetRaw : "current_day";
-    const requestedDayOffset = Number(request.nextUrl.searchParams.get("dayOffset") || 0);
-    const dayOffset = Number.isFinite(requestedDayOffset) ? requestedDayOffset : 0;
-    const period = resolveHarvestPeriod({
-      preset,
-      dayOffset,
-      customStart: request.nextUrl.searchParams.get("start"),
-      customEnd: request.nextUrl.searchParams.get("end"),
-      season: seasonResult.data,
-      shift: shiftResult.data,
-      previousShift: (shiftHistoryResult.data || []).find((shift: any) => shift.status === "closed" && shift.closed_at) || null,
-      operationalDayStartHour: Number(companyResult.data?.operational_day_start_hour ?? 7),
+      };
+      const period = resolveHarvestPeriod({
+        ...periodOptions,
+        preset: PERIOD_PRESETS.has(presetRaw) ? presetRaw : "current_day",
+        dayOffset: Number.isFinite(requestedDayOffset) ? requestedDayOffset : 0,
+        customStart: request.nextUrl.searchParams.get("start"),
+        customEnd: request.nextUrl.searchParams.get("end"),
+      });
+      return { period, periodOptions, shiftHistoryResult };
     });
-    const [loadedWarehouseRows, activePtcState] = await Promise.all([
-      loadWarehouseRows(supabase, getServiceClient(), companyId),
-      loadActivePtcPlotSelection(companyId),
+    const activePtcPromise = championsOnly ? Promise.resolve({ selection: null, suppressTicketInference: false } as ActivePtcPlotState) : loadActivePtcPlotSelection(companyId);
+    const [tickets, context, loadedWarehouseRows, activePtcState, harvestPlots, impurityTickets] = await Promise.all([
+      timed("receipts", () => shareTickets(readScope, () => loadTickets(supabase, companyId))),
+      contextPromise,
+      championsOnly ? Promise.resolve([]) : timed("stock", () => loadWarehouseRows(supabase, getServiceClient(), companyId)),
+      activePtcPromise,
+      championsOnly ? Promise.resolve([]) : timed("plots", async () => {
+        const [{ period }, activePtcState] = await Promise.all([contextPromise, activePtcPromise]);
+        return loadHarvestPlotTimeline(companyId, period, activePtcState.selection);
+      }),
+      championsOnly ? Promise.resolve([]) : timed("removals", () => loadImpurityTickets(supabase, companyId)),
     ]);
-    const harvestPlots = await loadHarvestPlotTimeline(companyId, period, activePtcState.selection);
+    const { period, periodOptions, shiftHistoryResult } = context;
+    if (championsOnly) {
+      return json(buildHarvestChampions(tickets, periodOptions));
+    }
     const filterWarehouseRows = buildWarehouseHarvestRows(loadedWarehouseRows);
     if (section === "filters") {
-      return NextResponse.json({
+      return json({
         options: buildHarvestFilterOptions(tickets, filterWarehouseRows),
         operationalDayStartHour: period.operationalDayStartHour,
       });
@@ -676,13 +698,13 @@ export async function GET(request: NextRequest) {
     );
     const summary = { ...periodSummary, weighbridgeShifts: shiftHistoryResult.data || [] };
     if (section === "bootstrap") {
-      return NextResponse.json({
+      return json({
         summary: { ...summary, source: SUMMARY_SOURCE },
         options: buildHarvestFilterOptions(tickets, filterWarehouseRows),
         operationalDayStartHour: period.operationalDayStartHour,
       });
     }
-    return NextResponse.json({ ...summary, source: SUMMARY_SOURCE });
+    return json({ ...summary, source: SUMMARY_SOURCE });
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
