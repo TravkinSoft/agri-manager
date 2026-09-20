@@ -36,10 +36,10 @@ const checks: Array<[string, () => void]> = [
     assert.match(switchUser, /await refreshProfile\(\)/);
     assert.match(switchUser, /router\.replace\("\/platform"\)/);
   }],
-  ["logo tilt is opt-in and scoped to the sidebar mark", () => {
-    assert.match(logo, /tiltMark = false/);
-    assert.match(logo, /tiltMark && "-rotate-\[32deg\] scale-\[0\.9\] transform-gpu"/);
-    assert.match(sidebar, /<TravkinLogo compact=\{isCollapsed\} tiltMark \/>/);
+  ["all logo marks use a single 45 degree counterclockwise tilt", () => {
+    assert.doesNotMatch(logo, /tiltMark|32deg/);
+    assert.match(logo, /object-contain -rotate-45 scale-\[0\.9\] transform-gpu/);
+    assert.match(sidebar, /<TravkinLogo compact=\{isCollapsed\} \/>/);
     assert.doesNotMatch(header, /<TravkinLogo[^>]*tiltMark/);
     assert.doesNotMatch(login, /<TravkinLogo[^>]*tiltMark/);
     assert.doesNotMatch(platformLayout, /<TravkinLogo[^>]*tiltMark/);

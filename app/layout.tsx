@@ -36,18 +36,18 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: '/brand/v1/icons/favicon-16-compact-v2.png', type: 'image/png', sizes: '16x16' },
-      { url: '/brand/v1/icons/favicon-32-compact-v2.png', type: 'image/png', sizes: '32x32' },
+      { url: '/brand/tilt45-v1/icons/favicon-16-compact-v2.png', type: 'image/png', sizes: '16x16' },
+      { url: '/brand/tilt45-v1/icons/favicon-32-compact-v2.png', type: 'image/png', sizes: '32x32' },
     ],
-    shortcut: [{ url: '/brand/v1/icons/favicon-32-compact-v2.png', type: 'image/png', sizes: '32x32' }],
-    apple: [{ url: '/brand/v1/icons/apple-touch-icon-180-compact-v2.png', type: 'image/png', sizes: '180x180' }],
+    shortcut: [{ url: '/brand/tilt45-v1/icons/favicon-32-compact-v2.png', type: 'image/png', sizes: '32x32' }],
+    apple: [{ url: '/brand/tilt45-v1/icons/apple-touch-icon-180-compact-v2.png', type: 'image/png', sizes: '180x180' }],
   },
   openGraph: {
     images: [
       {
-        url: '/brand/v1/travkinflow-logo-154a0d68.png',
+        url: '/brand/tilt45-v1/wordmark.png',
         width: 1055,
-        height: 195,
+        height: 500,
         alt: 'TravkinFlow',
       },
     ],
@@ -56,9 +56,9 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     images: [
       {
-        url: '/brand/v1/travkinflow-logo-154a0d68.png',
+        url: '/brand/tilt45-v1/wordmark.png',
         width: 1055,
-        height: 195,
+        height: 500,
         alt: 'TravkinFlow',
       },
     ],
