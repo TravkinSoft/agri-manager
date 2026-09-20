@@ -1,6 +1,12 @@
 # P0: director invitation / Database error creating new user
 
-## Status: LOCAL FIX VERIFIED; PRODUCTION APPLICATION BLOCKED
+## Status: PRODUCTION APPLIED AND AUTH API VERIFIED
+
+User explicitly approved the shared registration trigger change in the following turn. Applied Production migration: `20260920182051_p0_invite_deferred_auth_metadata_v1` (replaces the proposed local filename below). Real Auth API createUser now succeeds for a pending non-owner director in the exact test tenant. The disposable user/profile were removed; no email or session was created. Function ACL remains `{postgres=X/postgres}`. 76 local checks passed again. Security advisor counts unchanged across all seven categories; existing unrelated findings were not modified.
+
+Initial application after authorization rolled back because postgres is not owner of auth.users. It does have TRIGGER privilege. The final migration follows Supabase's documented restricted-schema procedure: assert handle_new_user has exactly the one expected trigger dependency, drop that owned function with CASCADE, recreate function and deferred trigger in the same transaction, revoke all non-owner execution. No grants on auth.users or privileged role membership were changed. Source: https://supabase.com/docs/guides/database/postgres/triggers#dropping-a-trigger .
+
+The historical investigation below records the earlier blocked state, not current status.
 
 20 September 2026. Production deployment remains dpl_7q2kEtdsuT8TmDRXCNBizLxYVXmT (READY). No web release was attempted. The database migration application was rejected by automatic safety review because changing the shared Auth trigger requires explicit authorization for all-user provisioning behavior. Do not bypass the rejection; obtain user approval first.
 

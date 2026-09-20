@@ -32,6 +32,9 @@ async function rejects(operation, code) {
 }
 try {
   await db.exec(`
+    create role anon;
+    create role authenticated;
+    create role service_role;
     create schema auth;
     create table companies(id uuid primary key default gen_random_uuid(), name text not null);
     create table profiles(id uuid primary key, full_name text, email text, role text, company_id uuid references companies(id), is_owner boolean, status text, updated_at timestamptz default now());
@@ -60,7 +63,7 @@ try {
   if (deferredAuth) {
     await rejects(()=>create('baseline-split@example.test', {role:'director',invited_by_company:company}, {generic_invitation_v1:{state:'provisioning',company_id:company,role:'director',is_owner:false}},true),'AUTH_COMPANY_NAME_REQUIRED');
     await db.exec('begin');
-    await db.exec(readFileSync('supabase/migrations/20260920154147_p0_invite_deferred_auth_metadata_v1.sql','utf8'));
+    await db.exec(readFileSync('supabase/migrations/20260920182051_p0_invite_deferred_auth_metadata_v1.sql','utf8'));
     await db.exec('commit');
     ok((await db.query("select tgdeferrable,tginitdeferred from pg_trigger where tgname='on_auth_user_created'")).rows[0],{tgdeferrable:true,tginitdeferred:true},'Auth trigger waits for final metadata');
   }

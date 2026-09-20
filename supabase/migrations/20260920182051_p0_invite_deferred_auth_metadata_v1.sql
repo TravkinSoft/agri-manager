@@ -1,9 +1,28 @@
 -- P0: Auth admin createUser applies app_metadata AFTER its users INSERT.
+-- Version matches the successfully applied Production migration.
 -- Validate the final trusted metadata atomically before commit, not too early.
 -- Role allowlists, pending state, archived-company guard and tenant isolation
 -- remain unchanged. No existing users, profiles or companies are modified.
 set local lock_timeout = '2s';
 set local statement_timeout = '10s';
+
+-- Supabase owns auth.users; postgres has TRIGGER but cannot DROP its trigger
+-- directly. Use the documented function-owner replacement, guarded so CASCADE
+-- can remove ONLY this one trigger. Everything is recreated atomically.
+do $guard$
+begin
+  if (select count(*) from pg_depend where refclassid='pg_proc'::regclass
+      and refobjid='public.handle_new_user()'::regprocedure) <> 1
+    or not exists (
+      select 1 from pg_depend d join pg_trigger t on d.classid='pg_trigger'::regclass and d.objid=t.oid
+      where d.refclassid='pg_proc'::regclass and d.refobjid='public.handle_new_user()'::regprocedure
+        and t.tgrelid='auth.users'::regclass and t.tgname='on_auth_user_created'
+    ) then
+    raise exception 'AUTH_TRIGGER_DEPENDENCY_DRIFT';
+  end if;
+end;
+$guard$;
+drop function public.handle_new_user() cascade;
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
  RETURNS trigger
@@ -154,11 +173,12 @@ begin
 end;
 $function$;
 
-drop trigger on_auth_user_created on auth.users;
 create constraint trigger on_auth_user_created
   after insert on auth.users
   deferrable initially deferred
   for each row execute function public.handle_new_user();
 
-comment on trigger on_auth_user_created on auth.users is
+-- Preserve the original postgres-only execution boundary after recreation.
+revoke all on function public.handle_new_user() from public, anon, authenticated, service_role;
+comment on function public.handle_new_user() is
   'Validate final server-owned invitation app_metadata at Auth transaction commit; never trust user_metadata for company or role.';
