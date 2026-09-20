@@ -1,6 +1,8 @@
 # TravkinFlow Google Play store assets
 
-Status: production-source checkpoint. These files are not uploaded to Google Play by this repository.
+Status 2026-09-20: icon and feature graphic now use the owner-approved 45-degree counterclockwise mark and are uploaded/saved in the existing Play store-listing draft. Not publicly published. See `../brand-tilt45-20260920.md` for current evidence; older sizes/hashes below describe the pre-rotation assets.
+
+The current generator reads `wordmark-tilt45.png` (deterministic export from the retained original artwork) and `android/app/src/main/res/drawable-nodpi/travkinflow_icon.png`. The wordmark text is not rotated. Current phone screenshots must be captured from TWA 4.0.1, not the legacy native mockups described in the original screenshot plan below.
 
 ## Authoritative inputs
 
