@@ -10,8 +10,20 @@ let sequence = 100;
 const uid = () => `00000000-0000-4000-8000-${String(sequence++).padStart(12,'0')}`;
 const ok = (actual, expected, message) => { assert.deepEqual(actual, expected, message); checks++; };
 const count = async table => (await db.query(`select count(*)::int n from ${table}`)).rows[0].n;
-const create = async (email, metadata = {}, app = {}) => {
+const create = async (email, metadata = {}, app = {}, splitAuth = false) => {
   const id = uid();
+  if (splitAuth) {
+    await db.exec('begin');
+    try {
+      await db.query('insert into auth.users(id,email,raw_user_meta_data,raw_app_meta_data) values($1,$2,$3,$4)', [id,email,JSON.stringify(metadata),JSON.stringify({provider:'email',providers:['email']})]);
+      await db.query('update auth.users set raw_app_meta_data=raw_app_meta_data||$2::jsonb where id=$1', [id,JSON.stringify(app)]);
+      await db.exec('commit');
+    } catch (error) {
+      await db.exec('rollback');
+      throw error;
+    }
+    return id;
+  }
   await db.query('insert into auth.users(id,email,raw_user_meta_data,raw_app_meta_data) values($1,$2,$3,$4)', [id,email,JSON.stringify(metadata),JSON.stringify(app)]);
   return id;
 };
@@ -44,6 +56,14 @@ try {
   await db.query('delete from companies where name=$1',["legacy@example.test's Company"]);
   await db.exec(readFileSync('supabase/migrations/20260920075104_company_creation_identity_guard_v1.sql','utf8'));
   await db.exec(readFileSync('supabase/migrations/20260920075215_company_active_name_unique_v1.sql','utf8'));
+  const deferredAuth = process.argv.includes('--deferred-auth');
+  if (deferredAuth) {
+    await rejects(()=>create('baseline-split@example.test', {role:'director',invited_by_company:company}, {generic_invitation_v1:{state:'provisioning',company_id:company,role:'director',is_owner:false}},true),'AUTH_COMPANY_NAME_REQUIRED');
+    await db.exec('begin');
+    await db.exec(readFileSync('supabase/migrations/20260920154147_p0_invite_deferred_auth_metadata_v1.sql','utf8'));
+    await db.exec('commit');
+    ok((await db.query("select tgdeferrable,tginitdeferred from pg_trigger where tgname='on_auth_user_created'")).rows[0],{tgdeferrable:true,tginitdeferred:true},'Auth trigger waits for final metadata');
+  }
   for (const name of ['Астык STEM',' Астык STEM ','Астык  STEM','Астык\tSTEM','Астык\u00a0STEM']) {
     await rejects(()=>db.query('insert into companies(name) values($1)',[name]),'23505');
   }
@@ -61,15 +81,28 @@ try {
   ok(await count('companies'),beforeCompanies,'rejected unmarked signup creates no company');
   ok(await count('auth.users'),beforeUsers,'rejected unmarked signup creates no Auth identity');
   ok(await count('profiles'),0,'rejected signup creates no profile');
-  for (const role of ['accountant','director','company_admin']) {
-    const user=await create(`${role}@example.test`,{role:'global_admin',invited_by_company:foreign},{generic_invitation_v1:{state:'provisioning',company_id:company,role,is_owner:false}});
+  for (const role of ['accountant','director','company_admin','agronomist','legal_operator','specialist','warehouse','warehouse_operator','weighman','fuel_operator','brigadier']) {
+    const user=await create(`${role}@example.test`,{role:'global_admin',invited_by_company:foreign},{generic_invitation_v1:{state:'provisioning',company_id:company,role,is_owner:false}},deferredAuth);
     ok((await db.query('select company_id,role,status,is_owner from profiles where id=$1',[user])).rows[0],{company_id:company,role,status:'pending',is_owner:false},'trusted employee invite binds exactly to company');
     ok(await count('companies'),beforeCompanies,'employee invitation never creates a company');
   }
-  const traffic=await create('traffic@example.test',{}, {ptc_invitation_v1:{state:'ready',company_id:company,role:'mechanic_operator'}});
+  const traffic=await create('traffic@example.test',{}, {ptc_invitation_v1:{state:'ready',company_id:company,role:'mechanic_operator'}},deferredAuth);
   ok((await db.query('select company_id,role,status,is_owner from profiles where id=$1',[traffic])).rows[0],{company_id:company,role:'mechanic_operator',status:'pending',is_owner:false},'PTC invitation remains compatible');
   ok(await count('companies'),beforeCompanies,'PTC invite creates no company');
   await rejects(()=>create('malformed@example.test',{}, {generic_invitation_v1:'invalid'}),'AUTH_INVITATION_INVALID');
+  if (deferredAuth) {
+    for (const role of ['fleet_manager','vegetable_brigadier']) {
+      const user=await create(`${role}@example.test`,{}, {ptc_invitation_v1:{state:'provisioning',company_id:company,role}},true);
+      ok((await db.query('select role,company_id,status from profiles where id=$1',[user])).rows[0],{role,company_id:company,status:'pending'},'split PTC provisioning stays pending in exact tenant');
+    }
+    await rejects(()=>create('forged@example.test',{role:'director',invited_by_company:foreign,generic_invitation_v1:{role:'director',company_id:foreign}}, {},true),'AUTH_COMPANY_NAME_REQUIRED');
+    await rejects(()=>create('privilege@example.test',{}, {generic_invitation_v1:{state:'ready',company_id:company,role:'global_admin',is_owner:false}},true),'AUTH_INVITATION_INVALID');
+    await rejects(()=>create('ambiguous@example.test',{}, {generic_invitation_v1:{state:'ready',company_id:company,role:'director',is_owner:false},ptc_invitation_v1:{}},true),'AUTH_INVITATION_AMBIGUOUS');
+    ok(await count('companies'),beforeCompanies,'split invitations and rejected forgery create no tenants');
+    const existing=(await db.query("select id,role,company_id from profiles where email='director@example.test'")).rows[0];
+    await db.query("update auth.users set raw_user_meta_data=$2 where id=$1",[existing.id,JSON.stringify({role:'global_admin',invited_by_company:foreign})]);
+    ok((await db.query('select id,role,company_id from profiles where id=$1',[existing.id])).rows[0],existing,'later user metadata edits cannot rebind a profile');
+  }
 
   const owner=await create('owner@example.test',{full_name:'New Owner',company_name:'Deliberate New Company',role:'global_admin',invited_by_company:foreign});
   const profile=(await db.query('select p.role,p.status,p.is_owner,c.name from profiles p join companies c on c.id=p.company_id where p.id=$1',[owner])).rows[0];
