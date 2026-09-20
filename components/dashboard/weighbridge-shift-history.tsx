@@ -10,7 +10,7 @@ type Shift = NonNullable<HarvestOverview["weighbridgeShifts"]>[number];
 
 function tonnes(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "Итог уточняется";
-  return `${(value / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т`;
+  return `${(value / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т`;
 }
 
 function shiftDate(value: string): string {

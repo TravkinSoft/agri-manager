@@ -33,7 +33,7 @@ function App(){
  const liveYieldTonnes=null,liveYieldNote="Гектары смены связаны с полем, а не с точным участком";
  const mass=n=>n>=1000?((n/1000).toLocaleString("ru-RU",{maximumFractionDigits:1})+" т"):(n+" кг");
  const setCalculatorOpen=()=>{};
- return <main className="mx-auto max-w-[1180px] space-y-4 p-3 sm:p-5"><div aria-label="Метрики">${metrics}</div><button id="climb" className="rounded border px-3 py-2" onClick={()=>setClimbed(true)}>Обновить рейтинг</button><PotatoDriverSummary rows={rows} totalWeightKg={rows.reduce((sum,row)=>sum+row.netWeightKg,0)} periodLabel="01.01.2026 — сейчас"/></main>;
+ return <main className="mx-auto max-w-[1180px] space-y-4 p-3 sm:p-5"><div aria-label="Метрики">${metrics}</div><button id="climb" className="rounded border px-3 py-2" onClick={()=>setClimbed(true)}>Обновить рейтинг</button><PotatoDriverSummary rows={rows} totalWeightKg={rows.reduce((sum,row)=>sum+row.netWeightKg,0)} periodLabel="За всё время" period="all_time" onPeriodChange={()=>{}}/></main>;
 }
 createRoot(document.getElementById("app")).render(<App/>);
 `;

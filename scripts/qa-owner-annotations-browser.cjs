@@ -32,7 +32,7 @@ async function main() {
   const mocks = {
     auth: `export const useAuth=()=>({profile:{company_id:'qa',role:'agronomist'}});`,
     live: `export const LIVE_REFRESH_TABLES={weighbridge:[]}; export const useLiveRefresh=o=>{window.refreshDashboard=o.onRefresh;};`,
-    service: `export const getHarvestBootstrap=async()=>({summary:window.summary()}); export const getHarvestSummary=async q=>{window.calls.push({summary:q});return q.period==='season'?window.seasonSummary():window.summary(q.dayOffset||0);};`,
+    service: `export const getHarvestBootstrap=async()=>({summary:window.summary()}); export const getHarvestSummary=async q=>{window.calls.push({summary:q});return q.period==='all_time'?window.seasonSummary():window.summary(q.dayOffset||0);};`,
     shiftSummary: `export const TrafficShiftSummary=()=>null;`,
     picker: `export const VehicleDriverAssignment=()=>null;`,
     transport: `export async function trafficRequest(url,method,body){
@@ -64,14 +64,14 @@ async function main() {
     const rows=page.locator('[data-driver-id]');
     await page.locator('[data-rank="1"][data-driver-id="B"]').waitFor();
     const champions=page.getByRole('region',{name:'Таблица чемпионов',exact:true});
-    assert.match(await champions.innerText(),/За весь сезон/);
+    assert.match(await champions.innerText(),/Чистый картофель без земли/);
     assert.match(await rows.first().innerText(),/300 т/);
-    assert.equal(await champions.getByRole('button',{name:'Показать предыдущий рабочий день'}).count(),0);
-    assert.match(await page.getByLabel('Итоги выбранного рабочего дня').innerText(),/12 т/);
+    assert.equal(await champions.getByRole('button',{name:'За всё время'}).getAttribute('aria-pressed'),'true');
+    assert.equal(await champions.getByRole('button',{name:'Обновить',exact:true}).count(),0);
     assert.equal(await page.getByText(/^(Лидер|Самый быстрый|Больше всего тонн|Среднее время)$/).count(),0);
-    assert(!/\d{2}:\d{2}/.test(await page.getByLabel('Текущее поле',{exact:true}).innerText()));
+    assert.match(await page.getByLabel('Текущая работа',{exact:true}).innerText(),/Весовая Offline[\s\S]*Комбайн Online[\s\S]*Культура Картофель[\s\S]*Поле 28[\s\S]*Участок 12 га/);
     await page.getByRole('tab',{name:/Предыдущее поле/}).click();
-    assert.match(await page.getByLabel('Текущее поле',{exact:true}).innerText(),/Live[\s\S]*Завершено[\s\S]*Предыдущее поле/i);
+    assert.match(await page.getByLabel('Текущая работа',{exact:true}).innerText(),/Поле Предыдущее поле/);
     const geometry=()=>page.locator('[aria-labelledby="potato-driver-champions-title"]').evaluate(e=>({y:e.getBoundingClientRect().top+scrollY,height:e.getBoundingClientRect().height}));
     const before=await geometry();
     await rows.first().evaluate(e=>window.firstRow=e);
@@ -82,15 +82,16 @@ async function main() {
     assert.equal(await rows.first().getAttribute('data-driver-id'),'B','background updates preserve ranking until requested');
     const lane=page.getByLabel('Машины: Пустые',{exact:true}).last();
     assert.deepEqual(await lane.evaluate(e=>({height:e.clientHeight,scrollable:e.scrollHeight>e.clientHeight,bar:getComputedStyle(e).scrollbarWidth})),{height:460,scrollable:true,bar:'none'});
-    await page.getByRole('button',{name:'Обновить',exact:true}).click();
+    await page.evaluate(async()=>{window.changed=true;await window.refreshDashboard();});
     await page.locator('[data-rank="1"][data-driver-id="A"]').waitFor();
     assert.match(await rows.first().innerText(),/900 т/);
-    const seasonRows=await champions.innerText();
-    await page.getByRole('button',{name:'Показать предыдущий рабочий день'}).click();
-    await page.waitForFunction(()=>window.calls.some(c=>c.summary?.dayOffset===2));
-    assert.match(await page.getByLabel('Итоги выбранного рабочего дня').innerText(),/12 т/);
-    assert.equal(await champions.innerText(),seasonRows,'daily navigation must not change season champions');
-    assert.equal(await page.evaluate(()=>window.calls.filter(c=>c.summary?.period==='season').length),2,'season loads only initially and on explicit refresh');
+    await champions.getByRole('button',{name:'За сегодня'}).click();
+    await page.waitForFunction(()=>window.calls.some(c=>c.summary?.period==='current_day'));
+    assert.equal(await champions.getByRole('button',{name:'За сегодня'}).getAttribute('aria-pressed'),'true');
+    await champions.getByRole('button',{name:'За прошлую смену'}).click();
+    await page.waitForFunction(()=>window.calls.some(c=>c.summary?.period==='previous_shift'));
+    await champions.getByRole('button',{name:'За месяц'}).click();
+    await page.waitForFunction(()=>window.calls.some(c=>c.summary?.period==='current_month'));
     await page.screenshot({path:path.join(output,'desktop.png'),fullPage:true});
     for(const width of [1024,768,360]){
       await page.setViewportSize({width,height:930});

@@ -5,7 +5,6 @@ import { ArrowDownToLine, ChevronDown, Clock3, Loader2, PackageCheck, Truck, Wre
 import { TrafficShiftSummary } from "@/components/dashboard/traffic-shift-summary";
 import { WeighbridgeShiftHistory } from "@/components/dashboard/weighbridge-shift-history";
 import { PotatoDriverSummary } from "@/components/dashboard/potato-driver-summary";
-import { HarvestDaySummary } from "@/components/dashboard/harvest-day-summary";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { isPotatoLabel, type HarvestFilterOptions, type HarvestOverview } from "@/lib/dashboard/harvest-summary";
@@ -35,8 +34,17 @@ const GROUPS: Array<{ key: TrafficGroup; desktop: string; mobile: string }> = [
 function mass(value: number): string {
   if (!Number.isFinite(value)) return "—";
   const tonnes = value / 1000;
-  return `${tonnes.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т`;
+  return `${tonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т`;
 }
+
+type ChampionPeriod = "today" | "previous_shift" | "month" | "all_time";
+
+const CHAMPION_PERIOD_QUERY = {
+  today: "current_day",
+  previous_shift: "previous_shift",
+  month: "current_month",
+  all_time: "all_time",
+} as const;
 function age(value: string, now: number): string {
   const started = Date.parse(value);
   if (!Number.isFinite(started)) return "—";
@@ -161,6 +169,7 @@ export function HarvestDashboard() {
   const { payload: traffic, error: trafficError } = useDashboardTraffic(canReadTraffic);
   const [summary, setSummary] = useState<HarvestOverview | null>(null);
   const [driverSummary, setDriverSummary] = useState<HarvestOverview | null>(null);
+  const [championPeriod, setChampionPeriod] = useState<ChampionPeriod>("all_time");
   const [driverLoading, setDriverLoading] = useState(false);
   const [driverError, setDriverError] = useState("");
   const [error, setError] = useState("");
@@ -172,6 +181,7 @@ export function HarvestDashboard() {
   const [selectedPlotId, setSelectedPlotId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const summaryRef = useRef<HarvestOverview | null>(null);
+  const driverSummaryRef = useRef<HarvestOverview | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const driverAbortRef = useRef<AbortController | null>(null);
   const initialTrafficGroupSelectedRef = useRef(false);
@@ -185,14 +195,17 @@ export function HarvestDashboard() {
     setDriverLoading(true);
     setDriverError("");
     try {
-      const next = await getHarvestSummary<HarvestOverview>({ period: "season", filters: {} }, { signal: controller.signal });
-      if (!controller.signal.aborted) setDriverSummary(next);
+      const next = await getHarvestSummary<HarvestOverview>({ period: CHAMPION_PERIOD_QUERY[championPeriod], filters: {} }, { signal: controller.signal });
+      if (!controller.signal.aborted) {
+        driverSummaryRef.current = next;
+        setDriverSummary(next);
+      }
     } catch (reason) {
-      if (!controller.signal.aborted) setDriverError(reason instanceof Error ? reason.message : "Не удалось загрузить рейтинг за сезон");
+      if (!controller.signal.aborted) setDriverError(reason instanceof Error ? reason.message : "Не удалось загрузить таблицу чемпионов");
     } finally {
       if (!controller.signal.aborted) setDriverLoading(false);
     }
-  }, [companyId]);
+  }, [championPeriod, companyId]);
 
   const loadDashboard = useCallback(async () => {
     if (!companyId) {
@@ -224,25 +237,31 @@ export function HarvestDashboard() {
 
   useEffect(() => {
     summaryRef.current = null;
+    driverSummaryRef.current = null;
     previousActivePlotRef.current = null;
     setSelectedPlotId(null);
     initialTrafficGroupSelectedRef.current = false;
     setSummary(null);
-    setDriverSummary(null);
-    setDriverLoading(false);
-    setDriverError("");
     void loadDashboard();
-    void refreshDrivers();
     return () => {
       abortRef.current?.abort();
-      driverAbortRef.current?.abort();
     };
-  }, [companyId, loadDashboard, refreshDrivers]);
+  }, [companyId, loadDashboard]);
+  useEffect(() => {
+    if (!companyId) return;
+    if (!driverSummaryRef.current) setDriverSummary(null);
+    setDriverError("");
+    void refreshDrivers();
+    return () => driverAbortRef.current?.abort();
+  }, [companyId, refreshDrivers]);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
-  useLiveRefresh({ enabled: Boolean(companyId), companyId, tables: LIVE_REFRESH_TABLES.weighbridge, intervalMs: 15_000, onRefresh: loadDashboard });
+  const refreshDashboardLive = useCallback(async () => {
+    await Promise.allSettled([loadDashboard(), refreshDrivers()]);
+  }, [loadDashboard, refreshDrivers]);
+  useLiveRefresh({ enabled: Boolean(companyId), companyId, tables: LIVE_REFRESH_TABLES.weighbridge, intervalMs: 15_000, onRefresh: refreshDashboardLive });
   useEffect(() => { setHarvestedHectares(""); }, [selectedPlotId]);
 
   useEffect(() => {
@@ -289,12 +308,9 @@ export function HarvestDashboard() {
     : liveSelection;
   const activeCrop = activeSelection?.cropName || "Уборка";
   const activeField = activeSelection?.fieldName || "Поле не выбрано";
-  const activeIdentity = activeSelection
-    ? [activeSelection.varietyName, compactReproductionLabel(activeSelection.reproductionName)].filter((value) => value && value !== "—").join(" · ")
-    : activeCrop;
+  const activeFieldLabel = activeField.replace(/^поле\s*/iu, "") || activeField;
   const activeShift = traffic?.snapshot.combineShift || null;
   const fieldHectares = activeSelection?.areaHa ?? null;
-  const fieldDetail = [activeIdentity, fieldHectares === null ? null : `участок ${fieldHectares.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`].filter(Boolean).join(" · ");
   const reproduction = compactReproductionLabel(activeSelection?.reproductionName);
   const reproductionDetail = reproduction === "—" ? null : /^\d+$/u.test(reproduction) ? `${reproduction} р.` : reproduction;
   const currentPlotIdentity = activeSelection
@@ -302,12 +318,12 @@ export function HarvestDashboard() {
         /^поле\b/iu.test(activeField) ? activeField : `Поле ${activeField}`,
         activeSelection.varietyName,
         reproductionDetail,
-        fieldHectares === null ? null : `участок ${fieldHectares.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`,
+        fieldHectares === null ? null : `участок ${fieldHectares.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} га`,
       ].filter(Boolean).join(" · ")
     : "Точный участок не выбран";
   const shiftIsOpen = activeShift?.status === "open";
-  const selectedPlotStatus = selectedPlot?.status === "completed" ? "Завершено" : selectedPlot?.status === "paused" ? "Приостановлено" : "В работе";
-  const selectedPlotStatusActive = selectedPlot ? selectedPlot.status === "active" : shiftIsOpen;
+  const weighbridgeOnline = Boolean(summary?.weighbridgeShifts?.some((shift) => shift.status === "open"));
+  const combineOnline = Boolean(selectedPlot?.combineShiftOpen || shiftIsOpen);
   const enteredHectares = Number(harvestedHectares.replace(",", "."));
   const hectares = harvestedHectares.trim()
     ? (Number.isFinite(enteredHectares) && enteredHectares > 0 ? enteredHectares : null)
@@ -340,20 +356,18 @@ export function HarvestDashboard() {
 
       {summary ? (
         <>
-          <section className="flex min-h-9 items-center border-y border-border py-1" aria-label="Текущее поле">
-            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-              <div className="flex shrink-0 items-center gap-1.5 text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
-                <span className={`font-semibold ${selectedPlot?.combineShiftOpen ? "text-emerald-700" : "text-muted-foreground"}`}>{selectedPlot?.combineShiftOpen ? "Смена открыта" : "Нет открытой работы"}</span>
-                <span>·</span>
-                <span className={`flex items-center gap-1.5 font-semibold ${selectedPlotStatusActive ? "text-emerald-700" : "text-muted-foreground"}`}>
-                  <span className={`h-1.5 w-1.5 rounded-full ${selectedPlotStatusActive ? "bg-emerald-500" : "bg-muted-foreground"}`} />
-                  {selectedPlot ? selectedPlotStatus : shiftIsOpen ? "В работе" : "Нет активного поля"}
-                </span>
-                <span>·</span><span>{activeCrop}</span>
-              </div>
-              <h2 className="shrink-0 text-sm font-semibold text-foreground">{activeField}</h2>
-              <div className="min-w-0 truncate text-[11px] text-muted-foreground">{fieldDetail || activeCrop}</div>
-            </div>
+          <section className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-1 border-y border-border py-1.5 text-[11px]" aria-label="Текущая работа">
+            <span className={`flex items-center gap-1.5 font-semibold ${weighbridgeOnline ? "text-emerald-700" : "text-muted-foreground"}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${weighbridgeOnline ? "bg-emerald-500" : "bg-muted-foreground"}`} />
+              Весовая {weighbridgeOnline ? "Online" : "Offline"}
+            </span>
+            <span className={`flex items-center gap-1.5 font-semibold ${combineOnline ? "text-emerald-700" : "text-muted-foreground"}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${combineOnline ? "bg-emerald-500" : "bg-muted-foreground"}`} />
+              Комбайн {combineOnline ? "Online" : "Offline"}
+            </span>
+            <span className="text-muted-foreground">Культура <strong className="text-foreground">{activeCrop}</strong></span>
+            <span className="text-muted-foreground">Поле <strong className="text-foreground">{activeFieldLabel}</strong></span>
+            <span className="text-muted-foreground">Участок <strong className="tabular-nums text-foreground">{fieldHectares == null ? "—" : `${fieldHectares.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} га`}</strong></span>
           </section>
 
           {summary.harvestPlots.length ? (
@@ -456,8 +470,7 @@ export function HarvestDashboard() {
       ) : null}
 
       {driverError ? <div className="border-l-2 border-rose-400 px-3 py-2 text-sm text-rose-700">{driverError}</div> : null}
-      {driverSummary ? <PotatoDriverSummary rows={driverSummary.potatoDrivers} totalWeightKg={driverSummary.potatoDrivers.reduce((sum, row) => sum + row.netWeightKg, 0)} periodLabel={driverSummary.period.label} onRefresh={refreshDrivers} refreshing={driverLoading} /> : driverLoading ? <section className="flex min-h-32 items-center justify-center rounded-xl border border-border bg-card/40 text-sm text-muted-foreground" aria-label="Загрузка рейтинга за сезон"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка рейтинга за сезон...</section> : null}
-      {companyId ? <HarvestDaySummary key={companyId} companyId={companyId} /> : null}
+      {driverSummary ? <PotatoDriverSummary rows={driverSummary.potatoDrivers} totalWeightKg={driverSummary.potatoDrivers.reduce((sum, row) => sum + row.netWeightKg, 0)} periodLabel={driverSummary.period.label} period={championPeriod} onPeriodChange={setChampionPeriod} refreshing={driverLoading} /> : driverLoading ? <section className="flex min-h-32 items-center justify-center rounded-xl border border-border bg-card/40 text-sm text-muted-foreground" aria-label="Загрузка таблицы чемпионов"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка таблицы чемпионов...</section> : null}
 
       {profile && ["agronomist", "director"].includes(profile.role) && profile.company_id ? (
         <details className="group border-y border-border" onToggle={(event) => setShiftReportOpen(event.currentTarget.open)}>

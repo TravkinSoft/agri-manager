@@ -7,7 +7,7 @@ import type { HarvestOverview } from "@/lib/dashboard/harvest-summary";
 type PotatoDriverRow = HarvestOverview["potatoDrivers"][number];
 
 function tonnes(valueKg: number): string {
-  return `${(Number(valueKg || 0) / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} т`;
+  return `${(Number(valueKg || 0) / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т`;
 }
 
 function vehicleText(row: PotatoDriverRow): string {
@@ -18,11 +18,19 @@ type PotatoDriverSummaryProps = {
   rows: PotatoDriverRow[];
   totalWeightKg: number;
   periodLabel: string;
-  onRefresh?: () => void;
+  period: "today" | "previous_shift" | "month" | "all_time";
+  onPeriodChange: (period: "today" | "previous_shift" | "month" | "all_time") => void;
   refreshing?: boolean;
 };
 
-export const PotatoDriverSummary = memo(function PotatoDriverSummary({ rows, totalWeightKg, periodLabel, onRefresh, refreshing = false }: PotatoDriverSummaryProps) {
+const PERIODS = [
+  { key: "today", label: "За сегодня" },
+  { key: "previous_shift", label: "За прошлую смену" },
+  { key: "month", label: "За месяц" },
+  { key: "all_time", label: "За всё время" },
+] as const;
+
+export const PotatoDriverSummary = memo(function PotatoDriverSummary({ rows, totalWeightKg, periodLabel, period, onPeriodChange, refreshing = false }: PotatoDriverSummaryProps) {
   const rankedRows = useMemo(
     () => [...rows].sort((left, right) => right.netWeightKg - left.netWeightKg || right.tripCount - left.tripCount || left.driverName.localeCompare(right.driverName, "ru")),
     [rows],
@@ -38,16 +46,26 @@ export const PotatoDriverSummary = memo(function PotatoDriverSummary({ rows, tot
           </span>
           <div className="min-w-0">
             <h2 id="potato-driver-champions-title" className="text-base font-semibold text-foreground">Таблица чемпионов</h2>
-            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">За весь сезон · картофель · {periodLabel}</p>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">Чистый картофель без земли · {periodLabel}</p>
           </div>
         </div>
-        <div className="flex items-center justify-end gap-2">
-          {onRefresh ? <button type="button" onClick={onRefresh} disabled={refreshing} aria-busy={refreshing} className="h-8 rounded-lg border border-border px-2.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50">Обновить</button> : null}
+        <div className="flex flex-wrap items-center justify-end gap-1" role="group" aria-label="Период таблицы чемпионов" aria-busy={refreshing}>
+          {PERIODS.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => onPeriodChange(option.key)}
+              aria-pressed={period === option.key}
+              className={`h-8 rounded-lg px-2.5 text-xs font-medium transition-colors ${period === option.key ? "bg-[color:var(--manor-paper-raised)] text-foreground shadow-manor-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
       </header>
 
-      <div className="grid grid-cols-3 border-b border-border bg-background/20" aria-label="Итоги сезона по картофелю">
-        <div className="min-w-0 px-3 py-2.5 sm:px-4"><span className="block text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Принято картофеля</span><strong className="mt-1 block truncate text-base tabular-nums text-foreground">{tonnes(totalWeightKg)}</strong></div>
+      <div className="grid grid-cols-3 border-b border-border bg-background/20" aria-label="Итоги периода по чистому картофелю">
+        <div className="min-w-0 px-3 py-2.5 sm:px-4"><span className="block text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Чистый картофель</span><strong className="mt-1 block truncate text-base tabular-nums text-foreground">{tonnes(totalWeightKg)}</strong></div>
         <div className="min-w-0 border-l border-border px-3 py-2.5 sm:px-4"><span className="block text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Рейсов</span><strong className="mt-1 block text-base tabular-nums text-foreground">{tripCount}</strong></div>
         <div className="min-w-0 border-l border-border px-3 py-2.5 sm:px-4"><span className="block text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Водителей</span><strong className="mt-1 block text-base tabular-nums text-foreground">{rankedRows.length}</strong></div>
       </div>
@@ -93,7 +111,7 @@ export const PotatoDriverSummary = memo(function PotatoDriverSummary({ rows, tot
           </ol>
         </div>
       ) : (
-        <p className="px-4 py-6 text-sm text-muted-foreground">За сезон завершённых картофельных рейсов нет.</p>
+        <p className="px-4 py-6 text-sm text-muted-foreground">За выбранный период завершённых картофельных рейсов нет.</p>
       )}
     </section>
   );

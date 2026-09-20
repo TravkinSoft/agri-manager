@@ -5,7 +5,7 @@ import { harvestCleanKg } from "@/lib/dashboard/harvest-clean-mass";
 export const HARVEST_TIME_ZONE = "Asia/Qyzylorda";
 export const ASTYK_STEM_OPERATIONAL_DAY_START_HOUR = 7;
 
-export type HarvestPeriodPreset = "current_day" | "previous_day" | "current_shift" | "last_24_hours" | "season" | "custom";
+export type HarvestPeriodPreset = "current_day" | "previous_day" | "previous_shift" | "current_shift" | "current_month" | "last_24_hours" | "season" | "all_time" | "custom";
 
 export type HarvestPeriod = {
   preset: HarvestPeriodPreset;
@@ -309,6 +309,7 @@ export function resolveHarvestPeriod(input: {
   customStart?: string | null;
   customEnd?: string | null;
   shift?: { opened_at?: string | null; closed_at?: string | null; status?: string | null } | null;
+  previousShift?: { opened_at?: string | null; closed_at?: string | null; status?: string | null } | null;
   season?: { start_date?: string | null; end_date?: string | null; year?: number | null } | null;
   timeZone?: string;
   operationalDayStartHour?: number;
@@ -338,6 +339,20 @@ export function resolveHarvestPeriod(input: {
     const previousDate = moveLocalDate(operationalDate, -1);
     start = localDateTimeToUtc({ ...previousDate, hour: operationalDayStartHour }, timeZone);
     end = currentStart;
+  } else if (requestedPreset === "previous_shift") {
+    const openedAt = input.previousShift?.opened_at ? new Date(input.previousShift.opened_at) : null;
+    const closedAt = input.previousShift?.closed_at ? new Date(input.previousShift.closed_at) : null;
+    if (openedAt && closedAt && !Number.isNaN(openedAt.getTime()) && !Number.isNaN(closedAt.getTime()) && openedAt < closedAt) {
+      start = openedAt;
+      end = closedAt > now ? now : closedAt;
+    } else {
+      const previousDate = moveLocalDate(operationalDate, -1);
+      start = localDateTimeToUtc({ ...previousDate, hour: operationalDayStartHour }, timeZone);
+      end = currentStart;
+      preset = "previous_day";
+    }
+  } else if (requestedPreset === "current_month") {
+    start = localDateTimeToUtc({ year: localNow.year, month: localNow.month, day: 1, hour: operationalDayStartHour }, timeZone);
   } else if (requestedPreset === "last_24_hours") {
     start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   } else if (requestedPreset === "current_shift") {
@@ -351,6 +366,8 @@ export function resolveHarvestPeriod(input: {
     const startDate = input.season?.start_date ? new Date(`${input.season.start_date}T00:00:00Z`) : new Date(Date.UTC(seasonYear, 0, 1));
     const localStart = { year: startDate.getUTCFullYear(), month: startDate.getUTCMonth() + 1, day: startDate.getUTCDate() };
     start = localDateTimeToUtc({ ...localStart, hour: operationalDayStartHour }, timeZone);
+  } else if (requestedPreset === "all_time") {
+    start = new Date(0);
   } else if (requestedPreset === "custom") {
     const parsedStart = input.customStart ? new Date(input.customStart) : null;
     const parsedEnd = input.customEnd ? new Date(input.customEnd) : null;
@@ -366,7 +383,9 @@ export function resolveHarvestPeriod(input: {
     preset,
     start: start.toISOString(),
     end: end.toISOString(),
-    label: `${formatPeriodPoint(start, timeZone)} — ${Math.abs(end.getTime() - now.getTime()) < 60_000 ? "сейчас" : formatPeriodPoint(end, timeZone)}`,
+    label: preset === "all_time"
+      ? "За всё время"
+      : `${formatPeriodPoint(start, timeZone)} — ${Math.abs(end.getTime() - now.getTime()) < 60_000 ? "сейчас" : formatPeriodPoint(end, timeZone)}`,
     operationalDayStartHour,
     shiftAvailable,
   };
@@ -813,6 +832,7 @@ export function buildHarvestOverview(
     const party = ensureParty(partyKeyFromIdentity(ticket, identity, knownPartyByIdentity), identity, ticket.season_id || null);
     const fieldName = cleanLabel(ticket.field_name_snapshot) || "Поле не указано";
     const netKg = harvestTicketHeaderNetKg(ticket);
+    const cleanKg = harvestCleanKg(ticket);
     const occurredAt = harvestTicketBusinessTime(ticket, ticketById);
     const partyTicket: HarvestPartyTicket = {
       ticketId: ticket.id,
@@ -863,7 +883,10 @@ export function buildHarvestOverview(
         timedTripCount: 0,
       };
       driverRow.tripCount += 1;
-      driverRow.netWeightKg += netKg;
+      // Champions are ranked only by clean potato assigned to the receipt.
+      // Soil/impurity deductions are already projected into harvest_clean_weight_kg
+      // by the API, so no additional subtraction belongs here.
+      driverRow.netWeightKg += cleanKg;
       driverRow.averageNetWeightKg = driverRow.netWeightKg / driverRow.tripCount;
       const tripMinutes = Number(ticket.ptc_trip_minutes);
       if (Number.isFinite(tripMinutes) && tripMinutes >= 0) {

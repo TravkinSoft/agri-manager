@@ -19,7 +19,7 @@ import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { getServiceClient } from "@/lib/supabase/service";
 
 const DASHBOARD_ROLES = ["global_admin", "company_admin", "agronomist", "director", "accountant", "legal_operator"] as const;
-const PERIOD_PRESETS = new Set<HarvestPeriodPreset>(["current_day", "previous_day", "current_shift", "last_24_hours", "season", "custom"]);
+const PERIOD_PRESETS = new Set<HarvestPeriodPreset>(["current_day", "previous_day", "previous_shift", "current_shift", "current_month", "last_24_hours", "season", "all_time", "custom"]);
 const LINEAGE_QUERY_CHUNK_SIZE = 200;
 const LINEAGE_QUERY_CONCURRENCY = 4;
 const LINEAGE_QUERY_PAGE_SIZE = 1000;
@@ -634,6 +634,7 @@ export async function GET(request: NextRequest) {
       customEnd: request.nextUrl.searchParams.get("end"),
       season: seasonResult.data,
       shift: shiftResult.data,
+      previousShift: (shiftHistoryResult.data || []).find((shift: any) => shift.status === "closed" && shift.closed_at) || null,
       operationalDayStartHour: Number(companyResult.data?.operational_day_start_hour ?? 7),
     });
     const [loadedWarehouseRows, activePtcState] = await Promise.all([

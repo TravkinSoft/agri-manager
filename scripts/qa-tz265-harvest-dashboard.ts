@@ -55,6 +55,22 @@ check("older operational days keep exact working-day boundaries", () => {
   assert.equal(older.end, "2026-08-10T02:00:00.000Z");
   assert.equal(older.preset, "custom");
 });
+check("champion periods resolve month, previous shift, and all time", () => {
+  const now = new Date("2026-08-12T07:00:00Z");
+  const month = resolveHarvestPeriod({ preset: "current_month", now, operationalDayStartHour: 7 });
+  assert.equal(month.start, "2026-08-01T02:00:00.000Z");
+  const previousShift = resolveHarvestPeriod({
+    preset: "previous_shift",
+    now,
+    previousShift: { status: "closed", opened_at: "2026-08-10T02:00:00.000Z", closed_at: "2026-08-11T01:00:00.000Z" },
+    operationalDayStartHour: 7,
+  });
+  assert.equal(previousShift.start, "2026-08-10T02:00:00.000Z");
+  assert.equal(previousShift.end, "2026-08-11T01:00:00.000Z");
+  const allTime = resolveHarvestPeriod({ preset: "all_time", now, operationalDayStartHour: 7 });
+  assert.equal(allTime.start, "1970-01-01T00:00:00.000Z");
+  assert.equal(allTime.label, "За всё время");
+});
 check("effective finalized contract", () => {
   assert.equal(isEffectiveFinalizedHarvestTicket(valid), true);
   assert.equal(isEffectiveFinalizedHarvestTicket(voided), false);
@@ -445,6 +461,20 @@ check("potato driver ranking uses total tonnes before trip count", () => {
   assert.equal(result.potatoDrivers[0].netWeightKg, 10_000);
   assert.equal(result.potatoDrivers[1].tripCount, 3);
 });
+check("potato driver champions use clean potato mass after attributed soil", () => {
+  const cleanReceipt = ticket({
+    ...potato,
+    id: "clean-driver-receipt",
+    driver_id: "clean-driver",
+    driver_name_snapshot: "Чистый картофель",
+    net_weight_kg: 10_000,
+    accepted_weight_kg: 10_000,
+    harvest_clean_weight_kg: 7_250,
+  });
+  const result = buildHarvestOverview([cleanReceipt], { period });
+  assert.equal(result.potatoDrivers[0].netWeightKg, 7_250);
+  assert.equal(result.potatoDrivers[0].averageNetWeightKg, 7_250);
+});
 check("potato driver grouping reconciles legacy names, keeps anonymous trips separate, and uses the latest label", () => {
   const potatoLines = potato.lines;
   const rows = [
@@ -617,7 +647,7 @@ check("dashboard presents the live vegetable plot chain", () => {
   assert.match(dashboardUi, /С выбранного участка · всего/);
   assert.match(dashboardUi, /На складе/);
   assert.match(dashboardUi, /Живая урожайность/);
-  assert.match(dashboardUi, /Текущее поле[\s\S]*Главные показатели уборки[\s\S]*Статусы машин PTC[\s\S]*PotatoDriverSummary/);
+  assert.match(dashboardUi, /Текущая работа[\s\S]*Главные показатели уборки[\s\S]*Статусы машин PTC[\s\S]*PotatoDriverSummary/);
   assert.match(dashboardUi, /summary\?\.activeWeighbridgeSelection/);
   assert.match(dashboardUi, /selectedPlot\?\.totalAcceptedKg \?\? summary\?\.currentPlotTotalAcceptedKg/);
   assert.match(dashboardUi, /mass\(plot\.totalAcceptedKg\)/);
@@ -635,7 +665,7 @@ check("dashboard shows the live driver champions table after the unchanged PTC s
   assert.match(potatoDriverUi, /Таблица чемпионов/);
   assert.match(potatoDriverUi, /memo\(function PotatoDriverSummary/);
   assert.match(potatoDriverUi, /data-driver-id=\{row\.driverId \|\| row\.key\}/);
-  assert.match(potatoDriverUi, /Принято картофеля/);
+  assert.match(potatoDriverUi, /Чистый картофель/);
   assert.doesNotMatch(potatoDriverUi, /Лидер|Больше всего тонн|Самый быстрый|Среднее время|\.animate\(/);
   assert.doesNotMatch(potatoDriverUi, /Показать предыдущий рабочий день/);
   assert.match(readFileSync(resolve(root, "components/dashboard/harvest-day-summary.tsx"), "utf8"), /Показать предыдущий рабочий день/);
@@ -658,22 +688,23 @@ check("live yield uses exact accepted mass and shift hectares only when plot own
   assert.doesNotMatch(dashboardUi, /Недостаточно данных/);
   assert.match(dashboardUi, /Нет подтверждённых гектаров/);
 });
-check("driver champions cover the season independently of daily summaries", () => {
-  assert.match(dashboardApi, /dayOffset/);
+check("driver champions support live period filters and replace the redundant day summary", () => {
   assert.doesNotMatch(dashboardApi, /potatoDrivers: seasonDrivers/);
   assert.match(dashboardApi, /ptc_trip_minutes/);
-  assert.match(dashboardUi, /getHarvestSummary<HarvestOverview>\(\{ period: "season"/);
+  assert.match(dashboardUi, /CHAMPION_PERIOD_QUERY\[championPeriod\]/);
+  assert.match(dashboardUi, /useLiveRefresh[\s\S]*onRefresh: refreshDashboardLive/);
   assert.doesNotMatch(potatoDriverUi, /dayOffset|onOlderDay|onNewerDay|onToday/);
-  assert.match(potatoDriverUi, /За весь сезон/);
-  assert.match(dashboardUi, /<HarvestDaySummary key=\{companyId\}/);
+  assert.match(potatoDriverUi, /За сегодня/);
+  assert.match(potatoDriverUi, /За прошлую смену/);
+  assert.match(potatoDriverUi, /За месяц/);
+  assert.match(potatoDriverUi, /За всё время/);
+  assert.doesNotMatch(dashboardUi, /HarvestDaySummary/);
   assert.match(dashboardUi, /h-\[460px\][\s\S]*overflow-y-auto[\s\S]*\[scrollbar-width:none\]/);
   assert.match(dashboardUi, /h-\[56dvh\][^\n]*lg:hidden/);
 });
-check("dashboard live state and timers follow the combine shift", () => {
-  assert.match(dashboardUi, /selectedPlot\?\.combineShiftOpen \? "Смена открыта" : "Нет открытой работы"/);
+check("dashboard header shows weighbridge, combine, crop, field, and hectares in order", () => {
+  assert.match(dashboardUi, /Весовая \{weighbridgeOnline \? "Online" : "Offline"\}[\s\S]*Комбайн \{combineOnline \? "Online" : "Offline"\}[\s\S]*Культура[\s\S]*Поле[\s\S]*Участок/);
   assert.doesNotMatch(dashboardUi, /function clock\(|\{clock\(/);
-  assert.match(dashboardUi, /selectedPlotStatus = selectedPlot\?\.status === "completed" \? "Завершено"/);
-  assert.match(dashboardUi, /selectedPlot \? selectedPlotStatus : shiftIsOpen \? "В работе" : "Нет активного поля"/);
   assert.doesNotMatch(dashboardUi, /Смена не открыта|PTC загружается/);
   assert.match(dashboardUi, /group === "offline" \? null/);
   assert.match(dashboardUi, /group === "empty" && !shiftIsOpen \? "0 мин"/);
@@ -688,11 +719,11 @@ check("dashboard omits the redundant tare waiting banner", () => {
 });
 check("live refresh uses existing weighbridge tables", () => assert.match(dashboardUi, /LIVE_REFRESH_TABLES\.weighbridge/));
 
-check("clean summary excludes soil without reducing driver net or using warehouse stock", () => {
+check("clean summary and driver champions both exclude attributed soil", () => {
   const receipt = ticket({ ...potato, id: "clean-potato", net_weight_kg: 10000, harvest_clean_weight_kg: 8000 });
   const clean = buildHarvestOverview([receipt], { period, warehouseRows: [] });
   assert.equal(clean.potatoAcceptedKg, 8000);
-  assert.equal(clean.potatoDrivers.reduce((sum, row) => sum + row.netWeightKg, 0), 10000);
+  assert.equal(clean.potatoDrivers.reduce((sum, row) => sum + row.netWeightKg, 0), 8000);
 });
 check("weighbridge exposes its shift close dialog without extra data entry", () => {
   const weighbridgeUi = readFileSync(resolve(root, "app/(dashboard)/weighbridge/page.tsx"), "utf8");
