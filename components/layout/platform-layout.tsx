@@ -182,8 +182,8 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
         className={cn(
           "border-b px-4 py-1.5 font-mono text-[11px]",
           selectedCompany
-            ? "border-emerald-800/30 bg-emerald-50 text-emerald-900"
-            : "border-amber-700/30 bg-amber-50 text-amber-900"
+            ? "border-emerald-400/20 bg-emerald-950/30 text-emerald-200"
+            : "border-amber-400/20 bg-amber-950/25 text-amber-200"
         )}
         role="status"
       >

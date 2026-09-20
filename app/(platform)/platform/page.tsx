@@ -40,8 +40,8 @@ function ConsolePanel({
   className?: string;
 }) {
   return (
-    <section className={`border border-border bg-white shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset] ${className}`}>
-      <div className="flex items-center justify-between border-b border-border bg-muted px-2 py-1.5">
+    <section className={`border border-border bg-card shadow-[0_10px_28px_rgba(0,0,0,0.12)] ${className}`}>
+      <div className="flex items-center justify-between border-b border-border bg-muted/55 px-2 py-1.5">
         <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground">{title}</h2>
         <span className="border border-border bg-card px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
           {code}
@@ -59,9 +59,9 @@ function ConsoleRow({ label, value, tone = "neutral" }: { label: string; value: 
       <span
         className={
           tone === "ok"
-            ? "font-mono font-semibold text-[#155e3b]"
+            ? "font-mono font-semibold text-[color:var(--manor-success)]"
             : tone === "warn"
-              ? "font-mono font-semibold text-[#8a2f2f]"
+              ? "font-mono font-semibold text-[color:var(--manor-warning)]"
               : "font-mono text-foreground"
         }
       >
@@ -287,7 +287,7 @@ export default function PlatformCompaniesPage() {
 
   return (
     <div className="space-y-3">
-      <div className="border border-border bg-muted px-3 py-2 text-foreground">
+      <div className="border border-border bg-muted/45 px-3 py-2 text-foreground">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-foreground">
@@ -309,8 +309,8 @@ export default function PlatformCompaniesPage() {
         </div>
       </div>
 
-      <Card className="rounded-none border-border bg-white shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
-        <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-border bg-muted text-foreground">
+      <Card className="rounded-none border-border bg-card shadow-[0_12px_32px_rgba(0,0,0,0.14)]">
+        <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-border bg-muted/55 text-foreground">
           <div>
             <CardTitle className="text-foreground">Компании платформы</CardTitle>
             <CardDescription className="text-muted-foreground">
@@ -329,10 +329,10 @@ export default function PlatformCompaniesPage() {
             const isOpening = openingCompanyId === company.id;
 
             return (
-              <div key={company.id} className="relative border border-border bg-white text-foreground">
+              <div key={company.id} className="relative border border-border bg-[var(--manor-paper-raised)] text-foreground">
                 <button
                   type="button"
-                  className="flex min-h-12 w-full items-center justify-between gap-3 px-3 py-2 pr-16 text-left transition-colors hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-60"
+                  className="flex min-h-12 w-full items-center justify-between gap-3 px-3 py-2 pr-16 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={openingCompanyId !== null}
                   aria-label={`Открыть компанию ${company.name}`}
                   aria-busy={isOpening}
@@ -372,8 +372,8 @@ export default function PlatformCompaniesPage() {
       <div
         className={
           selectedCompany
-            ? "border border-emerald-700/35 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900"
-            : "border border-amber-700/35 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900"
+            ? "border border-emerald-400/20 bg-emerald-950/30 px-3 py-2 text-sm font-medium text-emerald-200"
+            : "border border-amber-400/20 bg-amber-950/25 px-3 py-2 text-sm font-medium text-amber-200"
         }
         role="status"
       >
