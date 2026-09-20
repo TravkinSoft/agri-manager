@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownToLine, ChevronDown, Clock3, Loader2, PackageCheck, Truck, Wrench } from "lucide-react";
 import { TrafficShiftSummary } from "@/components/dashboard/traffic-shift-summary";
-import { WeighbridgeShiftReportView } from "@/components/weighbridge/shift-report";
-import { isWeighbridgeShiftReport } from "@/lib/weighbridge/shift-report";
+import { WeighbridgeShiftHistory } from "@/components/dashboard/weighbridge-shift-history";
 import { PotatoDriverSummary } from "@/components/dashboard/potato-driver-summary";
 import { HarvestDaySummary } from "@/components/dashboard/harvest-day-summary";
 import { Input } from "@/components/ui/input";
@@ -393,6 +392,8 @@ export function HarvestDashboard() {
             </section>
           ) : null}
 
+          {summary.weighbridgeShifts?.length ? <WeighbridgeShiftHistory shifts={summary.weighbridgeShifts} /> : null}
+
           <section className="grid grid-cols-2 border-b border-border sm:grid-cols-4" aria-label="Главные показатели уборки">
             <div className="min-w-0 py-2 pr-2 sm:py-1 sm:pr-3">
               <div className="text-[9px] uppercase leading-none tracking-[0.11em] text-muted-foreground sm:text-[10px]">Итог дня · картофель</div>
@@ -414,7 +415,7 @@ export function HarvestDashboard() {
             </div>
             <button type="button" onClick={() => setCalculatorOpen((value) => !value)} className="min-h-9 min-w-0 border-l border-t border-border px-2 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:border-t-0 sm:px-3 sm:py-1">
               <div className="text-[9px] uppercase leading-none tracking-[0.08em] text-muted-foreground sm:text-[10px]">Живая урожайность</div>
-              <div className={`mt-1 leading-none tabular-nums text-foreground ${liveYieldTonnes == null ? "text-xs font-medium sm:text-sm" : "whitespace-nowrap text-sm font-semibold sm:text-lg"}`}>{liveYieldTonnes == null ? "Недостаточно данных" : `${liveYieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div>
+              <div className={`mt-1 leading-none tabular-nums text-foreground ${liveYieldTonnes == null ? "text-xs font-medium sm:text-sm" : "whitespace-nowrap text-sm font-semibold sm:text-lg"}`}>{liveYieldTonnes == null ? "Нет подтверждённых гектаров" : `${liveYieldTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т/га`}</div>
               <div className="mt-1 text-[10px] text-muted-foreground" title={liveYieldNote}>{liveYieldNote}</div>
               {selectedPlot?.latestShiftAreaHa != null ? <div className="mt-1 text-[10px] text-muted-foreground">Последняя смена на участке: {selectedPlot.latestShiftAreaHa.toLocaleString("ru-RU")} га</div> : null}
             </button>
@@ -431,20 +432,6 @@ export function HarvestDashboard() {
           ) : null}
 
         </>
-      ) : null}
-
-      {summary?.weighbridgeShifts?.length ? (
-        <details className="rounded-lg border border-border px-3 py-2" aria-label="Итоги смен весовой">
-          <summary className="cursor-pointer text-xs font-medium">Смены весовой · {summary.weighbridgeShifts[0].status === "open" ? "текущая смена открыта" : "смена закрыта"}</summary>
-          <div className="mt-2 space-y-2">
-            {summary.weighbridgeShifts.map((shift) => <div key={shift.id} className="border-t border-border pt-2 text-xs">
-              <div>{new Date(shift.opened_at).toLocaleString("ru-RU", { timeZone: "Asia/Qyzylorda" })} — {shift.closed_at ? new Date(shift.closed_at).toLocaleString("ru-RU", { timeZone: "Asia/Qyzylorda" }) : "идёт сейчас"}</div>
-              {isWeighbridgeShiftReport(shift.summary_json) ? <details className="mt-2 rounded border border-border p-3"><summary className="cursor-pointer font-semibold">Отчёт смены · {shift.summary_json.potatoPeriodResultKg != null ? mass(shift.summary_json.potatoPeriodResultKg) : "требует проверки"} · {shift.summary_json.closedTicketCount} талонов</summary><div className="mt-3"><WeighbridgeShiftReportView report={shift.summary_json} /></div></details> : shift.summary_json?.version === "weighbridge_shift_snapshot_v1" ? <div className="mt-1 text-muted-foreground">{shift.summary_json.periodAccountingBasis === "receipt_net_minus_period_removals_v1"
-                ? `Зафиксирован итог смены: ${shift.summary_json.potatoPeriodResultKg != null ? mass(shift.summary_json.potatoPeriodResultKg) : "требуется уточнение примесей"} · приход ${mass(Number(shift.summary_json.potatoNetKg || 0))} − примеси ${shift.summary_json.potatoPeriodImpuritiesKg != null ? mass(shift.summary_json.potatoPeriodImpuritiesKg) : "—"}`
-                : `Сохранённый расчёт по поступлениям: ${mass(Number(shift.summary_json.potatoCleanKg || 0))} · по талонам ${mass(Number(shift.summary_json.potatoNetKg || 0))}`}. Закрыто талонов: {shift.summary_json.closedTicketCount}. Поздние операции не меняют этот снимок.</div> : <div className="mt-1 text-muted-foreground">{shift.status === "open" ? "Весовщик закроет смену — система сохранит итог автоматически." : "Смена закрыта ранее без сохранённого отчёта. Итог не реконструируется задним числом."}</div>}
-            </div>)}
-          </div>
-        </details>
       ) : null}
 
       {canReadTraffic ? (

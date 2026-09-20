@@ -124,7 +124,7 @@ check("today plot rail keeps active and completed combine plots separate", () =>
       {
         cropStructureAllocationId: "allocation-new", fieldId: "field-new", fieldName: "виноград", seasonId: "s1",
         cropId: "c2", cropName: "Картофель", varietyId: "v2", varietyName: "Гала", reproductionId: "r2",
-        reproductionName: "Элита", areaHa: 54, completedAreaHa: 0, harvestedAreaHa: null, acceptedKg: 0, totalAcceptedKg: 0,
+        reproductionName: "Элита", areaHa: 54, completedAreaHa: 0, harvestedAreaHa: 8, areaPending: true, acceptedKg: 0, totalAcceptedKg: 0,
         yieldTPerHa: null, status: "active", isCurrent: true, startedAt: period.start, lastChangedAt: period.end,
       },
       {
@@ -139,6 +139,7 @@ check("today plot rail keeps active and completed combine plots separate", () =>
   assert.equal(result.harvestPlots[0].status, "active");
   assert.equal(result.harvestPlots[0].acceptedKg, 12_000);
   assert.equal(result.harvestPlots[0].totalAcceptedKg, 12_000);
+  assert.equal(result.harvestPlots[0].yieldTPerHa, 12 / 8);
   assert.equal(result.harvestPlots[1].status, "completed");
   assert.equal(result.harvestPlots[1].acceptedKg, 10_000);
   assert.equal(result.harvestPlots[1].totalAcceptedKg, 10_000);
@@ -654,7 +655,8 @@ check("live yield uses exact accepted mass and shift hectares only when plot own
   assert.match(dashboardApi, /activeSelection: activePtcState\.selection/);
   assert.match(dashboardApi, /openShift && !openShift\.current_crop_structure_id[\s\S]*suppressTicketInference: true/);
   assert.match(dashboardApi, /suppressInferredActiveSelection: activePtcState\.suppressTicketInference/);
-  assert.match(dashboardUi, /Недостаточно данных/);
+  assert.doesNotMatch(dashboardUi, /Недостаточно данных/);
+  assert.match(dashboardUi, /Нет подтверждённых гектаров/);
 });
 check("driver champions cover the season independently of daily summaries", () => {
   assert.match(dashboardApi, /dayOffset/);

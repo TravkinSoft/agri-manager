@@ -2,23 +2,42 @@
 
 import { shiftOperationLabel, shiftReportKg, shiftReportTime, type WeighbridgeShiftReport } from "@/lib/weighbridge/shift-report";
 
-/** Selected design 2. Preview and saved history render this same immutable report. */
-export function WeighbridgeShiftReportView({ report }: { report: WeighbridgeShiftReport }) {
+/** Preview and saved history render the same immutable report data. */
+export function WeighbridgeShiftReportView({ report, variant = "full" }: { report: WeighbridgeShiftReport; variant?: "full" | "dashboard" }) {
+  const dashboard = variant === "dashboard";
   return (
-    <section className="min-w-0 space-y-4 text-sm" aria-label="Отчёт смены весовой" data-report-design="large-summary">
-      <div className="text-xs leading-relaxed text-muted-foreground">
+    <section className={`min-w-0 text-sm ${dashboard ? "space-y-3" : "space-y-4"}`} aria-label="Отчёт смены весовой" data-report-design={dashboard ? "dashboard-summary" : "large-summary"}>
+      {!dashboard ? <div className="text-xs leading-relaxed text-muted-foreground">
         <div className="font-medium text-foreground">{report.companyName}</div>
         <div>Весовщик: {report.operatorName || "Не указан"}</div>
         <div>{shiftReportTime(report.openedAt)} — {report.closedAt ? shiftReportTime(report.closedAt) : `проверка на ${shiftReportTime(report.capturedAt)}`}</div>
-      </div>
+      </div> : null}
 
-      <div className="rounded-xl bg-primary p-5 text-primary-foreground sm:p-6" data-shift-result>
+      {!dashboard ? <div className="rounded-xl bg-primary p-5 text-primary-foreground sm:p-6" data-shift-result>
         <div className="text-xs font-medium uppercase tracking-wider">Итог смены · картофель</div>
         <div className="my-2 break-words text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl">{shiftReportKg(report.potatoPeriodResultKg)}</div>
         <div className="text-xs">Приход минус вывезенные примеси</div>
-      </div>
+      </div> : null}
 
-      <div className="grid grid-cols-2 gap-2 sm:gap-3">
+      {dashboard ? (
+        <div className="grid border-y border-border sm:grid-cols-3 sm:divide-x sm:divide-border" data-shift-result>
+          <div className="min-w-0 bg-primary/10 px-3 py-3 sm:px-4">
+            <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Итог смены</div>
+            <div className="mt-1 break-words text-xl font-semibold tabular-nums text-[color:var(--manor-brass-soft)]">{shiftReportKg(report.potatoPeriodResultKg)}</div>
+            <div className="mt-1 text-[10px] text-muted-foreground">Приход минус вывоз примесей</div>
+          </div>
+          <div className="min-w-0 border-t border-border px-3 py-3 sm:border-t-0 sm:px-4">
+            <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Принято · нетто</div>
+            <div className="mt-1 break-words text-xl font-semibold tabular-nums">{shiftReportKg(report.potatoNetKg)}</div>
+            <div className="mt-1 text-[10px] text-muted-foreground">{report.potatoReceiptCount} рейсов</div>
+          </div>
+          <div className="min-w-0 border-t border-border px-3 py-3 sm:border-t-0 sm:px-4">
+            <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Вывезено примесей</div>
+            <div className="mt-1 break-words text-xl font-semibold tabular-nums">{shiftReportKg(report.potatoPeriodImpuritiesKg)}</div>
+            <div className="mt-1 text-[10px] text-muted-foreground">{report.potatoPeriodImpurityTripCount ?? report.impurityTripCount} рейсов</div>
+          </div>
+        </div>
+      ) : <div className="grid grid-cols-2 gap-2 sm:gap-3">
         <div className="min-w-0 rounded-xl border border-border bg-card p-3 sm:p-4">
           <div className="text-xs text-muted-foreground">Принято · нетто</div>
           <div className="my-1 break-words text-lg font-semibold tracking-tight tabular-nums sm:text-2xl">{shiftReportKg(report.potatoNetKg)}</div>
@@ -29,7 +48,13 @@ export function WeighbridgeShiftReportView({ report }: { report: WeighbridgeShif
           <div className="my-1 break-words text-lg font-semibold tracking-tight tabular-nums sm:text-2xl">{shiftReportKg(report.potatoPeriodImpuritiesKg)}</div>
           <div className="text-xs text-muted-foreground">{report.potatoPeriodImpurityTripCount == null ? "Примеси картофеля за смену" : `Рейсов вывоза: ${report.potatoPeriodImpurityTripCount}`}</div>
         </div>
-      </div>
+      </div>}
+
+      {dashboard ? <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
+        <span>{report.companyName}</span>
+        <span>Весовщик: {report.operatorName || "не указан"}</span>
+        <span>{shiftReportTime(report.openedAt)} — {report.closedAt ? shiftReportTime(report.closedAt) : shiftReportTime(report.capturedAt)}</span>
+      </div> : null}
 
       <div className="flex flex-wrap gap-x-4 gap-y-2 border-b border-border pb-4 text-xs">
         <strong className="font-medium">Закрыто талонов: {report.closedTicketCount}</strong>
@@ -87,7 +112,7 @@ export function WeighbridgeShiftReportView({ report }: { report: WeighbridgeShif
           {[["Приёмка урожая", report.harvestReceiptCount], ["Вывоз примесей", report.impurityTripCount], ["Аннулировано", report.voidedTicketCount], ["Заменено исправлениями", report.replacedTicketCount], ["С корректировками", report.manualCorrectionCount], ["Не синхронизировано", report.unsyncedTicketCount]].map(([label, value]) => <div key={label} className="rounded-lg bg-muted/30 p-3"><div className="text-xs text-muted-foreground">{label}</div><strong className="font-medium tabular-nums">{value}</strong></div>)}
         </div>
       </details>
-      <p className="text-xs text-muted-foreground">Этот же отчёт сохраняется в сводке после подтверждения. Остаток склада в итог смены не входит. После закрытия данные отчёта фиксируются.</p>
+      {!dashboard ? <p className="text-xs text-muted-foreground">Этот же отчёт сохраняется в сводке после подтверждения. Остаток склада в итог смены не входит. После закрытия данные отчёта фиксируются.</p> : null}
     </section>
   );
 }
