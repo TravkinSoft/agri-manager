@@ -6,7 +6,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
-$readinessPath = Join-Path (Split-Path -Parent $projectDirectory) 'docs\google-play\twa-v4-readiness.json'
+$readinessPath = Join-Path (Split-Path -Parent $projectDirectory) 'docs\google-play\twa-v5-readiness.json'
 if (-not (Test-Path -LiteralPath $readinessPath -PathType Leaf)) { throw 'TWA V4 readiness manifest is missing. Play signing is blocked.' }
 $readiness = Get-Content -LiteralPath $readinessPath -Raw | ConvertFrom-Json
 if ($readiness.readyForInternalTest -ne $true) {
@@ -18,8 +18,8 @@ $expectedProjectDirectory = Join-Path $expectedRepositoryRoot 'android'
 $expectedBranch = 'codex/google-market-twa-v4'
 $nativeReleaseBaseline = '15f66b0c9cab2ef66c9da794396cb87323a54651'
 $expectedPackage = 'com.travkin.flow'
-$expectedVersionCode = 4
-$expectedVersionName = '4.0.0'
+$expectedVersionCode = 5
+$expectedVersionName = '4.0.1'
 $expectedTargetSdk = 36
 $expectedKeyAlias = 'travkinflow-upload'
 $expectedUploadFingerprint = '8B:29:80:B8:07:E2:99:1F:A5:54:C2:B6:61:7D:89:9F:9F:58:AA:EC:2D:77:DE:37:12:A3:89:70:38:C5:A3:CB'

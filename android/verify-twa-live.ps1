@@ -47,10 +47,10 @@ if ($manifest.name -ne 'TravkinFlow' -or
 }
 
 $requiredIcons = @(
-    '/brand/v1/icons/icon-192-compact-v2.png',
-    '/brand/v1/icons/icon-512-compact-v2.png',
-    '/brand/v1/icons/maskable-192-compact-v2.png',
-    '/brand/v1/icons/maskable-512-compact-v2.png'
+    '/brand/tilt45-v1/icons/icon-192-compact-v2.png',
+    '/brand/tilt45-v1/icons/icon-512-compact-v2.png',
+    '/brand/tilt45-v1/icons/maskable-192-compact-v2.png',
+    '/brand/tilt45-v1/icons/maskable-512-compact-v2.png'
 )
 $manifestIconPaths = @($manifest.icons | ForEach-Object { [string]$_.src })
 foreach ($iconPath in $requiredIcons) {

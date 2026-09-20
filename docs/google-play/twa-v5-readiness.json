@@ -1,0 +1,17 @@
+{
+  "scope": "brand-tilt45-only",
+  "sourceBranch": "codex/google-market-twa-v4",
+  "packageName": "com.travkin.flow",
+  "versionName": "4.0.1",
+  "versionCode": 5,
+  "readyForInternalTest": true,
+  "staticBuildVerified": true,
+  "livePwaVerified": true,
+  "verifiedAt": "2026-09-20T13:30:26Z",
+  "webCommit": "a22de90ae41808eebe10e1465b6daa22e65b0b3c",
+  "webDeployment": "dpl_7q2kEtdsuT8TmDRXCNBizLxYVXmT",
+  "verification": ["testDebugUnitTest", "lintRelease", "assembleDebug", "verify-twa-live.ps1", "mobile-browser-logo-390x844"],
+  "playDeliveredDeviceAcceptance": false,
+  "productionSubmitted": false,
+  "previousActiveInternalVersionCode": 4
+}

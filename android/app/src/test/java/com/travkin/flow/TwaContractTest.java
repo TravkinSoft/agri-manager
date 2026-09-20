@@ -23,8 +23,8 @@ public final class TwaContractTest {
         String build = readProjectFile("build.gradle");
 
         assertTrue(build.contains("applicationId \"com.travkin.flow\""));
-        assertTrue(build.contains("versionCode 4"));
-        assertTrue(build.contains("versionName \"4.0.0\""));
+        assertTrue(build.contains("versionCode 5"));
+        assertTrue(build.contains("versionName \"4.0.1\""));
         assertTrue(build.contains("targetSdk 36"));
     }
 

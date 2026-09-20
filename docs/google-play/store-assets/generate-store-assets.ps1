@@ -7,8 +7,8 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 
 $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..\..')).Path
-$wordmarkPath = Join-Path $projectRoot 'public\brand\v1\travkinflow-logo-154a0d68.png'
-$iconPath = Join-Path $projectRoot 'android\app\src\main\res\drawable\travkinflow_icon.png'
+$wordmarkPath = Join-Path $PSScriptRoot 'wordmark-tilt45.png'
+$iconPath = Join-Path $projectRoot 'android\app\src\main\res\drawable-nodpi\travkinflow_icon.png'
 $featurePath = Join-Path $OutputDirectory 'feature-graphic-1024x500.png'
 $storeIconPath = Join-Path $OutputDirectory 'play-store-icon-512.png'
 
