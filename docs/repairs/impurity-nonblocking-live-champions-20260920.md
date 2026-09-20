@@ -30,3 +30,15 @@
 - The DB change is backward compatible with the currently deployed UI. A UI rollback must keep the database safety fix.
 - Do not blindly restore the old unique-selected-source index after rollout: multiple legitimate open selections may then exist. A database rollback would require a fresh read-only inventory and explicit recovery review, not deletion/cancellation of documents.
 - Browser session and live user-close E2E verification must be reported separately from static tests and deployment readiness.
+
+## Production evidence
+
+- Runtime code commit: `bd91fc8621009613af034ae7ead10999e04d016d`, pushed to private `origin/codex/p0-impurity-concurrency-live-ranking-20260920`.
+- Managed DB migration: `20260920084008`, `p0_shared_impurity_nonblocking_v5`; local migration filename aligned to that returned version.
+- Deployment `dpl_2o34JdeQJ5tWEzQ2BKbW8xpFed1r`, READY, Next.js 13.5.1, build completed in 37 seconds; promoted successfully.
+- `https://travkinflow.com/api/healthz` at 08:43:59 UTC: `ok:true`, environment production, deployment `agri-manager-8ki7wg63w-travkin-ais-projects.vercel.app`. Health commit is null (Vercel CLI metadata), so it is not claimed as independent commit proof.
+- New champions endpoint unauthenticated: HTTP 401, Missing authorization token.
+- Post-release runtime error/fatal scan scoped to this deployment, last 5 minutes: no rows returned. This is a short observation, not proof of all future requests.
+- View retains `security_invoker=true`; all three relevant function ACLs exactly match the before snapshot. Advisor still reports the pre-existing intentional authenticated SECURITY DEFINER RPC grants; no privilege expansion was made. [Advisor explanation](https://supabase.com/docs/guides/database/database-linter).
+- Karataev after release: finalized, net 4320, exactly 1 ledger row, effect -4320 kg.
+- Authenticated browser click/E2E smoke: NOT LIVE VERIFIED. Desktop browser tool failed to initialize (`failed to write kernel assets`, OS error 3). No fake production ticket was created to work around this limitation.

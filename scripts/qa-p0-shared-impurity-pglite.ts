@@ -925,7 +925,7 @@ async function main() {
       for (const name of ["public-create_weighbridge_shared_impurity_pool_ticket_v1", "private-finalize_weighbridge_shared_impurity_pool_ticket_v1", "private-settle_shared_impurity_members_v2"]) {
         await db.exec(`${(await readFile(join(process.cwd(), `docs/repairs/shared-impurity-baseline/${name}.sql`), "utf8")).replace(/\r\n/g, "\n")};`);
       }
-      if (nonblockingV5) await db.exec(await readFile(join(process.cwd(), "supabase/migrations/20260920082831_p0_shared_impurity_nonblocking_v5.sql"), "utf8"));
+      if (nonblockingV5) await db.exec((await readFile(join(process.cwd(), "supabase/migrations/20260920084008_p0_shared_impurity_nonblocking_v5.sql"), "utf8")).replace(/\r\n/g, "\n"));
     }
     await check("settled-source release migration compiles after member settlement", () => undefined);
 

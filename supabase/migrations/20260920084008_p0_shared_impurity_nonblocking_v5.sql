@@ -1,6 +1,7 @@
 begin;
 set local lock_timeout = '5s';
 -- P0 shared impurity nonblocking V5.
+-- Version aligned to the verified managed Production migration record.
 -- Open tickets preserve exact source identity, but do not reserve a whole party.
 -- At close, existing actor/company/season gates, sorted row locks, provenance,
 -- ordinary reservations, precision, idempotency and stock-conservation checks remain.
