@@ -9,7 +9,7 @@ export type HarvestDashboardQuery = {
   filters?: HarvestDashboardFilters;
 };
 
-type HarvestDashboardSection = "summary" | "warehouses" | "filters" | "bootstrap";
+type HarvestDashboardSection = "summary" | "warehouses" | "filters" | "bootstrap" | "champions";
 
 export type HarvestDashboardRequestOptions = {
   signal?: AbortSignal;
@@ -52,3 +52,5 @@ export const getHarvestWarehouses = <T,>(query: HarvestDashboardQuery, options?:
   getSection<T>("warehouses", query, options);
 export const getHarvestFilters = <T,>(options?: HarvestDashboardRequestOptions) =>
   getSection<T>("filters", undefined, options);
+export const getHarvestChampions = <T,>(options?: HarvestDashboardRequestOptions) =>
+  getSection<T>("champions", undefined, options);

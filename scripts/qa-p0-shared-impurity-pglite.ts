@@ -58,7 +58,7 @@ const asAuthenticated = async <T>(db: PGlite, run: () => Promise<T>) => {
   try {
     return await run();
   } finally {
-    await db.exec("reset role");
+    await db.exec("reset role").catch(() => undefined); // preserve the original SQL error in rollback-only scenarios
   }
 };
 
@@ -79,7 +79,7 @@ async function findSharedImpurityMigration() {
   for (const fileName of await readdir(migrationDirectory)) {
     if (!fileName.endsWith(".sql")) continue;
     const path = join(migrationDirectory, fileName);
-    const sql = await readFile(path, "utf8");
+    const sql = (await readFile(path, "utf8")).replace(/\r\n/g, "\n");
     if (
       sql.includes("P0 shared impurity pool V1")
       && sql.includes("create_weighbridge_shared_impurity_pool_ticket_v1")
@@ -98,7 +98,7 @@ async function findExactSourceMigration() {
   for (const fileName of await readdir(migrationDirectory)) {
     if (!fileName.endsWith(".sql")) continue;
     const path = join(migrationDirectory, fileName);
-    const sql = await readFile(path, "utf8");
+    const sql = (await readFile(path, "utf8")).replace(/\r\n/g, "\n");
     if (sql.includes("P0 exact impurity source scope V1")) candidates.push({ path, sql });
   }
   assert.equal(candidates.length, 1, "exactly one exact-source extension migration must exist");
@@ -111,7 +111,7 @@ async function findMemberSettlementMigration() {
   for (const fileName of await readdir(migrationDirectory)) {
     if (!fileName.endsWith(".sql")) continue;
     const path = join(migrationDirectory, fileName);
-    const sql = await readFile(path, "utf8");
+    const sql = (await readFile(path, "utf8")).replace(/\r\n/g, "\n");
     if (sql.includes("P0 shared impurity member settlement V2")) candidates.push({ path, sql });
   }
   assert.equal(candidates.length, 1, "exactly one member-settlement migration must exist");
@@ -124,7 +124,7 @@ async function findSourceReleaseMigration() {
   for (const fileName of await readdir(migrationDirectory)) {
     if (!fileName.endsWith(".sql")) continue;
     const path = join(migrationDirectory, fileName);
-    const sql = await readFile(path, "utf8");
+    const sql = (await readFile(path, "utf8")).replace(/\r\n/g, "\n");
     if (sql.includes("SHARED_IMPURITY_V3_SETTLED_SOURCE_NOT_RELEASED")) candidates.push({ path, sql });
   }
   assert.equal(candidates.length, 1, "exactly one settled-source release migration must exist");
@@ -137,7 +137,7 @@ async function findFinalizeScaleMigration() {
   for (const fileName of await readdir(migrationDirectory)) {
     if (!fileName.endsWith(".sql")) continue;
     const path = join(migrationDirectory, fileName);
-    const sql = await readFile(path, "utf8");
+    const sql = (await readFile(path, "utf8")).replace(/\r\n/g, "\n");
     if (sql.includes("SHARED_IMPURITY_V4_PATCH_VERIFICATION_FAILED")) {
       candidates.push({ path, sql });
     }
@@ -152,7 +152,7 @@ async function findShiftHandoverMigration() {
   for (const fileName of await readdir(migrationDirectory)) {
     if (!fileName.endsWith(".sql")) continue;
     const path = join(migrationDirectory, fileName);
-    const sql = await readFile(path, "utf8");
+    const sql = (await readFile(path, "utf8")).replace(/\r\n/g, "\n");
     if (sql.includes("SHARED_IMPURITY_V5_PATCH_VERIFICATION_FAILED")) {
       candidates.push({ path, sql });
     }
@@ -917,6 +917,16 @@ async function main() {
     await db.exec(sourceReleaseMigration.sql);
     await db.exec(finalizeScaleMigration.sql);
     await db.exec(shiftHandoverMigration.sql);
+    const nonblockingV5 = process.argv.includes("--v5");
+    if (nonblockingV5 || process.argv.includes("--production-baseline")) {
+      await db.exec((await readFile(join(process.cwd(), "supabase/migrations/20260916003440_p0_shared_impurity_finalize_tail_latency_v6.sql"), "utf8")).replace(/\r\n/g, "\n"));
+      // Use the captured Production definitions: the SQL migrations in this
+      // historical fixture do not include every already-deployed hotfix.
+      for (const name of ["public-create_weighbridge_shared_impurity_pool_ticket_v1", "private-finalize_weighbridge_shared_impurity_pool_ticket_v1", "private-settle_shared_impurity_members_v2"]) {
+        await db.exec(`${(await readFile(join(process.cwd(), `docs/repairs/shared-impurity-baseline/${name}.sql`), "utf8")).replace(/\r\n/g, "\n")};`);
+      }
+      if (nonblockingV5) await db.exec(await readFile(join(process.cwd(), "supabase/migrations/20260920082831_p0_shared_impurity_nonblocking_v5.sql"), "utf8"));
+    }
     await check("settled-source release migration compiles after member settlement", () => undefined);
 
     await check("legacy single-lot RPC definition remains byte-for-byte unchanged and callable", async () => {
@@ -951,6 +961,7 @@ async function main() {
       idempotencyKey: string,
       vehicleId: string = ID.vehicle,
       driverId: string = ID.driver,
+      gross: number = 25,
     ) => asAuthenticated(db, () => scalar<Row>(db, `
       select public.create_weighbridge_shared_impurity_pool_ticket_v1(
         $1::uuid, $2::uuid, $3::jsonb, $4::uuid, $5::uuid,
@@ -962,7 +973,7 @@ async function main() {
       sources,
       vehicleId,
       driverId,
-      25,
+      gross,
       "soil_and_trash",
       "Общая земля: Гала ЭС + Гала 1 репр.",
       SESSION_TOKEN,
@@ -1031,7 +1042,7 @@ async function main() {
       ), 0);
     });
 
-    await check("open shared ticket reserves every exact source and removes it from ordinary availability", async () => {
+    await check(nonblockingV5 ? "open impurity selection does not reserve the whole party" : "open shared ticket reserves every exact source", async () => {
       const reservations = await rows(db, `
         select batch_id::text, reserved_kg::text
         from public.v_weighbridge_open_ticket_reservations_v1
@@ -1040,7 +1051,7 @@ async function main() {
       `, [created.ticket_id]);
       assert.deepEqual(
         reservations.map((row) => [row.batch_id, Number(row.reserved_kg)]),
-        [[ID.batchA, 120], [ID.batchB, 80]],
+        nonblockingV5 ? [] : [[ID.batchA, 120], [ID.batchB, 80]],
       );
       const effective = await rows(db, `
         select batch_id::text, quantity::text, processing_allocated_kg::text,
@@ -1057,17 +1068,45 @@ async function main() {
           Number(row.effective_available_kg),
           Number(row.open_ticket_reserved_kg),
         ]),
-        [[ID.batchA, 120, 0, 0, 120], [ID.batchB, 80, 0, 0, 80]],
+        nonblockingV5
+          ? [[ID.batchA, 120, 0, 120, 0], [ID.batchB, 80, 0, 80, 0]]
+          : [[ID.batchA, 120, 0, 0, 120], [ID.batchB, 80, 0, 0, 80]],
       );
       assert.equal(Number(await scalar(db, `
         select private.weighbridge_batch_available_for_ticket_v1($1::uuid,$2::uuid)
       `, [created.ticket_id, ID.batchA])), 120, "own shared reservation must be excluded on finalize");
       assert.equal(Number(await scalar(db, `
         select private.weighbridge_batch_available_for_ticket_v1($1::uuid,$2::uuid)
-      `, [ID.legacyTicket, ID.batchA])), 0, "ordinary/foreign operation must see no available mass");
+      `, [ID.legacyTicket, ID.batchA])), nonblockingV5 ? 120 : 0, "open selection must not consume mass in V5");
     });
 
-    await check("a second shared ticket cannot collide with already reserved exact sources", async () => {
+    await check(nonblockingV5 ? "two tickets close in either order; repeated close never duplicates stock" : "a second shared ticket cannot collide with reserved sources", async () => {
+      if (nonblockingV5) {
+        // Both close orders are tested in isolated transactions. Replays must
+        // neither consume stock twice nor inherit the other ticket's tare.
+        for (const reverse of [false, true]) {
+          await db.exec("begin");
+          try {
+            const second = await createShared(ID.secondSharedCreateKey, ID.vehicle2, ID.driver2);
+            assert.equal(second.ok, true);
+            const order = reverse ? [second, created] : [created, second];
+            for (const [index, ticket] of Array.from(order.entries())) {
+              const finalize = () => asAuthenticated(db, () => scalar<Row>(db, `
+                select public.finalize_weighbridge_shared_impurity_pool_ticket_v1(
+                  $1::uuid,$2::text,10,true,$3::uuid)
+              `, [ticket.ticket_id, SESSION_TOKEN, index ? ID.finalizeConflictKey : ID.finalizeKey]));
+              const result = await finalize();
+              assert.equal(result.ok, true);
+              assert.equal(Number(result.source_total_kg), index ? 185 : 200);
+              assert.equal(Number(result.impurity_weight_kg), 15);
+              assert.equal((await finalize()).idempotent_replay, true);
+              assert.equal(Number(await scalar(db, `select sum(delta_qty_signed) from public.stock_ledger_entries where ticket_id=$1`, [ticket.ticket_id])), -15);
+            }
+            assert.equal(Number(await scalar(db, `select sum(delta_qty_signed) from public.stock_ledger_entries where inventory_batch_id in ($1,$2)`, [ID.batchA, ID.batchB])), 170);
+          } finally { await db.exec("rollback"); }
+        }
+        return;
+      }
       await expectDatabaseError(
         () => createShared(ID.secondSharedCreateKey, ID.vehicle2, ID.driver2),
         /SHARED_IMPURITY_SOURCE_ALREADY_COMMITTED/,
@@ -1075,6 +1114,27 @@ async function main() {
       assert.equal(await scalar<number>(db, `
         select count(*)::int from public.weighbridge_shared_impurity_groups
       `), 1);
+    });
+
+    if (nonblockingV5) await check("changed stock below measured net rejects close and rolls back every write", async () => {
+      await db.exec("begin");
+      try {
+        const heavy = await createShared(ID.secondSharedCreateKey, ID.vehicle2, ID.driver2, 205);
+        const first = await asAuthenticated(db, () => scalar<Row>(db, `
+          select public.finalize_weighbridge_shared_impurity_pool_ticket_v1($1,$2,10,true,$3)
+        `, [heavy.ticket_id, SESSION_TOKEN, ID.finalizeKey]));
+        assert.equal(first.ok, true);
+        assert.equal(Number(first.clean_total_kg), 5);
+        await db.exec("savepoint insufficient_close");
+        await expectDatabaseError(() => asAuthenticated(db, () => scalar<Row>(db, `
+          select public.finalize_weighbridge_shared_impurity_pool_ticket_v1($1,$2,10,true,$3)
+        `, [created.ticket_id, SESSION_TOKEN, ID.finalizeConflictKey])), /IMPURITY_WEIGHT_EXCEEDS_AVAILABLE/);
+        await db.exec("rollback to savepoint insufficient_close");
+        assert.equal(Number(await scalar(db, "select count(*) from public.stock_ledger_entries where ticket_id=$1", [created.ticket_id])), 0);
+        assert.equal(Number(await scalar(db, "select count(*) from public.ticket_weighings where ticket_id=$1", [created.ticket_id])), 1);
+        assert.equal(Number(await scalar(db, "select source_total_kg from public.weighbridge_shared_impurity_groups where id=$1", [created.pool_id])), 200);
+        assert.equal(Number(await scalar(db, "select sum(delta_qty_signed) from public.stock_ledger_entries where inventory_batch_id in ($1,$2)", [ID.batchA, ID.batchB])), 5);
+      } finally { await db.exec("rollback"); }
     });
 
     await check("open group and every member are explicitly unresolved", async () => {

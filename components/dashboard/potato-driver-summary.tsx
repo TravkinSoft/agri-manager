@@ -21,6 +21,7 @@ type PotatoDriverSummaryProps = {
   period: "today" | "previous_shift" | "month" | "all_time";
   onPeriodChange: (period: "today" | "previous_shift" | "month" | "all_time") => void;
   refreshing?: boolean;
+  updatedAt?: string;
 };
 
 const PERIODS = [
@@ -30,7 +31,7 @@ const PERIODS = [
   { key: "all_time", label: "За всё время" },
 ] as const;
 
-export const PotatoDriverSummary = memo(function PotatoDriverSummary({ rows, totalWeightKg, periodLabel, period, onPeriodChange, refreshing = false }: PotatoDriverSummaryProps) {
+export const PotatoDriverSummary = memo(function PotatoDriverSummary({ rows, totalWeightKg, periodLabel, period, onPeriodChange, refreshing = false, updatedAt }: PotatoDriverSummaryProps) {
   const rankedRows = useMemo(
     () => [...rows].sort((left, right) => right.netWeightKg - left.netWeightKg || right.tripCount - left.tripCount || left.driverName.localeCompare(right.driverName, "ru")),
     [rows],
@@ -47,6 +48,7 @@ export const PotatoDriverSummary = memo(function PotatoDriverSummary({ rows, tot
           <div className="min-w-0">
             <h2 id="potato-driver-champions-title" className="text-base font-semibold text-foreground">Таблица чемпионов</h2>
             <p className="mt-0.5 text-xs leading-5 text-muted-foreground">Чистый картофель без земли · {periodLabel}</p>
+            {updatedAt ? <p className="text-[11px] text-muted-foreground" aria-live="polite">{refreshing ? "Обновляется…" : `Обновлено ${new Date(updatedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`} · после закрытия талона</p> : null}
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-1" role="group" aria-label="Период таблицы чемпионов" aria-busy={refreshing}>

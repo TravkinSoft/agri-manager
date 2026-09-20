@@ -8,8 +8,10 @@ import {
   isEffectiveFinalizedHarvestTicket,
   isOpenHarvestTicket,
   resolveHarvestPeriod,
+  type HarvestOverview,
 } from "../lib/dashboard/harvest-summary";
 import { canAccessPath } from "../lib/auth/role-access";
+import { buildHarvestChampions, CHAMPION_PERIOD_QUERY } from "../lib/dashboard/harvest-champions";
 import type { HarvestBatchSummary, WeighbridgeTicket } from "../lib/types/weighbridge";
 
 const root = resolve(__dirname, "..");
@@ -691,8 +693,12 @@ check("live yield uses exact accepted mass and shift hectares only when plot own
 check("driver champions support live period filters and replace the redundant day summary", () => {
   assert.doesNotMatch(dashboardApi, /potatoDrivers: seasonDrivers/);
   assert.match(dashboardApi, /ptc_trip_minutes/);
-  assert.match(dashboardUi, /CHAMPION_PERIOD_QUERY\[championPeriod\]/);
-  assert.match(dashboardUi, /useLiveRefresh[\s\S]*onRefresh: refreshDashboardLive/);
+  assert.match(dashboardUi, /champions\.data\.periods\[championPeriod\]/);
+  assert.match(dashboardUi, /useLiveRefresh[\s\S]*onRefresh: refreshDrivers/);
+  assert.match(dashboardUi, /tables: \["tickets", "ticket_lines", "weighbridge_shifts"\]/);
+  assert.match(dashboardUi, /champions\?\.scope === championScope/);
+  assert.match(dashboardUi, /running\.pending = true/);
+  assert.doesNotMatch(dashboardUi, /\}, \[championPeriod, companyId\]\)/);
   assert.doesNotMatch(potatoDriverUi, /dayOffset|onOlderDay|onNewerDay|onToday/);
   assert.match(potatoDriverUi, /За сегодня/);
   assert.match(potatoDriverUi, /За прошлую смену/);
@@ -732,6 +738,23 @@ check("weighbridge exposes its shift close dialog without extra data entry", () 
   const closeDialogUi = readFileSync(resolve(root, "components/weighbridge/shift-close-dialog.tsx"), "utf8");
   assert.match(closeDialogUi, /Подтвердить и закрыть смену/);
   assert.match(closeDialogUi, /WeighbridgeShiftReportView/);
+});
+check("champions batch matches canonical totals for every period and refreshes after close or void", () => {
+  const now = new Date("2026-08-12T12:00:00Z");
+  const input = [ticket({ ...potato, id: "batch-one", net_weight_kg: 10000, harvest_clean_weight_kg: 8000 }),
+    ticket({ ...potato, id: "batch-open", status: "active", is_finalized: false, net_weight_kg: null })];
+  const context = { now, operationalDayStartHour: 7 };
+  const batch = buildHarvestChampions(input, context);
+  for (const key of Object.keys(CHAMPION_PERIOD_QUERY) as Array<keyof typeof CHAMPION_PERIOD_QUERY>) {
+    const expected = buildHarvestOverview(input, { period: resolveHarvestPeriod({ ...context, preset: CHAMPION_PERIOD_QUERY[key] }), warehouseRows: [] });
+    assert.deepEqual(batch.periods[key].potatoDrivers, expected.potatoDrivers);
+    assert.deepEqual(batch.periods[key].period, expected.period);
+  }
+  const closed = { ...input[1], status: "finalized", is_finalized: true, net_weight_kg: 5000, harvest_clean_weight_kg: 4000 } as WeighbridgeTicket;
+  const mass = (rows: HarvestOverview["potatoDrivers"]) => rows.reduce((sum, row) => sum + row.netWeightKg, 0);
+  assert.equal(mass(buildHarvestChampions([input[0], closed], context).periods.today.potatoDrivers), mass(batch.periods.today.potatoDrivers) + 4000);
+  assert.equal(mass(buildHarvestChampions([{ ...input[0], is_voided: true }, closed], context).periods.today.potatoDrivers), 4000);
+  assert.ok(dashboardApi.indexOf("if (championsOnly)") < dashboardApi.indexOf("const [loadedWarehouseRows, activePtcState]"));
 });
 console.log(`TZ265 PASS ${checks.length}/${checks.length}`);
 for (const name of checks) console.log(`PASS ${name}`);

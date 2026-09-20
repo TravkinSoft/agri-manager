@@ -17,6 +17,7 @@ import {
 } from "@/lib/weighbridge/harvest-lot-lineage";
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { getServiceClient } from "@/lib/supabase/service";
+import { buildHarvestChampions } from "@/lib/dashboard/harvest-champions";
 
 const DASHBOARD_ROLES = ["global_admin", "company_admin", "agronomist", "director", "accountant", "legal_operator"] as const;
 const PERIOD_PRESETS = new Set<HarvestPeriodPreset>(["current_day", "previous_day", "previous_shift", "current_shift", "current_month", "last_24_hours", "season", "all_time", "custom"]);
@@ -614,15 +615,24 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ rows, source: "v_harvest_lot_stock_v2" });
     }
 
+    const championsOnly = section === "champions";
     const [tickets, seasonResult, shiftResult, companyResult, shiftHistoryResult, impurityTickets] = await Promise.all([
       loadTickets(supabase, companyId),
       supabase.from("seasons").select("id,year,start_date,end_date").eq("company_id", companyId).eq("archived", false).order("year", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("weighbridge_shifts").select("id,status,opened_at,closed_at").eq("company_id", companyId).eq("status", "open").order("opened_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("companies").select("id,name,operational_day_start_hour").eq("id", companyId).maybeSingle(),
       getServiceClient().from("weighbridge_shifts").select("id,status,opened_at,closed_at,summary_json").eq("company_id", companyId).order("opened_at", { ascending: false }).limit(7),
-      loadImpurityTickets(supabase, companyId),
+      championsOnly ? Promise.resolve([]) : loadImpurityTickets(supabase, companyId),
     ]);
     if (seasonResult.error || shiftResult.error || companyResult.error || shiftHistoryResult.error) throw seasonResult.error || shiftResult.error || companyResult.error || shiftHistoryResult.error;
+    if (championsOnly) {
+      return NextResponse.json(buildHarvestChampions(tickets, {
+        season: seasonResult.data,
+        shift: shiftResult.data,
+        previousShift: (shiftHistoryResult.data || []).find((shift: any) => shift.status === "closed" && shift.closed_at) || null,
+        operationalDayStartHour: Number(companyResult.data?.operational_day_start_hour ?? 7),
+      }), { headers: { "Cache-Control": "private, no-store" } });
+    }
     const presetRaw = String(request.nextUrl.searchParams.get("period") || "current_day") as HarvestPeriodPreset;
     const preset = PERIOD_PRESETS.has(presetRaw) ? presetRaw : "current_day";
     const requestedDayOffset = Number(request.nextUrl.searchParams.get("dayOffset") || 0);

@@ -8,7 +8,8 @@ import { PotatoDriverSummary } from "@/components/dashboard/potato-driver-summar
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { isPotatoLabel, type HarvestFilterOptions, type HarvestOverview } from "@/lib/dashboard/harvest-summary";
-import { getHarvestBootstrap, getHarvestSummary } from "@/lib/services/harvest-dashboard";
+import { getHarvestBootstrap, getHarvestSummary, getHarvestChampions } from "@/lib/services/harvest-dashboard";
+import type { ChampionPeriod, HarvestChampions } from "@/lib/dashboard/harvest-champions";
 import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
 import { getFleetVehicleBrand, type FleetVehicle } from "@/lib/fleet/model";
 import { trafficStatusSince, type TrafficSnapshot, type TrafficVehicle } from "@/lib/traffic/model";
@@ -37,14 +38,6 @@ function mass(value: number): string {
   return `${tonnes.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т`;
 }
 
-type ChampionPeriod = "today" | "previous_shift" | "month" | "all_time";
-
-const CHAMPION_PERIOD_QUERY = {
-  today: "current_day",
-  previous_shift: "previous_shift",
-  month: "current_month",
-  all_time: "all_time",
-} as const;
 function age(value: string, now: number): string {
   const started = Date.parse(value);
   if (!Number.isFinite(started)) return "—";
@@ -163,12 +156,13 @@ function VehicleCard({ vehicle, now, group, shiftIsOpen }: { vehicle: TrafficVeh
 }
 
 export function HarvestDashboard() {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const companyId = profile?.company_id || null;
+  const championScope = [user?.id, profile?.id, profile?.role, companyId].join(":");
   const canReadTraffic = Boolean(profile && ["agronomist", "company_admin", "global_admin", "fleet_manager"].includes(profile.role));
   const { payload: traffic, error: trafficError } = useDashboardTraffic(canReadTraffic);
   const [summary, setSummary] = useState<HarvestOverview | null>(null);
-  const [driverSummary, setDriverSummary] = useState<HarvestOverview | null>(null);
+  const [champions, setChampions] = useState<{ scope: string; data: HarvestChampions } | null>(null);
   const [championPeriod, setChampionPeriod] = useState<ChampionPeriod>("all_time");
   const [driverLoading, setDriverLoading] = useState(false);
   const [driverError, setDriverError] = useState("");
@@ -181,31 +175,44 @@ export function HarvestDashboard() {
   const [selectedPlotId, setSelectedPlotId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const summaryRef = useRef<HarvestOverview | null>(null);
-  const driverSummaryRef = useRef<HarvestOverview | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const driverAbortRef = useRef<AbortController | null>(null);
+  const driverRequestRef = useRef<{ scope: string; promise: Promise<void>; pending: boolean } | null>(null);
   const initialTrafficGroupSelectedRef = useRef(false);
   const previousActivePlotRef = useRef<string | null>(null);
 
-  const refreshDrivers = useCallback(async () => {
+  const refreshDrivers = useCallback((): Promise<void> => {
+    if (!companyId) return Promise.resolve();
+    const running = driverRequestRef.current;
+    if (running?.scope === championScope && !driverAbortRef.current?.signal.aborted) {
+      running.pending = true;
+      return running.promise;
+    }
     driverAbortRef.current?.abort();
-    if (!companyId) return;
     const controller = new AbortController();
     driverAbortRef.current = controller;
-    setDriverLoading(true);
-    setDriverError("");
-    try {
-      const next = await getHarvestSummary<HarvestOverview>({ period: CHAMPION_PERIOD_QUERY[championPeriod], filters: {} }, { signal: controller.signal });
-      if (!controller.signal.aborted) {
-        driverSummaryRef.current = next;
-        setDriverSummary(next);
+    const request = { scope: championScope, promise: Promise.resolve(), pending: false };
+    driverRequestRef.current = request;
+    request.promise = (async () => {
+      setDriverLoading(true);
+      setDriverError("");
+      try {
+        do {
+          request.pending = false;
+          const next = await getHarvestChampions<HarvestChampions>({ signal: controller.signal });
+          if (controller.signal.aborted) return;
+          setChampions({ scope: championScope, data: next });
+        } while (request.pending);
+      } catch (reason) {
+        if (!controller.signal.aborted) setDriverError(reason instanceof Error ? reason.message : "Не удалось загрузить таблицу чемпионов");
+      } finally {
+        if (driverRequestRef.current === request) driverRequestRef.current = null;
+        if (!controller.signal.aborted) setDriverLoading(false);
       }
-    } catch (reason) {
-      if (!controller.signal.aborted) setDriverError(reason instanceof Error ? reason.message : "Не удалось загрузить таблицу чемпионов");
-    } finally {
-      if (!controller.signal.aborted) setDriverLoading(false);
-    }
-  }, [championPeriod, companyId]);
+    })();
+    return request.promise;
+  }, [championScope, companyId]);
+  const driverSummary = champions?.scope === championScope ? champions.data.periods[championPeriod] : null;
 
   const loadDashboard = useCallback(async () => {
     if (!companyId) {
@@ -237,7 +244,6 @@ export function HarvestDashboard() {
 
   useEffect(() => {
     summaryRef.current = null;
-    driverSummaryRef.current = null;
     previousActivePlotRef.current = null;
     setSelectedPlotId(null);
     initialTrafficGroupSelectedRef.current = false;
@@ -248,8 +254,8 @@ export function HarvestDashboard() {
     };
   }, [companyId, loadDashboard]);
   useEffect(() => {
+    setChampions(null);
     if (!companyId) return;
-    if (!driverSummaryRef.current) setDriverSummary(null);
     setDriverError("");
     void refreshDrivers();
     return () => driverAbortRef.current?.abort();
@@ -258,10 +264,10 @@ export function HarvestDashboard() {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
-  const refreshDashboardLive = useCallback(async () => {
-    await Promise.allSettled([loadDashboard(), refreshDrivers()]);
-  }, [loadDashboard, refreshDrivers]);
-  useLiveRefresh({ enabled: Boolean(companyId), companyId, tables: LIVE_REFRESH_TABLES.weighbridge, intervalMs: 15_000, onRefresh: refreshDashboardLive });
+  useLiveRefresh({ enabled: Boolean(companyId), companyId, tables: LIVE_REFRESH_TABLES.weighbridge, intervalMs: 15_000, onRefresh: loadDashboard });
+  // Closed receipts, impurity removals and voids update the ranking after the
+  // committed ticket event. Polling is a fallback when Realtime is unavailable.
+  useLiveRefresh({ enabled: Boolean(companyId), companyId, tables: ["tickets", "ticket_lines", "weighbridge_shifts"], intervalMs: 15_000, onRefresh: refreshDrivers });
   useEffect(() => { setHarvestedHectares(""); }, [selectedPlotId]);
 
   useEffect(() => {
@@ -470,7 +476,7 @@ export function HarvestDashboard() {
       ) : null}
 
       {driverError ? <div className="border-l-2 border-rose-400 px-3 py-2 text-sm text-rose-700">{driverError}</div> : null}
-      {driverSummary ? <PotatoDriverSummary rows={driverSummary.potatoDrivers} totalWeightKg={driverSummary.potatoDrivers.reduce((sum, row) => sum + row.netWeightKg, 0)} periodLabel={driverSummary.period.label} period={championPeriod} onPeriodChange={setChampionPeriod} refreshing={driverLoading} /> : driverLoading ? <section className="flex min-h-32 items-center justify-center rounded-xl border border-border bg-card/40 text-sm text-muted-foreground" aria-label="Загрузка таблицы чемпионов"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка таблицы чемпионов...</section> : null}
+      {driverSummary ? <PotatoDriverSummary rows={driverSummary.potatoDrivers} totalWeightKg={driverSummary.potatoDrivers.reduce((sum, row) => sum + row.netWeightKg, 0)} periodLabel={driverSummary.period.label} period={championPeriod} onPeriodChange={setChampionPeriod} refreshing={driverLoading} updatedAt={champions?.data.updatedAt} /> : driverLoading ? <section className="flex min-h-32 items-center justify-center rounded-xl border border-border bg-card/40 text-sm text-muted-foreground" aria-label="Загрузка таблицы чемпионов"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Загрузка таблицы чемпионов...</section> : null}
 
       {profile && ["agronomist", "director"].includes(profile.role) && profile.company_id ? (
         <details className="group border-y border-border" onToggle={(event) => setShiftReportOpen(event.currentTarget.open)}>
