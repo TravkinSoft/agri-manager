@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
 
     const ownerIds = resolveContextOwnerIds(actor);
     const [companiesRes, contextRes] = await Promise.all([
-      supabase.from("companies").select("id,name").order("name", { ascending: true }).limit(2000),
+      supabase.from("companies").select("id,name").is("archived_at", null).order("name", { ascending: true }).limit(2000),
       supabase
         .from("global_admin_company_contexts")
         .select("company_id")
@@ -59,8 +59,9 @@ export async function GET(request: NextRequest) {
         id: String(row.id),
         name: String(row.name || row.id),
       })),
-      selectedCompanyId: contextRes.data?.[0]?.company_id ? String(contextRes.data[0].company_id) : null,
-    });
+      selectedCompanyId: companiesRes.data?.some((row) => row.id === contextRes.data?.[0]?.company_id)
+        ? String(contextRes.data![0].company_id) : null,
+    }, { headers: { "Cache-Control": "no-store, private" } });
   } catch (error) {
     if (error instanceof SessionAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
@@ -88,7 +89,7 @@ export async function POST(request: NextRequest) {
     const supabase = getServiceClient();
 
     if (companyId) {
-      const companyRes = await supabase.from("companies").select("id,name").eq("id", companyId).maybeSingle();
+      const companyRes = await supabase.from("companies").select("id,name").eq("id", companyId).is("archived_at", null).maybeSingle();
       if (companyRes.error) {
         throw new Error(companyRes.error.message || "Failed to validate selected company");
       }

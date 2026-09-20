@@ -1,0 +1,50 @@
+{
+  "companies": [
+    {
+      "id": "4510373b-62d6-49fd-9904-de2b6ebd31dc",
+      "name": "astykstemm@gmail.com's Company",
+      "created_at": "2026-09-16T06:10:45.29619+00:00",
+      "updated_at": "2026-09-16T06:10:45.29619+00:00",
+      "operational_day_start_hour": 7
+    },
+    {
+      "id": "85f0b46e-a467-4885-a397-ce586c73dc9d",
+      "name": "astykkaraagash@mail.ru's Company",
+      "created_at": "2026-09-17T06:20:00.827854+00:00",
+      "updated_at": "2026-09-17T06:20:00.827854+00:00",
+      "operational_day_start_hour": 7
+    },
+    {
+      "id": "8c652a76-b085-45bd-b883-0bfb1e5f7cd9",
+      "name": "astykkaraagash@mail.ru's Company",
+      "created_at": "2026-09-17T06:20:11.312089+00:00",
+      "updated_at": "2026-09-17T06:20:11.312089+00:00",
+      "operational_day_start_hour": 7
+    }
+  ],
+  "preferences": [
+    {
+      "company_id": "4510373b-62d6-49fd-9904-de2b6ebd31dc",
+      "created_at": "2026-09-17T05:59:55.918235+00:00",
+      "profile_id": "cb27c2ac-2312-4cb9-b819-372d1cf5e2ca",
+      "updated_at": "2026-09-17T05:59:55.918235+00:00",
+      "email_enabled": true,
+      "traffic_updates_enabled": true,
+      "proactive_assist_cadence": "events",
+      "proactive_assist_enabled": true,
+      "operation_updates_enabled": true,
+      "warehouse_updates_enabled": true,
+      "weighbridge_updates_enabled": true,
+      "last_proactive_assist_audit_at": "2026-09-17T05:59:55.918235+00:00"
+    }
+  ],
+  "relatedScopesChecked": 132,
+  "nonEmptyReferences": [
+    {
+      "source": "public.user_notification_preferences.company_id",
+      "company_id": "4510373b-62d6-49fd-9904-de2b6ebd31dc",
+      "n": 1
+    }
+  ],
+  "authAndProfilesForEmails": 0
+}

@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
     const supabase = getServiceClient();
 
-    const companyRes = await supabase.from("companies").select("id,name").eq("id", companyId).maybeSingle();
+    const companyRes = await supabase.from("companies").select("id,name").eq("id", companyId).is("archived_at", null).maybeSingle();
     if (companyRes.error) {
       throw new Error(companyRes.error.message || "Failed to validate company");
     }

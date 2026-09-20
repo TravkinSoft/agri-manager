@@ -94,9 +94,14 @@ async function cleanupFailedProvisioning(
     const { error } = await admin.auth.admin.deleteUser(userId);
     authCleanupComplete = !error;
     if (error) console.error("Failed to clean up company admin Auth user", error);
+    if (error) return false;
   }
-  const { error } = await admin.from("companies").delete().eq("id", companyId);
-  if (error) console.error("Failed to clean up newly created company", error);
+  // Physical deletion cascades into statement-level immutable ledger guards,
+  // even for a fresh empty company. Keep the failed attempt recoverable instead.
+  const { error } = await admin.from("companies")
+    .update({ archived_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", companyId);
+  if (error) console.error("Failed to archive newly created company", error);
   return authCleanupComplete && !error;
 }
 
@@ -156,6 +161,12 @@ export async function POST(request: NextRequest) {
       .select("id, name")
       .single();
     if (companyError || !company?.id) {
+      if (companyError?.code === "23505") {
+        return NextResponse.json({
+          error: "Компания с таким названием уже существует. Выберите её в списке; сотрудника приглашайте внутри компании.",
+          code: "COMPANY_NAME_EXISTS",
+        }, { status: 409 });
+      }
       return NextResponse.json({ error: companyError?.message || "Failed to create company" }, { status: 400 });
     }
 
@@ -191,11 +202,12 @@ export async function POST(request: NextRequest) {
         );
       } catch (reconcileError) {
         console.error("Failed to reconcile company admin Auth creation", reconcileError);
-        const cleanupComplete = await cleanupFailedProvisioning(admin, company.id);
+        // An uncertain Auth outcome is not evidence that the company is empty.
+        // Leave it visible for recovery instead of archiving a surviving account.
         return provisioningFailure(
           "Не удалось подтвердить создание администратора компании.",
           503,
-          cleanupComplete
+          false
         );
       }
 

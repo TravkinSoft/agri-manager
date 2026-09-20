@@ -92,9 +92,9 @@ export async function GET(request: NextRequest) {
         .select("id", { count: "exact", head: true })
         .eq("import_batch_id", PESTICIDE_IMPORT_BATCH_ID)
         .eq("entity_type", "product"),
-      supabase.from("companies").select("id", { count: "exact", head: true }),
+      supabase.from("companies").select("id", { count: "exact", head: true }).is("archived_at", null),
       actor.contextCompanyId
-        ? supabase.from("companies").select("id,name").eq("id", actor.contextCompanyId).maybeSingle()
+        ? supabase.from("companies").select("id,name").eq("id", actor.contextCompanyId).is("archived_at", null).maybeSingle()
         : Promise.resolve({ data: null, error: null }),
     ]);
 

@@ -182,6 +182,8 @@ async function main() {
   `);
 
   await db.exec(fs.readFileSync(migrationPath, "utf8"));
+  await db.exec(fs.readFileSync("supabase/migrations/20260920075104_company_creation_identity_guard_v1.sql", "utf8"));
+  await db.exec(fs.readFileSync("supabase/migrations/20260920075215_company_active_name_unique_v1.sql", "utf8"));
 
   assert.deepEqual(
     (await db.query("select public.generic_invite_capabilities_v1() as capability")).rows,
