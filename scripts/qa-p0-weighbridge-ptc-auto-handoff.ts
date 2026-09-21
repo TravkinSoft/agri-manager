@@ -17,6 +17,8 @@ const ids = {
   actor: "10000000-0000-0000-0000-000000000002",
   field: "10000000-0000-0000-0000-000000000003",
   plot: "10000000-0000-0000-0000-000000000004",
+  newField: "10000000-0000-0000-0000-000000000010",
+  newPlot: "10000000-0000-0000-0000-000000000011",
   driver: "10000000-0000-0000-0000-000000000005",
   driverB: "10000000-0000-0000-0000-000000000006",
   driverC: "10000000-0000-0000-0000-000000000007",
@@ -178,12 +180,16 @@ async function main() {
     await db.query(`insert into public.tickets(
       id,company_id,ticket_no,op_type,vehicle_id,created_by,field_id,crop_structure_allocation_id,driver_id
     ) values($1,$2,'WB-A','harvest_incoming',$3,$4,$5,$6,$7)`, [
-      ids.ticketA, ids.company, ids.vehicleA, ids.actor, ids.field, ids.plot, ids.driver,
+      ids.ticketA, ids.company, ids.vehicleA, ids.actor, ids.newField, ids.newPlot, ids.driver,
     ]);
     assert.equal(await scalar(db, "select state from public.ptc_vehicle_states where vehicle_id=$1", [ids.vehicleA]), "unloading");
     const ticket = (await rows(db, "select ptc_event_id,ptc_cycle from public.tickets where id=$1", [ids.ticketA]))[0];
     assert.equal(ticket.ptc_event_id, ids.loadedA);
     assert.equal(Number(ticket.ptc_cycle), 3);
+    assert.equal(await scalar(db, "select field_id from public.tickets where id=$1", [ids.ticketA]), ids.newField);
+    assert.equal(await scalar(db, "select crop_structure_allocation_id from public.tickets where id=$1", [ids.ticketA]), ids.newPlot);
+    assert.equal(await scalar(db, "select field_id from public.ptc_events where id=$1", [ids.loadedA]), ids.field);
+    assert.equal(await scalar(db, "select field_id from public.ptc_events where vehicle_id=$1 and to_state='unloading'", [ids.vehicleA]), ids.newField);
     assert.equal(await scalar(db, "select count(*)::int from public.ptc_events where vehicle_id=$1 and to_state='unloading'", [ids.vehicleA]), 1);
   });
 

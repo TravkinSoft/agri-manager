@@ -38,6 +38,7 @@ import { isWeighedFieldMaterial, isWeighedSupplierProduct } from "@/lib/weighbri
 import { dedupeProductsForSelect } from "@/lib/catalog/catalog-identity";
 import { automaticHarvestAllocation, validateHarvestWeights } from "@/lib/weighbridge/harvest-contract";
 import { harvestFieldsWithAllocations } from "@/lib/weighbridge/field-picker";
+import { harvestQueuePlotPatch } from "@/lib/weighbridge/harvest-queue-plot";
 import type { WeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
 import { SearchableCombobox, type SearchableComboboxOption } from "@/components/weighbridge/searchable-combobox";
 import { WeighbridgeTicketPaper, type WeighbridgeTicketPaperLabels } from "@/components/weighbridge/weighbridge-ticket-paper";
@@ -3459,13 +3460,6 @@ export default function WeighbridgeOperationsPage() {
       : null;
     setForm((previous) => {
       if (previous.fieldId === fieldId) return previous;
-      const queued = previous.ptcEventId
-        ? ptcQueue.find((item) => item.ptcEventId === previous.ptcEventId) || null
-        : null;
-      const keepPtcTrip = Boolean(queued && (
-        !queued.cropStructureId
-        || (queued.fieldId === fieldId && queued.cropStructureId === automaticAllocation?.allocationId)
-      ));
       return {
         ...previous,
         fieldId,
@@ -3473,8 +3467,7 @@ export default function WeighbridgeOperationsPage() {
         cropId: automaticAllocation?.cropId || "",
         varietyId: automaticAllocation?.varietyId || "",
         reproductionId: automaticAllocation?.reproductionId || "",
-        ptcEventId: keepPtcTrip ? previous.ptcEventId : "",
-        ptcCycle: keepPtcTrip ? previous.ptcCycle : null,
+        // Correcting the cargo origin does not change the physical PTC trip.
       };
     });
   };
@@ -3484,21 +3477,13 @@ export default function WeighbridgeOperationsPage() {
       .find((item) => item.allocationId === allocationId) || null;
     setForm((previous) => {
       if (previous.cropStructureAllocationId === allocation?.allocationId) return previous;
-      const queued = previous.ptcEventId
-        ? ptcQueue.find((item) => item.ptcEventId === previous.ptcEventId) || null
-        : null;
-      const keepPtcTrip = Boolean(queued && (
-        !queued.cropStructureId
-        || (queued.fieldId === previous.fieldId && queued.cropStructureId === allocation?.allocationId)
-      ));
       return {
         ...previous,
         cropStructureAllocationId: allocation?.allocationId || "",
         cropId: allocation?.cropId || "",
         varietyId: allocation?.varietyId || "",
         reproductionId: allocation?.reproductionId || "",
-        ptcEventId: keepPtcTrip ? previous.ptcEventId : "",
-        ptcCycle: keepPtcTrip ? previous.ptcCycle : null,
+        // Keep the trip for the unloading/confirmed-tare state transitions.
       };
     });
   };
@@ -3516,13 +3501,7 @@ export default function WeighbridgeOperationsPage() {
       driverId,
       ptcEventId: queued?.ptcEventId || "",
       ptcCycle: queued?.ptcCycle ?? null,
-      ...(queued?.fieldId && allocation ? {
-        fieldId: queued.fieldId,
-        cropStructureAllocationId: allocation.allocationId,
-        cropId: allocation.cropId,
-        varietyId: allocation.varietyId,
-        reproductionId: allocation.reproductionId,
-      } : {}),
+      ...harvestQueuePlotPatch(previous, queued?.fieldId, allocation),
     }));
   };
 
@@ -3556,13 +3535,7 @@ export default function WeighbridgeOperationsPage() {
         driverId: next.driverId || "",
         ptcEventId: next.ptcEventId,
         ptcCycle: next.ptcCycle,
-        ...(next.fieldId && allocation ? {
-          fieldId: next.fieldId,
-          cropStructureAllocationId: allocation.allocationId,
-          cropId: allocation.cropId,
-          varietyId: allocation.varietyId,
-          reproductionId: allocation.reproductionId,
-        } : {}),
+        ...harvestQueuePlotPatch(previous, next.fieldId, allocation),
       };
     });
   }, [workspaceReady, coreDataReady, form.operationType, form.vehicleId, form.driverId, form.grossKg, form.ptcEventId, ptcQueue, harvestStructureByField]);

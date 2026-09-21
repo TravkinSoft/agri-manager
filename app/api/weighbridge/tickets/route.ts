@@ -820,16 +820,11 @@ export async function POST(request: NextRequest) {
         if (existingTripTicket?.id) {
           return NextResponse.json({ error: `На этот рейс уже открыт талон ${existingTripTicket.ticket_no}.` }, { status: 409 });
         }
-        const tripHasExactPlot = Boolean(tripEvent?.crop_structure_id);
         if (
           !tripEvent?.id || tripEvent.to_state !== "loaded"
           || String(tripEvent.vehicle_id) !== String(ticket.vehicle_id || "")
           || (ticket.driver_id && String(tripEvent.driver_id || "") !== String(ticket.driver_id))
           || Number(tripEvent.cycle) !== Number(ticket.ptc_cycle)
-          || (tripHasExactPlot && (
-            String(tripEvent.field_id || "") !== String(ticket.field_id || "")
-            || String(tripEvent.crop_structure_id || "") !== String(ticket.crop_structure_allocation_id || "")
-          ))
           || !tripState?.assigned || tripState.state !== "loaded"
           || Number(tripState.cycle) !== Number(ticket.ptc_cycle)
         ) {
@@ -837,6 +832,24 @@ export async function POST(request: NextRequest) {
             error: "Рейс PTC уже изменился или машина больше не ожидает весовую. Обновите форму — выбранные данные не будут заменены автоматически.",
           }, { status: 409 });
         }
+        // PTC identifies the physical trip, not the authoritative cargo origin.
+        // The weighman's plot has already passed company/season/allocation
+        // validation above. Preserve it even if the combine still has the old
+        // plot; retain both identities in a server-built audit record.
+        ticket.audit_json = {
+          ...((ticket.audit_json || {}) as Record<string, unknown>),
+          harvest_plot_selection: {
+            source: "weighbridge_selection",
+            actor_profile_id: actor.id,
+            field_id: ticket.field_id,
+            crop_structure_allocation_id: ticket.crop_structure_allocation_id,
+            ptc_event_id: tripEvent.id,
+            ptc_field_id: tripEvent.field_id || null,
+            ptc_crop_structure_id: tripEvent.crop_structure_id || null,
+            differs_from_ptc: String(tripEvent.field_id || "") !== String(ticket.field_id || "")
+              || String(tripEvent.crop_structure_id || "") !== String(ticket.crop_structure_allocation_id || ""),
+          },
+        };
       }
       if (lines.length !== 1) {
         return NextResponse.json(
