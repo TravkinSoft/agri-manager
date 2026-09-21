@@ -24,7 +24,7 @@
 
 Only open Kulinich ticket ending `43V9`: changed field/source/plot to the owner-confirmed 24 ha at 2026-09-21 15:04:29 UTC. Gross 20,740 kg, warehouse, driver, vehicle, trip, status and all weighing rows stayed unchanged. Required still-active/not-finalized/not-voided, identical cargo identity, no generated inventory batch. Old/new identities saved in `audit_json.p0_plot_correction_20260921`. Dry-run transaction succeeded and rolled back before the guarded commit.
 
-Ayткен currently has two finalized 5,030 kg tickets, one per plot, total 10,060 kg. Do not duplicate or alter those masses; exact total confirmation remains pending.
+Aitken has two finalized 5,030 kg tickets, one per plot, total 10,060 kg. The owner subsequently confirmed that the one physical arrival had 10,060 kg net and must be allocated equally between the old 54 ha and new 24 ha plots. No mass correction or additional receipt is required.
 
 ## Verification before release
 
@@ -44,9 +44,13 @@ Ayткен currently has two finalized 5,030 kg tickets, one per plot, total 10,
 - No database migration applied. Only the specifically authorized, audited Kulinich ticket correction was committed.
 - Read-back at 15:13:09 UTC: Kulinich still active, not finalized or voided, 24 ha plot, gross 20,740 kg, original warehouse, PTC unloading cycle 112 unchanged.
 - Iskakov remains loaded cycle 80; no new ticket since 14:00 UTC. Actual receipt creation after refresh is **NOT LIVE VERIFIED**: an operator must enter the real current weight. No invented or test Production ticket was created.
-- Aitken remains two finalized 5,030 kg receipts (54 ha and 24 ha), total 10,060 kg. These amounts were not changed or posted again. Physical total confirmation is still required; do not assume the two equal records alone prove the intended total.
+- Aitken remains two finalized 5,030 kg receipts (54 ha and 24 ha), total 10,060 kg. These amounts were not changed or posted again. Owner confirmation received in the following turn: total physical net 10,060 kg, equal split requested.
 - Initial post-promotion runtime error query returned no errors; the observation window was short and is not a substitute for the next real receipt.
 
 ## Operator action
 
 Record any unsaved weight, refresh the weighbridge once, explicitly select vinograd 24 ha, then retry Iskakov with the real gross weight. Do not reopen or duplicate Kulinich. Existing receipts and weighings were not cleared by the release.
+
+## Owner confirmation / accounting read-back
+
+At 2026-09-21 15:40:46 UTC the live finalized ticket amounts and ticket-line accepted weights were both 5,030 kg per plot. Each ticket has exactly its own inventory batch with initial weight 5,030 kg, total receipt 10,060 kg. The old plot batch has subsequent consumption; its current balance must not be confused with the original receipt. No Production writes were made for this confirmation. Production health still resolves to the same hotfix deployment; latest migration remains `20260920182051`.
