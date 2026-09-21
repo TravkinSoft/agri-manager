@@ -1,0 +1,30 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Travkin Connector Windows 7 Diagnostics" Manufacturer="TravkinFlow" Version="1.1.0" Language="1049" Codepage="1251" UpgradeCode="F0B7E682-432D-493F-9F46-81B56338D673" Scope="perUser" InstallerVersion="500">
+    <MajorUpgrade DowngradeErrorMessage="Установлена более новая версия Travkin Connector Diagnostics." />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="NETFRAMEWORK48RELEASE">
+      <RegistrySearch Id="Net48Search" Root="HKLM" Key="SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full" Name="Release" Type="raw" Bitness="always32" />
+    </Property>
+    <Launch Condition="Installed OR (VersionNT &gt; 601 OR (VersionNT = 601 AND ServicePackLevel &gt;= 1))" Message="Нужна Windows 7 SP1 или более новая Windows. Не обновляйте рабочий компьютер во время смены." />
+    <Launch Condition="Installed OR NETFRAMEWORK48RELEASE &gt;= &quot;#528040&quot;" Message="Требуется Microsoft .NET Framework 4.8. Скачайте его с официальной страницы dotnet.microsoft.com/download/dotnet-framework/net48. Версии 4.8.1 и .NET 8 для Windows 7 не подходят." />
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="Programs" Name="Programs"><Directory Id="Travkin" Name="TravkinFlow"><Directory Id="INSTALLFOLDER" Name="Connector Win7 Diagnostics" /></Directory></Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder"><Directory Id="ShortcutFolder" Name="TravkinFlow" /></StandardDirectory>
+    <Feature Id="MainFeature" Title="Travkin Connector Diagnostics" Level="1">
+      <ComponentRef Id="ApplicationFiles" /><ComponentRef Id="AppShortcut" />
+    </Feature>
+    <Component Id="ApplicationFiles" Directory="INSTALLFOLDER" Guid="BBCA9B2B-A948-46A3-B64A-6214CB697F7D">
+      <File Id="ConnectorExe" Source="$(var.Artifacts)\TravkinConnectorWin7.exe" />
+      <File Source="$(var.Artifacts)\TravkinConnectorWin7.exe.config" />
+      <File Source="$(var.Artifacts)\README.txt" />
+      <RegistryValue Root="HKCU" Key="Software\TravkinFlow\ConnectorWin7Diagnostics" Name="installed" Value="1" Type="integer" KeyPath="yes" />
+      <RemoveFolder Id="RemoveAppFolder" On="uninstall" />
+    </Component>
+    <Component Id="AppShortcut" Directory="ShortcutFolder" Guid="D9A396DE-E036-4B2D-9E56-0FE9C4D78060">
+      <Shortcut Id="StartShortcut" Name="Travkin Connector - проверка весов" Target="[#ConnectorExe]" WorkingDirectory="INSTALLFOLDER" />
+      <RemoveFolder Id="RemoveShortcutFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\TravkinFlow\ConnectorWin7Diagnostics" Name="shortcut" Value="1" Type="integer" KeyPath="yes" />
+    </Component>
+  </Package>
+</Wix>

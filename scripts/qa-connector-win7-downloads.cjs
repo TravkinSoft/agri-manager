@@ -1,0 +1,30 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const root = path.join(__dirname, '..');
+const read = p => fs.readFileSync(path.join(root, p), 'utf8');
+const release = JSON.parse(read('public/downloads/connector-win7/release.json').replace(/^\uFEFF/, ''));
+assert.equal(release.stage, 'diagnostic-capture');
+assert.equal(release.automaticTicketWeight, false);
+assert.equal(release.testedOnPhysicalScale, false);
+assert.equal(release.testedOnWindows7, false);
+for (const artifact of [release.installer, release.portable]) {
+  assert.ok(artifact.url.startsWith('/downloads/connector-win7/'));
+  const bytes = fs.readFileSync(path.join(root, 'public', artifact.url));
+  assert.equal(bytes.length, artifact.bytes);
+  assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), artifact.sha256);
+}
+const menu = read('components/weighbridge/scale-connector-menu.tsx');
+assert.ok(menu.includes('Подключение весов'));
+assert.ok(menu.includes('Автоподстановки веса в талоны пока нет'));
+assert.ok(menu.includes('download'));
+assert.ok(!/\b(fetch|setInterval|useEffect|createTicket|finalizeTicket)\b/.test(menu));
+assert.ok(read('components/weighbridge/universal-workspace-tabs.tsx').includes('<ScaleConnectorMenu />'));
+const capture = read('connector-win7/Capture.cs');
+assert.ok(!/\b(Write|WriteLine|TcpListener|HttpListener|WebClient|HttpClient)\s*\(/.test(capture));
+assert.ok(capture.includes('DtrEnable = false, RtsEnable = false'));
+assert.ok(capture.includes('current.Read(bytes'));
+assert.ok(!capture.includes('ReadLine('));
+assert.ok(read('connector-win7/Installer.wxs').includes('#528040'));
+console.log('PASS download/UI/read-only contracts; MSI and ZIP hashes match.');

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScaleConnectorMenu } from "@/components/weighbridge/scale-connector-menu";
 import {
   UNIVERSAL_WORKSPACE_MAX_TABS,
   type UniversalWorkspaceOperationType,
@@ -198,6 +199,7 @@ export function UniversalWorkspaceTabs({
           })}
         </PopoverContent>
       </Popover>
+      <ScaleConnectorMenu />
     </section>
   );
 }
