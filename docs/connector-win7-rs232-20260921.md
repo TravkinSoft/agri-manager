@@ -22,7 +22,8 @@ Exact existing Production source baseline: `e662c20362543e4efd4994e731c79a390294
 - Download file hash/size, UI/read-only contracts PASS.
 - TypeScript and scoped ESLint PASS. Mobile actual-component browser fixture: 390px viewport has 390px document width; menu/dialog render, no page errors; only CSS/bundle/favicon requests, zero business requests.
 - Native UI rendered off-screen on Windows 11; it is NOT a physical Windows 7 test. Default and minimum-width layouts inspected.
-- First automated browser MSI download returned `Download was canceled`; do not claim that test passed or tell the user to disable browser protections. HTTP artifact and final published-download verification are separate gates.
+- Automated local browser MSI and ZIP downloads returned `Download was canceled`; do not claim those tests passed or tell the user to disable browser protections. Both artifacts were subsequently verified over HTTPS independently, on staging and live.
+- MSI administrative extraction (not installation) PASS after running outside the restricted sandbox; extracted EXE matches the compiled executable. Initial restricted extraction exit 1603 was an environment failure, not silently counted as a pass.
 
 ## Remaining acceptance gates
 
@@ -30,4 +31,22 @@ Physical Windows 7 SP1/.NET/adapter driver, actual cable wiring, exact COM setti
 
 ## Publication
 
-Pending staged cloud build, baseline recheck, promotion and public artifact verification. No Production write/migration/deployment has yet been performed for this feature at this checkpoint.
+## Deploy Result
+
+- URL: https://travkinflow.com/weighbridge
+- Target: Production. State: READY.
+- Source commit: `fc0ba489b1047b2f82c13559ab5cea7016032c63`.
+- Deployment: `dpl_G5ya8aLGuUSz8fneULLRjcZLJp9s`, `agri-manager-gbxb8q4e4-travkin-ais-projects.vercel.app`.
+- Framework: Next.js 13.5.1. Cloud build output: 50 seconds, model smoke passed. Existing Browserslist/Supabase/ws warnings remain.
+- First staging build failed because an unanchored `.vercelignore` excluded nested download assets. Fixed root anchoring, added regression check, second full build PASS. No failed build was promoted.
+- Staging HTTPS checks through authorised Vercel access: manifest/MSI/ZIP all match. An unauthenticated staging fetch returned the hosting login HTML, correctly rejected as a hash mismatch.
+- Pre-promotion guard confirmed unchanged old live deployment; promoted the tested deployment, no rebuild. Post-promotion health: ok=true, environment=production, expected deployment. Commit field still null.
+- Public downloads: HTTP 200, MSI 49,152 bytes SHA-256 `5638077d89f85caf6e594211b22894cdee4eac76db658464c27082e36d18527c`; ZIP 12,826 bytes SHA-256 `7d2460ef3b9b486dcdb8b70137b508668157978aeb45a032e2575b17d930ef32`. Live manifest matches both.
+- Authenticated live menu interaction is NOT LIVE VERIFIED. Actual-component desktop/mobile fixture was verified, and live artifact delivery was separately verified.
+- Private GitHub branch pushed; master unchanged. No business data writes, migrations, scale commands, live scale reads or working-PC installations.
+
+### Post-Deploy Observability
+
+- Error scan: no logs found on this deployment for `level=error`, `since=10m` immediately after promotion. This is a bounded snapshot, not comprehensive traffic acceptance.
+- Drains: not inspected. No recurring monitoring created.
+- Native Windows 7/hardware and browser-download acceptance gates above remain open. Diagnostic delivery is complete; automatic scale-to-ticket integration is not.
