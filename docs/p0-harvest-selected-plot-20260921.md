@@ -31,4 +31,22 @@ Ayткен currently has two finalized 5,030 kg tickets, one per plot, total 10,
 - TypeScript noEmit: PASS.
 - Executable tests of the actual form callbacks and API trip validation block: 16 PASS.
 - PGlite current PTC trigger regressions, including differing ticket/event plots and confirmed tare only: 20 PASS.
-- Physical authenticated browser/live receipt checks and Production release: pending.
+- Destination lock regression tests: 12 PASS. Total: 48 PASS.
+- Scoped ESLint: no errors; seven existing hook-dependency warnings in the weighbridge page.
+- Production cloud build, type check and model smoke: PASS.
+
+## Production release and final read-back
+
+- Source commit: `087b33ba10441918fb93d135d8bce8d6c6c83638`, pushed to `origin/codex/p0-harvest-selected-plot-20260921`; master unchanged.
+- Deployment: `dpl_7ErVdq5uDwxN3M3Tz1qEe6JdXWwZ`, `agri-manager-etzk1oxwb-travkin-ais-projects.vercel.app`, READY, Production environment.
+- Created with `--prod --skip-domain`, checked its authenticated health endpoint before promotion. Explicit `--scope travkin-ais-projects` resolved the initial CLI authorization error without new login or permission changes.
+- Promoted at approximately 15:12 UTC. `https://travkinflow.com/api/healthz` at 15:12:41 UTC returned `ok: true`, `environment: production`, and the new deployment hostname. Health commit remains null; source identity comes from the clean committed upload checkout.
+- No database migration applied. Only the specifically authorized, audited Kulinich ticket correction was committed.
+- Read-back at 15:13:09 UTC: Kulinich still active, not finalized or voided, 24 ha plot, gross 20,740 kg, original warehouse, PTC unloading cycle 112 unchanged.
+- Iskakov remains loaded cycle 80; no new ticket since 14:00 UTC. Actual receipt creation after refresh is **NOT LIVE VERIFIED**: an operator must enter the real current weight. No invented or test Production ticket was created.
+- Aitken remains two finalized 5,030 kg receipts (54 ha and 24 ha), total 10,060 kg. These amounts were not changed or posted again. Physical total confirmation is still required; do not assume the two equal records alone prove the intended total.
+- Initial post-promotion runtime error query returned no errors; the observation window was short and is not a substitute for the next real receipt.
+
+## Operator action
+
+Record any unsaved weight, refresh the weighbridge once, explicitly select vinograd 24 ha, then retry Iskakov with the real gross weight. Do not reopen or duplicate Kulinich. Existing receipts and weighings were not cleared by the release.
