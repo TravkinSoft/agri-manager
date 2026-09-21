@@ -498,6 +498,9 @@ export function Header() {
                 <DropdownMenuSeparator className="bg-[var(--manor-line)]" />
               </>
             ) : null}
+            <DropdownMenuItem onClick={() => router.push("/account-deletion")} className="min-h-[48px] cursor-pointer">
+              {language === "en" ? "Request account deletion" : language === "kz" ? "Аккаунтты жоюға сұрау" : "Запросить удаление аккаунта"}
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-700 focus:bg-red-50 focus:text-red-800">
               <LogOut className="mr-2 h-4 w-4" />
               {t("logout")}

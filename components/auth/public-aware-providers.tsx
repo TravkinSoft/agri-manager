@@ -17,7 +17,7 @@ const ProtectedApp = dynamic<{ children: React.ReactNode }>(
   }
 );
 
-const PUBLIC_MARKETING_ROUTES = new Set(["/", "/demo", "/privacy"]);
+const PUBLIC_MARKETING_ROUTES = new Set(["/", "/demo", "/privacy", "/account-deletion"]);
 
 export function PublicAwareProviders({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
