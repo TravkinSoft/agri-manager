@@ -27,4 +27,6 @@ assert.ok(capture.includes('DtrEnable = false, RtsEnable = false'));
 assert.ok(capture.includes('current.Read(bytes'));
 assert.ok(!capture.includes('ReadLine('));
 assert.ok(read('connector-win7/Installer.wxs').includes('#528040'));
+assert.ok(read('.vercelignore').includes('/connector-win7/'));
+assert.ok(!/^connector-win7\//m.test(read('.vercelignore')), 'Do not exclude the nested public download directory');
 console.log('PASS download/UI/read-only contracts; MSI and ZIP hashes match.');
