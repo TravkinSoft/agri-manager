@@ -1,0 +1,184 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { Check, Loader2, UserRound, X } from "lucide-react";
+import { flushSync } from "react-dom";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { supabase } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils";
+import {
+  loadVehicleDriverAssignment, publishVehicleDriverAssignment, saveVehicleDriverAssignment,
+  type VehicleDriverAssignmentResult,
+} from "@/lib/vehicles/driver-assignment-client";
+
+export interface VehicleDriverAssignmentProps {
+  vehicleId: string;
+  companyId?: string | null;
+  driverName?: string | null;
+  vehicleLabel?: string;
+  disabled?: boolean;
+  onAssigned?: (result: VehicleDriverAssignmentResult) => void;
+  className?: string;
+  iconOnly?: boolean;
+  autoOpen?: boolean;
+  onClosed?: () => void;
+}
+
+const NO_DRIVER = "__no_driver__";
+const conflictMessage = "Привязку уже изменили. Показан текущий водитель — выберите нужного и сохраните ещё раз.";
+
+export function VehicleDriverAssignment({ vehicleId, companyId, driverName, vehicleLabel, disabled = false,
+  onAssigned, className, iconOnly = false, autoOpen = false, onClosed }: VehicleDriverAssignmentProps) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<VehicleDriverAssignmentResult | null>(null);
+  const [selected, setSelected] = useState(NO_DRIVER);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const request = useRef<AbortController | null>(null);
+  const epoch = useRef(0);
+  const busy = useRef(false);
+  const openScope = useRef<string | null>(null);
+  const scope = `${companyId ?? ""}:${vehicleId}`;
+  const currentScope = useRef(scope);
+  currentScope.current = scope;
+
+  const cancelRequest = () => { epoch.current++; request.current?.abort(); request.current = null; busy.current = false; };
+  const close = () => { openScope.current = null; cancelRequest(); setOpen(false); setSaving(false); setLoading(false); };
+  const load = async (message = "") => {
+    cancelRequest();
+    const generation = epoch.current;
+    const owner = new AbortController();
+    request.current = owner;
+    setLoading(true); setSaving(false); setData(null); setError(message);
+    try {
+      const result = await loadVehicleDriverAssignment(vehicleId, companyId, owner.signal);
+      if (owner.signal.aborted || generation !== epoch.current || scope !== currentScope.current) return;
+      setData(result); setSelected(result.vehicle.driverPersonId ?? NO_DRIVER);
+    } catch (caught) {
+      if (owner.signal.aborted || generation !== epoch.current || scope !== currentScope.current) return;
+      setError([message, caught instanceof Error ? caught.message : "Не удалось загрузить водителей"].filter(Boolean).join(" "));
+    } finally {
+      if (generation === epoch.current && scope === currentScope.current) setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    close(); setData(null); setError("");
+    // A previous vehicle/company request cannot update this reused control.
+    return cancelRequest;
+    // Scope alone owns the request lifecycle; handlers deliberately capture that scope.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope]);
+
+  useEffect(() => {
+    if (autoOpen) { openScope.current = scope; setOpen(true); }
+  }, [autoOpen, scope]);
+
+  useEffect(() => {
+    if (!open || openScope.current !== scope) return;
+    let identity: string | null | undefined;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      const next = session?.user.id ?? null;
+      if (event === "SIGNED_OUT" || (identity !== undefined && next !== identity)) {
+        close(); setData(null);
+      }
+      identity = next;
+    });
+    void load();
+    return () => { subscription.unsubscribe(); cancelRequest(); };
+    // No subscription or driver-list request for closed vehicle rows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, scope]);
+
+  // A dangling legacy assignment still needs an explicit clear even if its
+  // person can no longer be resolved to a current driver.
+  const unchanged = selected === NO_DRIVER
+    ? data?.vehicle.assignmentId === null
+    : selected === data?.vehicle.driverPersonId;
+  const save = async () => {
+    if (busy.current || loading || disabled || !data?.canEdit || scope !== currentScope.current) return;
+    if (unchanged) return;
+    busy.current = true; setSaving(true); setError("");
+    const generation = ++epoch.current;
+    request.current?.abort();
+    const owner = new AbortController();
+    request.current = owner;
+    try {
+      const result = await saveVehicleDriverAssignment({ companyId: data.companyId, vehicleId,
+        driverPersonId: selected === NO_DRIVER ? null : selected,
+        expectedAssignmentId: data.vehicle.assignmentId }, owner.signal);
+      if (owner.signal.aborted || generation !== epoch.current || scope !== currentScope.current) return;
+      flushSync(() => { setData(result); setOpen(false); });
+      publishVehicleDriverAssignment(result);
+      try { onAssigned?.(result); } catch { /* The assignment is already committed. */ }
+      onClosed?.();
+    } catch (caught) {
+      if (owner.signal.aborted || generation !== epoch.current || scope !== currentScope.current) return;
+      if ((caught as { status?: number })?.status === 409) {
+        await load(conflictMessage);
+      } else {
+        setError(caught instanceof Error ? caught.message : "Не удалось сохранить водителя");
+      }
+    } finally {
+      if (generation === epoch.current && scope === currentScope.current) { busy.current = false; setSaving(false); }
+    }
+  };
+
+  const label = vehicleLabel || vehicleId;
+  const actionLabel = `${driverName ? "Сменить водителя" : "Назначить водителя"}: ${label}`;
+  const options = [
+    { value: NO_DRIVER, label: "Без водителя" },
+    ...(data?.drivers ?? []).map(driver => ({ value: driver.id, label: driver.name })),
+  ];
+  if (data?.vehicle.driverPersonId && !options.some(option => option.value === data.vehicle.driverPersonId)) {
+    options.push({ value: data.vehicle.driverPersonId, label: data.vehicle.driverName || "Текущий водитель" });
+  }
+  return <>
+    {!autoOpen ? <Button type="button" variant="ghost" disabled={disabled || !vehicleId} aria-label={actionLabel} title={actionLabel}
+      className={cn("min-h-[48px] min-w-[48px] max-w-full touch-manipulation", iconOnly ? "h-12 w-12 shrink-0 p-0" : "justify-start gap-2 px-2", className)}
+      onClick={event => { event.stopPropagation(); openScope.current = scope; setOpen(true); }}>
+      <UserRound className="h-4 w-4 shrink-0" aria-hidden="true" />
+      {!iconOnly ? <span className="truncate">{driverName || "Назначить водителя"}</span> : null}
+    </Button> : null}
+    {open ? <Dialog open onOpenChange={next => { if (!next) { close(); onClosed?.(); } }}>
+      <DialogContent hideCloseButton className="flex max-h-[90dvh] w-[calc(100%-2rem)] max-w-md flex-col overflow-hidden rounded-xl border-border bg-background p-4 text-foreground"
+        onClick={event => event.stopPropagation()}>
+        <DialogHeader className="pr-10 text-left">
+          <DialogTitle>Водитель машины</DialogTitle>
+          <DialogDescription className="break-words text-muted-foreground">{vehicleLabel || [data?.vehicle.name, data?.vehicle.plate].filter(Boolean).join(" · ") || vehicleId}</DialogDescription>
+        </DialogHeader>
+        <Button type="button" variant="ghost" aria-label="Закрыть выбор водителя" className="absolute right-1 top-1 h-12 w-12 p-0" onClick={() => { close(); onClosed?.(); }}>
+          <X className="h-5 w-5" aria-hidden="true" />
+        </Button>
+        {loading ? <p role="status" className="flex min-h-[48px] items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загружаем водителей…</p> : null}
+        {data ? <>
+          <Input aria-label="Найти водителя" placeholder="Найти водителя" value={search}
+            onChange={event => setSearch(event.target.value)} className="min-h-[48px] shrink-0 text-base" />
+          <div role="radiogroup" aria-label="Водитель машины" data-testid="driver-scroll-list"
+            className="min-h-0 max-h-[45dvh] flex-1 touch-pan-y overflow-y-auto overscroll-contain rounded-md border border-border">
+            {options.filter(option => option.label.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())).map(option => (
+              <button key={option.value} type="button" role="radio" aria-checked={selected === option.value}
+                disabled={saving || disabled || !data.canEdit} onClick={() => setSelected(option.value)}
+                className={cn("flex min-h-[48px] w-full items-center justify-between gap-3 border-b border-border px-3 py-3 text-left text-sm last:border-0", selected === option.value && "bg-accent text-foreground")}>
+                <span className="break-words">{option.label}</span>
+                {selected === option.value ? <Check size={18} className="shrink-0" aria-hidden /> : null}
+              </button>
+            ))}
+            {!options.some(option => option.label.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) ? <p className="p-3 text-sm text-muted-foreground">Водитель не найден</p> : null}
+          </div>
+        </> : null}
+        <p className="text-sm text-muted-foreground">Закреплён за машиной до ручной смены. Старые талоны не изменятся.</p>
+        {data && !data.canEdit ? <p className="text-sm text-amber-800">Нет прав на смену водителя.</p> : null}
+        {error ? <p role="alert" className="text-sm text-amber-800">{error}</p> : null}
+        {!loading && !data ? <Button type="button" variant="outline" className="min-h-[48px]" onClick={() => void load()}>Повторить загрузку</Button> : null}
+        <Button type="button" className="min-h-[48px] w-full" disabled={loading || saving || disabled || !data?.canEdit || unchanged} onClick={() => void save()}>
+          {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />Сохраняем…</> : "Сохранить"}
+        </Button>
+      </DialogContent>
+    </Dialog> : null}
+  </>;
+}

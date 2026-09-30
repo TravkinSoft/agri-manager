@@ -1,0 +1,633 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root,
+  [data-theme="estate-register"],
+  [data-theme="warm-manor"],
+  [data-theme="estate-graphite"] {
+    color-scheme: dark;
+    --background: 72 10% 8%;
+    --foreground: 45 24% 88%;
+    --card: 70 9% 10%;
+    --card-foreground: 45 24% 88%;
+    --popover: 70 9% 12%;
+    --popover-foreground: 45 24% 90%;
+    --primary: 68 35% 62%;
+    --primary-foreground: 72 12% 8%;
+    --secondary: 70 8% 15%;
+    --secondary-foreground: 45 18% 84%;
+    --muted: 70 7% 14%;
+    --muted-foreground: 56 9% 65%;
+    --accent: 68 10% 18%;
+    --accent-foreground: 45 24% 91%;
+    --destructive: 5 45% 43%;
+    --destructive-foreground: 41 100% 97%;
+    --border: 66 7% 24%;
+    --input: 66 7% 31%;
+    --ring: 68 35% 62%;
+    --chart-1: 68 35% 62%;
+    --chart-2: 38 45% 58%;
+    --chart-3: 145 24% 52%;
+    --chart-4: 25 37% 55%;
+    --chart-5: 5 45% 56%;
+    --radius: 0.625rem;
+
+    --font-manor-display: var(--font-cormorant-garamond), "Iowan Old Style", Georgia, serif;
+    --font-manor-data: var(--font-golos-text), ui-sans-serif, system-ui, sans-serif;
+    /* Compatibility names keep existing modules on one shared design contract. */
+    --manor-ivory: #14150f;
+    --manor-paper: #191a14;
+    --manor-paper-raised: #1e2019;
+    --manor-paper-recessed: #11120e;
+    --manor-espresso: #11120e;
+    --manor-espresso-soft: #1b1d17;
+    --manor-walnut: #ece7d8;
+    --manor-olive: #a8b878;
+    --manor-olive-deep: #24291d;
+    --manor-brass: #b9a471;
+    --manor-brass-soft: #d6c8a4;
+    --manor-line: #3d4035;
+    --manor-text-muted: #aaa99d;
+    --estate-shell-text: #ece9df;
+    --estate-shell-muted: #c4c3b8;
+    --estate-shell-line: #34372e;
+    --manor-success: #8eac73;
+    --manor-warning: #c8a969;
+    --manor-danger: #cf7468;
+    --manor-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.22);
+    --manor-shadow-md: 0 18px 48px rgba(0, 0, 0, 0.34);
+
+    --travkin-bg: var(--manor-ivory);
+    --travkin-bg-secondary: var(--manor-paper-recessed);
+    --travkin-card: var(--manor-paper);
+    --travkin-border: var(--manor-line);
+    --travkin-text: var(--manor-walnut);
+    --travkin-text-muted: var(--manor-text-muted);
+    --travkin-yellow: var(--manor-brass);
+    --travkin-green: var(--manor-olive);
+    --travkin-warning: var(--manor-warning);
+    --travkin-danger: var(--manor-danger);
+    --travkin-hover: var(--manor-paper-recessed);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body {
+    min-height: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    background:
+      radial-gradient(circle at 75% -10%, rgba(175, 184, 120, 0.055), transparent 34%),
+      var(--travkin-bg);
+    color: var(--travkin-text);
+    overscroll-behavior-x: none;
+  }
+
+  ::selection {
+    background: var(--manor-brass-soft);
+    color: var(--manor-espresso);
+  }
+
+  a {
+    @apply transition-colors;
+  }
+}
+
+@layer components {
+  .tf-estate-document {
+    position: relative;
+    background: var(--manor-paper);
+    outline: 1px solid var(--manor-line);
+    outline-offset: -6px;
+    padding: 0.5rem;
+  }
+
+  .tf-estate-rail {
+    --background: 83 8% 18%;
+    --card: 83 8% 18%;
+    --foreground: 42 24% 92%;
+    --card-foreground: 42 24% 92%;
+    --muted: 83 7% 25%;
+    --muted-foreground: 68 8% 76%;
+    --border: 76 7% 40%;
+    --input: 68 8% 57%;
+    --primary: 43 24% 75%;
+    --primary-foreground: 83 9% 14%;
+    --secondary: 83 7% 25%;
+    --secondary-foreground: 42 24% 92%;
+    --accent: 83 7% 28%;
+    --accent-foreground: 42 24% 92%;
+    --ring: 43 24% 75%;
+    color-scheme: dark;
+    background: var(--manor-espresso);
+    color: var(--estate-shell-text);
+  }
+
+  .tf-estate-rail :is(.text-amber-800, .text-amber-700) { color: #e1c994; }
+  .tf-estate-rail :is(.text-emerald-800, .text-emerald-700, .text-green-800, .text-green-700) { color: #c1d5b3; }
+  .tf-estate-rail :is(.text-rose-800, .text-rose-700, .text-red-800, .text-red-700) { color: #f0b6ac; }
+
+  /* Tailwind's amber-800 falls below AA on the deliberately darker register paper. */
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) :is(.text-amber-800, .text-amber-700) {
+    color: #d3b56f;
+  }
+
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) :is(.text-emerald-800, .text-emerald-700, .text-green-800, .text-green-700) {
+    color: #a9c48f;
+  }
+
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) :is(.text-rose-800, .text-rose-700, .text-red-800, .text-red-700) {
+    color: #e39488;
+  }
+
+  /* Dark operational rails retain a lighter semantic warning ink. */
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .tf-estate-rail :is(.text-amber-800, .text-amber-700) {
+    color: #e1c994;
+  }
+
+  .tf-estate-editor .tf-estate-plot {
+    scroll-margin-block: 5rem;
+  }
+
+  .tf-estate-details > summary::marker { color: var(--manor-text-muted); }
+
+  .tf-manor :where(h1, h2, [role="dialog"] h3) {
+    font-family: var(--font-manor-display);
+    text-wrap: balance;
+  }
+
+  .tf-manor :where(table, input[inputmode="decimal"], input[type="number"]) {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tf-manor :where([role="dialog"], [role="alertdialog"]) {
+    border-color: var(--manor-line);
+    box-shadow: var(--manor-shadow-md);
+  }
+
+  /* Final compatibility net: legacy modules keep their structure, but not the old pill/card language. */
+  .tf-manor :is(.rounded-xl, .rounded-2xl, .rounded-3xl) {
+    border-radius: var(--radius);
+  }
+
+  .tf-manor :is(.shadow-xl, .shadow-2xl) {
+    box-shadow: var(--manor-shadow-md);
+  }
+
+  .tf-manor-shell {
+    background: var(--manor-ivory);
+    color: var(--manor-walnut);
+  }
+
+  .tf-manor-workspace {
+    background: transparent;
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
+  }
+
+  .tf-scroll-hidden { scrollbar-width: none; }
+  .tf-scroll-hidden::-webkit-scrollbar { display: none; }
+
+  .tf-manor-sidebar,
+  .tf-manor-topbar {
+    color: var(--estate-shell-text);
+    background:
+      linear-gradient(115deg, rgba(218, 213, 194, 0.035), transparent 44%),
+      var(--manor-espresso);
+    border-color: var(--estate-shell-line);
+  }
+
+  .tf-manor-panel {
+    border: 1px solid var(--manor-line);
+    background: var(--manor-paper);
+    box-shadow: var(--manor-shadow-sm);
+  }
+
+  .tf-manor-control {
+    transition-duration: 140ms;
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .tf-manor-control:active {
+    transform: translateY(1px);
+  }
+
+  @keyframes tf-estate-page-enter {
+    from { opacity: 0.84; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .tf-estate-page-enter {
+    animation: tf-estate-page-enter 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .tf-manor-heading {
+    color: var(--manor-espresso);
+    font-family: var(--font-manor-display);
+    font-weight: 600;
+    letter-spacing: -0.018em;
+  }
+
+  .tf-manor-data {
+    font-family: var(--font-manor-data);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tf-manor-brass-rule {
+    border-color: var(--manor-line);
+  }
+
+  .tf2-shell,
+  .tf2-portal-panel {
+    --tf2-surface: var(--manor-paper);
+    --tf2-surface-strong: var(--manor-paper-raised);
+    --tf2-line: var(--manor-line);
+    --tf2-line-strong: var(--input);
+    --tf2-shadow: var(--manor-shadow-md);
+  }
+
+  .tf2-dock {
+    border: 1px solid var(--tf2-line);
+    background: var(--tf2-surface);
+    box-shadow: var(--tf2-shadow);
+    backdrop-filter: none;
+  }
+
+  .tf2-panel {
+    border: 1px solid var(--tf2-line);
+    background: var(--tf2-surface-strong);
+    box-shadow: var(--tf2-shadow);
+    backdrop-filter: none;
+  }
+
+  .tf2-control {
+    transition-duration: 140ms;
+    transition-property: color, background-color, border-color, opacity, transform;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tf-estate-page-enter { animation: none; }
+    .tf-manor-control,
+    .tf2-control { transition: none; }
+  }
+
+  .tf2-control:active {
+    transform: translateY(1px);
+  }
+
+  @media (max-width: 1023px) {
+    .tf2-shell button,
+    .tf2-shell [role="button"] {
+      min-width: 44px;
+    }
+
+    .tf2-shell button,
+    .tf2-shell [role="button"],
+    .tf2-shell input,
+    .tf2-shell [role="combobox"] {
+      min-height: 44px;
+    }
+
+    .tf2-shell .maplibregl-ctrl-group button {
+      width: 44px;
+      height: 44px;
+    }
+  }
+
+  @media (max-width: 1279px) {
+    .tf2-map-viewport .maplibregl-ctrl-scale {
+      display: none;
+    }
+
+    .tf2-map-viewport .tf2-map-measure-dock {
+      left: 0.75rem;
+      width: calc(100% - 4.25rem);
+      transform: none;
+    }
+  }
+
+  .tf2-map-viewport .maplibregl-ctrl-group {
+    border: 1px solid var(--manor-line);
+    background: var(--manor-paper-raised);
+    box-shadow: var(--manor-shadow-sm);
+  }
+
+  .tf2-map-viewport .maplibregl-ctrl-group button {
+    color: var(--manor-walnut);
+  }
+
+  .tf2-map-viewport .maplibregl-ctrl-attrib,
+  .tf2-map-viewport .maplibregl-ctrl-attrib.maplibregl-compact {
+    border: 1px solid var(--estate-shell-line);
+    background-color: rgba(41, 44, 38, 0.96);
+    color: var(--estate-shell-text);
+    box-shadow: 0 8px 24px rgba(30, 33, 25, 0.2);
+  }
+
+  .tf2-map-viewport .maplibregl-ctrl-attrib a {
+    color: var(--estate-shell-text);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .tf2-map-viewport .maplibregl-ctrl-attrib-button,
+  .tf2-map-viewport .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
+    background-color: transparent;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='%23F8F0E2' fill-rule='evenodd' viewBox='0 0 20 20'%3E%3Cpath d='M4 10a6 6 0 1 0 12 0 6 6 0 1 0-12 0m5-3a1 1 0 1 0 2 0 1 1 0 1 0-2 0m0 3a1 1 0 1 1 2 0v3a1 1 0 1 1-2 0'/%3E%3C/svg%3E");
+  }
+
+  .tf2-map-viewport .maplibregl-ctrl-attrib-button:focus-visible {
+    outline: 2px solid var(--manor-brass-soft);
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 1279px) and (orientation: portrait) {
+    .tf2-map-viewport .maplibregl-ctrl-attrib.maplibregl-compact-show {
+      transform: translateY(-4.75rem);
+    }
+
+    .tf2-map-viewport[data-has-open-inspector="true"] .tf2-map-inspector {
+      bottom: 8.5rem;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .tf2-map-viewport .maplibregl-ctrl-bottom-right {
+      bottom: 4.75rem;
+    }
+
+    .tf2-map-viewport[data-has-open-inspector="true"] .tf2-map-inspector {
+      max-height: calc(100% - 136px);
+    }
+  }
+
+  @media (max-width: 1279px) and (max-height: 600px) and (orientation: landscape) {
+    .tf2-map-top-dock > [data-testid="fields-map-top-dock"] {
+      padding: 0.5rem;
+    }
+
+    .tf2-map-viewport .tf2-map-measure-dock {
+      bottom: 0.25rem;
+    }
+
+    .tf2-map-viewport[data-has-open-inspector="true"] .tf2-map-secondary-controls,
+    .tf2-map-viewport[data-has-open-inspector="true"] .tf2-map-measure-dock {
+      display: none;
+    }
+
+    .tf2-map-viewport[data-has-open-inspector="true"] .tf2-map-inspector {
+      inset: 5.25rem 0.75rem 0.75rem;
+      right: 3.75rem;
+      max-height: none;
+    }
+
+    .tf2-map-viewport:has(.maplibregl-ctrl-attrib.maplibregl-compact-show) .tf2-map-top-dock,
+    .tf2-map-viewport:has(.maplibregl-ctrl-attrib.maplibregl-compact-show) .tf2-map-measure-dock,
+    .tf2-map-viewport:has(.maplibregl-ctrl-attrib.maplibregl-compact-show) .tf2-map-inspector {
+      visibility: hidden;
+      pointer-events: none;
+    }
+  }
+
+  .tf2-traffic-shell {
+    background: var(--manor-ivory);
+  }
+
+  .tf2-traffic-lanes {
+    scrollbar-gutter: stable;
+  }
+
+  @keyframes tf2-traffic-card-settle {
+    from {
+      opacity: 0.58;
+      transform: translate3d(-12px, 0, 0) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  .tf2-traffic-card-slot[data-transitioning="true"] {
+    animation: tf2-traffic-card-settle 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .tf2-traffic-card[data-command-phase="sending"],
+  .tf2-traffic-card[data-command-phase="reconciling"] {
+    border-color: rgba(63, 109, 66, 0.72);
+    box-shadow: 0 0 0 1px rgba(63, 109, 66, 0.16), 0 10px 28px rgba(62, 43, 27, 0.12);
+  }
+
+  .tf2-traffic-card[data-command-phase="uncertain"] {
+    border-color: rgba(154, 104, 31, 0.72);
+  }
+
+  .travkin-card {
+    @apply rounded-xl border;
+    background-color: var(--travkin-card);
+    border-color: var(--travkin-border);
+    box-shadow: var(--manor-shadow-sm);
+  }
+
+  .travkin-soft-border {
+    border-color: var(--travkin-border);
+  }
+
+  .travkin-title {
+    color: var(--travkin-text);
+  }
+
+  .travkin-subtle {
+    color: var(--travkin-text-muted);
+  }
+
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .bg-white,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .bg-slate-50,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .bg-slate-100 {
+    background-color: var(--manor-paper) !important;
+  }
+
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .text-slate-900,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .text-slate-800,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .text-slate-700 {
+    color: var(--manor-walnut) !important;
+  }
+
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .text-slate-600,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .text-slate-500,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .text-slate-400 {
+    color: var(--manor-text-muted) !important;
+  }
+
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .border-slate-100,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .border-slate-200,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .border-slate-300 {
+    border-color: var(--manor-line) !important;
+  }
+
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .hover\:bg-slate-100:hover,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .hover\:bg-slate-50:hover {
+    background-color: var(--manor-paper-recessed) !important;
+  }
+
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .bg-white,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .bg-slate-50,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .bg-slate-100 {
+    background-color: var(--manor-paper) !important;
+  }
+
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .text-slate-900,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .text-slate-800,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .text-slate-700 {
+    color: var(--manor-walnut) !important;
+  }
+
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .text-slate-600,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .text-slate-500 {
+    color: var(--manor-text-muted) !important;
+  }
+
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .border-slate-100,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .border-slate-200,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .border-slate-300 {
+    border-color: var(--manor-line) !important;
+  }
+
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .bg-green-600 {
+    background-color: var(--manor-olive) !important;
+    color: #fff9ee !important;
+  }
+
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .bg-green-100 {
+    background-color: #e5eddd !important;
+  }
+
+  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .assistant-surface .text-green-700 {
+    color: var(--manor-olive-deep) !important;
+  }
+
+  @media (max-width: 1023px) {
+    .tf-manor :where(button, [role="button"], input, select, [role="combobox"]) {
+      min-height: 44px;
+    }
+
+    .tf-manor :where(button, [role="button"]) {
+      min-width: 44px;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tf-manor *,
+  .tf-manor *::before,
+  .tf-manor *::after,
+  .tf2-shell *,
+  .tf2-shell *::before,
+  .tf2-shell *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .tf2-portal-panel,
+  .tf2-portal-panel *,
+  .tf2-portal-panel *::before,
+  .tf2-portal-panel *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .tf2-traffic-card-slot[data-transitioning="true"] {
+    animation: none !important;
+  }
+}
+
+@layer utilities {
+  .mobile-safe-bottom {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem);
+  }
+
+  .mobile-safe-top {
+    padding-top: calc(env(safe-area-inset-top) + 0.25rem);
+  }
+
+  .mobile-tap {
+    min-height: 48px;
+    min-width: 48px;
+  }
+
+  .travkin-glow {
+    box-shadow: 0 0 0 1px rgba(185, 137, 57, 0.28), var(--manor-shadow-sm);
+  }
+
+  .travkin-divider {
+    border-color: var(--travkin-border) !important;
+  }
+
+  .travkin-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .travkin-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .travkin-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--manor-line);
+    border-radius: 9999px;
+  }
+
+  .travkin-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--manor-text-muted);
+  }
+}
+
+/* A phone in landscape can cross Tailwind's width-only md breakpoint. Keep
+   the touch shell until there is enough vertical room for the desktop rail. */
+@media (max-width: 1023px) and (max-height: 600px) and (orientation: landscape) {
+  .tf-desktop-sidebar,
+  .tf-desktop-sidebar-toggle,
+  .tf-desktop-footer,
+  .tf-desktop-assistant-launcher {
+    display: none !important;
+  }
+
+  .tf-mobile-header-brand {
+    display: flex !important;
+  }
+
+  .tf-mobile-bottom-nav {
+    display: block !important;
+  }
+
+  .tf-mobile-assistant-launcher {
+    display: flex !important;
+  }
+
+  .tf-manor-header {
+    height: calc(3.5rem + env(safe-area-inset-top)) !important;
+  }
+
+  .tf-manor-workspace {
+    padding-top: 0.75rem !important;
+    padding-right: max(0.75rem, env(safe-area-inset-right)) !important;
+    padding-bottom: calc(env(safe-area-inset-bottom) + 5rem) !important;
+    padding-left: max(0.75rem, env(safe-area-inset-left)) !important;
+  }
+}

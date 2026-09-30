@@ -1,0 +1,140 @@
+type WarehouseOperationLabelInput = {
+  reasonType?: unknown;
+  ticketType?: unknown;
+  operationType?: unknown;
+  transformationType?: unknown;
+  destinationPlaceType?: unknown;
+  isStorno?: unknown;
+  ticketStatus?: unknown;
+  correctionOfTicketId?: unknown;
+  replacementTicketId?: unknown;
+  direction?: "in" | "out";
+};
+
+const normalize = (value: unknown) => String(value || "").trim().toLowerCase();
+
+const TECHNICAL_SHARED_IMPURITY_REASONS = new Set([
+  "harvest_pool_reclass_in",
+  "harvest_pool_reclass_out",
+  "harvest_pool_source_restore_in",
+  "harvest_pool_split_out",
+]);
+
+const processingLabel = (value: unknown, destinationPlaceType?: unknown) => {
+  const type = normalize(value);
+  const destination = String(destinationPlaceType || "").trim().toUpperCase();
+  if (type === "drying" || destination === "DRYER") return "Сушка";
+  if (type === "cleaning" || destination === "CLEANER") return "Очистка";
+  if (type === "sorting") return "Сортировка";
+  if (type === "calibration") return "Калибровка";
+  return "Обработка";
+};
+
+export function warehouseOperationLabel(input: WarehouseOperationLabelInput): string {
+  const reason = normalize(input.reasonType);
+  const ticketType = normalize(input.ticketType);
+  const operationType = normalize(input.operationType);
+  const ticketStatus = normalize(input.ticketStatus);
+
+  if (input.isStorno === true || reason.startsWith("storno_") || ticketStatus === "voided") {
+    return "Аннулирование";
+  }
+  if (
+    input.correctionOfTicketId
+    || input.replacementTicketId
+    || reason.includes("correction")
+    || reason.includes("adjustment")
+  ) {
+    return "Корректировка";
+  }
+  if (reason.includes("harvest_incoming") || ticketType === "harvest" || operationType === "harvest_incoming") {
+    return "Приход урожая";
+  }
+  if (reason.includes("opening_balance")) return "Начальный остаток";
+  if (reason.includes("supplier") || ticketType === "supplier_incoming" || operationType === "supplier_incoming") {
+    return "Приход от поставщика";
+  }
+
+  if (reason.includes("impurit") || ticketType === "impurity_removal" || operationType.includes("impurit")) {
+    return "Вывоз примеси";
+  }
+  if (reason.includes("moisture_loss") || reason.includes("processing_loss")) {
+    return "Производственная потеря";
+  }
+  if (
+    reason.includes("processing_input")
+    || reason.includes("processing_output_in")
+    || reason.includes("processing_output_source_out")
+  ) {
+    return processingLabel(input.transformationType, input.destinationPlaceType);
+  }
+  if (reason.includes("shipment") || ticketType === "shipment" || operationType.includes("shipment")) {
+    return "Отгрузка";
+  }
+  if (reason.includes("issue_to_field") || operationType === "issue_to_field") return "Выдача на поле";
+  if (reason.includes("issue") || ticketType === "issue") return "Выдача";
+  if (["writeoff", "disposal", "spoilage", "shortage", "waste", "utilization", "other_removal"]
+    .some((token) => reason.includes(token) || ticketType.includes(token) || operationType.includes(token))) {
+    return "Списание";
+  }
+  if (reason.includes("transfer") || ticketType === "transfer" || operationType.includes("transfer")) {
+    const destination = String(input.destinationPlaceType || "").trim().toUpperCase();
+    if (destination === "DRYER") return "Сушка";
+    if (destination === "CLEANER") return "Очистка";
+    return "Перемещение";
+  }
+  return input.direction === "in" ? "Поступление" : "Выбытие";
+}
+
+type WarehouseOperationEntry = {
+  id?: unknown;
+  delta_qty_signed?: unknown;
+  is_storno?: unknown;
+  storno_of_entry_id?: unknown;
+  reason_type?: unknown;
+};
+
+export function selectActiveWarehouseOperationEntries<T extends WarehouseOperationEntry>(entries: T[]): T[] {
+  const reversedIds = new Set(entries.map((entry) => String(entry.storno_of_entry_id || "")).filter(Boolean));
+  return entries.filter((entry) => {
+    const delta = Number(entry.delta_qty_signed || 0);
+    const reason = normalize(entry.reason_type);
+    return Number.isFinite(delta) && Math.abs(delta) > 0.000001
+      && !entry.is_storno && !reason.startsWith("storno_")
+      && !TECHNICAL_SHARED_IMPURITY_REASONS.has(reason)
+      && !reversedIds.has(String(entry.id || ""));
+  });
+}
+
+type CollapsibleOperationDocument = {
+  id: string;
+  label: string;
+  quantityKg: number;
+  warehouseName: string;
+  sourceType: "weighbridge_ticket" | "processing_document" | "missing";
+  sourceId: string | null;
+  ticketId: string | null;
+  direction?: "in" | "out" | "processing";
+};
+
+export function collapseOperationDocuments<T extends CollapsibleOperationDocument>(documents: T[]): T[] {
+  const grouped = new Map<string, T>();
+  documents.forEach((document) => {
+    const sourceKey = document.ticketId
+      ? `ticket:${document.ticketId}`
+      : document.sourceId
+        ? `${document.sourceType}:${document.sourceId}`
+        : `entry:${document.id}`;
+    const key = [sourceKey, document.label, document.warehouseName, document.direction || "out"].join("|");
+    const existing = grouped.get(key);
+    if (!existing) {
+      grouped.set(key, { ...document });
+      return;
+    }
+    grouped.set(key, {
+      ...existing,
+      quantityKg: existing.quantityKg + document.quantityKg,
+    });
+  });
+  return Array.from(grouped.values());
+}

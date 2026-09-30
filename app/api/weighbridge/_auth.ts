@@ -1,0 +1,249 @@
+import type { NextRequest } from "next/server";
+import { assertActorAccess } from "@/lib/auth/server-acl";
+import { getServiceClient } from "@/lib/supabase/service";
+import {
+  SessionAuthError,
+  getServerActorFromSession,
+  getUserScopedClientFromRequest,
+  resolveCompanyForActor,
+} from "@/lib/auth/server-session";
+
+export const WEIGHBRIDGE_READ_ROLES = [
+  "global_admin",
+  "company_admin",
+  "agronomist",
+  "warehouse",
+  "warehouse_operator",
+  "weighman",
+  "specialist",
+] as const;
+
+export const WEIGHBRIDGE_TICKET_READ_ROLES = [
+  ...WEIGHBRIDGE_READ_ROLES,
+  "director",
+  "accountant",
+  "legal_operator",
+] as const;
+
+export const WEIGHBRIDGE_HARVEST_READ_ROLES = [
+  ...WEIGHBRIDGE_READ_ROLES,
+  "director",
+  "accountant",
+  "legal_operator",
+] as const;
+
+export const WEIGHBRIDGE_WRITE_ROLES = [
+  "global_admin",
+  "company_admin",
+  "weighman",
+] as const;
+
+export const WEIGHBRIDGE_OPERATOR_COOKIE = "travkin_wb_operator";
+
+export type WeighbridgeOperatorSession = {
+  operator: { id: string; name: string };
+  shift: { id: string; status: string };
+  session_expires_at: string;
+};
+
+export type WeighbridgeOperatorActivity =
+  | "pin_unlock"
+  | "ticket_create"
+  | "gross"
+  | "tare_finalize"
+  | "ticket_correction"
+  | "ticket_void"
+  | "weighing_transfer";
+
+export async function resolveWeighbridgeSession(
+  request: NextRequest,
+  options?: {
+    allowedRoles?: readonly (
+      | "admin"
+      | "global_admin"
+      | "company_admin"
+      | "agronomist"
+      | "director"
+      | "accountant"
+      | "legal_operator"
+      | "warehouse"
+      | "warehouse_operator"
+      | "weighman"
+      | "specialist"
+      | "fuel_operator"
+      | "brigadier"
+    )[];
+    requestedCompanyId?: string | null;
+    /** Server-only opt-in for read routes whose impersonated profile is hidden by profiles RLS. */
+    serverProfileRead?: boolean;
+  }
+) {
+  if (options?.serverProfileRead && !["GET", "HEAD"].includes(request.method)) {
+    throw new SessionAuthError("Server profile read is only allowed for GET/HEAD", 403);
+  }
+  const actor = await getServerActorFromSession(request);
+  const queryCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
+  const requestedCompanyId = options?.requestedCompanyId ?? queryCompanyId;
+  const companyId = resolveCompanyForActor(actor, requestedCompanyId);
+  const supabase = await getUserScopedClientFromRequest(request);
+
+  await assertActorAccess({
+    // Never return the privileged profile client to business-data callers.
+    supabase: options?.serverProfileRead && actor.isImpersonating ? getServiceClient() : supabase,
+    actorUserId: actor.id,
+    companyId,
+    allowedRoles: [...(options?.allowedRoles || WEIGHBRIDGE_READ_ROLES)],
+  });
+
+  return { actor, companyId, supabase };
+}
+
+export async function requireWeighbridgeOperatorSession(
+  request: NextRequest,
+  context: {
+    companyId: string;
+    supabase: Awaited<ReturnType<typeof getUserScopedClientFromRequest>>;
+  }
+): Promise<WeighbridgeOperatorSession> {
+  const token = request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || "";
+  const { data, error } = await context.supabase.rpc("weighbridge_operator_session_state_v1", {
+    p_company_id: context.companyId,
+    p_session_token: token || null,
+  });
+  if (error) {
+    throw new SessionAuthError(error.message || "Operator session check failed", 400);
+  }
+  const state = (data || {}) as Record<string, any>;
+  if (!state.unlocked || !state.operator?.id || !state.shift?.id) {
+    throw new SessionAuthError("Введите PIN весовщика, чтобы продолжить смену.", 423);
+  }
+  return state as WeighbridgeOperatorSession;
+}
+
+export async function recordWeighbridgeOperatorActivity(
+  request: NextRequest,
+  context: {
+    companyId: string;
+    supabase: Awaited<ReturnType<typeof getUserScopedClientFromRequest>>;
+  },
+  activity: WeighbridgeOperatorActivity
+) {
+  const token = request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || "";
+  if (!token) {
+    throw new SessionAuthError("Смена весовщика истекла. Введите PIN повторно.", 423);
+  }
+  const { data, error } = await context.supabase.rpc("touch_weighbridge_operator_activity_v1", {
+    p_company_id: context.companyId,
+    p_session_token: token,
+    p_activity: activity,
+  });
+  if (error) {
+    throw new SessionAuthError(error.message || "Operator activity update failed", 400);
+  }
+  const result = (data || {}) as Record<string, unknown>;
+  if (!result.ok) {
+    throw new SessionAuthError("Смена весовщика истекла. Введите PIN повторно.", 423);
+  }
+  return result;
+}
+
+export function asSessionErrorResponse(error: unknown) {
+  if (error instanceof SessionAuthError) {
+    return { error: error.message, status: error.status };
+  }
+  return null;
+}
+
+export function weighbridgeUserError(message: unknown): string {
+  const raw = String(message || "").trim();
+  const lower = raw.toLowerCase();
+
+  if (raw.includes("PTC_VEHICLE_REPLACEMENT_REQUIRED")) {
+    return "У водителя в ПТС другая машина. Нажмите «Заменить машину у водителя» и подтвердите замену. Выбранная машина не изменена.";
+  }
+  if (raw.includes("PTC_CONFIRMED_CLOSE_REQUIRED")) {
+    return "Переход в «Пустые» возможен только после подтверждённого закрытия талона с тарой.";
+  }
+  if (raw.includes("PTC_DRIVER_ASSIGNMENT_CHANGED") || raw.includes("PTC_LOADED_EVENT_NOT_FOUND")) {
+    return "Водитель не совпадает с рейсом или текущим назначением машины. Обновите список и проверьте машину и водителя; введённый вес сохранён в форме.";
+  }
+  if (raw.includes("PTC_TRIP_ALREADY_TICKETED")) {
+    return "На этот рейс уже есть талон. Проверьте открытые и закрытые талоны машины, прежде чем оформлять новый рейс.";
+  }
+  if (raw.includes("PTC_TRIP_STATE_CHANGED")) {
+    return "Рейс уже изменился. Обновите очередь и выберите машину заново; введённые данные не изменены.";
+  }
+
+  if (raw.includes("IMPURITY_WEIGHT_EXCEEDS_AVAILABLE|")) {
+    const available = Number(raw.split("IMPURITY_WEIGHT_EXCEEDS_AVAILABLE|")[1]?.split(/\s/)[0]);
+    const label = Number.isFinite(available)
+      ? available.toLocaleString("ru-RU", { maximumFractionDigits: 3 })
+      : "0";
+    return `Вес превышает доступную массу партии. Доступно: ${label} кг`;
+  }
+  if (raw.includes("PROCESSING_OUTPUT_EXCEEDS_BALANCE|")) {
+    const [availableRaw, requiredRaw] = raw.split("PROCESSING_OUTPUT_EXCEEDS_BALANCE|")[1]?.split("|") || [];
+    const available = Number(availableRaw?.split(/\s/)[0]);
+    const required = Number(requiredRaw?.split(/\s/)[0]);
+    const availableLabel = Number.isFinite(available) ? available.toLocaleString("ru-RU", { maximumFractionDigits: 3 }) : "0";
+    const requiredLabel = Number.isFinite(required) ? required.toLocaleString("ru-RU", { maximumFractionDigits: 3 }) : "0";
+    return `Масса выхода превышает нераспределённый остаток обработки. Доступно: ${availableLabel} кг, требуется: ${requiredLabel} кг.`;
+  }
+  if (raw.includes("PROCESSING_INPUT_FINISHED")) {
+    return "По этой партии приём новых входов завершён. Возобновите обработку в её карточке и повторите закрытие талона.";
+  }
+  if (raw.includes("PROCESSING_INPUT_AMBIGUOUS")) {
+    return "Найдено несколько подходящих обработок. Выберите нужный контекст обработки вручную.";
+  }
+  if (raw.includes("PROCESSING_INPUT_CONTEXT_INVALID")) {
+    return "Существующая обработка не соответствует сезону или типу этой партии. Проверьте контекст обработки перед закрытием талона.";
+  }
+
+  if (lower.includes("actor role is not allowed to finalize")) {
+    return "У вашей роли нет права закрывать талоны весовой.";
+  }
+  if (lower.includes("only admin can void finalized tickets")) {
+    return "Закрытый талон может аннулировать только администратор или директор.";
+  }
+  if (lower.includes("actor does not belong to ticket company")) {
+    return "Талон относится к другой компании или не выбран контекст компании.";
+  }
+  if (lower.includes("gross and tare are required")) {
+    return "Перед закрытием укажите брутто и тару.";
+  }
+  if (lower.includes("net weight must be greater than zero")) {
+    return "Нетто должно быть больше нуля. Проверьте брутто и тару.";
+  }
+  if (lower.includes("tare") && lower.includes("gross")) {
+    return "Тара должна быть меньше брутто.";
+  }
+  if (lower.includes("простое исправление невозможно") || lower.includes("downstream")) {
+    return "Этот приход уже использован в последующих движениях. Простое исправление невозможно.";
+  }
+  if (lower.includes("ticket already has ledger entries")) {
+    return "По талону уже есть складские движения. Повторное закрытие запрещено.";
+  }
+  if (lower.includes("insufficient exact stock identity")) {
+    return "Недостаточно остатка по выбранной складской партии.";
+  }
+  if (lower.includes("line quantities must match net weight")) {
+    return "Сумма строк должна совпадать с нетто талона.";
+  }
+  if (lower.includes("void reason is required")) {
+    return "Укажите причину аннулирования.";
+  }
+  if (
+    lower.includes("does not exist") ||
+    lower.includes("schema cache") ||
+    lower.includes("pgrst204") ||
+    lower.includes("42703")
+  ) {
+    return "Не удалось завершить талон. Данные не были записаны. Повторите после устранения ошибки.";
+  }
+
+  return raw || "Операция весовой не выполнена.";
+}
+
+export function weighbridgeUnexpectedUserError(): string {
+  return "Не удалось завершить талон. Данные не были записаны. Повторите после устранения ошибки.";
+}

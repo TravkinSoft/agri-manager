@@ -1,0 +1,859 @@
+import { supabase } from "@/lib/supabase/client";
+import { submitOperationIntent } from "@/lib/client/operation-intents";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
+import {
+  Operation,
+  OperationMaterial,
+  OperationLine,
+  OperationLineFormData,
+  OperationMaterialRateBasis,
+  OperationFormData,
+  PotatoMaterialConsumptionRow,
+  OperationWithDetails,
+  SpecialistAssignee,
+} from "@/lib/types/operation";
+import { hasQaDataMarker } from "@/lib/utils/qa-data";
+import { normalizeMaterialRateBasis } from "@/lib/materials/metadata";
+import { buildProductPassport } from "@/lib/products/product-passport";
+import {
+  buildExecutionFactModelMetadata,
+  buildWarehouseWorkflowMetadata,
+  resolveCanonicalOperationType,
+  toStorageMaterialType,
+} from "@/lib/operations/operation-engine";
+import { resolveCropIdentity } from "@/lib/operations/crop-identity";
+import { enqueueOfflineRequest } from "@/lib/offline/offline-queue";
+
+const DB_OPERATION_MATERIAL_TYPES = new Set([
+  "seed",
+  "fertilizer",
+  "pesticide",
+  "adjuvant",
+  "ph_corrector",
+  "defoamer",
+  "biological",
+  "fuel",
+  "organic",
+  "water",
+  "other",
+]);
+
+function extractDraftValueFromNotes(notes: string | null | undefined, label: string): string | undefined {
+  if (!notes) return undefined;
+  const pattern = new RegExp(`(?:^|\\n)-\\s*${label}:\\s*(.+)`, "i");
+  const matched = notes.match(pattern);
+  const value = matched?.[1]?.trim();
+  return value || undefined;
+}
+
+function parseOperationDraftDetails(notes: string | null | undefined) {
+  return {
+    draft_target: extractDraftValueFromNotes(notes, "Target"),
+    draft_main_product: extractDraftValueFromNotes(notes, "Product"),
+    draft_additional_products: extractDraftValueFromNotes(notes, "Additional products"),
+    draft_rate_per_ha: extractDraftValueFromNotes(notes, "Rate per ha"),
+    draft_mixture_volume_per_ha:
+      extractDraftValueFromNotes(notes, "Spray volume per ha") ||
+      extractDraftValueFromNotes(notes, "Legacy water per ha"),
+    draft_equipment: extractDraftValueFromNotes(notes, "Equipment"),
+    draft_responsible: extractDraftValueFromNotes(notes, "Responsible"),
+    draft_comments: notes ? notes.split("\n\nDraft details:")[0].trim() : undefined,
+  };
+}
+
+function parseMaterialRateBasisFromNotes(notes: string | null | undefined): OperationMaterialRateBasis {
+  const matched = String(notes || "").match(/(?:^|[;\n]\s*)rate_basis\s*:\s*([a-z0-9_]+)/i);
+  return normalizeMaterialRateBasis(matched?.[1]?.trim());
+}
+
+function serializeMaterialNotes(input: {
+  notes?: string | null;
+  componentType?: string | null;
+  rateBasis?: string | null;
+}) {
+  const notes = String(input.notes || "").trim();
+  const parts = notes ? notes.split(";").map((part) => part.trim()).filter(Boolean) : [];
+  const hasComponent = parts.some((part) => /^component\s*:/i.test(part));
+  const hasRateBasis = parts.some((part) => /^rate_basis\s*:/i.test(part));
+  const rateBasis = input.rateBasis ? normalizeMaterialRateBasis(input.rateBasis) : null;
+
+  if (!hasComponent && input.componentType) {
+    parts.push(`component:${input.componentType}`);
+  }
+  if (!hasRateBasis && rateBasis) {
+    parts.push(`rate_basis:${rateBasis}`);
+  }
+
+  return parts.length > 0 ? parts.join("; ") : null;
+}
+
+function normalizeOperationMaterials(rows: any[] | null | undefined): OperationMaterial[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => ({
+    ...row,
+    rate_basis: parseMaterialRateBasisFromNotes(row?.notes),
+    product_name: row?.products
+      ? buildProductPassport({ ...row.products, id: String(row.product_id || row.products.id || "") }).displayName
+      : [localizedName(relationOne(row?.crops) as any, "ru"), brandName(relationOne(row?.varieties) as any), localizedName(relationOne(row?.reproductions) as any, "ru")]
+          .filter(Boolean)
+          .join(", ") || null,
+    master_product_id: row?.products?.master_product_id || null,
+    product_type: row?.products?.product_type || row?.products?.type || null,
+  })) as OperationMaterial[];
+}
+
+function relationOne<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return (value[0] ?? null) as T | null;
+  return (value ?? null) as T | null;
+}
+
+function normalizeOperationLines(rows: any[] | null | undefined): OperationLine[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => {
+    const field = relationOne(row?.fields);
+    const crop = relationOne(row?.crops);
+    const variety = relationOne(row?.varieties);
+    const reproduction = relationOne(row?.reproductions);
+    return {
+      ...row,
+      field_name: (field as any)?.name || null,
+      crop_name: localizedName(crop as any, "ru") || (crop as any)?.name || null,
+      variety_name: brandName(variety as any) || (variety as any)?.name || null,
+      reproduction_name: localizedName(reproduction as any, "ru") || (reproduction as any)?.name || null,
+    };
+  }) as OperationLine[];
+}
+
+function normalizeOperationRow(op: any): OperationWithDetails {
+  const operationLines = normalizeOperationLines(op.operation_lines);
+  const config =
+    op?.operation_config && typeof op.operation_config === "object" && !Array.isArray(op.operation_config)
+      ? op.operation_config
+      : {};
+  const canonicalType = resolveCanonicalOperationType({
+    categorySlug: op.operation_category_slug || (config as any).operation_engine_type,
+    typeSlug: op.operation_type_slug || (config as any).operation_engine_type,
+    operationType: op.operation_type,
+  });
+  const plannedAreaFromLines = operationLines.reduce((sum, line) => sum + Number(line.planned_area_ha || 0), 0);
+  const actualAreaValues = operationLines
+    .map((line) => line.actual_area_ha)
+    .filter((value): value is number => value !== null && value !== undefined);
+  const actualAreaFromLines =
+    actualAreaValues.length > 0
+      ? actualAreaValues.reduce((sum, value) => sum + Number(value || 0), 0)
+      : null;
+  const plannedAreaFromConfig = Number((config as any).planned_area_ha || 0);
+  const primaryLine =
+    operationLines.find((line) => line.crop_id || line.crop_name || line.variety_id || line.reproduction_id) ||
+    operationLines[0] ||
+    null;
+  const cropIdentity = resolveCropIdentity(
+    {
+      cropName: primaryLine?.crop_name,
+      varietyName: primaryLine?.variety_name,
+      reproductionName: primaryLine?.reproduction_name,
+    },
+    {
+      cropName: localizedName(op.crop_structure?.crops, "ru"),
+      varietyName: brandName(op.crop_structure?.varieties),
+      reproductionName: localizedName(op.crop_structure?.seed_reproductions, "ru"),
+    }
+  );
+  const mixComponents = Array.isArray(op?.crop_structure?.crop_structure_mix_components)
+    ? op.crop_structure.crop_structure_mix_components
+    : [];
+  const mixCropNames = Array.from(new Set(mixComponents.map((component: any) =>
+    localizedName(relationOne(component?.crops) as any, "ru") || ""
+  ).filter(Boolean)));
+  const mixName = mixCropNames.length > 0 ? `Зерносмесь: ${mixCropNames.join(" + ")}` : "Зерносмесь";
+
+  return {
+    ...op,
+    operation_lines: operationLines,
+    operation_line_count: operationLines.length,
+    planned_area_ha:
+      plannedAreaFromLines > 0
+        ? plannedAreaFromLines
+        : Number.isFinite(plannedAreaFromConfig) && plannedAreaFromConfig > 0
+          ? plannedAreaFromConfig
+          : null,
+    actual_area_ha: Number(op.completed_area_ha ?? actualAreaFromLines ?? 0),
+    crop_id: primaryLine?.crop_id || (config as any).crop_id || null,
+    operation_engine_type: String((config as any).operation_engine_type || canonicalType?.slug || op.operation_type_slug || ""),
+    operation_engine_label: String((config as any).operation_engine_label || canonicalType?.label || op.operation_type || ""),
+    operation_purposes: Array.isArray((config as any).purposes) ? (config as any).purposes.map(String) : [],
+    tank_mix: (config as any).tank_mix && typeof (config as any).tank_mix === "object" ? (config as any).tank_mix : null,
+    work_status: op.work_status || (op.status === "completed" ? "completed" : op.status === "in_progress" ? "in_progress" : "active"),
+    field_name: op.fields?.name || primaryLine?.field_name || "-",
+    crop_name: op?.crop_structure?.land_use_type === "crop_mix" ? mixName : cropIdentity.cropName || "-",
+    variety_name: op?.crop_structure?.land_use_type === "crop_mix" ? "Состав в структуре посевов" : cropIdentity.varietyName || "-",
+    reproduction_name: op?.crop_structure?.land_use_type === "crop_mix" ? "Несколько компонентов" : cropIdentity.reproductionName || "-",
+    responsible_name:
+      relationOne(op.responsible_profile)?.full_name ||
+      relationOne(op.responsible_profile)?.email ||
+      null,
+    machine_name:
+      relationOne(op.machine)?.full_name ||
+      relationOne(op.machine)?.name ||
+      null,
+    equipment_name:
+      relationOne(op.equipment)?.full_name ||
+      relationOne(op.equipment)?.name ||
+      null,
+    transport_name:
+      relationOne(op.transport)?.full_name ||
+      relationOne(op.transport)?.name ||
+      null,
+    materials: normalizeOperationMaterials(op.operation_materials),
+    progress_reports: Array.isArray(op.operation_progress)
+      ? op.operation_progress.map((row: any) => ({
+          ...row,
+          reporter_name:
+            relationOne(row.reported_by_profile)?.full_name ||
+            relationOne(row.reported_by_profile)?.email ||
+            null,
+        }))
+      : [],
+    completion_requests: Array.isArray(op.operation_completion_requests)
+      ? op.operation_completion_requests.map((row: any) => ({
+          ...row,
+          requester_name:
+            relationOne(row.requested_by_profile)?.full_name ||
+            relationOne(row.requested_by_profile)?.email ||
+            null,
+          reviewer_name:
+            relationOne(row.reviewed_by_profile)?.full_name ||
+            relationOne(row.reviewed_by_profile)?.email ||
+            null,
+        }))
+      : [],
+    ...parseOperationDraftDetails(op.notes),
+  } as OperationWithDetails;
+}
+
+const OPERATION_DETAILS_SELECT = `
+  *,
+  fields:field_id (name),
+  responsible_profile:responsible_user_id (id,full_name,email,role),
+  crop_structure:crop_structure_id (
+    land_use_type,
+    crops:crop_id (name,name_ru,name_kz,name_en,slug),
+    varieties:variety_id (name),
+    seed_reproductions:reproduction_id (name,name_ru,name_kz,name_en,code),
+    crop_structure_mix_components (
+      id,crop_id,variety_id,reproduction_id,seed_rate_kg_ha,sort_order,
+      crops:crop_id (name,name_ru,name_kz,name_en,slug),
+      varieties:variety_id (name),
+      reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
+    )
+  ),
+  operation_materials:operation_materials (
+    *,
+    products:product_id (name,trade_name,master_product_id,type,product_type),
+    crops:crop_id (name,name_ru,name_kz,name_en,slug),
+    varieties:variety_id (name),
+    reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
+  ),
+  operation_progress:operation_progress (
+    *,
+    reported_by_profile:reported_by (id,full_name,email)
+  ),
+  operation_completion_requests:operation_completion_requests (
+    *,
+    requested_by_profile:requested_by (id,full_name,email),
+    reviewed_by_profile:reviewed_by (id,full_name,email)
+  ),
+  operation_lines:operation_lines (
+    id,
+    company_id,
+    operation_id,
+    field_id,
+    crop_id,
+    variety_id,
+    reproduction_id,
+    planned_area_ha,
+    actual_area_ha,
+    row_count,
+    row_spacing_m,
+    seed_spacing_cm,
+    calculated_plants_per_ha,
+    calculated_total_plants,
+    completed_by,
+    completed_at,
+    notes,
+    created_at,
+    updated_at,
+    fields:field_id (name),
+    crops:crop_id (name,name_ru,name_kz,name_en,slug),
+    varieties:variety_id (name),
+    reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
+  )
+`;
+
+export type OperationAssetCatalog = {
+  machines: Array<Record<string, any>>;
+  equipment: Array<Record<string, any>>;
+  vehicles: Array<Record<string, any>>;
+};
+
+export async function getOperationAssetCatalog(companyId: string): Promise<OperationAssetCatalog> {
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(
+    `/api/references/company-assets?companyId=${encodeURIComponent(companyId)}`,
+    { method: "GET", headers, cache: "no-store" }
+  );
+  const payload = await parseApiResponse(response);
+  return {
+    machines: Array.isArray(payload.machines) ? payload.machines : [],
+    equipment: Array.isArray(payload.equipment) ? payload.equipment : [],
+    vehicles: Array.isArray(payload.vehicles) ? payload.vehicles : [],
+  };
+}
+
+export function attachOperationAssetRelations<T extends Record<string, any>>(
+  rows: T[],
+  catalog: OperationAssetCatalog
+): T[] {
+  const machines = new Map(catalog.machines.map((row) => [String(row.id), row]));
+  const equipment = new Map(catalog.equipment.map((row) => [String(row.id), row]));
+  const vehicles = new Map(catalog.vehicles.map((row) => [String(row.id), row]));
+  return rows.map((row) => ({
+    ...row,
+    machine: row.machine_id ? machines.get(String(row.machine_id)) || null : null,
+    equipment: row.equipment_id ? equipment.get(String(row.equipment_id)) || null : null,
+    transport: row.transport_id ? vehicles.get(String(row.transport_id)) || null : null,
+  }));
+}
+
+function isProductionOperation(row: OperationWithDetails): boolean {
+  const materials = (row.materials || [])
+    .map((item) => `${item.product_name || ""} ${item.notes || ""} ${item.material_type || ""}`)
+    .join(" ");
+  const lines = (((row as any).operation_lines || []) as OperationLine[])
+    .map((line: OperationLine) => `${line.field_name || ""} ${line.crop_name || ""} ${line.variety_name || ""} ${line.reproduction_name || ""} ${line.notes || ""}`)
+    .join(" ");
+  return !hasQaDataMarker(
+    [
+      row.operation_type,
+      row.operation_type_slug,
+      row.operation_category_slug,
+      row.notes,
+      row.field_name,
+      row.crop_name,
+      row.variety_name,
+      row.reproduction_name,
+      materials,
+      lines,
+    ].join(" ")
+  );
+}
+
+async function buildAuthHeaders(contentType: "json" | "none" = "none") {
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session?.access_token) {
+    throw new Error("Session not found. Please log in again.");
+  }
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${data.session.access_token}`,
+  };
+  if (contentType === "json") {
+    headers["Content-Type"] = "application/json";
+  }
+  return headers;
+}
+
+async function parseApiResponse(response: Response) {
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error || "Request failed");
+  }
+  return payload;
+}
+
+export async function getOperations(
+  companyId: string,
+  includeArchived = false
+): Promise<OperationWithDetails[]> {
+  let query = supabase
+    .from("operations")
+    .select(OPERATION_DETAILS_SELECT)
+    .eq("company_id", companyId)
+    .order("date", { ascending: false });
+
+  if (!includeArchived) {
+    query = query.eq("archived", false);
+  }
+
+  const [{ data, error }, assets] = await Promise.all([
+    query,
+    getOperationAssetCatalog(companyId),
+  ]);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return attachOperationAssetRelations((data || []) as Record<string, any>[], assets)
+    .map((op: any) => normalizeOperationRow(op))
+    .filter(isProductionOperation);
+}
+
+export async function getSpecialistOperations(
+  companyId: string,
+  specialistId: string
+): Promise<OperationWithDetails[]> {
+  const [{ data, error }, assets] = await Promise.all([
+    supabase
+      .from("operations")
+      .select(OPERATION_DETAILS_SELECT)
+      .eq("company_id", companyId)
+      .eq("responsible_user_id", specialistId)
+      .eq("archived", false)
+      .order("date", { ascending: true }),
+    getOperationAssetCatalog(companyId),
+  ]);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return attachOperationAssetRelations((data || []) as Record<string, any>[], assets)
+    .map((op: any) => normalizeOperationRow(op))
+    .filter(isProductionOperation);
+}
+
+export async function getOperationsForCropStructureRows(
+  companyId: string,
+  cropStructureRowIds: string[]
+): Promise<OperationWithDetails[]> {
+  const rowIds = Array.from(
+    new Set(cropStructureRowIds.map((value) => String(value || "").trim()).filter(Boolean))
+  );
+  if (!companyId || rowIds.length === 0) return [];
+
+  const [{ data, error }, assets] = await Promise.all([
+    supabase
+      .from("operations")
+      .select(OPERATION_DETAILS_SELECT)
+      .eq("company_id", companyId)
+      .eq("archived", false)
+      .in("crop_structure_id", rowIds)
+      .order("date", { ascending: false }),
+    getOperationAssetCatalog(companyId),
+  ]);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return attachOperationAssetRelations((data || []) as Record<string, any>[], assets)
+    .map((operation: any) => normalizeOperationRow(operation));
+}
+
+export async function getOperation(operationId: string): Promise<Operation | null> {
+  const { data, error } = await supabase
+    .from("operations")
+    .select("*")
+    .eq("id", operationId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data as Operation | null;
+}
+
+export async function createOperation(
+  companyId: string,
+  operationData: OperationFormData,
+  options?: { idempotencyKey?: string }
+): Promise<Operation & { material_request?: Record<string, unknown>; offline_queued?: boolean; offline_queue_id?: string }> {
+  const idempotencyKey = options?.idempotencyKey || crypto.randomUUID();
+  const headers = await buildAuthHeaders("json");
+  headers["Idempotency-Key"] = idempotencyKey;
+  const body = {
+    companyId,
+    ...operationData,
+    idempotency_key: idempotencyKey,
+    responsible_user_id:
+      operationData.responsible_user_id && operationData.responsible_user_id !== "none"
+        ? operationData.responsible_user_id
+        : null,
+  };
+  const queueable = true;
+  const queueHeaders = { ...headers };
+  delete queueHeaders.Authorization;
+
+  let response: Response;
+  try {
+    if (typeof navigator !== "undefined" && !navigator.onLine && queueable) {
+      throw new TypeError("offline");
+    }
+    response = await fetch("/api/operations", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    if (!queueable) throw error;
+    const item = enqueueOfflineRequest({
+      description: `Создание операции: ${operationData.operation_type || "план работы"}`,
+      url: "/api/operations",
+      method: "POST",
+      headers: queueHeaders,
+      body,
+      authRequired: true,
+      idempotencyKey,
+    });
+    return {
+      id: item.id,
+      company_id: companyId,
+      field_id: operationData.field_id || null,
+      crop_structure_id: operationData.crop_structure_id || null,
+      operation_type: operationData.operation_type,
+      operation_category_slug: operationData.operation_category_slug || null,
+      operation_type_slug: operationData.operation_type_slug || null,
+      planned_area_ha: operationData.planned_area_ha ?? null,
+      crop_id: operationData.crop_id || null,
+      status: "queued",
+      date: operationData.date,
+      machine_id: operationData.machine_id || null,
+      equipment_id: operationData.equipment_id || null,
+      transport_id: operationData.transport_id || null,
+      operation_target: operationData.operation_target || null,
+      rate_per_ha: operationData.rate_per_ha ?? null,
+      spray_volume_per_ha: operationData.spray_volume_per_ha ?? null,
+      row_spacing_m: operationData.row_spacing_m ?? null,
+      seed_spacing_cm: operationData.seed_spacing_cm ?? null,
+      operation_params: operationData.operation_params || null,
+      operation_config: null,
+      notes: operationData.notes || null,
+      responsible_user_id: body.responsible_user_id,
+      work_status: "active",
+      accepted_at: null,
+      completed_at: null,
+      specialist_comment: null,
+      created_at: item.createdAt,
+      updated_at: item.updatedAt,
+      archived: false,
+      user_id: "",
+      offline_queued: true,
+      offline_queue_id: item.id,
+    } as Operation & { offline_queued: true; offline_queue_id: string };
+  }
+  const payload = await parseApiResponse(response);
+  return {
+    ...(payload.operation as Operation),
+    material_request: (payload.material_request || undefined) as Record<string, unknown> | undefined,
+  };
+}
+
+export async function updateOperation(
+  operationId: string,
+  operationData: Partial<OperationFormData>
+): Promise<Operation> {
+  const payload = { ...operationData } as Partial<OperationFormData>;
+  const materials = Array.isArray((payload as any).materials) ? ([...(payload as any).materials] as any[]) : null;
+  const purposes = Array.isArray((payload as any).purposes) ? [...((payload as any).purposes as string[])] : [];
+  const tankMix = (payload as any).tank_mix && typeof (payload as any).tank_mix === "object" ? (payload as any).tank_mix : null;
+  const operationParams =
+    (payload as any).operation_params && typeof (payload as any).operation_params === "object" && !Array.isArray((payload as any).operation_params)
+      ? ({ ...(payload as any).operation_params } as Record<string, unknown>)
+      : {};
+  const rowSpacingM = (payload as any).row_spacing_m ?? null;
+  const seedSpacingCm = (payload as any).seed_spacing_cm ?? null;
+  const canonicalType = resolveCanonicalOperationType({
+    categorySlug: payload.operation_category_slug,
+    typeSlug: payload.operation_type_slug,
+    operationType: payload.operation_type,
+  });
+  delete (payload as any).materials;
+  delete (payload as any).purposes;
+  delete (payload as any).tank_mix;
+  delete (payload as any).operation_params;
+  delete (payload as any).calculation_revision;
+  delete (payload as any).calculation_expected_revision;
+  delete (payload as any).saved_plan_calculation;
+  delete (payload as any).row_spacing_m;
+  delete (payload as any).seed_spacing_cm;
+  if (payload.responsible_user_id === "none") {
+    payload.responsible_user_id = null;
+  }
+
+  const { data: currentOperation, error: currentError } = await supabase
+    .from("operations")
+    .select("company_id,operation_config")
+    .eq("id", operationId)
+    .maybeSingle();
+  if (currentError) {
+    throw new Error(currentError.message);
+  }
+  const currentConfig =
+    (currentOperation as any)?.operation_config &&
+    typeof (currentOperation as any).operation_config === "object" &&
+    !Array.isArray((currentOperation as any).operation_config)
+      ? ((currentOperation as any).operation_config as Record<string, unknown>)
+      : {};
+  (payload as any).operation_config = {
+    ...currentConfig,
+    operation_engine_type: canonicalType?.slug || payload.operation_type_slug || currentConfig.operation_engine_type || null,
+    operation_engine_label: canonicalType?.label || payload.operation_type || currentConfig.operation_engine_label || null,
+    operation_template: payload.operation_type_slug || currentConfig.operation_template || null,
+    operation_params: {
+      ...(((currentConfig as any).operation_params && typeof (currentConfig as any).operation_params === "object")
+        ? ((currentConfig as any).operation_params as Record<string, unknown>)
+        : {}),
+      ...operationParams,
+      row_spacing_m: rowSpacingM,
+      seed_spacing_cm: seedSpacingCm,
+    },
+    purposes,
+    tank_mix: tankMix || currentConfig.tank_mix || null,
+    warehouse_workflow: buildWarehouseWorkflowMetadata(),
+    execution_fact_model: buildExecutionFactModelMetadata(),
+  };
+
+  const companyId = String((currentOperation as any)?.company_id || "").trim();
+  if (!companyId) throw new Error("Operation company context missing for material sync");
+  let materialSource = materials;
+  if (!materialSource) {
+    const { data: currentMaterials, error: currentMaterialsError } = await supabase
+      .from("operation_materials")
+      .select("product_id,batch_id,material_type,unit,planned_rate,actual_rate,planned_quantity,crop_id,variety_id,reproduction_id,notes")
+      .eq("company_id", companyId)
+      .eq("operation_id", operationId)
+      .order("created_at", { ascending: true });
+    if (currentMaterialsError) throw new Error(currentMaterialsError.message);
+    materialSource = currentMaterials || [];
+  }
+
+  const normalizedRows = materialSource
+      .map((item) => {
+        const productId = String(item?.product_id || "").trim();
+        const materialType = String(item?.material_type || "").trim();
+        const unit = String(item?.unit || "").trim();
+        if (!productId || !materialType || !unit) return null;
+        const storageMaterialType = toStorageMaterialType(item?.component_type || materialType);
+        if (!DB_OPERATION_MATERIAL_TYPES.has(storageMaterialType)) return null;
+        return {
+          product_id: productId,
+          batch_id: item?.batch_id || null,
+          material_type: storageMaterialType,
+          unit,
+          planned_rate: item?.planned_rate ?? null,
+          actual_rate: item?.actual_rate ?? null,
+          planned_quantity: item?.planned_quantity ?? null,
+          dose_unit: item?.dose_unit,
+          quantity_unit: item?.quantity_unit,
+          rate_basis: item?.rate_basis,
+          manual_quantity: item?.manual_quantity,
+          manual_reason: item?.manual_reason,
+          crop_id: item?.crop_id || null,
+          variety_id: item?.variety_id || null,
+          reproduction_id: item?.reproduction_id || null,
+          notes: serializeMaterialNotes({
+            notes: item?.notes,
+            componentType: item?.component_type,
+            rateBasis: item?.rate_basis,
+          }),
+        };
+      })
+      .filter(Boolean);
+
+  const idempotencyKey = crypto.randomUUID();
+  const headers = await buildAuthHeaders("json");
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({
+      companyId,
+      operationPatch: payload,
+      materials: normalizedRows,
+      calculation_revision: operationData.calculation_revision,
+      calculation_expected_revision: operationData.calculation_expected_revision,
+      idempotency_key: idempotencyKey,
+    }),
+  });
+  const result = await parseApiResponse(response);
+  return result.operation as Operation;
+}
+
+export async function archiveOperation(operationId: string): Promise<void> {
+  const { data: operation } = await supabase.from("operations").select("company_id,lifecycle_version").eq("id", operationId).single();
+  if (operation?.lifecycle_version === 1) { await submitOperationIntent(operation.company_id, operationId, "archive"); return; }
+  const { error } = await supabase
+    .from("operations")
+    .update({ archived: true })
+    .eq("id", operationId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export async function unarchiveOperation(operationId: string): Promise<void> {
+  const { data: operation } = await supabase.from("operations").select("company_id,lifecycle_version").eq("id", operationId).single();
+  if (operation?.lifecycle_version === 1) { await submitOperationIntent(operation.company_id, operationId, "unarchive"); return; }
+  const { error } = await supabase
+    .from("operations")
+    .update({ archived: false })
+    .eq("id", operationId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export async function getAssignableSpecialists(companyId: string): Promise<SpecialistAssignee[]> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, full_name, email, role")
+    .eq("company_id", companyId)
+    .eq("status", "active")
+    .eq("role", "specialist")
+    .order("full_name", { ascending: true, nullsFirst: false })
+    .order("email", { ascending: true });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data || []) as SpecialistAssignee[];
+}
+
+export async function acceptOperationInWork(operationId: string): Promise<Operation> {
+  const { data: operation, error } = await supabase
+    .from("operations")
+    .select("company_id")
+    .eq("id", operationId)
+    .single();
+  if (error || !operation?.company_id) throw new Error(error?.message || "Operation not found");
+  const idempotencyKey = crypto.randomUUID();
+  const headers = await buildAuthHeaders("json");
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}/accept`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ companyId: operation.company_id, idempotency_key: idempotencyKey }),
+  });
+  const payload = await parseApiResponse(response);
+  return payload.operation as Operation;
+}
+
+export async function completeOperationWork(
+  operationId: string,
+  specialistComment: string
+): Promise<Operation> {
+  const { data: operation, error } = await supabase
+    .from("operations")
+    .select("company_id")
+    .eq("id", operationId)
+    .single();
+  if (error || !operation?.company_id) throw new Error(error?.message || "Operation not found");
+  const idempotencyKey = crypto.randomUUID();
+  const headers = await buildAuthHeaders("json");
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}/complete`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      companyId: operation.company_id,
+      comment: specialistComment,
+      idempotency_key: idempotencyKey,
+    }),
+  });
+  const payload = await parseApiResponse(response);
+  return payload.operation as Operation;
+}
+
+export async function getOperationLines(
+  operationId: string,
+  companyId: string
+): Promise<OperationLine[]> {
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(
+    `/api/operations/${encodeURIComponent(operationId)}/lines?companyId=${encodeURIComponent(companyId)}`,
+    { method: "GET", headers, cache: "no-store" }
+  );
+  const payload = await parseApiResponse(response);
+  return (payload.operation_lines || []) as OperationLine[];
+}
+
+export async function createOperationLine(
+  operationId: string,
+  companyId: string,
+  line: OperationLineFormData
+): Promise<OperationLine> {
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}/lines`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ companyId, ...line }),
+  });
+  const payload = await parseApiResponse(response);
+  return payload.operation_line as OperationLine;
+}
+
+export async function updateOperationLine(
+  lineId: string,
+  companyId: string,
+  patch: Partial<OperationLineFormData> & { completed?: boolean }
+): Promise<OperationLine> {
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch(`/api/operation-lines/${encodeURIComponent(lineId)}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ companyId, ...patch }),
+  });
+  const payload = await parseApiResponse(response);
+  return payload.operation_line as OperationLine;
+}
+
+export async function deleteOperationLine(lineId: string, companyId: string): Promise<void> {
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(
+    `/api/operation-lines/${encodeURIComponent(lineId)}?companyId=${encodeURIComponent(companyId)}`,
+    { method: "DELETE", headers }
+  );
+  await parseApiResponse(response);
+}
+
+export async function getPotatoMaterialConsumptionReport(
+  companyId: string,
+  options?: { seasonYear?: number; limit?: number }
+): Promise<PotatoMaterialConsumptionRow[]> {
+  const headers = await buildAuthHeaders("none");
+  const params = new URLSearchParams();
+  params.set("companyId", companyId);
+  if (options?.seasonYear) params.set("seasonYear", String(options.seasonYear));
+  if (options?.limit) params.set("limit", String(options.limit));
+  const response = await fetch(
+    `/api/operations/reports/potato-material-consumption?${params.toString()}`,
+    {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    }
+  );
+  const payload = await parseApiResponse(response);
+  return ((payload.rows || []) as PotatoMaterialConsumptionRow[]).filter((row) => !hasQaDataMarker(JSON.stringify(row)));
+}
+
+export async function ensureOperationMaterialRequest(
+  operationId: string,
+  companyId: string
+): Promise<Record<string, unknown>> {
+  const headers = await buildAuthHeaders("json");
+  const idempotencyKey = crypto.randomUUID();
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}/material-request`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ companyId, idempotency_key: idempotencyKey }),
+  });
+  const payload = await parseApiResponse(response);
+  return (payload.material_request || {}) as Record<string, unknown>;
+}

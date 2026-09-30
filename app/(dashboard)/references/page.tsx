@@ -1,0 +1,1709 @@
+"use client";
+
+import { type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { KeyRound, ShieldOff } from "lucide-react";
+import { PageHeader } from "@/components/layout/page-header";
+import {
+  FullPesticideCardDialog,
+  type FullPesticideCardData,
+} from "@/components/platform/full-pesticide-card-dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/contexts/auth-context";
+import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
+import { VehicleDriverAssignment } from "@/components/vehicles/vehicle-driver-assignment";
+import { subscribeVehicleDriverAssignments, type VehicleDriverAssignmentResult } from "@/lib/vehicles/driver-assignment-client";
+import { activeAssignedDriverName, vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
+import {
+  archiveCompanyPerson,
+  archiveVehicleReference,
+  createCompanyPerson,
+  createEquipmentReference,
+  createMachineReference,
+  createVehicleReference,
+  displayVehiclePlate,
+  getAdditives,
+  getCompanyAssetReferences,
+  getCompanyPeople,
+  getGlobalEquipmentModels,
+  getGlobalMachineModels,
+  getGlobalTransportModels,
+  getVehicleReferences,
+  getFertilizers,
+  getPesticides,
+  getSeasonAgronomyUsage,
+  updateCompanyPerson,
+  updateMachineReference,
+  updateVehicleReference,
+  type SeasonAgronomyUsageRow,
+} from "@/lib/services/references";
+import type {
+  GlobalEquipmentModel,
+  GlobalMachineModel,
+  GlobalTransportModel,
+} from "@/lib/types/references";
+import { referenceMatchesSmartSearch } from "@/lib/references/smart-search";
+import {
+  disableWeighbridgeOperatorAccess,
+  getWeighbridgeOperatorAccess,
+  setWeighbridgeOperatorPinForEmployee,
+  type WeighbridgeOperatorAccess,
+} from "@/lib/services/weighbridge-operator-access";
+
+type DomainTab = "agronomy" | "agrochemistry" | "machine-yard" | "personnel";
+type MachineYardTab = "park" | "catalog";
+type MachineYardCategory = "all" | "machines" | "equipment" | "vehicles";
+type ModalType = "machine" | "equipment" | "vehicle" | "worker";
+
+const machineYardCategoryOptions: Array<{ value: MachineYardCategory; label: string }> = [
+  { value: "all", label: "Все" },
+  { value: "machines", label: "Машины" },
+  { value: "equipment", label: "Оборудование" },
+  { value: "vehicles", label: "Транспорт" },
+];
+
+const pesticideCategoryLabels: Record<string, string> = {
+  herbicide: "Гербицид",
+  fungicide: "Фунгицид",
+  insecticide: "Инсектицид",
+  seed_treatment: "Протравитель",
+  desiccant: "Десикант",
+  growth_regulator: "Регулятор роста",
+  adjuvant: "Адъювант",
+  biological: "Биопрепарат",
+  surfactant: "ПАВ",
+  water_conditioner: "Кондиционер воды",
+  pH_regulator: "pH-регулятор",
+  drift_reduction_agent: "Антидрифтовый агент",
+  anti_foam: "Антивспениватель",
+};
+
+const fertilizerTypeLabels: Record<string, string> = {
+  nitrogen: "Азотное",
+  phosphorus: "Фосфорное",
+  potassium: "Калийное",
+  npk: "NPK",
+  micronutrient: "Микроэлементное",
+  foliar: "Листовое",
+  organic: "Органическое",
+};
+
+const workerRoleOptions = [
+  { value: "agronomist", label: "Агроном" },
+  { value: "mechanic_operator", label: "Механизатор" },
+  { value: "driver", label: "Водитель" },
+  { value: "warehouse_manager", label: "Кладовщик" },
+  { value: "weighbridge_operator", label: "Весовщик" },
+  { value: "worker", label: "Рабочий" },
+  { value: "manager", label: "Руководитель" },
+  { value: "admin", label: "Администратор" },
+  { value: "other", label: "Другое" },
+] as const;
+
+const workerRoleLabels: Record<string, string> = Object.fromEntries(
+  workerRoleOptions.map((option) => [option.value, option.label])
+);
+
+const employmentTypeLabels: Record<string, string> = {
+  permanent: "Постоянный",
+  temporary: "Временный",
+  seasonal: "Сезонный",
+  contractor: "Подрядчик",
+  unknown: "Не указано",
+};
+
+const workerStatusLabels: Record<string, string> = {
+  active: "Активен",
+  inactive: "Неактивен",
+  archived: "Архив",
+};
+
+const formatHa = (value: number) =>
+  `${Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`;
+
+const emptyCell = "—";
+
+function assetBrand(row: any): string {
+  return row.global_model?.brand || row.transport_model?.brand || row.brand || row.global_vehicle_brands?.name || emptyCell;
+}
+
+function assetModel(row: any): string {
+  return row.global_model?.model || row.transport_model?.model || row.model || row.global_vehicle_models?.name || emptyCell;
+}
+
+function assetIdentifier(row: any): string {
+  const plate = row.plate_number || row.license_plate;
+  if (plate) {
+    const display = displayVehiclePlate(plate);
+    if (display !== "Госномер не указан") return display;
+  }
+  const inventory = String(row.inventory_number || "").trim();
+  if (/^(авто|комбайн|трактор|прицеп|гусеничный|сеялка)$/i.test(inventory)) return emptyCell;
+  return inventory || emptyCell;
+}
+
+function assetYear(row: any): string {
+  const year = Number(row.manufacture_year || 0);
+  return year > 1900 ? String(year) : emptyCell;
+}
+
+function activeStatus(row: any): string {
+  return row.is_active === false ? "Неактивен" : "Активен";
+}
+
+function editableVehiclePlate(row: any): string {
+  for (const value of [row.plate_number, row.license_plate]) {
+    const displayValue = displayVehiclePlate(value);
+    if (displayValue !== "Госномер не указан") return displayValue;
+  }
+  return "";
+}
+
+function machineTypeFromCatalog(category: string | null | undefined) {
+  const value = String(category || "").toLowerCase();
+  if (value.includes("combine") || value.includes("harvester")) return "combine" as const;
+  if (value.includes("sprayer")) return "sprayer" as const;
+  if (value.includes("cultivator")) return "cultivator" as const;
+  if (value.includes("seeder") || value.includes("planter")) return "seeder" as const;
+  if (value === "tractor") return "tractor" as const;
+  return "other" as const;
+}
+
+function vehicleTypeFromCatalog(category: string | null | undefined) {
+  const value = String(category || "").toLowerCase();
+  if (value === "trailer") return "trailer" as const;
+  if (value === "truck" || value === "tractor_unit") return "truck" as const;
+  return "other" as const;
+}
+
+function catalogModelLabel(row: { full_name?: string | null; name?: string | null; brand?: string | null; model?: string | null }) {
+  return row.full_name || row.name || [row.brand, row.model].filter(Boolean).join(" ") || "Без названия";
+}
+
+function DataTable(props: { headers: string[]; rows: ReactNode[][]; loading: boolean; empty: string }) {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          {props.headers.map((header) => (
+            <TableHead key={header}>{header}</TableHead>
+          ))}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {props.loading ? (
+          <TableRow>
+            <TableCell colSpan={props.headers.length} className="text-center text-muted-foreground">
+              Загрузка...
+            </TableCell>
+          </TableRow>
+        ) : props.rows.length === 0 ? (
+          <TableRow>
+            <TableCell colSpan={props.headers.length} className="text-center text-muted-foreground">
+              {props.empty}
+            </TableCell>
+          </TableRow>
+        ) : (
+          props.rows.map((row, rowIdx) => (
+            <TableRow key={rowIdx}>
+              {row.map((cell, cellIdx) => (
+                <TableCell key={`${rowIdx}-${cellIdx}`} className={cellIdx === 0 ? "font-medium" : ""}>
+                  {cell}
+                </TableCell>
+              ))}
+            </TableRow>
+          ))
+        )}
+      </TableBody>
+    </Table>
+  );
+}
+
+function pluralRu(value: number, one: string, few: string, many: string) {
+  const abs = Math.abs(value);
+  const mod10 = abs % 10;
+  const mod100 = abs % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+}
+
+function TabLabel({ label, count }: { label: string; count: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+      <span>{label}</span>
+      <span className="rounded-full border border-border bg-background px-1.5 py-0.5 text-[10px] font-semibold leading-none text-foreground">
+        {count}
+      </span>
+    </span>
+  );
+}
+
+function reproductionDisplay(value?: string | null) {
+  const text = String(value || "").trim();
+  if (!text) return "—";
+  const normalized = text.toLowerCase();
+  const display = (code: string, description: string) => (
+    <div>
+      <div className="font-medium">{code}</div>
+      <div className="text-xs text-muted-foreground">{description}</div>
+    </div>
+  );
+  if (/(ориг|original|^os$|^oc$)/i.test(normalized)) return display("ОС", "Оригинальные семена");
+  if (/(супер|super|^se$|^сэ$)/i.test(normalized)) return display("СЭ", "Суперэлита");
+  if (/(элит|elite|^es$|^эс$)/i.test(normalized)) return display("ЭС?", "Элита, проверьте категорию");
+  if (/(рс1|rs1|r1|1 репр|первая)/i.test(normalized)) return display("РС1", "1-я репродукция");
+  if (/(рс2|rs2|r2|2 репр|вторая)/i.test(normalized)) return display("РС2", "2-я репродукция");
+  if (/(рс3|rs3|r3|3 репр|третья)/i.test(normalized)) return display("РС3", "3-я репродукция");
+  if (/(рс4|rs4|r4|4 репр|четвертая|четвёртая)/i.test(normalized)) return display("РС4", "4-я репродукция");
+  if (/f1/i.test(normalized)) return display("F1", "Гибрид 1-го поколения");
+  return text;
+}
+
+function withDriverAssignment(row: any, result?: VehicleDriverAssignmentResult) {
+  if (!result || result.vehicle.id !== row.id) return row;
+  return { ...row, primary_responsible_personnel_id: result.vehicle.assignmentId,
+    primary_responsible: result.vehicle.driverName ? {
+      id: result.vehicle.assignmentId, full_name: result.vehicle.driverName,
+      personnel_type: result.vehicle.driverRoleType === "mechanic_operator" ? "machine_operator" : "driver",
+      status: "active", archived: false,
+      person: { full_name: result.vehicle.driverName, company_id: result.companyId,
+        role_type: result.vehicle.driverRoleType ?? "driver", status: "active", deleted_at: null },
+    } : null };
+}
+
+function currentDriverName(row: any): string | null {
+  return activeAssignedDriverName(
+    row.primary_responsible,
+    row.company_id,
+    vehicleAllowsMachineOperator(row),
+  );
+}
+
+function materialKind(row: any) {
+  const haystack = [row.product_type, row.type, row.category, row.subcategory].join(" ").toLowerCase();
+  if (haystack.includes("fertilizer")) return "Удобрение";
+  if (haystack.includes("additive") || haystack.includes("adjuvant")) return "Добавка";
+  return "Пестицид";
+}
+
+function materialCategory(row: any) {
+  const key = String(row.subcategory || row.pesticide_category || row.fertilizer_type || row.category || "");
+  return pesticideCategoryLabels[key] || fertilizerTypeLabels[key] || key || "—";
+}
+
+export default function ReferencesPage() {
+  const { profile } = useAuth();
+  const { toast } = useToast();
+  const searchParams = useSearchParams();
+  const directCardHandled = useRef(false);
+  const assignmentCompany = useRef(profile?.company_id);
+  const assignmentRevision = useRef(0);
+  const assignmentUpdates = useRef(new Map<string, VehicleDriverAssignmentResult>());
+  const loadRevision = useRef(0);
+  if (assignmentCompany.current !== profile?.company_id) {
+    assignmentCompany.current = profile?.company_id;
+    assignmentUpdates.current.clear();
+    assignmentRevision.current++;
+    loadRevision.current++;
+  }
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [pesticideCardOpen, setPesticideCardOpen] = useState(false);
+  const [pesticideCardLoading, setPesticideCardLoading] = useState(false);
+  const [pesticideCardError, setPesticideCardError] = useState<string | null>(null);
+  const [pesticideCard, setPesticideCard] = useState<FullPesticideCardData | null>(null);
+  const [selectedPesticideId, setSelectedPesticideId] = useState<string | null>(null);
+
+  const [domainTab, setDomainTab] = useState<DomainTab>("agronomy");
+  const [machineYardTab, setMachineYardTab] = useState<MachineYardTab>("park");
+  const [machineYardCategory, setMachineYardCategory] = useState<MachineYardCategory>("all");
+  const [modalType, setModalType] = useState<ModalType | null>(null);
+  const [editingMachineId, setEditingMachineId] = useState<string | null>(null);
+  const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
+  const [editingWorkerId, setEditingWorkerId] = useState<string | null>(null);
+  const [editingWorkerRole, setEditingWorkerRole] = useState<string | null>(null);
+  const [workerAccess, setWorkerAccess] = useState<WeighbridgeOperatorAccess | null>(null);
+  const [workerAccessLoading, setWorkerAccessLoading] = useState(false);
+  const [workerAccessSaving, setWorkerAccessSaving] = useState(false);
+  const [workerPinEditorOpen, setWorkerPinEditorOpen] = useState(false);
+  const [workerPin, setWorkerPin] = useState("");
+  const [workerPinConfirm, setWorkerPinConfirm] = useState("");
+
+  const [modelSearch, setModelSearch] = useState("");
+  const [machineYardSearch, setMachineYardSearch] = useState("");
+  const [workerSearch, setWorkerSearch] = useState("");
+  const [workerRoleFilter, setWorkerRoleFilter] = useState("all");
+  const [workerStatusFilter, setWorkerStatusFilter] = useState("active");
+
+  const [seasonUsage, setSeasonUsage] = useState<SeasonAgronomyUsageRow[]>([]);
+  const [pesticides, setPesticides] = useState<any[]>([]);
+  const [fertilizers, setFertilizers] = useState<any[]>([]);
+  const [additives, setAdditives] = useState<any[]>([]);
+  const [machines, setMachines] = useState<any[]>([]);
+  const [equipment, setEquipment] = useState<any[]>([]);
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [workers, setWorkers] = useState<any[]>([]);
+  const [machineModels, setMachineModels] = useState<GlobalMachineModel[]>([]);
+  const [equipmentModels, setEquipmentModels] = useState<GlobalEquipmentModel[]>([]);
+  const [transportModels, setTransportModels] = useState<GlobalTransportModel[]>([]);
+
+  const [form, setForm] = useState<Record<string, string>>({});
+  const canManageCompanyReferences = profile?.role === "company_admin" || profile?.role === "global_admin";
+  const canAssignVehicleDriver = ["global_admin", "company_admin", "agronomist", "weighman"].includes(profile?.role || "");
+
+  const companyMaterials = useMemo(() => [...pesticides, ...fertilizers, ...additives], [pesticides, fertilizers, additives]);
+  const deferredMachineYardSearch = useDeferredValue(machineYardSearch);
+  const filteredMachines = useMemo(() => machines.filter((row) => referenceMatchesSmartSearch([
+    row.display_name,
+    row.full_name,
+    row.name,
+    row.display_type,
+    row.type,
+    row.category,
+    row.machinery_type,
+    assetBrand(row),
+    assetModel(row),
+    assetIdentifier(row),
+    row.plate_number,
+    row.license_plate,
+    row.vin,
+    currentDriverName(row),
+  ], deferredMachineYardSearch)), [deferredMachineYardSearch, machines]);
+  const filteredEquipment = useMemo(() => equipment.filter((row) => referenceMatchesSmartSearch([
+    row.display_name,
+    row.full_name,
+    row.name,
+    row.display_type,
+    row.type,
+    row.category,
+    row.equipment_category,
+    assetBrand(row),
+    assetModel(row),
+    assetIdentifier(row),
+    row.inventory_number,
+    row.vin,
+  ], deferredMachineYardSearch)), [deferredMachineYardSearch, equipment]);
+  const filteredVehicles = useMemo(() => vehicles.filter((row) => referenceMatchesSmartSearch([
+    row.display_name,
+    row.full_name,
+    row.name,
+    row.display_type,
+    row.type,
+    row.category,
+    assetBrand(row),
+    assetModel(row),
+    assetIdentifier(row),
+    row.plate_number,
+    row.license_plate,
+    row.inventory_number,
+    row.vin,
+    currentDriverName(row),
+  ], deferredMachineYardSearch)), [deferredMachineYardSearch, vehicles]);
+  const filteredMachineModels = useMemo(() => machineModels.filter((row) => referenceMatchesSmartSearch([
+    catalogModelLabel(row), row.brand, row.model, row.series, row.category,
+  ], deferredMachineYardSearch)), [deferredMachineYardSearch, machineModels]);
+  const filteredEquipmentModels = useMemo(() => equipmentModels.filter((row) => referenceMatchesSmartSearch([
+    catalogModelLabel(row), row.brand, row.model, row.series, row.category, row.equipment_type,
+  ], deferredMachineYardSearch)), [deferredMachineYardSearch, equipmentModels]);
+  const filteredTransportModels = useMemo(() => transportModels.filter((row) => referenceMatchesSmartSearch([
+    catalogModelLabel(row), row.brand, row.model, row.series, row.category,
+  ], deferredMachineYardSearch)), [deferredMachineYardSearch, transportModels]);
+  const machineYardCategoryCounts: Record<MachineYardCategory, number> = machineYardTab === "park"
+    ? {
+        all: filteredMachines.length + filteredEquipment.length + filteredVehicles.length,
+        machines: filteredMachines.length,
+        equipment: filteredEquipment.length,
+        vehicles: filteredVehicles.length,
+      }
+    : {
+        all: filteredMachineModels.length + filteredEquipmentModels.length + filteredTransportModels.length,
+        machines: filteredMachineModels.length,
+        equipment: filteredEquipmentModels.length,
+        vehicles: filteredTransportModels.length,
+      };
+  const machineYardResultCount = machineYardCategoryCounts[machineYardCategory];
+  const filteredAssetModels = useMemo(() => {
+    const query = modelSearch.trim().toLocaleLowerCase("ru");
+    const rows = modalType === "machine"
+      ? machineModels
+      : modalType === "equipment"
+        ? equipmentModels
+        : modalType === "vehicle"
+          ? transportModels
+          : [];
+    return rows
+      .filter((row) => !query || catalogModelLabel(row).toLocaleLowerCase("ru").includes(query))
+      .slice(0, 100);
+  }, [equipmentModels, machineModels, modalType, modelSearch, transportModels]);
+  const seasonCropCount = useMemo(() => {
+    const keys = new Set(
+      seasonUsage
+        .map((row) => String(row.crop_id || row.crop_name || "").trim())
+        .filter(Boolean)
+    );
+    return keys.size;
+  }, [seasonUsage]);
+  const countText = (value: number) => (loading ? "..." : String(value));
+  const agronomyCountText = loading
+    ? "..."
+    : `${seasonCropCount} ${pluralRu(seasonCropCount, "культура", "культуры", "культур")}`;
+
+  const currentAction = useMemo(() => {
+    if (!canManageCompanyReferences) return null;
+    if (domainTab === "personnel") return { label: "Добавить сотрудника", modal: "worker" as const };
+    return null;
+  }, [canManageCompanyReferences, domainTab]);
+
+  useEffect(() => {
+    const requestedDomain = searchParams.get("domain");
+    const requestedTab = searchParams.get("tab");
+    const requestedCategory = searchParams.get("category");
+    if (["agronomy", "agrochemistry", "machine-yard", "personnel"].includes(String(requestedDomain))) {
+      setDomainTab(requestedDomain as DomainTab);
+    }
+    if (requestedTab === "park" || requestedTab === "catalog") {
+      setMachineYardTab(requestedTab);
+    }
+    if (["all", "machines", "equipment", "vehicles"].includes(String(requestedCategory))) {
+      setMachineYardCategory(requestedCategory as MachineYardCategory);
+    }
+  }, [searchParams]);
+
+  const loadAll = useCallback(async () => {
+    if (!profile?.company_id) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const companyId = profile.company_id;
+    const revision = ++loadRevision.current;
+    const driverRevision = assignmentRevision.current;
+    try {
+      const [usageRows, pesticideRows, fertilizerRows, additiveRows, assetRows, vehicleRows, workerRows, machineModelRows, equipmentModelRows, transportModelRows] =
+        await Promise.all([
+          getSeasonAgronomyUsage(profile.company_id, "ru"),
+          getPesticides(profile.company_id, false, "ru"),
+          getFertilizers(profile.company_id, false, "ru"),
+          getAdditives(profile.company_id, false, "ru"),
+          getCompanyAssetReferences(profile.company_id, "ru"),
+          getVehicleReferences(profile.company_id, false),
+          getCompanyPeople(profile.company_id, true),
+          getGlobalMachineModels(),
+          getGlobalEquipmentModels(),
+          getGlobalTransportModels(),
+        ]);
+      if (companyId !== assignmentCompany.current || revision !== loadRevision.current) return;
+      if (driverRevision === assignmentRevision.current) assignmentUpdates.current.clear();
+      setSeasonUsage(usageRows);
+      setPesticides(pesticideRows);
+      setFertilizers(fertilizerRows);
+      setAdditives(additiveRows);
+      setMachines(assetRows.machines);
+      setEquipment(assetRows.equipment);
+      setVehicles(vehicleRows.map((row) => withDriverAssignment(row, assignmentUpdates.current.get(row.id))));
+      setWorkers(workerRows);
+      setMachineModels(machineModelRows);
+      setEquipmentModels(equipmentModelRows);
+      setTransportModels(transportModelRows);
+    } finally {
+      if (companyId === assignmentCompany.current && revision === loadRevision.current) setLoading(false);
+    }
+  }, [profile?.company_id]);
+
+  useEffect(() => {
+    void loadAll();
+  }, [loadAll]);
+
+  useEffect(() => {
+    const companyId = profile?.company_id;
+    if (!companyId) return;
+    let alive = true;
+    let inFlight = false;
+    const refreshDrivers = async () => {
+      if (inFlight || document.visibilityState === "hidden") return;
+      inFlight = true;
+      const revision = assignmentRevision.current;
+      try {
+        const rows = await getVehicleReferences(companyId, false);
+        if (!alive || assignmentCompany.current !== companyId) return;
+        if (revision === assignmentRevision.current) assignmentUpdates.current.clear();
+        setVehicles(rows.map((row) => withDriverAssignment(row, assignmentUpdates.current.get(row.id))));
+      } catch {
+        // Keep the last confirmed assignments; dialog GET validates again before editing.
+      } finally { inFlight = false; }
+    };
+    const unsubscribe = subscribeVehicleDriverAssignments((result) => {
+      if (!alive || result.companyId !== companyId || assignmentCompany.current !== companyId) return;
+      assignmentRevision.current++;
+      assignmentUpdates.current.set(result.vehicle.id, result);
+      setVehicles((rows) => rows.map((row) => withDriverAssignment(row, result)));
+    });
+    window.addEventListener("focus", refreshDrivers);
+    document.addEventListener("visibilitychange", refreshDrivers);
+    return () => {
+      alive = false;
+      unsubscribe();
+      window.removeEventListener("focus", refreshDrivers);
+      document.removeEventListener("visibilitychange", refreshDrivers);
+    };
+  }, [profile?.company_id]);
+
+  const filteredWorkers = useMemo(() => {
+    const query = workerSearch.trim().toLowerCase();
+    return workers.filter((worker) => {
+      const matchesSearch =
+        !query ||
+        [worker.full_name, worker.short_name, worker.phone, worker.notes].some((value) =>
+          String(value || "").toLowerCase().includes(query)
+        );
+      const matchesRole = workerRoleFilter === "all" || worker.role_type === workerRoleFilter;
+      const matchesStatus = workerStatusFilter === "all" || worker.status === workerStatusFilter;
+      return matchesSearch && matchesRole && matchesStatus;
+    });
+  }, [workers, workerSearch, workerRoleFilter, workerStatusFilter]);
+
+  const openModal = (type: ModalType, initialForm: Record<string, string> = {}) => {
+    setModalType(type);
+    setEditingMachineId(type === "machine" && initialForm.id ? initialForm.id : null);
+    setEditingVehicleId(type === "vehicle" && initialForm.id ? initialForm.id : null);
+    setEditingWorkerId(type === "worker" && initialForm.id ? initialForm.id : null);
+    setEditingWorkerRole(type === "worker" ? initialForm.role_type || null : null);
+    setWorkerAccess(null);
+    setWorkerPinEditorOpen(false);
+    setWorkerPin("");
+    setWorkerPinConfirm("");
+    setForm(initialForm);
+    setModelSearch("");
+  };
+
+  const closeModal = () => {
+    setModalType(null);
+    setEditingMachineId(null);
+    setEditingVehicleId(null);
+    setEditingWorkerId(null);
+    setEditingWorkerRole(null);
+    setWorkerAccess(null);
+    setWorkerAccessLoading(false);
+    setWorkerAccessSaving(false);
+    setWorkerPinEditorOpen(false);
+    setWorkerPin("");
+    setWorkerPinConfirm("");
+    setForm({});
+  };
+
+  const loadPesticideCard = async (productId: string) => {
+    setSelectedPesticideId(productId);
+    setPesticideCardOpen(true);
+    setPesticideCardLoading(true);
+    setPesticideCardError(null);
+    setPesticideCard(null);
+    try {
+      const headers = await buildClientAuthHeaders();
+      const response = await fetch(`/api/catalog/pesticide-card/${productId}`, {
+        headers,
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить полную карточку");
+      setPesticideCard(payload as FullPesticideCardData);
+    } catch (error) {
+      setPesticideCardError(error instanceof Error ? error.message : "Не удалось загрузить полную карточку");
+    } finally {
+      setPesticideCardLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!profile?.id || directCardHandled.current) return;
+    const productId = new URLSearchParams(window.location.search).get("pesticide");
+    if (!productId) return;
+    directCardHandled.current = true;
+    setDomainTab("agrochemistry");
+    void loadPesticideCard(productId);
+  }, [profile?.id]);
+
+  const submitCreate = async () => {
+    if (!profile?.company_id || !profile?.id || !modalType || saving) return;
+    setSaving(true);
+    try {
+      if (modalType === "machine") {
+        const plateNumber = String(form.plate_number || "").trim();
+        if (plateNumber.length > 32) throw new Error("Госномер не должен превышать 32 символа");
+        const manufactureYear = form.manufacture_year ? Number(form.manufacture_year) : null;
+        if (manufactureYear !== null && (!Number.isInteger(manufactureYear) || manufactureYear < 1900 || manufactureYear > 2100)) {
+          throw new Error("Год выпуска должен быть целым числом от 1900 до 2100");
+        }
+
+        if (editingMachineId) {
+          await updateMachineReference(profile.company_id, editingMachineId, {
+            license_plate: plateNumber || null,
+            inventory_number: String(form.inventory_number || "").trim(),
+            manufacture_year: manufactureYear,
+            is_active: form.is_active !== "false",
+          });
+        } else {
+          const model = machineModels.find((row) => row.id === form.model_id);
+          if (!model) throw new Error("Выберите модель техники из ГЛБД");
+          const type = machineTypeFromCatalog(model.category);
+          const canonicalName = catalogModelLabel(model);
+          const instanceIdentifier = String(form.inventory_number || form.plate_number || "").trim();
+          await createMachineReference(profile.company_id, profile.id, {
+            name: instanceIdentifier ? `${canonicalName} • ${instanceIdentifier}` : canonicalName,
+            type,
+            model: model.model || "",
+            status: (form.status || "free") as any,
+            is_active: form.status !== "inactive",
+            global_machine_model_id: model.id,
+            full_name: canonicalName,
+            brand: model.brand,
+            series: model.series,
+            category: type,
+            machinery_type: model.category,
+            inventory_number: form.inventory_number || null,
+            license_plate: plateNumber || null,
+            manufacture_year: manufactureYear,
+          });
+        }
+      }
+      if (modalType === "equipment") {
+        const model = equipmentModels.find((row) => row.id === form.model_id);
+        if (!model) throw new Error("Выберите модель оборудования из ГЛБД");
+        await createEquipmentReference(profile.company_id, profile.id, {
+          name: catalogModelLabel(model),
+          category: model.category || "other",
+          global_equipment_model_id: model.id,
+          full_name: catalogModelLabel(model),
+          brand: model.brand,
+          series: model.series,
+          model: model.model,
+          equipment_category: model.category || model.equipment_type,
+          inventory_number: form.inventory_number || null,
+          manufacture_year: form.manufacture_year ? Number(form.manufacture_year) : null,
+          is_active: form.status !== "inactive",
+        });
+      }
+      if (modalType === "vehicle") {
+        const plateNumber = String(form.plate_number || "").trim();
+        if (!plateNumber) throw new Error("Укажите госномер");
+        if (plateNumber.length > 32) throw new Error("Госномер не должен превышать 32 символа");
+
+        const manufactureYear = form.manufacture_year ? Number(form.manufacture_year) : null;
+        if (manufactureYear !== null && (!Number.isInteger(manufactureYear) || manufactureYear < 1900 || manufactureYear > 2100)) {
+          throw new Error("Год выпуска должен быть целым числом от 1900 до 2100");
+        }
+
+        if (editingVehicleId) {
+          await updateVehicleReference(profile.company_id, editingVehicleId, {
+            plate_number: plateNumber,
+            inventory_number: String(form.inventory_number || "").trim(),
+            manufacture_year: manufactureYear,
+            is_active: form.is_active !== "false",
+          });
+        } else {
+          const model = transportModels.find((row) => row.id === form.model_id);
+          if (!model) throw new Error("Выберите модель транспорта из ГЛБД");
+          await createVehicleReference(profile.company_id, profile.id, {
+            name: catalogModelLabel(model),
+            global_brand_id: null,
+            global_model_id: null,
+            transport_model_id: model.id,
+            custom_name: "",
+            inventory_number: String(form.inventory_number || "").trim(),
+            primary_responsible_personnel_id: null,
+            type: vehicleTypeFromCatalog(model.category),
+            full_name: catalogModelLabel(model),
+            brand: model.brand,
+            series: model.series,
+            model: null,
+            plate_number: plateNumber,
+            capacity_kg: Number(form.capacity_kg || 0),
+            body_volume_m3: null,
+            manufacture_year: manufactureYear,
+            status: (form.status || "free") as any,
+            is_active: form.status !== "inactive",
+          });
+        }
+      }
+      if (modalType === "worker") {
+        if (!form.full_name?.trim()) throw new Error("Укажите ФИО");
+        const payload = {
+          full_name: form.full_name.trim(),
+          short_name: form.short_name || "",
+          role_type: (form.role_type || "worker") as any,
+          employment_type: (form.employment_type || "unknown") as any,
+          phone: form.phone || "",
+          iin: form.iin || "",
+          status: (form.status || "active") as any,
+          notes: form.notes || "",
+          user_id: null,
+        };
+        if (editingWorkerId) {
+          await updateCompanyPerson(profile.company_id, editingWorkerId, profile.id, payload);
+        } else {
+          await createCompanyPerson(profile.company_id, profile.id, payload);
+        }
+      }
+      closeModal();
+      await loadAll();
+      toast({ title: "Готово", description: editingWorkerId || editingMachineId || editingVehicleId ? "Запись обновлена" : "Запись успешно создана" });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Не удалось сохранить запись";
+      toast({
+        title: "Ошибка",
+        description: /23505|duplicate key|unique constraint|reference_vehicles.*plate/i.test(errorMessage)
+          ? "Машина с таким госномером уже существует"
+          : errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const loadWorkerAccess = async (personId: string) => {
+    if (!profile?.company_id) return;
+    setWorkerAccessLoading(true);
+    try {
+      setWorkerAccess(await getWeighbridgeOperatorAccess(profile.company_id, personId));
+    } catch (error) {
+      setWorkerAccess(null);
+      toast({
+        title: "Доступ к Весовой",
+        description: error instanceof Error ? error.message : "Не удалось проверить доступ сотрудника",
+        variant: "destructive",
+      });
+    } finally {
+      setWorkerAccessLoading(false);
+    }
+  };
+
+  const editWorker = (worker: any) => {
+    openModal("worker", {
+      id: worker.id,
+      full_name: worker.full_name || "",
+      short_name: worker.short_name || "",
+      role_type: worker.role_type || "worker",
+      employment_type: worker.employment_type || "unknown",
+      phone: worker.phone || "",
+      iin: worker.iin || "",
+      status: worker.status || "active",
+      notes: worker.notes || "",
+    });
+    if (worker.role_type === "weighbridge_operator") void loadWorkerAccess(worker.id);
+  };
+
+  const saveWorkerPin = async () => {
+    if (!profile?.company_id || !editingWorkerId || workerAccessSaving) return;
+    if (!/^\d{6}$/.test(workerPin)) {
+      toast({ title: "PIN", description: "PIN должен содержать ровно 6 цифр.", variant: "destructive" });
+      return;
+    }
+    if (workerPin !== workerPinConfirm) {
+      toast({ title: "PIN", description: "Введённые PIN не совпадают.", variant: "destructive" });
+      return;
+    }
+    setWorkerAccessSaving(true);
+    try {
+      const next = await setWeighbridgeOperatorPinForEmployee(profile.company_id, editingWorkerId, workerPin);
+      setWorkerAccess(next);
+      setWorkerPin("");
+      setWorkerPinConfirm("");
+      setWorkerPinEditorOpen(false);
+      toast({
+        title: next.pin_configured ? "PIN установлен" : "PIN не установлен",
+        description: "Доступ сотрудника к Весовой обновлён. Активные операторские сессии отозваны.",
+      });
+    } catch (error) {
+      toast({
+        title: "PIN не сохранён",
+        description: error instanceof Error ? error.message : "Не удалось установить PIN",
+        variant: "destructive",
+      });
+    } finally {
+      setWorkerAccessSaving(false);
+    }
+  };
+
+  const disableWorkerWeighbridgeAccess = async () => {
+    if (!profile?.company_id || !editingWorkerId || workerAccessSaving) return;
+    if (!window.confirm("Отключить сотруднику доступ к Весовой и отозвать его активную сессию?")) return;
+    setWorkerAccessSaving(true);
+    try {
+      const next = await disableWeighbridgeOperatorAccess(profile.company_id, editingWorkerId);
+      setWorkerAccess(next);
+      setWorkerPin("");
+      setWorkerPinConfirm("");
+      setWorkerPinEditorOpen(false);
+      toast({ title: "Доступ отключён", description: "Новые смены недоступны, активная сессия отозвана." });
+    } catch (error) {
+      toast({
+        title: "Не удалось отключить доступ",
+        description: error instanceof Error ? error.message : "Не удалось изменить доступ к Весовой",
+        variant: "destructive",
+      });
+    } finally {
+      setWorkerAccessSaving(false);
+    }
+  };
+
+  const archiveWorker = async (worker: any) => {
+    if (!profile?.company_id || !profile?.id || saving) return;
+    setSaving(true);
+    try {
+      await archiveCompanyPerson(profile.company_id, worker.id, profile.id);
+      await loadAll();
+      toast({ title: "Готово", description: "Сотрудник перенесён в архив" });
+    } catch (error) {
+      toast({
+        title: "Ошибка",
+        description: error instanceof Error ? error.message : "Не удалось архивировать сотрудника",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const editVehicle = (vehicle: any) => {
+    if (!canManageCompanyReferences) return;
+    openModal("vehicle", {
+      id: vehicle.id,
+      plate_number: editableVehiclePlate(vehicle),
+      inventory_number: String(vehicle.inventory_number || "").trim(),
+      manufacture_year: vehicle.manufacture_year ? String(vehicle.manufacture_year) : "",
+      is_active: vehicle.is_active === false ? "false" : "true",
+    });
+  };
+
+  const editMachine = (machine: any) => {
+    if (!canManageCompanyReferences) return;
+    openModal("machine", {
+      id: machine.id,
+      plate_number: editableVehiclePlate(machine),
+      inventory_number: String(machine.inventory_number || "").trim(),
+      manufacture_year: machine.manufacture_year ? String(machine.manufacture_year) : "",
+      is_active: machine.is_active === false ? "false" : "true",
+    });
+  };
+
+  const archiveVehicle = async (vehicle: any) => {
+    if (!canManageCompanyReferences || !profile?.company_id || saving) return;
+    const vehicleName = vehicle.display_name || vehicle.full_name || vehicle.name || "этот транспорт";
+    if (!window.confirm(`Архивировать «${vehicleName}»? Транспорт исчезнет из активного справочника.`)) return;
+    setSaving(true);
+    try {
+      await archiveVehicleReference(profile.company_id, vehicle.id);
+      await loadAll();
+      toast({ title: "Готово", description: "Транспорт перенесён в архив" });
+    } catch (error) {
+      toast({
+        title: "Ошибка",
+        description: error instanceof Error ? error.message : "Не удалось архивировать транспорт",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <PageHeader
+        title="Справочники"
+        description="Справочники компании: сезон, материалы, парк машин и оборудования, модели и персонал."
+      />
+
+      <Tabs value={domainTab} onValueChange={(value) => setDomainTab(value as DomainTab)}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 xl:flex xl:w-auto xl:max-w-full xl:justify-start xl:overflow-x-auto">
+            <TabsTrigger className="min-w-0 whitespace-normal px-2 text-center xl:shrink-0 xl:whitespace-nowrap xl:px-3" value="agronomy"><TabLabel label="Агрономия" count={agronomyCountText} /></TabsTrigger>
+            <TabsTrigger className="min-w-0 whitespace-normal px-2 text-center xl:shrink-0 xl:whitespace-nowrap xl:px-3" value="agrochemistry"><TabLabel label="Агрохимия" count={countText(companyMaterials.length)} /></TabsTrigger>
+            <TabsTrigger className="min-w-0 whitespace-normal px-2 text-center xl:shrink-0 xl:whitespace-nowrap xl:px-3" value="machine-yard"><TabLabel label="Машины и техника" count={countText(machines.length + equipment.length + vehicles.length)} /></TabsTrigger>
+            <TabsTrigger className="min-w-0 whitespace-normal px-2 text-center xl:shrink-0 xl:whitespace-nowrap xl:px-3" value="personnel"><TabLabel label="Персонал" count={countText(workers.length)} /></TabsTrigger>
+          </TabsList>
+          {currentAction ? (
+            <Button onClick={() => openModal(currentAction.modal)} disabled={saving}>
+              {saving ? "Сохранение..." : currentAction.label}
+            </Button>
+          ) : null}
+        </div>
+
+        <TabsContent value="agronomy">
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                Культуры в текущем сезоне
+                {seasonUsage[0]?.season_year ? ` ${seasonUsage[0].season_year}` : ""}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Это read-only срез из структуры посевов компании. Глобальные культуры и демо-справочник здесь не показываются.
+              </p>
+              <DataTable
+                headers={["Культура", "Площадь", "Полей/участков", "Сорт", "Репродукция"]}
+                rows={seasonUsage.map((row) => [
+                  row.crop_name,
+                  formatHa(row.area_ha),
+                  String(row.field_count),
+                  row.variety_name || "—",
+                  reproductionDisplay(row.reproduction_name),
+                ])}
+                loading={loading}
+                empty="Структура сезона ещё не заполнена"
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="agrochemistry" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Материалы компании</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Здесь отображаются только препараты, удобрения и добавки, уже подключённые к компании.
+              </p>
+              <DataTable
+                headers={["Название", "Тип", "Категория/подтип", "Производитель", "ДВ/состав", "Статусы"]}
+                rows={companyMaterials.map((x) => [
+                  x.trade_name || x.name,
+                  materialKind(x),
+                  materialCategory(x),
+                  x.manufacturer || "—",
+                  x.active_ingredient || "—",
+                  Array.isArray(x.reference_statuses) && x.reference_statuses.length > 0
+                    ? x.reference_statuses.join(" · ")
+                    : "Добавлен компанией",
+                ])}
+                loading={loading}
+                empty="Материалы компании не добавлены"
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="machine-yard" className="space-y-4">
+          <Tabs value={machineYardTab} onValueChange={(value) => setMachineYardTab(value as MachineYardTab)}>
+            <div className="space-y-3 rounded-lg border border-border bg-background p-3">
+              <TabsList aria-label="Раздел машин и техники" className="w-full justify-start overflow-auto sm:w-auto">
+                <TabsTrigger value="park"><TabLabel label="Парк компании" count={countText(machines.length + equipment.length + vehicles.length)} /></TabsTrigger>
+                <TabsTrigger value="catalog"><TabLabel label="Каталог техники" count={countText(machineModels.length + equipmentModels.length + transportModels.length)} /></TabsTrigger>
+              </TabsList>
+
+              <div className="grid gap-2 lg:grid-cols-[minmax(260px,1fr)_auto] lg:items-end">
+                <div className="space-y-1.5">
+                  <Label htmlFor="machine-yard-search">Поиск по машинам и технике</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="machine-yard-search"
+                      type="search"
+                      value={machineYardSearch}
+                      onChange={(event) => setMachineYardSearch(event.target.value)}
+                      placeholder="Название, бренд, модель, категория, номер, VIN или водитель"
+                      autoComplete="off"
+                    />
+                    {machineYardSearch ? (
+                      <Button type="button" variant="outline" onClick={() => setMachineYardSearch("")}>
+                        Очистить
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+
+                <nav aria-label="Категории машин и техники" className="flex flex-wrap gap-2" data-reference-category-nav>
+                  {machineYardCategoryOptions.map((option) => (
+                    <Button
+                      key={option.value}
+                      type="button"
+                      size="sm"
+                      variant={machineYardCategory === option.value ? "default" : "outline"}
+                      aria-pressed={machineYardCategory === option.value}
+                      onClick={() => setMachineYardCategory(option.value)}
+                    >
+                      <TabLabel label={option.label} count={countText(machineYardCategoryCounts[option.value])} />
+                    </Button>
+                  ))}
+                </nav>
+              </div>
+
+              <p
+                className="text-xs text-muted-foreground"
+                role="status"
+                aria-live="polite"
+                aria-busy={machineYardSearch !== deferredMachineYardSearch}
+              >
+                {loading
+                  ? "Загрузка справочников..."
+                  : machineYardSearch
+                    ? `Найдено: ${machineYardResultCount}. Поиск понимает кириллицу, латиницу, номер и VIN без пробелов.`
+                    : "Поиск работает по названию, бренду, модели, категории, номеру, VIN и назначенному водителю."}
+              </p>
+            </div>
+            <TabsContent value="park" className="space-y-4">
+              {machineYardCategory === "all" || machineYardCategory === "machines" ? <Card>
+                <CardHeader className="flex flex-row items-center justify-between gap-3">
+                  <CardTitle>Техника компании</CardTitle>
+                  {canManageCompanyReferences ? <Button size="sm" onClick={() => openModal("machine")}>Добавить</Button> : null}
+                </CardHeader>
+                <CardContent>
+                  <DataTable
+                    headers={[
+                      "Название",
+                      "Тип",
+                      "Бренд",
+                      "Модель",
+                      "Госномер / Инв. №",
+                      "Год",
+                      "Статус",
+                      ...(canManageCompanyReferences ? ["Действия"] : []),
+                    ]}
+                    rows={filteredMachines.map((x) => [
+                      x.display_name || x.full_name || x.name,
+                      x.display_type || emptyCell,
+                      assetBrand(x),
+                      String(x.model || "").trim(),
+                      assetIdentifier(x),
+                      assetYear(x),
+                      activeStatus(x),
+                      ...(canManageCompanyReferences
+                        ? [
+                            <div key={`machine-actions-${x.id}`} className="flex justify-end">
+                              <Button variant="outline" size="sm" onClick={() => editMachine(x)} disabled={saving}>
+                                Редактировать
+                              </Button>
+                            </div>,
+                          ]
+                        : []),
+                    ])}
+                    loading={loading}
+                    empty="Техника компании не добавлена"
+                  />
+                </CardContent>
+              </Card> : null}
+              {machineYardCategory === "all" || machineYardCategory === "equipment" ? <Card>
+                <CardHeader className="flex flex-row items-center justify-between gap-3">
+                  <CardTitle>Оборудование компании</CardTitle>
+                  {canManageCompanyReferences ? <Button size="sm" onClick={() => openModal("equipment")}>Добавить</Button> : null}
+                </CardHeader>
+                <CardContent>
+                  <DataTable
+                    headers={["Название", "Категория", "Бренд", "Модель", "Инв. №", "Статус"]}
+                    rows={filteredEquipment.map((x) => [
+                      x.display_name || x.full_name || x.name,
+                      x.display_type || emptyCell,
+                      assetBrand(x),
+                      assetModel(x),
+                      x.inventory_number || emptyCell,
+                      activeStatus(x),
+                    ])}
+                    loading={loading}
+                    empty="Оборудование компании не добавлено"
+                  />
+                </CardContent>
+              </Card> : null}
+              {machineYardCategory === "all" || machineYardCategory === "vehicles" ? <Card>
+                <CardHeader className="flex flex-row items-center justify-between gap-3">
+                  <CardTitle>Автопарк</CardTitle>
+                  {canManageCompanyReferences ? <Button size="sm" onClick={() => openModal("vehicle")}>Добавить</Button> : null}
+                </CardHeader>
+                <CardContent>
+                  <DataTable
+                    headers={[
+                      "Название",
+                      "Категория",
+                      "Бренд",
+                      "Модель",
+                      "Госномер",
+                      "VIN",
+                      "Водитель",
+                      "Статус",
+                      ...(canManageCompanyReferences ? ["Действия"] : []),
+                    ]}
+                    rows={filteredVehicles.map((x) => [
+                      x.display_name || x.full_name || x.name,
+                      x.display_type || emptyCell,
+                      assetBrand(x),
+                      assetModel(x),
+                      displayVehiclePlate(editableVehiclePlate(x)),
+                      x.vin || emptyCell,
+                      canAssignVehicleDriver ? <VehicleDriverAssignment
+                        key={`driver-${profile?.company_id}-${x.id}`}
+                        companyId={profile?.company_id}
+                        vehicleId={x.id}
+                        vehicleLabel={`${x.display_name || x.name} · ${displayVehiclePlate(editableVehiclePlate(x))}`}
+                        driverName={currentDriverName(x)}
+                        disabled={loading || saving || x.archived || x.is_active === false}
+                      /> : currentDriverName(x) || emptyCell,
+                      activeStatus(x),
+                      ...(canManageCompanyReferences
+                        ? [
+                            <div key={`vehicle-actions-${x.id}`} className="flex justify-end gap-2">
+                              <Button variant="outline" size="sm" onClick={() => editVehicle(x)} disabled={saving}>
+                                Редактировать
+                              </Button>
+                              <Button variant="outline" size="sm" onClick={() => void archiveVehicle(x)} disabled={saving}>
+                                Архивировать
+                              </Button>
+                            </div>,
+                          ]
+                        : []),
+                    ])}
+                    loading={loading}
+                    empty="Транспорт компании не добавлен"
+                  />
+                </CardContent>
+              </Card> : null}
+            </TabsContent>
+            <TabsContent value="catalog" className="space-y-4">
+              {machineYardCategory === "all" || machineYardCategory === "machines" ? <Card>
+                <CardHeader><CardTitle>Модели техники</CardTitle></CardHeader>
+                <CardContent>
+                  <DataTable headers={["Марка и модель", "Категория"]} rows={filteredMachineModels.map((row) => [catalogModelLabel(row), row.category || emptyCell])} loading={loading} empty="Модели техники не найдены" />
+                </CardContent>
+              </Card> : null}
+              {machineYardCategory === "all" || machineYardCategory === "equipment" ? <Card>
+                <CardHeader><CardTitle>Модели оборудования</CardTitle></CardHeader>
+                <CardContent>
+                  <DataTable headers={["Марка и модель", "Категория"]} rows={filteredEquipmentModels.map((row) => [catalogModelLabel(row), row.category || emptyCell])} loading={loading} empty="Модели оборудования не найдены" />
+                </CardContent>
+              </Card> : null}
+              {machineYardCategory === "all" || machineYardCategory === "vehicles" ? <Card>
+                <CardHeader><CardTitle>Модели транспорта</CardTitle></CardHeader>
+                <CardContent>
+                  <DataTable headers={["Марка и модель", "Категория"]} rows={filteredTransportModels.map((row) => [catalogModelLabel(row), row.category || emptyCell])} loading={loading} empty="Модели транспорта не найдены" />
+                </CardContent>
+              </Card> : null}
+            </TabsContent>
+          </Tabs>
+        </TabsContent>
+
+        <TabsContent value="personnel">
+          <Card>
+            <CardHeader>
+              <CardTitle>Персонал компании</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_180px_160px]">
+                <Input
+                  placeholder="Поиск по ФИО, телефону или заметке..."
+                  value={workerSearch}
+                  onChange={(e) => setWorkerSearch(e.target.value)}
+                />
+                <Select value={workerRoleFilter} onValueChange={setWorkerRoleFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Роль" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Все роли</SelectItem>
+                    {workerRoleOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={workerStatusFilter} onValueChange={setWorkerStatusFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Статус" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Все статусы</SelectItem>
+                    {Object.entries(workerStatusLabels).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>ФИО</TableHead>
+                    <TableHead>Роль</TableHead>
+                    <TableHead>Занятость</TableHead>
+                    <TableHead>Телефон</TableHead>
+                    <TableHead>Статус</TableHead>
+                    <TableHead>Заметка</TableHead>
+                    <TableHead className="text-right">Действия</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-muted-foreground">
+                        Загрузка...
+                      </TableCell>
+                    </TableRow>
+                  ) : filteredWorkers.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-muted-foreground">
+                        Сотрудники не найдены
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredWorkers.map((worker) => (
+                      <TableRow key={worker.id}>
+                        <TableCell className="font-medium">
+                          <div>{worker.full_name}</div>
+                          {worker.short_name ? <div className="text-xs text-muted-foreground">{worker.short_name}</div> : null}
+                        </TableCell>
+                        <TableCell>{workerRoleLabels[worker.role_type] || worker.role_type}</TableCell>
+                        <TableCell>{employmentTypeLabels[worker.employment_type] || worker.employment_type}</TableCell>
+                        <TableCell>{worker.phone || "—"}</TableCell>
+                        <TableCell>{workerStatusLabels[worker.status] || worker.status}</TableCell>
+                        <TableCell className="max-w-[260px] truncate">{worker.notes || "—"}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            {canManageCompanyReferences ? (
+                              <>
+                                <Button variant="outline" size="sm" onClick={() => editWorker(worker)} disabled={saving}>
+                                  Изменить
+                                </Button>
+                                {worker.status !== "archived" ? (
+                                  <Button variant="outline" size="sm" onClick={() => archiveWorker(worker)} disabled={saving}>
+                                    Архив
+                                  </Button>
+                                ) : null}
+                              </>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      <FullPesticideCardDialog
+        open={pesticideCardOpen}
+        onOpenChange={setPesticideCardOpen}
+        loading={pesticideCardLoading}
+        error={pesticideCardError}
+        card={pesticideCard}
+        onRetry={() => selectedPesticideId && void loadPesticideCard(selectedPesticideId)}
+        adminMode={profile?.role === "global_admin"}
+      />
+
+      <Dialog open={!!modalType} onOpenChange={(open) => !open && !saving && !workerAccessSaving && closeModal()}>
+        <DialogContent className={modalType === "worker" ? "max-h-[90vh] overflow-y-auto sm:max-w-xl travkin-scrollbar" : undefined}>
+          <DialogHeader>
+            <DialogTitle>
+              {modalType === "machine" ? (editingMachineId ? "Редактировать технику" : "Добавить технику") : null}
+              {modalType === "equipment" ? "Добавить оборудование" : null}
+              {modalType === "vehicle" ? (editingVehicleId ? "Редактировать транспорт" : "Добавить транспорт") : null}
+              {modalType === "worker" ? (editingWorkerId ? "Изменить сотрудника" : "Добавить сотрудника") : null}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {(modalType === "machine" && !editingMachineId) || modalType === "equipment" || (modalType === "vehicle" && !editingVehicleId) ? (
+              <>
+                <div className="space-y-2">
+                  <Label>Поиск модели в ГЛБД</Label>
+                  <Input
+                    value={modelSearch}
+                    placeholder="Бренд, серия или модель"
+                    onChange={(event) => setModelSearch(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Модель *</Label>
+                  <Select value={form.model_id || ""} onValueChange={(value) => setForm((prev) => ({ ...prev, model_id: value }))}>
+                    <SelectTrigger><SelectValue placeholder="Выберите модель из ГЛБД" /></SelectTrigger>
+                    <SelectContent>
+                      {filteredAssetModels.map((row) => (
+                        <SelectItem key={row.id} value={row.id}>{catalogModelLabel(row)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {filteredAssetModels.length === 0 ? (
+                    <p className="text-sm text-amber-800">Модель отсутствует в ГЛБД. Обратитесь к Global Admin.</p>
+                  ) : null}
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label>Инвентарный номер</Label>
+                    <Input value={form.inventory_number || ""} onChange={(event) => setForm((prev) => ({ ...prev, inventory_number: event.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Год выпуска</Label>
+                    <Input type="number" min="1900" max="2100" value={form.manufacture_year || ""} onChange={(event) => setForm((prev) => ({ ...prev, manufacture_year: event.target.value }))} />
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {modalType === "worker" ? (
+              <>
+                <div>
+                  <Label>ФИО</Label>
+                  <Input value={form.full_name || ""} onChange={(e) => setForm((prev) => ({ ...prev, full_name: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>Короткое имя</Label>
+                  <Input value={form.short_name || ""} onChange={(e) => setForm((prev) => ({ ...prev, short_name: e.target.value }))} />
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label>Роль</Label>
+                    <Select value={form.role_type || "worker"} onValueChange={(value) => setForm((prev) => ({ ...prev, role_type: value }))}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Выберите роль" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {workerRoleOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Тип занятости</Label>
+                    <Select
+                      value={form.employment_type || "unknown"}
+                      onValueChange={(value) => setForm((prev) => ({ ...prev, employment_type: value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Выберите тип" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(employmentTypeLabels).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label>Телефон</Label>
+                    <Input value={form.phone || ""} onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Статус</Label>
+                    <Select value={form.status || "active"} onValueChange={(value) => setForm((prev) => ({ ...prev, status: value }))}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Выберите статус" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(workerStatusLabels).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div>
+                  <Label>Заметка</Label>
+                  <Textarea value={form.notes || ""} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} />
+                </div>
+
+                {editingWorkerId && (editingWorkerRole === "weighbridge_operator" || form.role_type === "weighbridge_operator") ? (
+                  <div className="space-y-3 rounded-lg border border-border bg-background p-4">
+                    <div>
+                      <div className="font-semibold text-foreground">Доступ к Весовой</div>
+                      <div className="text-sm text-muted-foreground">PIN хранится в защищённом виде и никогда не показывается.</div>
+                    </div>
+
+                    {editingWorkerRole !== "weighbridge_operator" ? (
+                      <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
+                        Сначала сохраните сотрудника с ролью «Весовщик», затем откройте карточку снова для установки PIN.
+                      </div>
+                    ) : workerAccessLoading ? (
+                      <div className="text-sm text-muted-foreground">Проверка доступа...</div>
+                    ) : workerAccess ? (
+                      <>
+                        <div className="grid gap-2 text-sm sm:grid-cols-2">
+                          <div className="rounded-md border border-border px-3 py-2">
+                            <div className="text-muted-foreground">Доступ</div>
+                            <div className={workerAccess.access_enabled ? "font-medium text-emerald-800" : "font-medium text-foreground"}>
+                              {workerAccess.access_enabled ? "Включён" : "Отключён"}
+                            </div>
+                          </div>
+                          <div className="rounded-md border border-border px-3 py-2">
+                            <div className="text-muted-foreground">PIN</div>
+                            <div className="font-medium text-foreground">
+                              {workerAccess.pin_configured ? "Установлен" : "Не установлен"}
+                            </div>
+                          </div>
+                        </div>
+
+                        {workerPinEditorOpen ? (
+                          <div className="space-y-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div className="space-y-1.5">
+                                <Label htmlFor="worker-weighbridge-pin">Новый PIN</Label>
+                                <Input
+                                  id="worker-weighbridge-pin"
+                                  type="password"
+                                  inputMode="numeric"
+                                  autoComplete="new-password"
+                                  maxLength={6}
+                                  value={workerPin}
+                                  onChange={(event) => setWorkerPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                                  placeholder="6 цифр"
+                                  className="text-center tracking-[0.3em]"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label htmlFor="worker-weighbridge-pin-confirm">Повторите PIN</Label>
+                                <Input
+                                  id="worker-weighbridge-pin-confirm"
+                                  type="password"
+                                  inputMode="numeric"
+                                  autoComplete="new-password"
+                                  maxLength={6}
+                                  value={workerPinConfirm}
+                                  onChange={(event) => setWorkerPinConfirm(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter" && /^\d{6}$/.test(workerPin) && workerPin === workerPinConfirm) {
+                                      void saveWorkerPin();
+                                    }
+                                  }}
+                                  placeholder="Ещё раз"
+                                  className="text-center tracking-[0.3em]"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => {
+                                  setWorkerPinEditorOpen(false);
+                                  setWorkerPin("");
+                                  setWorkerPinConfirm("");
+                                }}
+                                disabled={workerAccessSaving}
+                              >
+                                Отмена
+                              </Button>
+                              <Button
+                                type="button"
+                                onClick={() => void saveWorkerPin()}
+                                disabled={workerAccessSaving || !/^\d{6}$/.test(workerPin) || workerPin !== workerPinConfirm}
+                              >
+                                <KeyRound className="mr-2 h-4 w-4" />
+                                {workerAccessSaving ? "Сохранение..." : "Сохранить PIN"}
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => setWorkerPinEditorOpen(true)}
+                              disabled={workerAccessSaving || form.status !== "active"}
+                            >
+                              <KeyRound className="mr-2 h-4 w-4" />
+                              {workerAccess.pin_configured ? "Сменить PIN" : "Установить PIN"}
+                            </Button>
+                            {workerAccess.access_enabled ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => void disableWorkerWeighbridgeAccess()}
+                                disabled={workerAccessSaving}
+                                className="border-red-500/40 text-red-800 hover:bg-red-500/10 hover:text-red-800"
+                              >
+                                <ShieldOff className="mr-2 h-4 w-4" />
+                                Отключить доступ к Весовой
+                              </Button>
+                            ) : null}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="text-sm text-red-800">Не удалось получить состояние доступа.</div>
+                    )}
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+
+            {modalType === "vehicle" ? (
+              <>
+                <div>
+                  <Label>Госномер *</Label>
+                  <Input
+                    maxLength={32}
+                    value={form.plate_number || ""}
+                    onChange={(e) => setForm((prev) => ({ ...prev, plate_number: e.target.value }))}
+                  />
+                </div>
+                {editingVehicleId ? (
+                  <>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <Label>Инвентарный номер</Label>
+                        <Input
+                          maxLength={64}
+                          value={form.inventory_number || ""}
+                          onChange={(event) => setForm((prev) => ({ ...prev, inventory_number: event.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <Label>Год выпуска</Label>
+                        <Input
+                          type="number"
+                          min="1900"
+                          max="2100"
+                          step="1"
+                          value={form.manufacture_year || ""}
+                          onChange={(event) => setForm((prev) => ({ ...prev, manufacture_year: event.target.value }))}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Активность</Label>
+                      <Select value={form.is_active || "true"} onValueChange={(value) => setForm((prev) => ({ ...prev, is_active: value }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="true">Активен</SelectItem>
+                          <SelectItem value="false">Неактивен</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <Label>Грузоподъёмность (кг)</Label>
+                    <Input
+                      type="number"
+                      value={form.capacity_kg || ""}
+                      onChange={(e) => setForm((prev) => ({ ...prev, capacity_kg: e.target.value }))}
+                    />
+                  </div>
+                )}
+              </>
+            ) : null}
+
+            {modalType === "machine" ? (
+              <>
+                <div>
+                  <Label>Госномер</Label>
+                  <Input
+                    maxLength={32}
+                    value={form.plate_number || ""}
+                    onChange={(event) => setForm((prev) => ({ ...prev, plate_number: event.target.value }))}
+                  />
+                </div>
+                {editingMachineId ? (
+                  <>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <Label>Инвентарный номер</Label>
+                        <Input
+                          maxLength={64}
+                          value={form.inventory_number || ""}
+                          onChange={(event) => setForm((prev) => ({ ...prev, inventory_number: event.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <Label>Год выпуска</Label>
+                        <Input
+                          type="number"
+                          min="1900"
+                          max="2100"
+                          step="1"
+                          value={form.manufacture_year || ""}
+                          onChange={(event) => setForm((prev) => ({ ...prev, manufacture_year: event.target.value }))}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Активность</Label>
+                      <Select value={form.is_active || "true"} onValueChange={(value) => setForm((prev) => ({ ...prev, is_active: value }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="true">Активна</SelectItem>
+                          <SelectItem value="false">Неактивна</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <Label>Статус</Label>
+                    <Select value={form.status || "free"} onValueChange={(value) => setForm((prev) => ({ ...prev, status: value }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="free">Свободна</SelectItem>
+                        <SelectItem value="working">В работе</SelectItem>
+                        <SelectItem value="maintenance">На обслуживании</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </>
+            ) : null}
+
+            {modalType === "equipment" ? (
+              <div>
+                <Label>Статус</Label>
+                <Select value={form.status || "active"} onValueChange={(value) => setForm((prev) => ({ ...prev, status: value }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Активно</SelectItem>
+                    <SelectItem value="inactive">Неактивно</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+
+            {modalType === "vehicle" && !editingVehicleId ? (
+              <div>
+                <Label>Статус</Label>
+                <Select value={form.status || "free"} onValueChange={(value) => setForm((prev) => ({ ...prev, status: value }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="free">Свободен</SelectItem>
+                    <SelectItem value="in_trip">В рейсе</SelectItem>
+                    <SelectItem value="loading">Погрузка</SelectItem>
+                    <SelectItem value="unloading">Разгрузка</SelectItem>
+                    <SelectItem value="drying">На сушке</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => !saving && !workerAccessSaving && closeModal()} disabled={saving || workerAccessSaving}>
+              Отмена
+            </Button>
+            <Button onClick={submitCreate} disabled={saving || workerAccessSaving}>
+              {saving ? "Сохранение..." : editingWorkerId || editingMachineId || editingVehicleId ? "Сохранить" : "Создать"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

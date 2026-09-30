@@ -1,0 +1,1241 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { BookOpen, ChevronDown, ChevronLeft, ChevronRight, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { useAuth } from "@/lib/contexts/auth-context";
+import { useToast } from "@/hooks/use-toast";
+import { buildProductDisplayLabel } from "@/lib/catalog/catalog-identity";
+import { brandName, localizedName, localizeUnit } from "@/lib/i18n/helpers";
+import { inferMaterialStockUnit } from "@/lib/materials/metadata";
+import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
+import {
+  type CatalogFilter,
+  type CatalogFormField,
+  type GlobalCatalogConfig,
+  type GlobalCatalogEntity,
+} from "@/lib/platform/global-catalog-config";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import {
+  GlbdComponentDialog,
+  type GlbdComponentCardData,
+} from "@/components/platform/glbd-component-dialog";
+import {
+  FullPesticideCardDialog,
+  type FullPesticideCardData,
+} from "@/components/platform/full-pesticide-card-dialog";
+
+type RowRecord = Record<string, any>;
+type Option = { label: string; value: string };
+type SearchConflict = { message: string; components: string[] };
+type CategoryCount = { key: string; label: string; count: number };
+
+const CONSOLE_LABEL_CLASS = "font-mono text-[11px] uppercase tracking-[0.12em] !text-muted-foreground";
+const CONSOLE_CONTROL_CLASS =
+  "rounded-none border-border bg-card !text-foreground placeholder:!text-muted-foreground focus-visible:ring-ring";
+const CONSOLE_SELECT_TRIGGER_CLASS =
+  "rounded-none border-border bg-card !text-foreground data-[placeholder]:!text-muted-foreground";
+const CONSOLE_MENU_CLASS = "rounded-none border-border bg-popover !text-popover-foreground";
+const CONSOLE_TABLE_CELL_CLASS = "border-border px-4 py-3 !text-foreground";
+
+function optionLabel(entity: GlobalCatalogEntity, row: RowRecord): string {
+  if (entity === "varieties" || entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators") {
+    if (entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators") {
+      return buildProductDisplayLabel(row as any) || row.full_name || row.code || row.slug || row.id;
+    }
+    return brandName(row) || row.full_name || row.code || row.slug || row.id;
+  }
+  return localizedName(row, "ru") || row.full_name || brandName(row, ["name", "trade_name"]) || row.code || row.slug || row.id;
+}
+
+const BOOL_KEYS = new Set(["is_active", "is_common_in_kz"]);
+const UNIT_KEYS = new Set([
+  "unit",
+  "uom",
+  "base_uom",
+  "default_unit",
+  "stock_unit",
+  "storage_unit",
+  "issue_unit",
+  "default_rate_unit",
+  "rate_unit",
+  "application_unit",
+]);
+const STOCK_UNIT_KEYS = new Set(["unit", "uom", "base_uom", "default_unit", "stock_unit", "storage_unit", "issue_unit"]);
+const CODE_KEYS = new Set([
+  "status",
+  "type",
+  "product_type",
+  "category",
+  "subcategory",
+  "pesticide_category",
+  "fertilizer_type",
+  "default_rate_type",
+  "rate_basis",
+  "formulation",
+  "disease_type",
+  "pathogen_type",
+  "pest_type",
+  "weed_type",
+  "confidence",
+  "target_type",
+  "asset_group",
+  "equipment_type",
+  "vehicle_type",
+  "power_class",
+  "source_type",
+]);
+const CODE_LABELS: Record<string, string> = {
+  unknown: "не указано",
+  other: "другое",
+  master: "общий каталог",
+  active: "активно",
+  inactive: "неактивно",
+  high: "высокая",
+  medium: "средняя",
+  low: "низкая",
+  pesticide: "пестицид",
+  fertilizer: "удобрение",
+  additive: "добавка",
+  adjuvant: "адъювант",
+  surfactant: "ПАВ",
+  sticker: "прилипатель",
+  antifoam: "пеногаситель",
+  anti_foam: "пеногаситель",
+  water_conditioner: "кондиционер воды",
+  anti_salt: "антисоль",
+  ph_corrector: "корректор pH",
+  ph_regulator: "регулятор pH",
+  biostimulant: "биостимулянт",
+  growth_regulator: "регулятор роста",
+  herbicide: "гербицид",
+  fungicide: "фунгицид",
+  insecticide: "инсектицид",
+  acaricide: "акарицид",
+  desiccant: "десикант",
+  seed_treatment: "протравитель",
+  safener: "сафенер",
+  nitrogen: "азотное",
+  phosphorus: "фосфорное",
+  potassium: "калийное",
+  npk: "NPK",
+  micronutrient: "микроэлементное",
+  foliar: "листовое",
+  macro: "макро",
+  micro: "микро",
+  water_soluble: "водорастворимое",
+  organic: "органическое",
+  organomineral: "органоминеральное",
+  per_ha: "на гектар",
+  per_1000_l_solution: "на 1000 л раствора",
+  per_l_water: "на литр воды",
+  per_t_seed: "на тонну семян",
+  per_100kg_seed: "на 100 кг семян",
+  per_1000_seeds: "на 1000 семян",
+  manual: "вручную",
+  liquid: "жидкий",
+  solid: "твёрдый",
+  annual: "однолетний",
+  perennial: "многолетний",
+  insect: "насекомое",
+  mite: "клещ",
+  nematode: "нематода",
+  self_propelled_machine: "самоходная техника",
+  implement: "агрегат",
+  trailer: "прицеп",
+  truck: "транспорт",
+  tractor: "трактор",
+  combine: "комбайн",
+  combine_harvester: "комбайн",
+  potato_harvester: "картофелеуборочный комбайн",
+  self_propelled_sprayer: "самоходный опрыскиватель",
+  loader: "погрузчик",
+  light_vehicle: "легковой транспорт",
+  tractor_unit: "тягач",
+  semi_trailer: "полуприцеп",
+  bus: "автобус",
+  special_vehicle: "спецтранспорт",
+  dump_truck: "самосвал",
+  fuel_truck: "топливозаправщик",
+  crane_truck: "автокран",
+  pickup: "пикап",
+  seeding: "посевное оборудование",
+  potato_cultivator: "картофельный культиватор",
+  receiving_hopper: "приёмный бункер",
+  potato_harvester_equipment: "картофелеуборочное оборудование",
+  potato_digger: "картофелекопалка",
+  potato_conveyor: "картофельный транспортер",
+  header: "жатка",
+  pickup_header: "подборщик",
+  grain_handling: "зернопогрузчик / зернометатель",
+  conveyor: "транспортер",
+  spraying_attached: "навесной/прицепной опрыскиватель",
+  precision_agriculture: "точное земледелие",
+  loader_attachment: "погрузочное оборудование",
+  rotary_harrow: "ротационная борона",
+  separator: "сепаратор",
+  source_manual: "ручной ввод",
+  manufacturer: "производитель",
+  official_dealer: "официальный дилер",
+  registry: "реестр",
+  import_feed: "импорт данных",
+  fungus: "гриб",
+  bacteria: "бактерия",
+  virus: "вирус",
+  oomycete: "оомицет",
+  physiological: "физиологическое",
+};
+
+function formatCodeToken(token: string): string {
+  const trimmed = token.trim();
+  const normalized = trimmed.toLowerCase();
+  const exact = CODE_LABELS[normalized];
+  if (exact) return exact;
+
+  const parenthetical = normalized.match(/^([a-z_]+)\s*\(([^)]+)\)$/);
+  if (parenthetical) {
+    const base = CODE_LABELS[parenthetical[1]] || trimmed.replace(/\s*\([^)]+\)$/, "");
+    const note = CODE_LABELS[parenthetical[2]] || parenthetical[2];
+    return `${base} (${note})`;
+  }
+
+  return trimmed;
+}
+
+function formatCodeValue(value: any): string {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "-") return raw || "-";
+  return raw
+    .split(/(\s*\/\s*|\s*,\s*)/)
+    .map((part) => {
+      if (!part.trim()) return "";
+      if (part.includes("/")) return " / ";
+      if (part.includes(",")) return ", ";
+      return formatCodeToken(part);
+    })
+    .join("");
+}
+
+function isProductEntity(entity: GlobalCatalogEntity): boolean {
+  return entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators";
+}
+
+function formatCellValue(value: any, key?: string, row?: RowRecord, entity?: GlobalCatalogEntity): string {
+  if (row && entity && isProductEntity(entity) && key === "trade_name") return buildProductDisplayLabel(row as any) || "-";
+  if (row && entity && isProductEntity(entity) && key && STOCK_UNIT_KEYS.has(key)) {
+    return localizeUnit(inferMaterialStockUnit(row, value), "ru") || "-";
+  }
+  if (typeof value === "boolean") return value ? "Да" : "Нет";
+  if (Array.isArray(value)) return key && CODE_KEYS.has(key) ? value.map(formatCodeToken).join(", ") : value.join(", ");
+  if (value == null || value === "") return "-";
+  if (typeof value === "string" && value.trim().toLowerCase() === "unknown") return "не указано";
+  if (key && UNIT_KEYS.has(key)) return localizeUnit(value, "ru") || "-";
+  if (key && CODE_KEYS.has(key)) return formatCodeValue(value);
+  return String(value);
+}
+
+function getInitialValue(field: CatalogFormField): any {
+  if (field.type === "checkbox") return true;
+  if (field.type === "number") return "";
+  if (field.type === "multiselect") return [];
+  return "";
+}
+
+function toArrayValue(value: any): string[] {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (typeof value === "string" && value.trim()) return value.split(",").map((s) => s.trim()).filter(Boolean);
+  return [];
+}
+
+export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const searchParams = useSearchParams();
+  const initialSearchParamsRef = useRef(searchParams.toString());
+  const pesticideIdFromUrl = config.entity === "pesticides"
+    ? new URLSearchParams(initialSearchParamsRef.current).get("pesticide")
+    : null;
+  const isCanonicalPesticideList = config.entity === "pesticides";
+
+  const [rows, setRows] = useState<RowRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [totalRows, setTotalRows] = useState(0);
+  const [categoryCounts, setCategoryCounts] = useState<CategoryCount[]>([]);
+  const [allCategoryCount, setAllCategoryCount] = useState(0);
+  const [listCursor, setListCursor] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingRow, setEditingRow] = useState<RowRecord | null>(null);
+  const [formState, setFormState] = useState<Record<string, any>>({});
+  const [filters, setFilters] = useState<Record<string, string | string[]>>({});
+  const [filtersReady, setFiltersReady] = useState(false);
+  const [remoteOptions, setRemoteOptions] = useState<Record<string, Option[]>>({});
+  const [searchConflict, setSearchConflict] = useState<SearchConflict | null>(null);
+  const [componentOpen, setComponentOpen] = useState(false);
+  const [componentLoading, setComponentLoading] = useState(false);
+  const [componentError, setComponentError] = useState<string | null>(null);
+  const [componentDetail, setComponentDetail] = useState<GlbdComponentCardData | null>(null);
+  const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
+  const [pesticideCardOpen, setPesticideCardOpen] = useState(false);
+  const [pesticideCardLoading, setPesticideCardLoading] = useState(false);
+  const [pesticideCardError, setPesticideCardError] = useState<string | null>(null);
+  const [pesticideCard, setPesticideCard] = useState<FullPesticideCardData | null>(null);
+  const [selectedPesticideId, setSelectedPesticideId] = useState<string | null>(null);
+  const listAbortRef = useRef<AbortController | null>(null);
+  const listRequestSequenceRef = useRef(0);
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const lastAppliedListKeyRef = useRef("");
+  const cardAbortRef = useRef<AbortController | null>(null);
+  const cardRequestSequenceRef = useRef(0);
+  const cardCacheRef = useRef(new Map<string, FullPesticideCardData>());
+
+  const canSubmit = useMemo(() => {
+    return config.formFields.every((field) => {
+      if (!field.required) return true;
+      const value = formState[field.key];
+      if (field.type === "checkbox") return true;
+      if (field.type === "multiselect") return Array.isArray(value) && value.length > 0;
+      return String(value ?? "").trim().length > 0;
+    });
+  }, [config.formFields, formState]);
+
+  const effectiveFilterOptions = useMemo(() => {
+    const result: Record<string, Option[]> = {};
+    for (const filter of config.filters) {
+      if (filter.optionsEntity) {
+        const remote = remoteOptions[`filter:${filter.key}`] || [];
+        result[filter.key] = remote.some((o) => o.value === "all")
+          ? remote
+          : [{ label: "Все", value: "all" }, ...remote];
+        continue;
+      }
+
+      const base = [...filter.options];
+      if (!base.some((option) => option.value === "all")) {
+        base.unshift({ label: "Все", value: "all" });
+      }
+
+      if (BOOL_KEYS.has(filter.key)) {
+        result[filter.key] = base;
+        continue;
+      }
+
+      const dynamicValues = new Set<string>();
+      for (const row of rows) {
+        const raw = row[filter.key];
+        if (raw == null || raw === "") continue;
+        if (Array.isArray(raw)) {
+          raw.forEach((value) => {
+            const v = String(value || "").trim();
+            if (v) dynamicValues.add(v);
+          });
+        } else {
+          dynamicValues.add(String(raw));
+        }
+      }
+
+      for (const value of Array.from(dynamicValues)) {
+        if (!base.some((option) => option.value === value)) base.push({ label: value, value });
+      }
+
+      result[filter.key] = base;
+    }
+    return result;
+  }, [config.filters, rows, remoteOptions]);
+
+  const serializedFilters = useMemo(() => JSON.stringify(filters), [filters]);
+  const effectiveListSearch = isCanonicalPesticideList ? debouncedSearch : search;
+
+  const loadRows = useCallback(async () => {
+    if (!user?.id || !filtersReady) return;
+
+    listAbortRef.current?.abort();
+    const controller = new AbortController();
+    listAbortRef.current = controller;
+    const sequence = ++listRequestSequenceRef.current;
+    const requestSearch = effectiveListSearch;
+    const listKey = `${config.entity}|${requestSearch}|${serializedFilters}|${listCursor || "first"}`;
+
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ userId: user.id });
+      if (isCanonicalPesticideList) {
+        if (requestSearch.trim()) params.set("q", requestSearch.trim());
+        params.set("limit", "50");
+        if (listCursor) params.set("cursor", listCursor);
+      } else if (requestSearch.trim()) {
+        params.set("search", requestSearch.trim());
+      }
+
+      Object.entries(filters).forEach(([key, value]) => {
+        if (Array.isArray(value)) {
+          const prepared = value.filter(Boolean);
+          if (prepared.length) params.set(key, prepared.join(","));
+          return;
+        }
+        if (!value || value === "all") return;
+        if (isCanonicalPesticideList && key === "category_id") params.set("category", value);
+        else if (isCanonicalPesticideList && key === "is_active") {
+          params.set("status", value === "false" ? "inactive" : "active");
+        } else params.set(key, value);
+      });
+
+      if (isCanonicalPesticideList && !params.has("status")) params.set("status", "active");
+
+      const headers = await buildClientAuthHeaders();
+      const endpoint = isCanonicalPesticideList
+        ? "/api/global-admin/catalog/products"
+        : `/api/global-admin/catalog/${config.entity}`;
+      const response = await fetch(`${endpoint}?${params.toString()}`, {
+        headers,
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить каталог");
+      if (controller.signal.aborted || sequence !== listRequestSequenceRef.current) return;
+
+      const nextRows = isCanonicalPesticideList
+        ? (Array.isArray(payload?.items) ? payload.items : [])
+        : (Array.isArray(payload?.rows) ? payload.rows : []);
+      setRows(nextRows);
+      setSearchConflict(payload?.searchConflict || null);
+      if (isCanonicalPesticideList) {
+        setTotalRows(Number(payload?.total || 0));
+        setNextCursor(payload?.next_cursor || null);
+        setAllCategoryCount(Number(payload?.category_counts?.all || 0));
+        setCategoryCounts(Array.isArray(payload?.category_counts?.categories) ? payload.category_counts.categories : []);
+      }
+      if (lastAppliedListKeyRef.current !== listKey) {
+        lastAppliedListKeyRef.current = listKey;
+        listScrollRef.current?.scrollTo({ top: 0 });
+      }
+    } catch (error: any) {
+      if (controller.signal.aborted || error?.name === "AbortError") return;
+      if (sequence !== listRequestSequenceRef.current) return;
+      setSearchConflict(null);
+      toast({ title: "Ошибка", description: error?.message || "Не удалось загрузить каталог", variant: "destructive" });
+    } finally {
+      if (sequence === listRequestSequenceRef.current) setLoading(false);
+    }
+  }, [config.entity, effectiveListSearch, filters, filtersReady, isCanonicalPesticideList, listCursor, serializedFilters, toast, user?.id]);
+
+  const loadRemoteOptions = async () => {
+    if (!user?.id) return;
+
+    const fieldTargets = config.formFields
+      .filter((field) => field.optionsEntity)
+      .map((field) => ({ targetKey: field.key, entity: field.optionsEntity as GlobalCatalogEntity }));
+    const filterTargets = config.filters
+      .filter((filter) => filter.optionsEntity)
+      .map((filter) => ({ targetKey: `filter:${filter.key}`, entity: filter.optionsEntity as GlobalCatalogEntity }));
+    const targets = [...fieldTargets, ...filterTargets];
+    if (!targets.length) return;
+
+    const headers = await buildClientAuthHeaders().catch(() => null);
+    if (!headers) {
+      setRemoteOptions({});
+      return;
+    }
+
+    const targetsByEntity = new Map<GlobalCatalogEntity, string[]>();
+    for (const target of targets) {
+      const keys = targetsByEntity.get(target.entity) || [];
+      keys.push(target.targetKey);
+      targetsByEntity.set(target.entity, keys);
+    }
+
+    const groupedEntries = await Promise.all(
+      Array.from(targetsByEntity.entries()).map(async ([entity, targetKeys]) => {
+        try {
+          const params = new URLSearchParams({ userId: user.id });
+          const response = await fetch(`/api/global-admin/catalog/${entity}?${params.toString()}`, {
+            headers,
+            cache: "no-store",
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) return targetKeys.map((targetKey) => [targetKey, []] as const);
+
+          const options: Option[] = (payload?.rows || []).map((row: any) => ({
+            label: optionLabel(entity, row),
+            value: row.id,
+          }));
+          return targetKeys.map((targetKey) => [targetKey, options] as const);
+        } catch {
+          return targetKeys.map((targetKey) => [targetKey, []] as const);
+        }
+      })
+    );
+
+    setRemoteOptions(Object.fromEntries(groupedEntries.flat()));
+  };
+
+  useEffect(() => {
+    if (!isCanonicalPesticideList) {
+      setDebouncedSearch(search);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setListCursor(null);
+      setCursorHistory([]);
+      setDebouncedSearch(search);
+    }, 275);
+    return () => window.clearTimeout(timer);
+  }, [isCanonicalPesticideList, search]);
+
+  useEffect(() => {
+    const initialParams = new URLSearchParams(initialSearchParamsRef.current);
+    const defaults = Object.fromEntries(
+      config.filters.map((filter) => {
+        const fromUrl = initialParams.get(filter.key);
+        if (filter.multi) return [filter.key, fromUrl ? fromUrl.split(",").map((value) => value.trim()).filter(Boolean) : []];
+        if (isCanonicalPesticideList && filter.key === "is_active") return [filter.key, fromUrl || "true"];
+        return [filter.key, fromUrl || filter.options.find((option) => option.value === "all")?.value || "all"];
+      })
+    );
+    setFilters(defaults);
+    setFiltersReady(true);
+  }, [config.entity, config.filters, isCanonicalPesticideList]);
+
+  useEffect(() => {
+    void loadRows();
+    return () => listAbortRef.current?.abort();
+  }, [loadRows]);
+
+  useEffect(() => {
+    void loadRemoteOptions();
+  }, [config.entity, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadComponentCard = async (componentId: string) => {
+    if (!user?.id || !componentId) return;
+    setSelectedComponentId(componentId);
+    setComponentOpen(true);
+    setComponentLoading(true);
+    setComponentError(null);
+    setComponentDetail(null);
+    try {
+      const params = new URLSearchParams({ userId: user.id, componentId });
+      const headers = await buildClientAuthHeaders();
+      const response = await fetch(`/api/global-admin/catalog/active_ingredients?${params.toString()}`, {
+        headers,
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить карточку компонента");
+      setComponentDetail(payload?.component || null);
+    } catch (error: any) {
+      setComponentError(error?.message || "Не удалось загрузить карточку компонента");
+    } finally {
+      setComponentLoading(false);
+    }
+  };
+
+  const loadPesticideCard = async (productId: string) => {
+    if (!user?.id || !productId) return;
+    cardAbortRef.current?.abort();
+    const cached = cardCacheRef.current.get(productId);
+    setSelectedPesticideId(productId);
+    setPesticideCardOpen(true);
+    setPesticideCardError(null);
+    if (cached) {
+      setPesticideCard(cached);
+      setPesticideCardLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    cardAbortRef.current = controller;
+    const sequence = ++cardRequestSequenceRef.current;
+    setPesticideCardLoading(true);
+    setPesticideCard(null);
+    try {
+      const headers = await buildClientAuthHeaders();
+      const response = await fetch(`/api/global-admin/pesticide-card/${productId}`, {
+        headers,
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить полную карточку");
+      if (controller.signal.aborted || sequence !== cardRequestSequenceRef.current) return;
+      cardCacheRef.current.set(productId, payload as FullPesticideCardData);
+      setPesticideCard(payload as FullPesticideCardData);
+    } catch (error: any) {
+      if (controller.signal.aborted || error?.name === "AbortError") return;
+      if (sequence !== cardRequestSequenceRef.current) return;
+      setPesticideCardError(error?.message || "Не удалось загрузить полную карточку");
+    } finally {
+      if (sequence === cardRequestSequenceRef.current) setPesticideCardLoading(false);
+    }
+  };
+
+  const retryPesticideCard = () => {
+    if (selectedPesticideId) void loadPesticideCard(selectedPesticideId);
+  };
+
+  const openPesticideCard = (productId: string) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("pesticide", productId);
+    window.history.pushState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
+    void loadPesticideCard(productId);
+  };
+
+  const handlePesticideCardOpenChange = (open: boolean) => {
+    if (open) {
+      setPesticideCardOpen(true);
+      return;
+    }
+    cardAbortRef.current?.abort();
+    cardRequestSequenceRef.current += 1;
+    const params = new URLSearchParams(window.location.search);
+    params.delete("pesticide");
+    setPesticideCardOpen(false);
+    setSelectedPesticideId(null);
+    setPesticideCard(null);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      params.size ? `${window.location.pathname}?${params.toString()}` : window.location.pathname,
+    );
+  };
+
+  useEffect(() => {
+    if (config.entity !== "pesticides" || !user?.id) return;
+    if (!pesticideIdFromUrl) {
+      setPesticideCardOpen(false);
+      setSelectedPesticideId(null);
+      setPesticideCard(null);
+      return;
+    }
+    if (selectedPesticideId === pesticideIdFromUrl && pesticideCardOpen) return;
+    void loadPesticideCard(pesticideIdFromUrl);
+  }, [config.entity, user?.id, pesticideIdFromUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => cardAbortRef.current?.abort(), []);
+
+  const retryComponentCard = () => {
+    if (selectedComponentId) void loadComponentCard(selectedComponentId);
+  };
+
+  const openCreate = () => {
+    const initial = Object.fromEntries(config.formFields.map((field) => [field.key, getInitialValue(field)]));
+    setFormState(initial);
+    setEditingRow(null);
+    setCreateOpen(true);
+  };
+
+  const openEdit = async (row: RowRecord) => {
+    let sourceRow = row;
+    if (isCanonicalPesticideList && user?.id) {
+      try {
+        const headers = await buildClientAuthHeaders();
+        const params = new URLSearchParams({ userId: user.id, id: row.id });
+        const response = await fetch(`/api/global-admin/catalog/pesticides?${params.toString()}`, {
+          headers,
+          cache: "no-store",
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload?.rows?.[0]) throw new Error(payload?.error || "Запись не найдена");
+        sourceRow = payload.rows[0];
+      } catch (error: any) {
+        toast({ title: "Ошибка", description: error?.message || "Не удалось открыть редактирование", variant: "destructive" });
+        return;
+      }
+    }
+    const initial = Object.fromEntries(
+      config.formFields.map((field) => {
+        const value = sourceRow[field.key];
+        if (field.type === "checkbox") return [field.key, value !== false];
+        if (field.type === "multiselect") return [field.key, toArrayValue(value)];
+        return [field.key, value ?? ""];
+      })
+    );
+    setEditingRow(sourceRow);
+    setFormState(initial);
+    setEditOpen(true);
+  };
+
+  const submitCreate = async () => {
+    if (!user?.id || !canSubmit || saving) return;
+    setSaving(true);
+    try {
+      const headers = await buildClientAuthHeaders("json");
+      const response = await fetch(`/api/global-admin/catalog/${config.entity}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ userId: user.id, payload: formState }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Не удалось создать запись");
+
+      setCreateOpen(false);
+      await loadRows();
+      toast({ title: "Готово", description: "Запись успешно создана." });
+    } catch (error: any) {
+      toast({ title: "Ошибка", description: error?.message || "Не удалось создать запись", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const submitEdit = async () => {
+    if (!user?.id || !editingRow?.id || saving) return;
+    setSaving(true);
+    try {
+      const headers = await buildClientAuthHeaders("json");
+      const response = await fetch(`/api/global-admin/catalog/${config.entity}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ userId: user.id, id: editingRow.id, payload: formState }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Не удалось обновить запись");
+
+      setEditOpen(false);
+      setEditingRow(null);
+      await loadRows();
+      toast({ title: "Готово", description: "Изменения сохранены." });
+    } catch (error: any) {
+      toast({ title: "Ошибка", description: error?.message || "Не удалось обновить запись", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const archiveRow = async (rowId: string) => {
+    if (!user?.id || saving) return;
+    setSaving(true);
+    try {
+      const headers = await buildClientAuthHeaders("json");
+      const response = await fetch(`/api/global-admin/catalog/${config.entity}`, {
+        method: "DELETE",
+        headers,
+        body: JSON.stringify({ userId: user.id, id: rowId }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Не удалось деактивировать запись");
+
+      await loadRows();
+      toast({ title: "Готово", description: "Запись деактивирована." });
+    } catch (error: any) {
+      toast({ title: "Ошибка", description: error?.message || "Не удалось деактивировать запись", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const renderMultiSelect = (
+    label: string,
+    selectedValues: string[],
+    options: Option[],
+    onToggle: (value: string) => void
+  ) => {
+    const selectedSet = new Set(selectedValues);
+    const selectedLabels = options.filter((o) => selectedSet.has(o.value)).map((o) => o.label);
+    const triggerLabel = selectedLabels.length ? `Выбрано: ${selectedLabels.length}` : "Выберите значения";
+
+    return (
+      <div className="space-y-2">
+        <Label className={CONSOLE_LABEL_CLASS}>{label}</Label>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="w-full justify-between rounded-none border-border bg-card font-normal !text-foreground hover:bg-accent">
+              <span className="truncate">{triggerLabel}</span>
+              <ChevronDown className="h-4 w-4 opacity-70" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className={`max-h-72 w-[320px] overflow-y-auto ${CONSOLE_MENU_CLASS}`}>
+            {options.map((option) => (
+              <DropdownMenuCheckboxItem
+                key={`${label}-${option.value}`}
+                checked={selectedSet.has(option.value)}
+                onCheckedChange={() => onToggle(option.value)}
+                className="rounded-none !text-foreground focus:bg-card focus:!text-foreground"
+              >
+                {option.label}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {selectedLabels.length ? (
+          <div className="flex flex-wrap gap-1">
+            {selectedLabels.slice(0, 6).map((name) => (
+              <Badge key={name} variant="secondary" className="rounded-none border border-border bg-card font-normal !text-foreground">{name}</Badge>
+            ))}
+            {selectedLabels.length > 6 ? (
+              <Badge variant="secondary" className="rounded-none border border-border bg-card !text-foreground">
+                +{selectedLabels.length - 6}
+              </Badge>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderField = (field: CatalogFormField) => {
+    const value = formState[field.key];
+    const options = field.optionsEntity ? remoteOptions[field.key] || [] : field.options || [];
+
+    if (field.type === "checkbox") {
+      return (
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id={field.key}
+            checked={Boolean(value)}
+            onCheckedChange={(checked) => setFormState((prev) => ({ ...prev, [field.key]: Boolean(checked) }))}
+          />
+          <Label htmlFor={field.key} className="!text-foreground">{field.label}</Label>
+        </div>
+      );
+    }
+
+    if (field.type === "multiselect") {
+      const selected = toArrayValue(value);
+      return renderMultiSelect(
+        `${field.label}${field.required ? " *" : ""}`,
+        selected,
+        options,
+        (itemValue) => {
+          setFormState((prev) => {
+            const current = new Set(toArrayValue(prev[field.key]));
+            if (current.has(itemValue)) current.delete(itemValue);
+            else current.add(itemValue);
+            return { ...prev, [field.key]: Array.from(current) };
+          });
+        }
+      );
+    }
+
+    if (field.type === "select") {
+      return (
+        <div className="space-y-2">
+          <Label className={CONSOLE_LABEL_CLASS}>{field.label}{field.required ? " *" : ""}</Label>
+          <Select
+            value={String(value || "")}
+            onValueChange={(next) => setFormState((prev) => ({ ...prev, [field.key]: next }))}
+          >
+            <SelectTrigger className={CONSOLE_SELECT_TRIGGER_CLASS}>
+              <SelectValue placeholder={field.placeholder || "Выберите значение"} />
+            </SelectTrigger>
+            <SelectContent className={CONSOLE_MENU_CLASS}>
+              {options.map((option) => (
+                <SelectItem key={`${field.key}-${option.value}`} value={option.value} className="rounded-none !text-foreground focus:bg-card focus:!text-foreground">
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-2">
+        <Label className={CONSOLE_LABEL_CLASS}>{field.label}{field.required ? " *" : ""}</Label>
+        <Input
+          type={field.type === "number" ? "number" : "text"}
+          value={value ?? ""}
+          placeholder={field.placeholder || ""}
+          className={CONSOLE_CONTROL_CLASS}
+          onChange={(event) => setFormState((prev) => ({ ...prev, [field.key]: event.target.value }))}
+        />
+      </div>
+    );
+  };
+
+  const renderFilter = (filter: CatalogFilter) => {
+    const options = effectiveFilterOptions[filter.key] || filter.options;
+
+    if (filter.multi) {
+      const selected = toArrayValue(filters[filter.key]);
+      return (
+        <div className="space-y-2 min-w-[240px]">
+          {renderMultiSelect(filter.label, selected, options.filter((o) => o.value !== "all"), (itemValue) => {
+            setListCursor(null);
+            setCursorHistory([]);
+            setFilters((prev) => {
+              const current = new Set(toArrayValue(prev[filter.key]));
+              if (current.has(itemValue)) current.delete(itemValue);
+              else current.add(itemValue);
+              return { ...prev, [filter.key]: Array.from(current) };
+            });
+          })}
+        </div>
+      );
+    }
+
+    const selected = String(filters[filter.key] || "all");
+    return (
+      <div className="space-y-2 min-w-[180px]">
+        <Label className={CONSOLE_LABEL_CLASS}>{filter.label}</Label>
+        <Select
+          value={selected}
+          onValueChange={(value) => {
+            setListCursor(null);
+            setCursorHistory([]);
+            setFilters((prev) => ({ ...prev, [filter.key]: value }));
+          }}
+        >
+          <SelectTrigger className={CONSOLE_SELECT_TRIGGER_CLASS}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className={CONSOLE_MENU_CLASS}>
+            {options.map((option) => (
+              <SelectItem key={`${filter.key}-${option.value}`} value={option.value} className="rounded-none !text-foreground focus:bg-card focus:!text-foreground">
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  };
+
+  const renderCatalogCell = (row: RowRecord, key: string) => {
+    if (config.entity === "active_ingredients" && key === "name_ru" && row.glbd_component_id) {
+      return (
+        <div className="min-w-[190px]">
+          <button
+            type="button"
+            onClick={() => void loadComponentCard(row.glbd_component_id)}
+            className="inline-flex items-center gap-1.5 text-left font-medium text-muted-foreground underline-offset-4 hover:underline"
+            title="Открыть карточку компонента"
+          >
+            <BookOpen className="h-3.5 w-3.5 shrink-0" />
+            {row.name_ru || row.canonical_name || "Компонент"}
+          </button>
+          {row.matched_alias ? (
+            <div className="mt-1 text-xs text-muted-foreground">Найдено по варианту: «{row.matched_alias}»</div>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (isProductEntity(config.entity) && key === "active_ingredients" && Array.isArray(row.active_ingredient_components)) {
+      if (!row.active_ingredient_components.length) return formatCellValue(row[key], key, row, config.entity);
+      return (
+        <div className="flex min-w-[210px] flex-wrap gap-1.5">
+          {row.active_ingredient_components.map((component: any) => (
+            <button
+              type="button"
+              key={component.id}
+              onClick={(event) => {
+                event.stopPropagation();
+                void loadComponentCard(component.id);
+              }}
+              onKeyDown={(event) => event.stopPropagation()}
+              className="inline-flex items-center gap-1 border border-border bg-card px-2 py-1 text-left text-xs font-medium text-muted-foreground hover:bg-card"
+              title={`Открыть карточку: ${component.displayName}`}
+            >
+              <BookOpen className="h-3 w-3 shrink-0" />
+              {component.displayName}
+            </button>
+          ))}
+        </div>
+      );
+    }
+
+    return formatCellValue(row[key], key, row, config.entity);
+  };
+
+  const visibleFilters = isCanonicalPesticideList
+    ? config.filters.filter((filter) => filter.key !== "category_id")
+    : config.filters;
+  const selectedCategory = String(filters.category_id || "all");
+  const currentPage = cursorHistory.length + 1;
+
+  const selectCategory = (value: string) => {
+    setListCursor(null);
+    setCursorHistory([]);
+    setFilters((current) => ({ ...current, category_id: value }));
+  };
+
+  const goToNextPage = () => {
+    if (!nextCursor) return;
+    setCursorHistory((history) => [...history, listCursor]);
+    setListCursor(nextCursor);
+  };
+
+  const goToPreviousPage = () => {
+    setCursorHistory((history) => {
+      if (!history.length) return history;
+      const nextHistory = history.slice(0, -1);
+      setListCursor(history[history.length - 1]);
+      return nextHistory;
+    });
+  };
+
+  return (
+    <div className="w-full space-y-3 text-foreground">
+      <Card className="w-full rounded-none border-border bg-card !text-foreground shadow-manor-sm">
+        <CardHeader className="gap-3 border-b border-border bg-muted">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="font-mono text-[15px] uppercase tracking-[0.12em] text-foreground">{config.title}</CardTitle>
+              <CardDescription className="text-[12px] text-muted-foreground">{config.description}</CardDescription>
+            </div>
+            <Button onClick={openCreate} className="h-8 rounded-none bg-primary px-3 text-[12px] text-primary-foreground hover:bg-muted">
+              <Plus className="mr-2 h-4 w-4" />
+              {config.createLabel}
+            </Button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+            <div className="space-y-2 md:col-span-2 xl:col-span-2">
+              <Label className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Поиск</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className={`${CONSOLE_CONTROL_CLASS} pl-9 pr-9`}
+                  placeholder={config.searchPlaceholder}
+                />
+                {loading && rows.length ? (
+                  <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-muted-foreground" aria-label="Обновление результатов" />
+                ) : null}
+              </div>
+            </div>
+            {visibleFilters.map(renderFilter)}
+          </div>
+          {searchConflict ? (
+            <div className="border border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              <div className="font-medium">{searchConflict.message}</div>
+              <div className="mt-1 text-xs">Совпадения: {searchConflict.components.join(", ")}</div>
+            </div>
+          ) : null}
+        </CardHeader>
+      </Card>
+
+      <div className={isCanonicalPesticideList ? "grid min-w-0 gap-3 lg:grid-cols-[220px_minmax(0,1fr)]" : "block"}>
+        {isCanonicalPesticideList ? (
+          <aside className="h-fit border border-border bg-card" aria-label="Категории пестицидов">
+            <div className="border-b border-border bg-muted px-3 py-2 font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+              Категории
+            </div>
+            <div className="p-1.5">
+              <button
+                type="button"
+                onClick={() => selectCategory("all")}
+                className={`flex w-full items-center justify-between gap-3 px-2 py-1.5 text-left text-sm ${selectedCategory === "all" ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-card"}`}
+              >
+                <span>Все</span>
+                <span className="tabular-nums">{allCategoryCount}</span>
+              </button>
+              {categoryCounts.map((category) => (
+                <button
+                  type="button"
+                  key={category.key}
+                  onClick={() => selectCategory(category.key)}
+                  className={`flex w-full items-center justify-between gap-3 px-2 py-1.5 text-left text-sm ${selectedCategory === category.key ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-card"}`}
+                >
+                  <span className="min-w-0 truncate" title={category.label}>{category.label}</span>
+                  <span className="shrink-0 tabular-nums">{category.count}</span>
+                </button>
+              ))}
+            </div>
+          </aside>
+        ) : null}
+
+      <Card className="min-w-0 w-full rounded-none border-border bg-card !text-foreground shadow-manor-sm">
+        <CardContent className="p-0">
+          {isCanonicalPesticideList ? (
+            <div className="flex min-h-10 items-center justify-between border-b border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+              <span>Найдено: <strong className="text-foreground">{totalRows}</strong></span>
+              <span className="tabular-nums">Страница {currentPage}</span>
+            </div>
+          ) : null}
+          <div ref={listScrollRef} className="max-h-[calc(100vh-330px)] min-h-[320px] w-full overflow-auto">
+            <Table className="min-w-[1200px] !text-foreground">
+              <TableHeader className="sticky top-0 z-20 bg-card shadow-[0_1px_0_#9aa8ba]">
+                <TableRow className="border-border hover:bg-card">
+                  {config.columns.map((column) => (
+                    <TableHead key={column.key} className="border-border bg-card px-4 py-2 font-semibold !text-muted-foreground">
+                      {column.label}
+                    </TableHead>
+                  ))}
+                  <TableHead className="w-[150px] border-border px-4 py-2 text-right font-semibold !text-muted-foreground">Действия</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading && rows.length === 0 ? (
+                  <TableRow className="border-border hover:bg-card">
+                    <TableCell colSpan={config.columns.length + 1} className="px-4 py-6 text-center !text-muted-foreground">Загрузка...</TableCell>
+                  </TableRow>
+                ) : null}
+                {!loading && rows.length === 0 ? (
+                  <TableRow className="border-border hover:bg-card">
+                    <TableCell colSpan={config.columns.length + 1} className="px-4 py-6 text-center !text-muted-foreground">Записей нет.</TableCell>
+                  </TableRow>
+                ) : null}
+                {rows.map((row) => (
+                  <TableRow
+                    key={row.id}
+                    tabIndex={isCanonicalPesticideList ? 0 : undefined}
+                    role={isCanonicalPesticideList ? "button" : undefined}
+                    aria-label={isCanonicalPesticideList ? `Открыть карточку ${row.trade_name || row.name || "препарата"}` : undefined}
+                    onClick={isCanonicalPesticideList ? () => openPesticideCard(row.id) : undefined}
+                    onKeyDown={isCanonicalPesticideList ? (event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openPesticideCard(row.id);
+                      }
+                    } : undefined}
+                    className={`border-border bg-card hover:bg-accent ${isCanonicalPesticideList ? "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" : ""}`}
+                  >
+                    {config.columns.map((column) => (
+                      <TableCell key={`${row.id}-${column.key}`} className={CONSOLE_TABLE_CELL_CLASS}>
+                        {renderCatalogCell(row, column.key)}
+                      </TableCell>
+                    ))}
+                    <TableCell className={CONSOLE_TABLE_CELL_CLASS}>
+                      <div className="flex items-center justify-end gap-2">
+                        <Button variant="outline" size="icon" onKeyDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void openEdit(row); }} className="rounded-none border-border bg-card !text-foreground hover:bg-accent">
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button variant="outline" size="icon" onKeyDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void archiveRow(row.id); }} disabled={saving} className="rounded-none border-border bg-card !text-destructive hover:bg-destructive/10">
+                          <Trash2 className="h-4 w-4 text-rose-600" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          {isCanonicalPesticideList ? (
+            <div className="flex items-center justify-end gap-2 border-t border-border bg-card px-3 py-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={goToPreviousPage}
+                disabled={!cursorHistory.length || loading}
+                className="rounded-none border-border bg-card text-foreground"
+              >
+                <ChevronLeft className="mr-1 h-4 w-4" />
+                Назад
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={goToNextPage}
+                disabled={!nextCursor || loading}
+                className="rounded-none border-border bg-card text-foreground"
+              >
+                Далее
+                <ChevronRight className="ml-1 h-4 w-4" />
+              </Button>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+      </div>
+
+      <Dialog open={createOpen} onOpenChange={(open) => !saving && setCreateOpen(open)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{config.createLabel}</DialogTitle>
+            <DialogDescription>Заполните поля новой записи.</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {config.formFields.map((field) => (
+              <div key={`create-${field.key}`} className={field.type === "checkbox" ? "md:col-span-2" : ""}>
+                {renderField(field)}
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={saving}>Отмена</Button>
+            <Button onClick={submitCreate} disabled={!canSubmit || saving}>
+              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Создать
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editOpen} onOpenChange={(open) => !saving && setEditOpen(open)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Редактирование записи</DialogTitle>
+            <DialogDescription>Измените поля и сохраните.</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {config.formFields.map((field) => (
+              <div key={`edit-${field.key}`} className={field.type === "checkbox" ? "md:col-span-2" : ""}>
+                {renderField(field)}
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>Отмена</Button>
+            <Button onClick={submitEdit} disabled={saving}>
+              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Сохранить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <GlbdComponentDialog
+        open={componentOpen}
+        onOpenChange={setComponentOpen}
+        loading={componentLoading}
+        error={componentError}
+        component={componentDetail}
+        onRetry={retryComponentCard}
+      />
+
+      <FullPesticideCardDialog
+        open={pesticideCardOpen}
+        onOpenChange={handlePesticideCardOpenChange}
+        loading={pesticideCardLoading}
+        error={pesticideCardError}
+        card={pesticideCard}
+        onRetry={retryPesticideCard}
+      />
+    </div>
+  );
+}

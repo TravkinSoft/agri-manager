@@ -1,0 +1,233 @@
+import { getFleetVehicleBrand } from "@/lib/fleet/model";
+
+export type TrafficState = "empty" | "loaded" | "unloading";
+export type TrafficRole = "harvester" | "weighman" | "receiver" | "manager";
+export function operatorRole(
+  profileRole: string,
+): Exclude<TrafficRole, "manager"> | null {
+  if (profileRole === "mechanic_operator") return "harvester";
+  if (profileRole === "weighman") return "weighman";
+  if (profileRole === "vegetable_brigadier") return "receiver";
+  return null;
+}
+export const STATE_LABEL: Record<TrafficState, string> = {
+  empty: "Пустая",
+  loaded: "Загружена",
+  unloading: "На выгрузке",
+};
+export const ROLE_LABEL: Record<TrafficRole, string> = {
+  harvester: "Комбайнёр",
+  weighman: "Весовщик",
+  receiver: "Приёмка картофеля",
+  manager: "Оборот машин",
+};
+export function nextState(
+  role: TrafficRole,
+  state: TrafficState,
+  inRepair = false,
+): TrafficState | null {
+  if (role === "harvester" && state === "empty" && !inRepair) return "loaded";
+  if (role === "weighman" && state === "loaded") return "unloading";
+  if (role === "receiver" && state === "unloading") return "empty";
+  return null;
+}
+export const ACTION_LABEL: Record<TrafficState, string> = {
+  loaded: "Загружена — отправить",
+  unloading: "Прибыла на выгрузку",
+  empty: "Разгрузилась",
+};
+export interface TrafficVehicle {
+  vehicle_id: string;
+  name: string;
+  brand?: string | null;
+  plate: string | null;
+  driver: string | null;
+  driverId?: string | null;
+  state: TrafficState;
+  version: number;
+  since: string;
+  cycle: number;
+  assigned: boolean;
+  inRepair?: boolean;
+  repairVersion?: number;
+  repairChangedAt?: string | null;
+}
+export type TrafficRepairPhase = "none" | "active";
+
+export function trafficRepairPhase(vehicle: TrafficVehicle): TrafficRepairPhase {
+  return vehicle.inRepair ? "active" : "none";
+}
+export interface TrafficLastVehicle {
+  vehicleId: string;
+  driver: string | null;
+  brand: string;
+  plate: string | null;
+  markedAt: string;
+  version: number;
+}
+export interface TrafficCombineShift {
+  id: string;
+  operatorName: string;
+  openedAt: string;
+  closedAt: string | null;
+  hectaresShift: number | null;
+  hectaresFieldTotal: number | null;
+  cropStructureId?: string | null;
+  /** Exact open plot segment; omitted only for non-harvester/old snapshots. */
+  segmentId?: string | null;
+  status: "open" | "closed";
+}
+export interface TrafficCombineBreakdown {
+  operatorUserId: string;
+  operatorName: string;
+  changedAt: string;
+  version: number;
+}
+export interface TrafficOwnCombineStatus {
+  operatorUserId: string;
+  operatorName: string;
+  isBroken: boolean;
+  changedAt: string | null;
+  version: number;
+}
+export interface TrafficAnalytics {
+  windowLabel: string;
+  windowStartedAt: string;
+  completedLoads: number;
+  lastLoadIntervalMinutes: number | null;
+  averageLoadIntervalMinutes: number | null;
+  averageFieldToWeighbridgeMinutes: number | null;
+  averageUnloadingMinutes: number | null;
+  averageReturnToLoadMinutes: number | null;
+  averageVehicleCycleMinutes: number | null;
+  latestFleetRoundMinutes: number | null;
+  probableDowntimeCount: number;
+  probableDowntimeMinutes: number;
+  currentProbableDowntimeMinutes: number | null;
+}
+export interface TrafficSnapshot {
+  companyId?: string;
+  role: TrafficRole;
+  personName: string;
+  enabled: boolean;
+  fieldName: string | null;
+  fieldId: string | null;
+  flowRevision?: string | null;
+  serverTime: string;
+  vehicles: TrafficVehicle[];
+  lastVehicle?: TrafficLastVehicle | null;
+  combineShift?: TrafficCombineShift | null;
+  combineBreakdowns?: TrafficCombineBreakdown[];
+  ownCombineStatus?: TrafficOwnCombineStatus | null;
+  analytics?: TrafficAnalytics | null;
+  events: Array<{
+    id: string;
+    vehicle_id: string;
+    from_state: TrafficState;
+    to_state: TrafficState;
+    created_at: string;
+    actor_name: string;
+    field_id: string | null;
+    field_name: string | null;
+    vehicle_name: string;
+    vehicle_plate: string | null;
+    vehicle_brand?: string | null;
+    vehicle_driver?: string | null;
+  }>;
+}
+
+export function trafficEventSummary(event: TrafficSnapshot["events"][number]): string {
+  const driver = event.vehicle_driver?.trim() || "Водитель не назначен";
+  const brand = getFleetVehicleBrand({
+    name: event.vehicle_name,
+    brand: event.vehicle_brand || null,
+  });
+  const plate = event.vehicle_plate?.trim() || "Без номера";
+  return [
+    driver,
+    brand,
+    plate,
+    `${STATE_LABEL[event.from_state]} → ${STATE_LABEL[event.to_state]}`,
+  ].join(" · ");
+}
+export interface TrafficCommit {
+  eventId: string;
+  replayed: boolean;
+  serverTime: string;
+  refreshRequired: boolean;
+  vehicle: Pick<TrafficVehicle, "vehicle_id" | "state" | "version" | "since" | "cycle" | "assigned"> | null;
+}
+
+// Apply only a server-confirmed current row, never the user's requested target.
+export function applyTrafficCommit(
+  snapshot: TrafficSnapshot,
+  receipt: TrafficCommit,
+): TrafficSnapshot {
+  const row = receipt.vehicle;
+  if (!row) return snapshot;
+  const existing = snapshot.vehicles.find((vehicle) => vehicle.vehicle_id === row.vehicle_id);
+  if (!existing || existing.version > row.version) return snapshot;
+  return {
+    ...snapshot,
+    vehicles: visibleVehicles(snapshot.vehicles.map((vehicle) =>
+      vehicle.vehicle_id === row.vehicle_id ? { ...vehicle, ...row } : vehicle), snapshot.role),
+  };
+}
+export function visibleVehicles(
+  vehicles: TrafficVehicle[],
+  role: TrafficRole,
+): TrafficVehicle[] {
+  const rank: Record<TrafficState, number> = role === "receiver"
+    ? { unloading: 0, loaded: 1, empty: 2 }
+    : { empty: 0, loaded: 1, unloading: 2 };
+  return vehicles
+    .filter((v) =>
+      v.assigned &&
+      (role === "manager" || !v.inRepair ||
+        (role === "weighman" && v.state === "loaded") ||
+        (role === "receiver" && (v.state === "loaded" || v.state === "unloading"))) &&
+      (role !== "weighman" || v.state === "loaded") &&
+      (role !== "receiver" || v.state === "loaded" || v.state === "unloading"))
+    .sort(
+      (a, b) => {
+        const aRepairGroup = role === "manager" && !!a.inRepair;
+        const bRepairGroup = role === "manager" && !!b.inRepair;
+        const stateOrder = aRepairGroup && bRepairGroup
+          ? 0
+          : rank[a.state] - rank[b.state];
+        const aStartedAt = Date.parse(trafficStatusSince(a, role));
+        const bStartedAt = Date.parse(trafficStatusSince(b, role));
+        const timeOrder = (Number.isFinite(aStartedAt) ? aStartedAt : Number.MAX_SAFE_INTEGER) -
+          (Number.isFinite(bStartedAt) ? bStartedAt : Number.MAX_SAFE_INTEGER);
+        return Number(aRepairGroup) - Number(bRepairGroup) ||
+          stateOrder ||
+          timeOrder ||
+          a.vehicle_id.localeCompare(b.vehicle_id);
+      },
+    );
+}
+
+// Repair is independent from the cargo state. The manager sees the repair
+// interval from the repair toggle, while weighman/receiver keep the cargo-state
+// interval until they finish that physical stage. On repair exit, the same
+// toggle starts a fresh operational interval and returned empty vehicles sort
+// to the tail until their next cargo transition updates `since`.
+export function trafficStatusSince(vehicle: Pick<TrafficVehicle, "since" | "repairChangedAt" | "inRepair">, role: TrafficRole): string {
+  const repairChangedAt = vehicle.repairChangedAt;
+  if (!repairChangedAt) return vehicle.since;
+  const repairAt = Date.parse(repairChangedAt);
+  const stateAt = Date.parse(vehicle.since);
+  if (!Number.isFinite(repairAt)) return vehicle.since;
+  if (vehicle.inRepair) return role === "manager" ? repairChangedAt : vehicle.since;
+  return !Number.isFinite(stateAt) || repairAt > stateAt
+    ? repairChangedAt
+    : vehicle.since;
+}
+export function stateAge(since: string, now: number): string {
+  const minutes = Math.max(0, Math.floor((now - Date.parse(since)) / 60000));
+  return minutes < 1
+    ? "только что"
+    : minutes < 60
+      ? `${minutes} мин`
+      : `${Math.floor(minutes / 60)} ч ${minutes % 60} мин`;
+}

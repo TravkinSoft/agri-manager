@@ -1,0 +1,1020 @@
+export type GlobalCatalogEntity =
+  | "crops"
+  | "varieties"
+  | "seed_originators"
+  | "seed_reproductions"
+  | "seeds"
+  | "diseases"
+  | "pests"
+  | "weeds"
+  | "pesticides"
+  | "fertilizers"
+  | "fertilizer_categories"
+  | "additives"
+  | "growth_regulators"
+  | "pesticide_categories"
+  | "active_ingredients"
+  | "agrochem_manufacturers"
+  | "agrochem_formulations"
+  | "agrochem_mode_of_actions"
+  | "agricultural_machine_models"
+  | "machinery"
+  | "implements"
+  | "fleet";
+
+export type FilterOption = { label: string; value: string };
+
+export type CatalogColumn = {
+  key: string;
+  label: string;
+};
+
+export type CatalogFilter = {
+  key: string;
+  label: string;
+  options: FilterOption[];
+  optionsEntity?: GlobalCatalogEntity;
+  multi?: boolean;
+};
+
+export type CatalogFormFieldType = "text" | "number" | "select" | "checkbox" | "multiselect";
+
+export type CatalogFormField = {
+  key: string;
+  label: string;
+  type: CatalogFormFieldType;
+  required?: boolean;
+  placeholder?: string;
+  options?: FilterOption[];
+  optionsEntity?: GlobalCatalogEntity;
+};
+
+export type GlobalCatalogConfig = {
+  entity: GlobalCatalogEntity;
+  title: string;
+  description: string;
+  createLabel: string;
+  searchPlaceholder: string;
+  columns: CatalogColumn[];
+  filters: CatalogFilter[];
+  formFields: CatalogFormField[];
+};
+
+const activeFilterOptions: FilterOption[] = [
+  { label: "Все", value: "all" },
+  { label: "Активные", value: "true" },
+  { label: "Неактивные", value: "false" },
+];
+
+export const canonicalCropCategoryOptions: FilterOption[] = [
+  { label: "Бахчевые", value: "020889df-2e9a-4900-91e2-2ffeb6790a87" },
+  { label: "Зернобобовые", value: "62f6ed93-1a9e-486b-95c2-1b486efdcbf4" },
+  { label: "Зерновые", value: "2c93e301-985e-4865-bdbb-d7d4b8770fd0" },
+  { label: "Кормовые", value: "52f55700-25db-4f0d-867a-24c555004210" },
+  { label: "Масличные", value: "2da5fd74-154c-42fc-8ca1-2d3a45acc295" },
+  { label: "Овощные", value: "56d39e40-8782-4557-b522-0dd2434fa341" },
+  { label: "Плодово-ягодные", value: "0eb35c13-095c-518d-867e-5ba0550bad5a" },
+  { label: "Технические", value: "239ba091-97ec-4594-8de3-7882d7a54575" },
+];
+
+const seedUnitOptions: FilterOption[] = [
+  { label: "кг", value: "kg" },
+  { label: "т", value: "t" },
+  { label: "шт", value: "pcs" },
+];
+
+const diseaseTypeOptions: FilterOption[] = [
+  { label: "Листовая", value: "foliar" },
+  { label: "Почвенная", value: "soil_borne" },
+  { label: "Клубневая / хранение", value: "tuber_storage" },
+  { label: "Сосудистая", value: "vascular" },
+  { label: "Вирусная", value: "viral" },
+  { label: "Физиологическая", value: "physiological" },
+  { label: "Другое", value: "other" },
+  { label: "Неизвестно", value: "unknown" },
+];
+
+const diseaseTypeFilterOptions: FilterOption[] = [
+  { label: "Все", value: "all" },
+  ...diseaseTypeOptions,
+];
+
+const pathogenTypeOptions: FilterOption[] = [
+  { label: "Гриб", value: "fungus" },
+  { label: "Бактерия", value: "bacteria" },
+  { label: "Вирус", value: "virus" },
+  { label: "Оомицет", value: "oomycete" },
+  { label: "Физиология", value: "physiological" },
+  { label: "Неизвестно", value: "unknown" },
+];
+
+const pathogenTypeFilterOptions: FilterOption[] = [
+  { label: "Все", value: "all" },
+  ...pathogenTypeOptions,
+];
+
+const confidenceOptions: FilterOption[] = [
+  { label: "Низкая", value: "low" },
+  { label: "Средняя", value: "medium" },
+  { label: "Высокая", value: "high" },
+];
+
+const confidenceFilterOptions: FilterOption[] = [
+  { label: "Все", value: "all" },
+  ...confidenceOptions,
+];
+
+const pestTypeOptions: FilterOption[] = [
+  { label: "Насекомое", value: "insect" },
+  { label: "Клещ", value: "mite" },
+  { label: "Нематода", value: "nematode" },
+  { label: "Моллюск", value: "mollusk" },
+  { label: "Млекопитающее", value: "mammal" },
+  { label: "Птица", value: "bird" },
+  { label: "Другое", value: "other" },
+  { label: "Неизвестно", value: "unknown" },
+];
+
+const pestTypeFilterOptions: FilterOption[] = [
+  { label: "Все", value: "all" },
+  ...pestTypeOptions,
+];
+
+const weedTypeOptions: FilterOption[] = [
+  { label: "Однолетний", value: "annual" },
+  { label: "Многолетний", value: "perennial" },
+  { label: "Злаковый", value: "grass" },
+  { label: "Двудольный", value: "broadleaf" },
+  { label: "Осоковый", value: "sedge" },
+  { label: "Паразитный", value: "parasitic" },
+  { label: "Другое", value: "other" },
+  { label: "Неизвестно", value: "unknown" },
+];
+
+const weedTypeFilterOptions: FilterOption[] = [
+  { label: "Все", value: "all" },
+  ...weedTypeOptions,
+];
+
+const agriculturalMachineCategoryOptions: FilterOption[] = [
+  { label: "Комбайн", value: "combine_harvester" },
+  { label: "Кормоуборочный комбайн", value: "forage_harvester" },
+  { label: "Самоходный опрыскиватель", value: "self_propelled_sprayer" },
+  { label: "Самоходная сеялка", value: "self_propelled_seeder" },
+  { label: "Самоходный разбрасыватель", value: "self_propelled_spreader" },
+  { label: "Самоходная жатка", value: "self_propelled_windrower" },
+  { label: "Самоходная косилка", value: "self_propelled_mower" },
+  { label: "Прицепной опрыскиватель", value: "trailed_sprayer" },
+  { label: "Навесной опрыскиватель", value: "mounted_sprayer" },
+  { label: "Картофелесажалка", value: "potato_planter" },
+  { label: "Картофелеуборочная техника", value: "potato_harvester" },
+  { label: "Сажалка", value: "planter" },
+  { label: "Сеялка", value: "seeder" },
+  { label: "Культиватор", value: "cultivator" },
+  { label: "Плуг", value: "plow" },
+  { label: "Дисковая борона", value: "disc_harrow" },
+  { label: "Разбрасыватель удобрений", value: "fertilizer_spreader" },
+  { label: "Погрузчик", value: "loader" },
+  { label: "Телескопический погрузчик", value: "telehandler" },
+  { label: "Прицеп", value: "trailer" },
+  { label: "Трактор", value: "tractor" },
+  { label: "Прочее", value: "other" },
+];
+
+const standaloneAgriculturalMachineCategoryValues = new Set([
+  "combine_harvester",
+  "forage_harvester",
+  "self_propelled_sprayer",
+  "self_propelled_seeder",
+  "self_propelled_spreader",
+  "self_propelled_windrower",
+  "self_propelled_mower",
+  "potato_harvester",
+  "loader",
+  "telehandler",
+  "tractor",
+]);
+
+const standaloneAgriculturalMachineCategoryOptions = agriculturalMachineCategoryOptions.filter((option) =>
+  standaloneAgriculturalMachineCategoryValues.has(option.value)
+);
+
+const standaloneAgriculturalMachineCategoryFilterOptions: FilterOption[] = [
+  { label: "Все", value: "all" },
+  ...standaloneAgriculturalMachineCategoryOptions,
+];
+
+const machineryAssetGroupOptions: FilterOption[] = [
+  { label: "Самоходная техника", value: "self_propelled_machine" },
+  { label: "Агрегат", value: "implement" },
+  { label: "Прицеп", value: "trailer" },
+  { label: "Транспорт", value: "truck" },
+];
+
+const standaloneMachineryAssetGroupOptions = machineryAssetGroupOptions.filter((option) =>
+  ["self_propelled_machine", "truck"].includes(option.value)
+);
+
+const standaloneMachineryAssetGroupFilterOptions: FilterOption[] = [
+  { label: "Все", value: "all" },
+  ...standaloneMachineryAssetGroupOptions,
+];
+
+const productTypeFilterOptions: FilterOption[] = [
+  { label: "Все", value: "all" },
+  { label: "Пестициды", value: "pesticide" },
+  { label: "Добавки", value: "additive" },
+  { label: "Регуляторы роста", value: "growth_regulator" },
+  { label: "Адъюванты", value: "adjuvant" },
+];
+
+const fertilizerApplicationOptions: FilterOption[] = [
+  { label: "Основное внесение", value: "Основное внесение" },
+  { label: "Фертигация / листовое", value: "Фертигация / листовое" },
+  { label: "Листовое", value: "Листовое" },
+  { label: "Листовое / фертигация", value: "Листовое / фертигация" },
+  { label: "Семена / листовое", value: "Семена / листовое" },
+  { label: "Почвенное", value: "Почвенное" },
+  { label: "Почвенное / фертигация", value: "Почвенное / фертигация" },
+  { label: "Баковая смесь", value: "Баковая смесь" },
+];
+
+const additiveSubtypeOptions: FilterOption[] = [
+  { label: "Адъювант", value: "adjuvant" },
+  { label: "Прилипатель", value: "sticker" },
+  { label: "Корректор pH", value: "pH_corrector" },
+  { label: "Пеногаситель", value: "antifoam" },
+  { label: "Кондиционер воды", value: "water_conditioner" },
+  { label: "Антисоль", value: "anti_salt" },
+  { label: "Другое", value: "other" },
+];
+
+const materialStockUnitOptions: FilterOption[] = [
+  { label: "л", value: "l" },
+  { label: "мл", value: "ml" },
+  { label: "кг", value: "kg" },
+  { label: "г", value: "g" },
+  { label: "шт", value: "pcs" },
+  { label: "не указано", value: "unknown" },
+];
+
+const materialRateTypeOptions: FilterOption[] = [
+  { label: "На гектар", value: "per_ha" },
+  { label: "На 1000 л раствора", value: "per_1000_l_solution" },
+  { label: "На литр воды", value: "per_l_water" },
+  { label: "На тонну семян", value: "per_t_seed" },
+  { label: "На 100 кг семян", value: "per_100kg_seed" },
+  { label: "На 1000 семян", value: "per_1000_seeds" },
+  { label: "Вручную", value: "manual" },
+];
+
+const materialRateUnitOptions: FilterOption[] = [
+  { label: "л/га", value: "l/ha" },
+  { label: "мл/га", value: "ml/ha" },
+  { label: "кг/га", value: "kg/ha" },
+  { label: "г/га", value: "g/ha" },
+  { label: "л/1000 л", value: "l/1000 l" },
+  { label: "мл/1000 л", value: "ml/1000 l" },
+  { label: "кг/1000 л", value: "kg/1000 l" },
+  { label: "г/1000 л", value: "g/1000 l" },
+  { label: "мл/л", value: "ml/l" },
+  { label: "г/л", value: "g/l" },
+  { label: "л/т семян", value: "l/t seed" },
+  { label: "мл/т семян", value: "ml/t seed" },
+  { label: "кг/т семян", value: "kg/t seed" },
+  { label: "г/т семян", value: "g/t seed" },
+  { label: "кг/100 кг семян", value: "kg/100kg seed" },
+  { label: "г/100 кг семян", value: "g/100kg seed" },
+  { label: "вручную", value: "manual" },
+  { label: "не указано", value: "unknown" },
+];
+
+const additiveColumns: CatalogColumn[] = [
+  { key: "trade_name", label: "Торговое название" },
+  { key: "subcategory", label: "Подтип" },
+  { key: "formulation", label: "Формуляция" },
+  { key: "manufacturer", label: "Производитель" },
+  { key: "stock_unit", label: "Ед. склада" },
+  { key: "default_rate_type", label: "Тип нормы" },
+  { key: "default_rate_unit", label: "Ед. нормы" },
+  { key: "status", label: "Статус" },
+  { key: "is_active", label: "Активность" },
+];
+
+const additiveFilters: CatalogFilter[] = [
+  { key: "subcategory", label: "Подтип", options: [{ label: "Все", value: "all" }, ...additiveSubtypeOptions] },
+  { key: "formulation_id", label: "Формуляция", options: [{ label: "Все", value: "all" }], optionsEntity: "agrochem_formulations" },
+  { key: "manufacturer_id", label: "Производитель", options: [{ label: "Все", value: "all" }], optionsEntity: "agrochem_manufacturers" },
+  { key: "is_active", label: "Активность", options: activeFilterOptions },
+];
+
+const additiveFormFields: CatalogFormField[] = [
+  { key: "name", label: "Название", type: "text", required: true },
+  { key: "trade_name", label: "Торговое название", type: "text" },
+  { key: "subcategory", label: "Подтип", type: "select", required: true, options: additiveSubtypeOptions },
+  { key: "formulation_id", label: "Формуляция", type: "select", optionsEntity: "agrochem_formulations" },
+  { key: "manufacturer_id", label: "Производитель", type: "select", optionsEntity: "agrochem_manufacturers" },
+  {
+    key: "stock_unit",
+    label: "Ед. склада",
+    type: "select",
+    options: materialStockUnitOptions,
+  },
+  { key: "default_rate_type", label: "Тип нормы", type: "select", options: materialRateTypeOptions },
+  { key: "default_rate_unit", label: "Ед. нормы", type: "select", options: materialRateUnitOptions },
+  { key: "notes", label: "Заметки", type: "text" },
+  { key: "is_active", label: "Активен", type: "checkbox" },
+];
+
+const activeIngredientTypeOptions: FilterOption[] = [
+  { label: "Пестицидное ДВ", value: "pesticide_ai" },
+  { label: "Компонент адъюванта", value: "adjuvant_component" },
+  { label: "Биологический агент", value: "biological_agent" },
+];
+
+const defaultAgrochemColumns: CatalogColumn[] = [
+  { key: "trade_name", label: "Торговое название" },
+  { key: "active_ingredients", label: "ДВ" },
+  { key: "pesticide_category", label: "Категория" },
+  { key: "mode_of_action_type", label: "Тип действия" },
+  { key: "formulation", label: "Формуляция" },
+  { key: "manufacturer", label: "Производитель" },
+  { key: "stock_unit", label: "Ед. склада" },
+  { key: "default_rate_type", label: "Тип нормы" },
+  { key: "default_rate_unit", label: "Ед. нормы" },
+  { key: "status", label: "Статус" },
+  { key: "is_active", label: "Активность" },
+];
+
+const defaultAgrochemFilters: CatalogFilter[] = [
+  { key: "product_type", label: "Тип продукта", options: productTypeFilterOptions },
+  { key: "category_id", label: "Категория", options: [{ label: "Все", value: "all" }], optionsEntity: "pesticide_categories" },
+  { key: "active_ingredient_ids", label: "Действующие вещества", options: [{ label: "Все", value: "all" }], optionsEntity: "active_ingredients", multi: true },
+  { key: "mode_of_action_type_id", label: "Тип действия", options: [{ label: "Все", value: "all" }], optionsEntity: "agrochem_mode_of_actions" },
+  { key: "formulation_id", label: "Формуляция", options: [{ label: "Все", value: "all" }], optionsEntity: "agrochem_formulations" },
+  { key: "manufacturer_id", label: "Производитель", options: [{ label: "Все", value: "all" }], optionsEntity: "agrochem_manufacturers" },
+  { key: "is_active", label: "Активность", options: activeFilterOptions },
+];
+
+const defaultAgrochemFormFields: CatalogFormField[] = [
+  { key: "name", label: "Название", type: "text", required: true },
+  { key: "trade_name", label: "Торговое название", type: "text" },
+  { key: "active_ingredient_ids", label: "Действующие вещества", type: "multiselect", required: true, optionsEntity: "active_ingredients" },
+  { key: "category_id", label: "Категория", type: "select", required: true, optionsEntity: "pesticide_categories" },
+  { key: "formulation_id", label: "Формуляция", type: "select", optionsEntity: "agrochem_formulations" },
+  { key: "mode_of_action_type_id", label: "Тип действия", type: "select", optionsEntity: "agrochem_mode_of_actions" },
+  { key: "manufacturer_id", label: "Производитель", type: "select", optionsEntity: "agrochem_manufacturers" },
+  {
+    key: "stock_unit",
+    label: "Ед. склада",
+    type: "select",
+    options: materialStockUnitOptions,
+  },
+  { key: "default_rate_type", label: "Тип нормы", type: "select", options: materialRateTypeOptions },
+  { key: "default_rate_unit", label: "Ед. нормы", type: "select", options: materialRateUnitOptions },
+  { key: "notes", label: "Заметки", type: "text" },
+  { key: "is_active", label: "Активен", type: "checkbox" },
+];
+
+export const GLOBAL_CATALOG_CONFIGS: Record<GlobalCatalogEntity, GlobalCatalogConfig> = {
+  crops: {
+    entity: "crops",
+    title: "Глобальный каталог культур",
+    description: "Единый мастер-справочник культур.",
+    createLabel: "Добавить культуру",
+    searchPlaceholder: "Поиск по названию, категории, подкатегории...",
+    columns: [
+      { key: "name_ru", label: "Название" },
+      { key: "name_en", label: "Английское название" },
+      { key: "category", label: "Категория" },
+      { key: "subcategory", label: "Подкатегория" },
+      { key: "is_common_in_kz", label: "Распространена в РК" },
+      { key: "priority_level", label: "Приоритет" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      { key: "category_id", label: "Категория", options: [{ label: "Все", value: "all" }, ...canonicalCropCategoryOptions] },
+      { key: "is_common_in_kz", label: "Распространена в РК", options: [{ label: "Все", value: "all" }, { label: "Да", value: "true" }, { label: "Нет", value: "false" }] },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "name_ru", label: "Название", type: "text", required: true },
+      { key: "name_en", label: "Английское название", type: "text" },
+      { key: "slug", label: "Slug", type: "text", required: true },
+      { key: "category_id", label: "Категория", type: "select", required: true, options: canonicalCropCategoryOptions },
+      { key: "subcategory", label: "Подкатегория", type: "text" },
+      { key: "is_common_in_kz", label: "Распространена в РК", type: "checkbox" },
+      { key: "priority_level", label: "Приоритет", type: "text" },
+      { key: "is_active", label: "Активна", type: "checkbox" },
+    ],
+  },
+  varieties: {
+    entity: "varieties",
+    title: "Глобальный каталог сортов",
+    description: "Сорта с привязкой к культуре и оригинатору.",
+    createLabel: "Добавить сорт",
+    searchPlaceholder: "Поиск по сорту, культуре, оригинатору, назначению...",
+    columns: [
+      { key: "name", label: "Сорт" },
+      { key: "crop_name", label: "Культура" },
+      { key: "originator_name", label: "Оригинатор" },
+      { key: "origin_country", label: "Страна" },
+      { key: "variety_type", label: "Тип" },
+      { key: "maturity_group", label: "Группа спелости" },
+      { key: "purpose", label: "Назначение" },
+      { key: "is_common_in_kz", label: "Распространена в РК" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      { key: "crop_id", label: "Культура", options: [{ label: "Все", value: "all" }], optionsEntity: "crops" },
+      { key: "originator_id", label: "Оригинатор", options: [{ label: "Все", value: "all" }], optionsEntity: "seed_originators" },
+      { key: "origin_country", label: "Страна", options: [{ label: "Все", value: "all" }] },
+      { key: "is_common_in_kz", label: "Распространена в РК", options: [{ label: "Все", value: "all" }, { label: "Да", value: "true" }, { label: "Нет", value: "false" }] },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "name", label: "Сорт", type: "text", required: true },
+      { key: "crop_id", label: "Культура", type: "select", required: true, optionsEntity: "crops" },
+      { key: "originator_id", label: "Оригинатор", type: "select", optionsEntity: "seed_originators" },
+      { key: "origin_country", label: "Страна", type: "text" },
+      { key: "variety_type", label: "Тип", type: "text" },
+      { key: "maturity_group", label: "Группа спелости", type: "text" },
+      { key: "purpose", label: "Назначение", type: "text" },
+      { key: "skin_color", label: "Цвет кожуры", type: "text" },
+      { key: "flesh_color", label: "Цвет мякоти", type: "text" },
+      { key: "storage_quality", label: "Лёжкость", type: "text" },
+      { key: "source_url", label: "Источник", type: "text" },
+      { key: "notes", label: "Заметки", type: "text" },
+      { key: "is_common_in_kz", label: "Распространена в РК", type: "checkbox" },
+      { key: "is_active", label: "Активен", type: "checkbox" },
+    ],
+  },
+  seed_originators: {
+    entity: "seed_originators",
+    title: "Глобальный каталог оригинаторов",
+    description: "Оригинаторы и селекционные компании сортов. Это не поставщики семян.",
+    createLabel: "Добавить оригинатора",
+    searchPlaceholder: "Поиск по названию, стране, сайту...",
+    columns: [
+      { key: "name", label: "Оригинатор" },
+      { key: "country", label: "Страна" },
+      { key: "website", label: "Сайт" },
+      { key: "notes", label: "Заметки" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      { key: "country", label: "Страна", options: [{ label: "Все", value: "all" }] },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "name", label: "Оригинатор", type: "text", required: true },
+      { key: "country", label: "Страна", type: "text" },
+      { key: "website", label: "Сайт", type: "text" },
+      { key: "notes", label: "Заметки", type: "text" },
+      { key: "is_active", label: "Активен", type: "checkbox" },
+    ],
+  },
+  seed_reproductions: {
+    entity: "seed_reproductions",
+    title: "Глобальный каталог репродукций",
+    description: "Уровни репродукций семян.",
+    createLabel: "Добавить репродукцию",
+    searchPlaceholder: "Поиск по названию, описанию...",
+    columns: [
+      { key: "name", label: "Название" },
+      { key: "level_order", label: "Порядок уровня" },
+      { key: "description", label: "Описание" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [{ key: "is_active", label: "Активность", options: activeFilterOptions }],
+    formFields: [
+      { key: "name", label: "Название", type: "text", required: true },
+      { key: "level_order", label: "Порядок уровня", type: "number", required: true },
+      { key: "description", label: "Описание", type: "text" },
+      { key: "is_active", label: "Активна", type: "checkbox" },
+    ],
+  },
+  seeds: {
+    entity: "seeds",
+    title: "Глобальный каталог семян",
+    description: "Каталог семенных товаров без локальных складских остатков.",
+    createLabel: "Добавить семена",
+    searchPlaceholder: "Поиск по названию, культуре, сорту, репродукции...",
+    columns: [
+      { key: "name", label: "Товар" },
+      { key: "crop_name", label: "Культура" },
+      { key: "variety_name", label: "Сорт" },
+      { key: "originator_name", label: "Оригинатор" },
+      { key: "reproduction_name", label: "Репродукция" },
+      { key: "unit", label: "Ед. учета" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      { key: "crop_id", label: "Культура", options: [{ label: "Все", value: "all" }], optionsEntity: "crops" },
+      { key: "variety_id", label: "Сорт", options: [{ label: "Все", value: "all" }], optionsEntity: "varieties" },
+      { key: "seed_reproduction_id", label: "Репродукция", options: [{ label: "Все", value: "all" }], optionsEntity: "seed_reproductions" },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "name", label: "Название семян", type: "text", required: true },
+      { key: "crop_id", label: "Культура", type: "select", required: true, optionsEntity: "crops" },
+      { key: "variety_id", label: "Сорт", type: "select", optionsEntity: "varieties" },
+      { key: "seed_reproduction_id", label: "Репродукция", type: "select", optionsEntity: "seed_reproductions" },
+      { key: "unit", label: "Ед. учета", type: "select", options: seedUnitOptions },
+      { key: "base_uom", label: "Базовая ед.", type: "select", options: seedUnitOptions },
+      { key: "manufacturer", label: "Бренд / производитель", type: "text" },
+      { key: "notes", label: "Заметки", type: "text" },
+      { key: "is_active", label: "Активны", type: "checkbox" },
+    ],
+  },
+  diseases: {
+    entity: "diseases",
+    title: "Глобальный каталог болезней",
+    description: "Справочник болезней культур. Вредители, сорняки и связи с препаратами ведутся отдельно.",
+    createLabel: "Добавить болезнь",
+    searchPlaceholder: "Поиск по названию, латинскому названию, симптомам...",
+    columns: [
+      { key: "name_ru", label: "Название" },
+      { key: "name_en", label: "Название EN" },
+      { key: "latin_name", label: "Латинское название" },
+      { key: "disease_type", label: "Тип болезни" },
+      { key: "pathogen_type", label: "Тип патогена" },
+      { key: "risk_stage", label: "Фаза риска" },
+      { key: "confidence", label: "Достоверность" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      { key: "disease_type", label: "Тип болезни", options: diseaseTypeFilterOptions },
+      { key: "pathogen_type", label: "Тип патогена", options: pathogenTypeFilterOptions },
+      { key: "confidence", label: "Достоверность", options: confidenceFilterOptions },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "name_ru", label: "Название RU", type: "text", required: true },
+      { key: "name_en", label: "Название EN", type: "text" },
+      { key: "latin_name", label: "Латинское название", type: "text" },
+      { key: "disease_type", label: "Тип болезни", type: "select", required: true, options: diseaseTypeOptions },
+      { key: "pathogen_type", label: "Тип патогена", type: "select", required: true, options: pathogenTypeOptions },
+      { key: "symptoms", label: "Симптомы", type: "text" },
+      { key: "development_conditions", label: "Условия развития", type: "text" },
+      { key: "risk_stage", label: "Фаза риска", type: "text" },
+      { key: "source_url", label: "Источник", type: "text" },
+      { key: "confidence", label: "Достоверность", type: "select", options: confidenceOptions },
+      { key: "image_url", label: "Основное изображение", type: "text" },
+      { key: "notes", label: "Заметки", type: "text" },
+      { key: "is_active", label: "Активна", type: "checkbox" },
+    ],
+  },
+  pests: {
+    entity: "pests",
+    title: "Глобальный каталог вредителей",
+    description: "Справочник вредителей культур. Связи с препаратами и ДВ ведутся отдельно.",
+    createLabel: "Добавить вредителя",
+    searchPlaceholder: "Поиск по названию, латинскому названию, симптомам повреждений...",
+    columns: [
+      { key: "name_ru", label: "Название" },
+      { key: "name_en", label: "Название EN" },
+      { key: "latin_name", label: "Латинское название" },
+      { key: "pest_type", label: "Тип вредителя" },
+      { key: "risk_stage", label: "Фаза риска" },
+      { key: "confidence", label: "Достоверность" },
+      { key: "is_sensitive", label: "Чувствительный" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      { key: "pest_type", label: "Тип вредителя", options: pestTypeFilterOptions },
+      { key: "confidence", label: "Достоверность", options: confidenceFilterOptions },
+      { key: "is_sensitive", label: "Чувствительный", options: [{ label: "Все", value: "all" }, { label: "Да", value: "true" }, { label: "Нет", value: "false" }] },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "name_ru", label: "Название RU", type: "text", required: true },
+      { key: "name_en", label: "Название EN", type: "text" },
+      { key: "latin_name", label: "Латинское название", type: "text" },
+      { key: "pest_type", label: "Тип вредителя", type: "select", required: true, options: pestTypeOptions },
+      { key: "life_cycle", label: "Жизненный цикл", type: "text" },
+      { key: "damage_symptoms", label: "Симптомы повреждений", type: "text" },
+      { key: "development_conditions", label: "Условия развития", type: "text" },
+      { key: "risk_stage", label: "Фаза риска", type: "text" },
+      { key: "source_url", label: "Источник", type: "text" },
+      { key: "confidence", label: "Достоверность", type: "select", options: confidenceOptions },
+      { key: "image_url", label: "Основное изображение", type: "text" },
+      { key: "notes", label: "Заметки", type: "text" },
+      { key: "is_sensitive", label: "Чувствительный", type: "checkbox" },
+      { key: "is_active", label: "Активен", type: "checkbox" },
+    ],
+  },
+  weeds: {
+    entity: "weeds",
+    title: "Глобальный каталог сорняков",
+    description: "Справочник сорных растений культур. Связи с гербицидами ведутся отдельно.",
+    createLabel: "Добавить сорняк",
+    searchPlaceholder: "Поиск по названию, латинскому названию, морфологии...",
+    columns: [
+      { key: "name_ru", label: "Название" },
+      { key: "name_en", label: "Название EN" },
+      { key: "latin_name", label: "Латинское название" },
+      { key: "weed_type", label: "Тип сорняка" },
+      { key: "life_cycle", label: "Жизненный цикл" },
+      { key: "confidence", label: "Достоверность" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      { key: "weed_type", label: "Тип сорняка", options: weedTypeFilterOptions },
+      { key: "confidence", label: "Достоверность", options: confidenceFilterOptions },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "name_ru", label: "Название RU", type: "text", required: true },
+      { key: "name_en", label: "Название EN", type: "text" },
+      { key: "latin_name", label: "Латинское название", type: "text" },
+      { key: "weed_type", label: "Тип сорняка", type: "select", required: true, options: weedTypeOptions },
+      { key: "life_cycle", label: "Жизненный цикл", type: "text" },
+      { key: "morphology", label: "Морфология", type: "text" },
+      { key: "harmfulness", label: "Вредоносность", type: "text" },
+      { key: "development_conditions", label: "Условия развития", type: "text" },
+      { key: "source_url", label: "Источник", type: "text" },
+      { key: "confidence", label: "Достоверность", type: "select", options: confidenceOptions },
+      { key: "image_url", label: "Основное изображение", type: "text" },
+      { key: "notes", label: "Заметки", type: "text" },
+      { key: "is_active", label: "Активен", type: "checkbox" },
+    ],
+  },
+  pesticides: {
+    entity: "pesticides",
+    title: "Глобальный каталог пестицидов",
+    description: "Мастер-список СЗР, доступный для компаний.",
+    createLabel: "Добавить пестицид",
+    searchPlaceholder: "Поиск по названию, ДВ, формуляции, производителю...",
+    columns: defaultAgrochemColumns,
+    filters: defaultAgrochemFilters,
+    formFields: defaultAgrochemFormFields,
+  },
+  fertilizers: {
+    entity: "fertilizers",
+    title: "Глобальный каталог удобрений",
+    description: "Мастер-список удобрений платформы.",
+    createLabel: "Добавить удобрение",
+    searchPlaceholder: "Поиск по названию, составу, форме или производителю...",
+    columns: [
+      { key: "trade_name", label: "Название" },
+      { key: "manufacturer", label: "Производитель" },
+      { key: "fertilizer_category", label: "Категория" },
+      { key: "composition", label: "Состав" },
+      { key: "formulation", label: "Форма" },
+      { key: "stock_unit", label: "Единица" },
+    ],
+    filters: [
+      { key: "fertilizer_category_id", label: "Категория", options: [{ label: "Все", value: "all" }], optionsEntity: "fertilizer_categories" },
+      { key: "manufacturer_id", label: "Производитель", options: [{ label: "Все", value: "all" }], optionsEntity: "agrochem_manufacturers" },
+      { key: "application_scope", label: "Применение", options: [{ label: "Все", value: "all" }, ...fertilizerApplicationOptions] },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "name", label: "Название", type: "text", required: true },
+      { key: "manufacturer_id", label: "Производитель", type: "select", optionsEntity: "agrochem_manufacturers" },
+      { key: "fertilizer_category_id", label: "Категория", type: "select", required: true, optionsEntity: "fertilizer_categories" },
+      { key: "composition", label: "Состав", type: "text", required: true },
+      { key: "formulation_id", label: "Форма", type: "select", required: true, optionsEntity: "agrochem_formulations" },
+      { key: "application_scope", label: "Применение", type: "select", required: true, options: fertilizerApplicationOptions },
+      { key: "stock_unit", label: "Единица", type: "select", required: true, options: materialStockUnitOptions.filter((option) => option.value === "kg" || option.value === "l") },
+      { key: "source_url", label: "Источник", type: "text", required: true },
+      { key: "is_active", label: "Активно", type: "checkbox" },
+    ],
+  },
+  fertilizer_categories: {
+    entity: "fertilizer_categories",
+    title: "Категории удобрений",
+    description: "Канонический справочник категорий удобрений.",
+    createLabel: "Добавить категорию",
+    searchPlaceholder: "Поиск категории...",
+    columns: [
+      { key: "name_ru", label: "Название" },
+      { key: "slug", label: "Slug" },
+      { key: "definition", label: "Определение" },
+    ],
+    filters: [{ key: "is_active", label: "Активность", options: activeFilterOptions }],
+    formFields: [
+      { key: "name_ru", label: "Название", type: "text", required: true },
+      { key: "slug", label: "Slug", type: "text", required: true },
+      { key: "definition", label: "Определение", type: "text" },
+      { key: "examples", label: "Примеры", type: "text" },
+      { key: "sort_order", label: "Порядок", type: "number", required: true },
+      { key: "is_active", label: "Активна", type: "checkbox" },
+    ],
+  },
+  additives: {
+    entity: "additives",
+    title: "Глобальный каталог добавок",
+    description: "Адъюванты, корректоры pH, кондиционеры воды и прочие вспомогательные материалы.",
+    createLabel: "Добавить добавку",
+    searchPlaceholder: "Поиск по названию, подтипу, формуляции, производителю...",
+    columns: additiveColumns,
+    filters: additiveFilters,
+    formFields: additiveFormFields,
+  },
+  growth_regulators: {
+    entity: "growth_regulators",
+    title: "Глобальный каталог регуляторов роста",
+    description: "Мастер-список регуляторов роста.",
+    createLabel: "Добавить регулятор роста",
+    searchPlaceholder: "Поиск по названию, ДВ, формуляции, производителю...",
+    columns: defaultAgrochemColumns,
+    filters: defaultAgrochemFilters,
+    formFields: defaultAgrochemFormFields,
+  },
+  pesticide_categories: {
+    entity: "pesticide_categories",
+    title: "Категории пестицидов",
+    description: "Справочник категорий агрохимии.",
+    createLabel: "Добавить категорию",
+    searchPlaceholder: "Поиск по названию, slug, описанию...",
+    columns: [
+      { key: "name_ru", label: "Название (RU)" },
+      { key: "name_en", label: "Название (EN)" },
+      { key: "slug", label: "Slug" },
+      { key: "description", label: "Описание" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [{ key: "is_active", label: "Активность", options: activeFilterOptions }],
+    formFields: [
+      { key: "name_ru", label: "Название (RU)", type: "text", required: true },
+      { key: "name_en", label: "Название (EN)", type: "text" },
+      { key: "slug", label: "Slug", type: "text", required: true },
+      { key: "description", label: "Описание", type: "text" },
+      { key: "is_active", label: "Активна", type: "checkbox" },
+    ],
+  },
+  active_ingredients: {
+    entity: "active_ingredients",
+    title: "Действующие вещества",
+    description: "Компоненты GLBD с официальными и дополнительными названиями.",
+    createLabel: "Добавить ДВ",
+    searchPlaceholder: "Поиск по русскому, английскому или дополнительному названию...",
+    columns: [
+      { key: "name_ru", label: "Название (RU)" },
+      { key: "name_en", label: "Название (EN)" },
+      { key: "slug", label: "Slug" },
+      { key: "ingredient_type", label: "Тип" },
+      { key: "description", label: "Описание" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      { key: "ingredient_type", label: "Тип", options: [{ label: "Все", value: "all" }, ...activeIngredientTypeOptions] },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "name_ru", label: "Название (RU)", type: "text", required: true },
+      { key: "name_en", label: "Название (EN)", type: "text" },
+      { key: "slug", label: "Slug", type: "text", required: true },
+      { key: "ingredient_type", label: "Тип", type: "select", required: true, options: activeIngredientTypeOptions },
+      { key: "description", label: "Описание", type: "text" },
+      { key: "is_active", label: "Активно", type: "checkbox" },
+    ],
+  },
+  agrochem_manufacturers: {
+    entity: "agrochem_manufacturers",
+    title: "Производители",
+    description: "Справочник производителей агрохимии.",
+    createLabel: "Добавить производителя",
+    searchPlaceholder: "Поиск по названию...",
+    columns: [
+      { key: "name", label: "Название" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [{ key: "is_active", label: "Активность", options: activeFilterOptions }],
+    formFields: [
+      { key: "name", label: "Название", type: "text", required: true },
+      { key: "is_active", label: "Активно", type: "checkbox" },
+    ],
+  },
+  agrochem_formulations: {
+    entity: "agrochem_formulations",
+    title: "Формуляции",
+    description: "Справочник формуляций (SL, EC, SC, WG).",
+    createLabel: "Добавить формуляцию",
+    searchPlaceholder: "Поиск по коду и названию...",
+    columns: [
+      { key: "code", label: "Код" },
+      { key: "name_ru", label: "Название" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [{ key: "is_active", label: "Активность", options: activeFilterOptions }],
+    formFields: [
+      { key: "code", label: "Код", type: "text", required: true },
+      { key: "name_ru", label: "Название", type: "text", required: true },
+      { key: "is_active", label: "Активно", type: "checkbox" },
+    ],
+  },
+  agrochem_mode_of_actions: {
+    entity: "agrochem_mode_of_actions",
+    title: "Типы действия",
+    description: "Справочник типов действия препаратов.",
+    createLabel: "Добавить тип действия",
+    searchPlaceholder: "Поиск по названию...",
+    columns: [
+      { key: "name_ru", label: "Название" },
+      { key: "slug", label: "Slug" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [{ key: "is_active", label: "Активность", options: activeFilterOptions }],
+    formFields: [
+      { key: "name_ru", label: "Название", type: "text", required: true },
+      { key: "slug", label: "Slug", type: "text", required: true },
+      { key: "is_active", label: "Активно", type: "checkbox" },
+    ],
+  },
+  agricultural_machine_models: {
+    entity: "agricultural_machine_models",
+    title: "Глобальный каталог сельхозмашин",
+    description: "Глобальный мастер-каталог самоходной техники и самостоятельных машин хозяйства.",
+    createLabel: "Добавить модель",
+    searchPlaceholder: "Поиск по полному названию, бренду, серии, модели...",
+    columns: [
+      { key: "full_name", label: "Полное название" },
+      { key: "asset_group", label: "Группа" },
+      { key: "category", label: "Категория" },
+      { key: "brand", label: "Бренд" },
+      { key: "series", label: "Серия" },
+      { key: "model", label: "Модель" },
+      { key: "power_hp", label: "Мощность (л.с.)" },
+      { key: "required_power_hp", label: "Требуемая мощность" },
+      { key: "working_width_m", label: "Ширина (м)" },
+      { key: "grain_tank_l", label: "Бункер (л)" },
+      { key: "tank_volume_l", label: "Бак (л)" },
+      { key: "tank_capacity_l", label: "Ёмкость бака (л)" },
+      { key: "rows_count", label: "Рядов" },
+      { key: "capacity", label: "Производительность" },
+      { key: "dealer_name", label: "Дилер" },
+      { key: "presence_in_kz", label: "Представлен в РК" },
+      { key: "source_type", label: "Источник" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      {
+        key: "category",
+        label: "Категория",
+        options: standaloneAgriculturalMachineCategoryFilterOptions,
+      },
+      { key: "asset_group", label: "Группа", options: standaloneMachineryAssetGroupFilterOptions },
+      { key: "brand", label: "Бренд", options: [{ label: "Все", value: "all" }] },
+      { key: "series", label: "Серия", options: [{ label: "Все", value: "all" }] },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      {
+        key: "category",
+        label: "Категория",
+        type: "select",
+        required: true,
+        options: standaloneAgriculturalMachineCategoryOptions,
+      },
+      {
+        key: "asset_group",
+        label: "Группа техники",
+        type: "select",
+        required: true,
+        options: standaloneMachineryAssetGroupOptions,
+      },
+      { key: "brand", label: "Бренд", type: "text", required: true },
+      { key: "series", label: "Серия", type: "text" },
+      { key: "model", label: "Модель", type: "text", required: true },
+      { key: "power_hp", label: "Мощность (л.с.)", type: "number" },
+      { key: "required_power_hp", label: "Требуемая мощность трактора (л.с.)", type: "number" },
+      { key: "engine", label: "Двигатель", type: "text" },
+      { key: "transmission", label: "Трансмиссия", type: "text" },
+      { key: "weight_kg", label: "Масса (кг)", type: "number" },
+      { key: "fuel_tank_l", label: "Топливный бак (л)", type: "number" },
+      { key: "tank_volume_l", label: "Объем бака (л)", type: "number" },
+      { key: "tank_capacity_l", label: "Ёмкость бака / бункера (л)", type: "number" },
+      { key: "grain_tank_l", label: "Объем зернобункера (л)", type: "number" },
+      { key: "working_width_m", label: "Рабочая ширина (м)", type: "number" },
+      { key: "rows_count", label: "Количество рядов", type: "number" },
+      { key: "capacity", label: "Производительность / вместимость", type: "text" },
+      { key: "power_class", label: "Класс мощности", type: "text" },
+      { key: "dealer_name", label: "Дилер в РК", type: "text" },
+      { key: "presence_in_kz", label: "Есть на рынке РК", type: "checkbox" },
+      {
+        key: "source_type",
+        label: "Тип источника",
+        type: "select",
+        options: [
+          { label: "Производитель", value: "manufacturer" },
+          { label: "Официальный дилер", value: "official_dealer" },
+          { label: "Реестр", value: "registry" },
+          { label: "Импорт данных", value: "import_feed" },
+          { label: "Ручной ввод", value: "manual" },
+        ],
+      },
+      { key: "source_url", label: "Ссылка на источник", type: "text" },
+      { key: "notes", label: "Примечания", type: "text" },
+      { key: "is_active", label: "Активна", type: "checkbox" },
+    ],
+  },
+  machinery: {
+    entity: "machinery",
+    title: "Каталог техники",
+    description: "Машинный двор: техника для работ.",
+    createLabel: "Добавить технику",
+    searchPlaceholder: "Поиск по названию, бренду, модели...",
+    columns: [
+      { key: "full_name", label: "Полное название" },
+      { key: "brand", label: "Бренд" },
+      { key: "series", label: "Серия" },
+      { key: "model", label: "Модель" },
+      { key: "machine_category", label: "Категория" },
+      { key: "machine_type", label: "Тип" },
+      { key: "key_parameter", label: "Ключевой параметр" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      { key: "machine_category", label: "Категория", options: [{ label: "Все", value: "all" }] },
+      { key: "brand", label: "Бренд", options: [{ label: "Все", value: "all" }] },
+      { key: "machine_type", label: "Тип", options: [{ label: "Все", value: "all" }] },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "full_name", label: "Полное название", type: "text", required: true },
+      { key: "name", label: "Короткое название", type: "text" },
+      { key: "brand", label: "Бренд", type: "text" },
+      { key: "series", label: "Серия", type: "text" },
+      { key: "model", label: "Модель", type: "text", required: true },
+      { key: "machine_category", label: "Категория", type: "text" },
+      { key: "machine_type", label: "Тип", type: "text" },
+      { key: "key_parameter", label: "Ключевой параметр", type: "text" },
+      { key: "is_active", label: "Активна", type: "checkbox" },
+    ],
+  },
+  implements: {
+    entity: "implements",
+    title: "Каталог агрегатов",
+    description: "Оборудование и агрегаты.",
+    createLabel: "Добавить агрегат",
+    searchPlaceholder: "Поиск по названию, бренду, назначению...",
+    columns: [
+      { key: "full_name", label: "Название" },
+      { key: "brand", label: "Бренд" },
+      { key: "series", label: "Серия" },
+      { key: "model", label: "Модель" },
+      { key: "equipment_category", label: "Категория" },
+      { key: "purpose", label: "Назначение" },
+      { key: "key_parameter", label: "Ключевой параметр" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      { key: "equipment_category", label: "Категория", options: [{ label: "Все", value: "all" }] },
+      { key: "brand", label: "Бренд", options: [{ label: "Все", value: "all" }] },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "full_name", label: "Название", type: "text", required: true },
+      { key: "name", label: "Короткое название", type: "text" },
+      { key: "brand", label: "Бренд", type: "text" },
+      { key: "series", label: "Серия", type: "text" },
+      { key: "model", label: "Модель", type: "text" },
+      { key: "equipment_category", label: "Категория", type: "text" },
+      { key: "purpose", label: "Назначение", type: "text" },
+      { key: "key_parameter", label: "Ключевой параметр", type: "text" },
+      { key: "is_active", label: "Активно", type: "checkbox" },
+    ],
+  },
+  fleet: {
+    entity: "fleet",
+    title: "Каталог автопарка",
+    description: "Шаблоны транспортных единиц.",
+    createLabel: "Добавить транспорт",
+    searchPlaceholder: "Поиск по названию, бренду, модели...",
+    columns: [
+      { key: "full_name", label: "Полное название" },
+      { key: "brand", label: "Бренд" },
+      { key: "series", label: "Серия" },
+      { key: "model", label: "Модель" },
+      { key: "category", label: "Категория" },
+      { key: "engine", label: "Двигатель" },
+      { key: "dealer_name", label: "Дилер" },
+      { key: "presence_in_kz", label: "Представлен в РК" },
+      { key: "notes", label: "Примечание" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      { key: "category", label: "Категория", options: [{ label: "Все", value: "all" }, { label: "Легковой транспорт", value: "light_vehicle" }, { label: "Грузовик", value: "truck" }, { label: "Седельный тягач", value: "tractor_unit" }, { label: "Прицеп", value: "trailer" }, { label: "Автобус", value: "bus" }, { label: "Спецтранспорт", value: "special_vehicle" }] },
+      { key: "brand", label: "Бренд", options: [{ label: "Все", value: "all" }] },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "brand", label: "Бренд", type: "text" },
+      { key: "series", label: "Серия", type: "text" },
+      { key: "model", label: "Модель", type: "text" },
+      { key: "category", label: "Категория", type: "select", required: true, options: [{ label: "Легковой транспорт", value: "light_vehicle" }, { label: "Грузовик", value: "truck" }, { label: "Седельный тягач", value: "tractor_unit" }, { label: "Прицеп", value: "trailer" }, { label: "Автобус", value: "bus" }, { label: "Спецтранспорт", value: "special_vehicle" }] },
+      { key: "engine", label: "Двигатель", type: "text" },
+      { key: "dealer_name", label: "Дилер", type: "text" },
+      { key: "presence_in_kz", label: "Представлен в РК", type: "checkbox" },
+      { key: "notes", label: "Примечание", type: "text" },
+      { key: "is_active", label: "Активен", type: "checkbox" },
+    ],
+  },
+};
+
+export function getCatalogConfig(entity: GlobalCatalogEntity): GlobalCatalogConfig {
+  return GLOBAL_CATALOG_CONFIGS[entity];
+}

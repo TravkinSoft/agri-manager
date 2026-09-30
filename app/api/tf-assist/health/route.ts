@@ -1,0 +1,35 @@
+import { NextResponse } from "next/server";
+import { QA_ORIGIN } from "@/lib/tf-assist/policy";
+import { previewEnabled, sourceOrigin } from "@/lib/tf-assist/preview-gate";
+import { plannerTransport, plannerModel } from "@/lib/tf-assist/planner";
+import { runtimePlannerConfig } from "@/lib/tf-assist/runtime-planner-config";
+export const dynamic = "force-dynamic";
+export function GET() {
+  // Safe preflight metadata. No keys, URLs, users or business data are exposed.
+  const qaBound =
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "") === QA_ORIGIN;
+  const enabled = previewEnabled(process.env);
+  const config = runtimePlannerConfig();
+  const aiTransport = plannerTransport(config);
+  return NextResponse.json(
+    {
+      feature: "tf-assist-harvest-v1",
+      enabled,
+      qaBound,
+      uiEnabled: enabled,
+      aiConfigured: aiTransport !== "none",
+      aiTransport,
+      aiDefaultModel: plannerModel({ ...config, model: undefined }),
+      aiModelOverridden: Boolean(config.model),
+      // Credential presence is not proof of live provider availability.
+      aiAvailability: "not_checked",
+      sourceCredentialConfigured: Boolean(
+        process.env.SUPABASE_SERVICE_ROLE_KEY,
+      ),
+      productionLocked: process.env.VERCEL_ENV === "production" && !enabled,
+      productionEnabled: process.env.VERCEL_ENV === "production" && enabled,
+      sourceConfigured: Boolean(sourceOrigin(process.env.NEXT_PUBLIC_SUPABASE_URL)),
+    },
+    { headers: { "Cache-Control": "no-store, private" } },
+  );
+}

@@ -1,0 +1,3930 @@
+"use client";
+
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Download, Edit3, FileText, LayoutGrid, Loader2, Map as MapIcon, Maximize2, Plus, RefreshCw, Search, Table2, X } from "lucide-react";
+import { FieldFormDialog } from "@/components/fields/field-form-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { OperationFormDialog } from "@/components/operations/operation-form-dialog";
+import { SpecialistOperationPlan } from "@/components/operations/specialist-operation-plan";
+import { CatalogIdentityCombobox } from "@/components/crop-structure/catalog-identity-combobox";
+import { FieldHarvestLive } from "@/components/crop-structure/field-harvest-live";
+import { fieldSearchRank } from "@/lib/fields/search-rank";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/contexts/auth-context";
+import { TRAVKINFLOW_2_FUNCTIONS_RELEASED } from "@/lib/travkinflow-2/release";
+import { useLanguage } from "@/lib/contexts/language-context";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
+import { supabase } from "@/lib/supabase/client";
+import { todayDateOnlyLocal } from "@/lib/dates/date-only";
+import { getFieldDisplayName } from "@/lib/fields/display";
+import { createField } from "@/lib/services/fields";
+import type { FieldFormData } from "@/lib/types/field";
+import {
+  isCropMixLandUse,
+  isFallowLandUse,
+  normalizeCropStructureSeedAttributes,
+  validateAndNormalizeCropStructureRows,
+} from "@/lib/crop-structure/fallow";
+import {
+  GRAIN_MIX_MAX_COMPONENTS,
+  GRAIN_MIX_MIN_COMPONENTS,
+  grainMixComponentTotalKg,
+  grainMixDisplayName,
+  grainMixTotalKg,
+  validateGrainMixComponents,
+  type GrainMixComponent,
+} from "@/lib/crop-structure/grain-mix";
+import {
+  buildReproductionOptions,
+  buildVarietyOptions,
+  catalogIdentitySearchValue,
+} from "@/lib/crop-structure/catalog-identity";
+import {
+  compactReproductionLabel,
+  hasCropStructureChanges,
+  sortReproductionsAgronomically,
+  summarizeCropStructureChanges,
+  type CropStructureChangeSummary,
+} from "@/lib/crop-structure/editor";
+import { createOperation, getOperationsForCropStructureRows } from "@/lib/services/operations";
+import type { OperationFormData, SpecialistAssignee } from "@/lib/types/operation";
+import { buildOperationPresentation, type OperationPresentation } from "@/lib/operations/operation-presentation";
+import type { CropStructureWithDetails } from "@/lib/types/crop-structure";
+import {
+  getIrrigationTypeLabel,
+  isPotatoCropContext,
+  normalizeIrrigationType,
+  type IrrigationType,
+} from "@/lib/operations/operation-engine";
+import { isSameCropStructureUiContext, type CropStructureUiContext } from "./save-context";
+
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+type Field = { id: string; name: string; area: number; notes?: string | null };
+type Season = { id: string; year: number; archived?: boolean | null };
+type Crop = {
+  id: string;
+  name: string;
+  slug?: string | null;
+  name_ru?: string | null;
+  name_kz?: string | null;
+  name_kk?: string | null;
+  name_en?: string | null;
+  company_id?: string | null;
+  archived?: boolean | null;
+  is_active?: boolean | null;
+};
+type Variety = {
+  id: string;
+  name: string;
+  name_ru?: string | null;
+  name_kz?: string | null;
+  name_en?: string | null;
+  crop_id: string;
+  company_id?: string | null;
+  archived?: boolean | null;
+  is_active?: boolean | null;
+};
+type Reproduction = {
+  id: string;
+  name: string;
+  name_ru?: string | null;
+  name_kz?: string | null;
+  name_kk?: string | null;
+  name_en?: string | null;
+  code?: string | null;
+  company_id?: string | null;
+  archived?: boolean | null;
+  is_active?: boolean | null;
+  level_order?: number | null;
+};
+type CropStructureBootstrapPayload = {
+  companyId: string;
+  fields: Field[];
+  seasons: Season[];
+  activeSeasonId: string | null;
+  cropStructure?: unknown[];
+  crops: Crop[];
+  varieties: Variety[];
+  reproductions: Reproduction[];
+  specialists: SpecialistAssignee[];
+};
+type Allocation = {
+  id?: string;
+  field_id: string;
+  land_use_type: "crop" | "crop_mix" | "fallow";
+  crop_id: string | null;
+  variety_id: string | null;
+  reproduction_id: string | null;
+  notes: string;
+  area: number | null;
+  seeding_rate?: number | null;
+  expected_yield?: number | null;
+  irrigation_type?: IrrigationType | null;
+  row_spacing_m?: number | null;
+  seed_spacing_cm?: number | null;
+  identity_review_required?: boolean;
+  identity_review_reason?: string | null;
+  mix_components: GrainMixComponent[];
+};
+type Consumption = {
+  id: string;
+  operation_id: string | null;
+  field_id: string;
+  crop_structure_row_id: string | null;
+  operation_type: string;
+  material_type?: string | null;
+  unit?: string | null;
+  product_id: string | null;
+  product_name: string;
+  variety_name: string | null;
+  reproduction_name: string | null;
+  batch_class: string | null;
+  quantity_kg: number;
+  area_ha: number | null;
+  norm_per_ha: number | null;
+  consumed_at: string | null;
+  ticket_id: string | null;
+  responsible_name: string | null;
+  vehicle_name: string | null;
+  notes: string | null;
+};
+
+type StructureOperationMaterialFact = {
+  product_id: string | null;
+  product_name: string;
+  material_type: string | null;
+  unit: string | null;
+  planned_quantity: number | null;
+  issued_quantity: number;
+  consumed_quantity: number | null;
+  returned_quantity: number | null;
+  actual_rate: number | null;
+};
+
+type StructureOperationFact = {
+  id: string;
+  field_id: string;
+  crop_structure_row_id: string | null;
+  operation_type: string;
+  operation_type_slug: string | null;
+  operation_category_slug: string | null;
+  date: string | null;
+  status: string | null;
+  work_status: string | null;
+  completed_at: string | null;
+  planned_area_ha: number | null;
+  actual_area_ha: number | null;
+  materials: StructureOperationMaterialFact[];
+  presentation: OperationPresentation;
+};
+
+type FieldLegalLink = {
+  id: string;
+  field_id: string;
+  crop_id: string | null;
+  area_ha: number;
+  cadastral_number: string;
+  legal_entity_name: string | null;
+  owner_legal_entity_name: string | null;
+  usage_legal_entity_name: string | null;
+  status: string;
+  allocation_method: string;
+  source: string;
+  notes: string | null;
+};
+
+type FieldState = "empty" | "partial" | "complete" | "over";
+type StageKey = "prep" | "seeding" | "care" | "harvest";
+type MaterialCategory = "seed" | "fertilizer" | "chemical" | "organic" | "fuel" | "irrigation" | "other";
+type ViewMode = "cards" | "table" | "map";
+type FieldWorkspaceTab = "dossier" | "editor" | "legal";
+type PendingFieldSelection = { fieldId: string; tab: FieldWorkspaceTab };
+
+const EPS = 0.0001;
+const CROP_STRUCTURE_VIEW_KEY = "travkinflow.cropStructure.viewMode";
+const FIELD_FIRST_CREATE_ENABLED =
+  process.env.NEXT_PUBLIC_OPERATIONS_FIELD_FIRST_CREATE !== "0" &&
+  process.env.OPERATIONS_FIELD_FIRST_CREATE !== "0";
+const FIELD_HARVEST_LIVE_ENABLED = TRAVKINFLOW_2_FUNCTIONS_RELEASED;
+
+const stageDefs: Array<{ key: StageKey; label: string; operations: string[] }> = [
+  { key: "prep", label: "Подготовка", operations: ["preparation", "tillage", "cultivation", "plowing", "other"] },
+  { key: "seeding", label: "Посев / посадка", operations: ["seeding", "planting"] },
+  { key: "care", label: "Вегетация / уход", operations: ["fertilizing", "top_dressing", "herbicide", "fungicide", "insecticide", "desiccation", "irrigation", "gsm"] },
+  { key: "harvest", label: "Уборка", operations: ["harvest", "harvesting"] },
+];
+
+const fmtHa = (value: number) => `${value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`;
+const fmtKg = (value: number) => `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг`;
+const fmtRate = (value: number | null) => (value == null ? "-" : `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг/га`);
+const norm = (value?: string | null) => String(value || "").trim().toLowerCase();
+const parseNum = (value: string): number | null => {
+  const raw = value.trim().replace(",", ".");
+  if (!raw) return null;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : null;
+};
+
+const normalizeReproductionToken = (value: unknown) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/\s+/g, " ");
+
+const standardReproductionLabel = (item: Reproduction | null | undefined) => {
+  if (!item) return "-";
+  const tokens = [item.code, item.name_ru, item.name, item.name_en].map(normalizeReproductionToken);
+  const has = (...values: string[]) => tokens.some((token) => values.includes(token));
+
+  if (has("os", "original", "оригинальные", "оригинальные семена")) return "ОС — оригинальные семена";
+  if (has("sse", "суперсуперэлита", "супер-суперэлита", "super super elite", "super-super-elite")) return "ССЭ — супер-суперэлита";
+  if (has("se", "суперэлита", "супер элита", "super elite", "superelite")) return "СЭ — суперэлита";
+  if (has("es", "e", "elite", "элита", "элитные", "элитные семена")) return "ЭС — элитные семена";
+  if (has("r1", "rs1", "рс1", "1 репродукция", "первая репродукция", "first reproduction")) return "РС1 — 1-я репродукция";
+  if (has("r2", "rs2", "рс2", "2 репродукция", "вторая репродукция", "second reproduction")) return "РС2 — 2-я репродукция";
+  if (has("r3", "rs3", "рс3", "3 репродукция", "третья репродукция", "third reproduction")) return "РС3 — 3-я репродукция";
+  if (has("r4", "rs4", "рс4", "4 репродукция", "четвертая репродукция", "fourth reproduction")) return "РС4 — 4-я репродукция";
+  if (has("f1", "гибрид f1", "hybrid f1")) return "F1 — гибрид 1-го поколения";
+
+  return localizedName(item as never, "ru", ["name", "code"]) || item.name || item.code || "-";
+};
+const CROP_STRUCTURE_BASE_SELECT = "id,field_id,land_use_type,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield";
+const CROP_STRUCTURE_V4_SELECT = `${CROP_STRUCTURE_BASE_SELECT},irrigation_type,row_spacing_m,seed_spacing_cm`;
+const CROP_STRUCTURE_REVIEW_SELECT = `${CROP_STRUCTURE_V4_SELECT},identity_review_required,identity_review_reason`;
+const isMissingIdentityReviewColumn = (error: unknown) => {
+  const message = String((error as any)?.message || error || "").toLowerCase();
+  return message.includes("identity_review_required") || message.includes("identity_review_reason");
+};
+const isMissingCropStructureV4Column = (error: unknown) => {
+  const message = String((error as any)?.message || error || "").toLowerCase();
+  return (
+    message.includes("irrigation_type") ||
+    message.includes("row_spacing_m") ||
+    message.includes("seed_spacing_cm") ||
+    message.includes("identity_review_required") ||
+    message.includes("identity_review_reason") ||
+    message.includes("schema cache")
+  );
+};
+const allocationFromRow = (row: any): Allocation => ({
+  id: row.id,
+  field_id: row.field_id,
+  land_use_type: row.land_use_type === "fallow" ? "fallow" : row.land_use_type === "crop_mix" ? "crop_mix" : "crop",
+  crop_id: row.crop_id,
+  variety_id: row.variety_id,
+  reproduction_id: row.reproduction_id,
+  notes: row.notes || "",
+  area: Number(row.area || 0),
+  seeding_rate: row.seeding_rate == null ? null : Number(row.seeding_rate || 0),
+  expected_yield: row.expected_yield == null ? null : Number(row.expected_yield || 0),
+  irrigation_type: normalizeIrrigationType(row.irrigation_type),
+  row_spacing_m: row.row_spacing_m == null ? null : Number(row.row_spacing_m || 0),
+  seed_spacing_cm: row.seed_spacing_cm == null ? null : Number(row.seed_spacing_cm || 0),
+  identity_review_required:
+    row.identity_review_required === true,
+  identity_review_reason: row.identity_review_reason || null,
+  mix_components: Array.isArray(row.mix_components)
+    ? row.mix_components
+        .map((component: any, index: number) => ({
+          id: component.id || undefined,
+          crop_id: component.crop_id || null,
+          variety_id: component.variety_id || null,
+          reproduction_id: component.reproduction_id || null,
+          seed_rate_kg_ha: component.seed_rate_kg_ha == null ? null : Number(component.seed_rate_kg_ha),
+          sort_order: Number(component.sort_order || index + 1),
+        }))
+        .sort((left: GrainMixComponent, right: GrainMixComponent) => Number(left.sort_order || 0) - Number(right.sort_order || 0))
+    : [],
+});
+const buildAllocationMap = (rows: unknown[]) => {
+  const map = new Map<string, Allocation[]>();
+  for (const row of rows as any[]) {
+    if (!row?.field_id) continue;
+    const fieldId = String(row.field_id);
+    map.set(fieldId, [...(map.get(fieldId) || []), allocationFromRow(row)]);
+  }
+  return map;
+};
+const cloneAllocationMap = (map: Map<string, Allocation[]>) =>
+  new Map(Array.from(map.entries()).map(([key, value]) => [key, value.map((item) => ({
+    ...item,
+    mix_components: item.mix_components.map((component) => ({ ...component })),
+  }))]));
+const fmtDate = (value?: string | null) => {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "-";
+  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
+};
+
+const stageForOperation = (operation: string): StageKey => {
+  const key = String(operation || "").toLowerCase();
+  const exact = stageDefs.find((stage) => stage.operations.includes(key))?.key;
+  if (exact) return exact;
+  if (key.includes("harvest") || key.includes("уборк") || key.includes("комбайн")) return "harvest";
+  if (key.includes("plant") || key.includes("seed") || key.includes("посев") || key.includes("посад")) return "seeding";
+  if (
+    key.includes("soil") ||
+    key.includes("tillage") ||
+    key.includes("cultiv") ||
+    key.includes("диск") ||
+    key.includes("культива") ||
+    key.includes("почво") ||
+    key.includes("греб") ||
+    key.includes("вспаш")
+  ) return "prep";
+  return "care";
+};
+
+const numberOrNull = (value: unknown): number | null => {
+  if (value == null || value === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const batchClassLabel = (value?: string | null) => {
+  if (value === "seed") return "Семенной";
+  if (value === "feed") return "Кормовой";
+  if (value === "waste") return "Отходы";
+  if (value === "processing") return "В переработке";
+  if (value === "rejected") return "Брак";
+  return "Товарное";
+};
+
+const materialCategory = (item: Consumption): MaterialCategory => {
+  const op = String(item.operation_type || "").toLowerCase();
+  const materialType = norm(item.material_type);
+  const name = norm(item.product_name);
+  if (materialType.includes("seed")) return "seed";
+  if (materialType.includes("fertilizer") || materialType.includes("micro_fertilizer")) return "fertilizer";
+  if (
+    materialType.includes("pesticide") ||
+    materialType.includes("crop_protection") ||
+    materialType.includes("adjuvant") ||
+    materialType.includes("ph_corrector") ||
+    materialType.includes("biological") ||
+    materialType.includes("biostimulant") ||
+    materialType.includes("defoamer")
+  ) return "chemical";
+  if (materialType.includes("water")) return "irrigation";
+  if (materialType.includes("fuel")) return "fuel";
+  if (op === "seeding" || op === "planting" || item.batch_class === "seed") return "seed";
+  if (name.includes("навоз") || name.includes("помет") || name.includes("помёт") || name.includes("компост") || name.includes("органик") || name.includes("биомасс")) return "organic";
+  if (op === "fertilizing" || op === "top_dressing" || name.includes("селитр") || name.includes("аммофос") || name.includes("карбамид") || name.includes("npk") || name.includes("кас") || name.includes("удобр")) return "fertilizer";
+  if (["herbicide", "fungicide", "insecticide", "desiccation"].includes(op) || name.includes("roundup") || name.includes("ридомил") || name.includes("falcon")) return "chemical";
+  if (op === "irrigation" || name.includes("вода") || name.includes("полив")) return "irrigation";
+  if (op === "gsm" || name.includes("гсм") || name.includes("дизел") || name.includes("топлив")) return "fuel";
+  return "other";
+};
+
+const moveTabFocus = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  const tabList = event.currentTarget.parentElement;
+  if (!tabList) return;
+  const tabs = Array.from(tabList.querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)'));
+  const currentIndex = tabs.indexOf(event.currentTarget);
+  if (currentIndex < 0 || tabs.length === 0) return;
+  event.preventDefault();
+  const nextIndex = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? tabs.length - 1
+      : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  tabs[nextIndex]?.focus();
+  tabs[nextIndex]?.click();
+};
+
+export default function CropStructurePage() {
+  const router = useRouter();
+  const { toast } = useToast();
+  const { profile, loading: authLoading } = useAuth();
+  const { language } = useLanguage();
+  const tr = (ru: string, kz: string, en: string) => (language === "kz" ? kz : language === "en" ? en : ru);
+  const activeCompanyId = profile?.company_id || null;
+  const activeProfileId = profile?.id || null;
+  const isGlobalAdmin = profile?.role === "global_admin";
+  const canEditStructure = isGlobalAdmin || profile?.role === "company_admin" || profile?.role === "agronomist";
+  const canManageFields = isGlobalAdmin || profile?.role === "company_admin";
+
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [fields, setFields] = useState<Field[]>([]);
+  const [fieldCreateOpen, setFieldCreateOpen] = useState(false);
+  const [seasons, setSeasons] = useState<Season[]>([]);
+  const [seasonId, setSeasonId] = useState("");
+  const [activeSeasonId, setActiveSeasonId] = useState<string | null>(null);
+  const [allCrops, setAllCrops] = useState<Crop[]>([]);
+  const [allVarieties, setAllVarieties] = useState<Variety[]>([]);
+  const [allReproductions, setAllReproductions] = useState<Reproduction[]>([]);
+  const [allocByField, setAllocByField] = useState<Map<string, Allocation[]>>(new Map());
+  const [initialByField, setInitialByField] = useState<Map<string, Allocation[]>>(new Map());
+  const [bootstrappedStructureKey, setBootstrappedStructureKey] = useState<string | null>(null);
+  const [consumptions, setConsumptions] = useState<Consumption[]>([]);
+  const [operationFacts, setOperationFacts] = useState<StructureOperationFact[]>([]);
+  const [selectedOperationDetail, setSelectedOperationDetail] = useState<StructureOperationFact | null>(null);
+  const [operationConsumptions, setOperationConsumptions] = useState<Consumption[]>([]);
+  const [search, setSearch] = useState("");
+  const [cropFilter, setCropFilter] = useState("all");
+  const [sortBy, setSortBy] = useState<"field" | "area" | "main_crop" | "state">("field");
+  const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
+  const [draftRows, setDraftRows] = useState<Allocation[]>([]);
+  const [fieldDialogTab, setFieldDialogTab] = useState<FieldWorkspaceTab>("dossier");
+  const [selectedDossierAllocationKey, setSelectedDossierAllocationKey] = useState<string | null>(null);
+  const [dossierDetailTab, setDossierDetailTab] = useState<"overview" | "operations" | "materials">("overview");
+  const [legalLinksByField, setLegalLinksByField] = useState<Map<string, FieldLegalLink[]>>(new Map());
+  const [operationDialogOpen, setOperationDialogOpen] = useState(false);
+  const [operationDefaults, setOperationDefaults] = useState<Partial<OperationFormData> | undefined>();
+  const [operationSourceLabel, setOperationSourceLabel] = useState("");
+  const [sectionChoiceField, setSectionChoiceField] = useState<Field | null>(null);
+  const [specialists, setSpecialists] = useState<SpecialistAssignee[]>([]);
+  const [viewMode, setViewMode] = useState<ViewMode>("cards");
+  const [isDesktopWorkspace, setIsDesktopWorkspace] = useState(false);
+  const [pendingFieldSelection, setPendingFieldSelection] = useState<PendingFieldSelection | null>(null);
+  const [pendingDeleteIndex, setPendingDeleteIndex] = useState<number | null>(null);
+  const [saveConfirmationOpen, setSaveConfirmationOpen] = useState(false);
+  const [discardConfirmationOpen, setDiscardConfirmationOpen] = useState(false);
+  const [pendingSaveRows, setPendingSaveRows] = useState<Allocation[]>([]);
+  const [pendingSaveSummary, setPendingSaveSummary] = useState<CropStructureChangeSummary>({ added: 0, updated: 0, deleted: 0 });
+  const [editorValidationError, setEditorValidationError] = useState<string | null>(null);
+  const saveInFlightRef = useRef(false);
+  const latestSaveContextRef = useRef<CropStructureUiContext>({
+    companyId: activeCompanyId,
+    seasonId,
+    fieldId: selectedFieldId,
+    profileId: activeProfileId,
+    role: profile?.role || null,
+  });
+
+  useIsomorphicLayoutEffect(() => {
+    latestSaveContextRef.current = {
+      companyId: activeCompanyId,
+      seasonId,
+      fieldId: selectedFieldId,
+      profileId: activeProfileId,
+      role: profile?.role || null,
+    };
+    return () => {
+      latestSaveContextRef.current = {
+        companyId: null,
+        seasonId: "",
+        fieldId: null,
+        profileId: null,
+        role: null,
+      };
+    };
+  }, [activeCompanyId, activeProfileId, profile?.role, seasonId, selectedFieldId]);
+
+  const fieldMap = useMemo(() => new Map(fields.map((field) => [field.id, field])), [fields]);
+  const selectedField = selectedFieldId ? fieldMap.get(selectedFieldId) || null : null;
+  const season = useMemo(() => seasons.find((item) => item.id === seasonId) || null, [seasons, seasonId]);
+  const selectedSeasonClosed = season?.archived === true;
+  const canEditSelectedSeason = canEditStructure && Boolean(seasonId) && seasonId === activeSeasonId && !selectedSeasonClosed;
+  const draftChangeSummary = useMemo(
+    () => summarizeCropStructureChanges(selectedFieldId ? initialByField.get(selectedFieldId) || [] : [], draftRows),
+    [draftRows, initialByField, selectedFieldId]
+  );
+  const hasUnsavedStructureChanges = hasCropStructureChanges(draftChangeSummary);
+  const fieldDisplayName = (field: Field) => getFieldDisplayName(field);
+
+  const handleCreateField = async (data: FieldFormData) => {
+    if (!activeCompanyId) {
+      toast({
+        title: tr("Ошибка", "Қате", "Error"),
+        description: tr("Компания не выбрана", "Компания таңдалмаған", "Company is not selected"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const createdField = await createField(activeCompanyId, data);
+      const normalizedField: Field = {
+        id: createdField.id,
+        name: getFieldDisplayName(createdField),
+        area: Number(createdField.area || 0),
+        notes: createdField.notes || null,
+      };
+      setFields((current) =>
+        [...current.filter((field) => field.id !== normalizedField.id), normalizedField]
+          .sort((left, right) => fieldDisplayName(left).localeCompare(fieldDisplayName(right), "ru")),
+      );
+      setFieldCreateOpen(false);
+      toast({
+        title: tr("Поле создано", "Алаң құрылды", "Field created"),
+        description: tr(
+          `${fieldDisplayName(normalizedField)} добавлено в структуру посевов`,
+          `${fieldDisplayName(normalizedField)} егіс құрылымына қосылды`,
+          `${fieldDisplayName(normalizedField)} was added to crop structure`,
+        ),
+      });
+    } catch (error) {
+      toast({
+        title: tr("Не удалось создать поле", "Алаңды құру мүмкін болмады", "Could not create field"),
+        description: error instanceof Error ? error.message : tr("Повторите попытку", "Қайталап көріңіз", "Try again"),
+        variant: "destructive",
+      });
+    }
+  };
+
+  const cropLabel = (crop: Crop) => (localizedName(crop as never, language) || crop.name || "").trim();
+  const cropOptionKey = (crop: Crop) => {
+    const key = cropLabel(crop).replace(/\s+/g, " ").trim().toLocaleLowerCase("ru");
+    if (key === "травосмесь") return "травосмеси";
+    return key;
+  };
+  const cropOptionPriority = (crop: Crop) => {
+    const label = cropLabel(crop);
+    const ownName = String(crop.name || crop.name_ru || "").trim();
+    const hasReadableRuName = /[А-Яа-яЁё]/.test(ownName);
+    return (crop.company_id == null ? 0 : 100) + (hasReadableRuName && ownName === label ? 10 : 0);
+  };
+  const isVisibleCatalogItem = (item: { company_id?: string | null; archived?: boolean | null; is_active?: boolean | null }) =>
+    (item.company_id == null || item.company_id === activeCompanyId) && !item.archived && item.is_active !== false;
+  const visibleCrops = useMemo(() => allCrops.filter(isVisibleCatalogItem), [allCrops, activeCompanyId]);
+  const cropCatalog = useMemo(() => {
+    const byKey = new Map<string, Crop>();
+    const aliases = new Map<string, string>();
+
+    for (const crop of visibleCrops) {
+      const key = cropOptionKey(crop);
+      if (!key) continue;
+      const current = byKey.get(key);
+      if (
+        !current ||
+        cropOptionPriority(crop) > cropOptionPriority(current) ||
+        (cropOptionPriority(crop) === cropOptionPriority(current) && cropLabel(crop).localeCompare(cropLabel(current), "ru") < 0)
+      ) {
+        byKey.set(key, crop);
+      }
+    }
+
+    for (const crop of visibleCrops) {
+      const canonical = byKey.get(cropOptionKey(crop));
+      if (canonical) aliases.set(crop.id, canonical.id);
+    }
+
+    return {
+      options: Array.from(byKey.values()).sort((a, b) => cropLabel(a).localeCompare(cropLabel(b), "ru")),
+      aliasById: aliases,
+    };
+  }, [visibleCrops, language]);
+  const globalCrops = cropCatalog.options;
+  const displayCropId = (id?: string | null) => (id ? cropCatalog.aliasById.get(id) || id : null);
+  const cropMap = useMemo(
+    () => new Map(visibleCrops.map((crop) => [crop.id, crop])),
+    [visibleCrops],
+  );
+  const globalCropIds = useMemo(() => new Set(globalCrops.map((crop) => crop.id)), [globalCrops]);
+  const cropSelectOptions = (selectedCropId?: string | null) =>
+    selectedCropId && !globalCropIds.has(selectedCropId) && cropMap.get(selectedCropId)
+      ? [...globalCrops, cropMap.get(selectedCropId) as Crop].sort((a, b) => cropLabel(a).localeCompare(cropLabel(b), "ru"))
+      : globalCrops;
+  const selectedVarietyIds = useMemo(
+    () =>
+      Array.from(allocByField.values())
+        .flat()
+        .concat(draftRows)
+        .flatMap((row) => [row.variety_id, ...row.mix_components.map((component) => component.variety_id)])
+        .filter((id): id is string => Boolean(id)),
+    [allocByField, draftRows]
+  );
+  const selectedReproductionIds = useMemo(
+    () =>
+      Array.from(allocByField.values())
+        .flat()
+        .concat(draftRows)
+        .flatMap((row) => [row.reproduction_id, ...row.mix_components.map((component) => component.reproduction_id)])
+        .filter((id): id is string => Boolean(id)),
+    [allocByField, draftRows]
+  );
+  const globalVarieties = useMemo(
+    () =>
+      Array.from(
+        buildVarietyOptions({
+          rows: allVarieties,
+          companyId: activeCompanyId || "",
+          canonicalCropId: (cropId) => displayCropId(cropId) || cropId,
+          selectedIds: selectedVarietyIds,
+        }).values()
+      ).flat(),
+    [allVarieties, activeCompanyId, cropCatalog.aliasById, selectedVarietyIds]
+  );
+  const globalReproductions = useMemo(
+    () =>
+      sortReproductionsAgronomically(
+        buildReproductionOptions({
+          rows: allReproductions,
+          companyId: activeCompanyId || "",
+          selectedIds: selectedReproductionIds,
+        }) as Reproduction[]
+      ),
+    [allReproductions, activeCompanyId, selectedReproductionIds]
+  );
+  const varietyMap = useMemo(() => new Map(globalVarieties.map((item) => [item.id, item])), [globalVarieties]);
+  const reproductionMap = useMemo(() => new Map(globalReproductions.map((item) => [item.id, item])), [globalReproductions]);
+  const varietiesByCrop = useMemo(
+    () =>
+      buildVarietyOptions({
+        rows: globalVarieties,
+        companyId: activeCompanyId || "",
+        canonicalCropId: (cropId) => displayCropId(cropId) || cropId,
+        selectedIds: selectedVarietyIds,
+      }) as Map<string, Variety[]>,
+    [globalVarieties, activeCompanyId, cropCatalog.aliasById, selectedVarietyIds]
+  );
+
+  useEffect(() => {
+    if (!selectedField) {
+      setSelectedDossierAllocationKey(null);
+      setDossierDetailTab("overview");
+      return;
+    }
+
+    const rows = allocByField.get(selectedField.id) || [];
+    if (!rows.length) {
+      setSelectedDossierAllocationKey(null);
+      setDossierDetailTab("overview");
+      return;
+    }
+
+    const keys = rows.map((row, index) => allocationKey(row, index));
+    if (!selectedDossierAllocationKey || !keys.includes(selectedDossierAllocationKey)) {
+      setSelectedDossierAllocationKey(keys[0]);
+      setDossierDetailTab("overview");
+    }
+  }, [allocByField, selectedDossierAllocationKey, selectedField]);
+
+  const cropName = (id?: string | null) => (id && cropMap.get(id) ? cropLabel(cropMap.get(id) as Crop) : "-");
+  const varietyName = (id?: string | null) => (id && varietyMap.get(id) ? varietyMap.get(id)?.name || "" : "");
+  const reproductionName = (id?: string | null) => (id && reproductionMap.get(id) ? standardReproductionLabel(reproductionMap.get(id)) : "");
+  const compactReproductionName = (id?: string | null) => {
+    if (!id) return "";
+    const item = reproductionMap.get(id);
+    if (!item) return "";
+    return compactReproductionLabel(item);
+  };
+  const allocationIdentityLabel = (row: Allocation) => {
+    if (isFallowLandUse(row.land_use_type)) return "Пар";
+    if (isCropMixLandUse(row.land_use_type)) return grainMixDisplayName(row.mix_components, cropMap);
+    return [cropName(row.crop_id), varietyName(row.variety_id), compactReproductionName(row.reproduction_id)]
+      .filter((value) => value && value !== "-")
+      .join(", ");
+  };
+  const isPotatoAllocation = (row: Pick<Allocation, "crop_id" | "variety_id">) =>
+    isPotatoCropContext(cropName(row.crop_id), varietyName(row.variety_id));
+  const isFallowAllocation = (row: Pick<Allocation, "land_use_type">) =>
+    isFallowLandUse(row.land_use_type);
+  const isCropMixAllocation = (row: Pick<Allocation, "land_use_type">) =>
+    isCropMixLandUse(row.land_use_type);
+  const sumArea = (rows: Allocation[]) => rows.reduce((sum, row) => sum + Number(row.area || 0), 0);
+  const allocationKey = (row: Allocation, index = 0) =>
+    row.id || `${row.field_id || "field"}-${row.crop_id || "crop"}-${row.variety_id || "variety"}-${row.reproduction_id || "repro"}-${Number(row.area || 0)}-${index}`;
+
+  const cropIcon = (name: string) => {
+    const value = name.toLowerCase();
+    if (value.includes("карто")) return "🥔";
+    if (value.includes("морков")) return "🥕";
+    if (value.includes("кукуруз")) return "🌽";
+    if (value.includes("пшени") || value.includes("ячмен") || value.includes("зерн")) return "🌾";
+    if (value.includes("подсол")) return "🌻";
+    if (value.includes("соя") || value.includes("горох") || value.includes("боб")) return "🌱";
+    return "🌿";
+  };
+
+  const operationAllocationsForField = (fieldId: string) =>
+    [...(allocByField.get(fieldId) || [])]
+      .filter((row) => row.id && (row.land_use_type === "fallow" || row.land_use_type === "crop_mix" || row.crop_id))
+      .sort((a, b) => Number(b.area || 0) - Number(a.area || 0));
+
+  const allocationTitle = (allocation: Allocation) =>
+    `${allocationIdentityLabel(allocation)} — ${fmtHa(Number(allocation.area || 0))}`;
+
+  const selectedCropStructureRowIds = useMemo(
+    () => {
+      if (!selectedFieldId) return [];
+      return Array.from(
+        new Set(
+          (allocByField.get(selectedFieldId) || [])
+            .map((row) => row.id)
+            .filter((id): id is string => Boolean(id))
+        )
+      );
+    },
+    [allocByField, selectedFieldId]
+  );
+
+  const consumptionIdentityKey = (
+    item: Pick<Consumption, "operation_id" | "crop_structure_row_id" | "product_id">
+  ) => {
+    if (!item.operation_id || !item.crop_structure_row_id || !item.product_id) return "";
+    return [item.operation_id, item.crop_structure_row_id, item.product_id].join("|");
+  };
+
+  const allConsumptions = useMemo(() => {
+    const materialFacts = new Set(consumptions.map(consumptionIdentityKey).filter(Boolean));
+    const derivedRows = operationConsumptions.filter((item) => {
+      const key = consumptionIdentityKey(item);
+      return !key || !materialFacts.has(key);
+    });
+    return [...consumptions, ...derivedRows];
+  }, [consumptions, operationConsumptions]);
+
+  const consumptionsByAllocation = useMemo(() => {
+    const map = new Map<string, Consumption[]>();
+    for (const item of allConsumptions) {
+      if (!item.crop_structure_row_id) continue;
+      map.set(item.crop_structure_row_id, [...(map.get(item.crop_structure_row_id) || []), item]);
+    }
+    return map;
+  }, [allConsumptions]);
+
+  const consumptionsByField = useMemo(() => {
+    const map = new Map<string, Consumption[]>();
+    for (const item of allConsumptions) {
+      map.set(item.field_id, [...(map.get(item.field_id) || []), item]);
+    }
+    return map;
+  }, [allConsumptions]);
+
+  const operationFactsByAllocation = useMemo(() => {
+    const map = new Map<string, StructureOperationFact[]>();
+    for (const item of operationFacts) {
+      if (!item.crop_structure_row_id) continue;
+      map.set(item.crop_structure_row_id, [...(map.get(item.crop_structure_row_id) || []), item]);
+    }
+    for (const [key, rows] of Array.from(map.entries())) {
+      map.set(
+        key,
+        rows.sort((a: StructureOperationFact, b: StructureOperationFact) => new Date(b.completed_at || b.date || 0).getTime() - new Date(a.completed_at || a.date || 0).getTime())
+      );
+    }
+    return map;
+  }, [operationFacts]);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(CROP_STRUCTURE_VIEW_KEY);
+      if (saved === "cards" || saved === "table" || (saved === "map" && isGlobalAdmin)) {
+        setViewMode(saved as ViewMode);
+      }
+    } catch {
+      // localStorage can be unavailable in hardened browser contexts.
+    }
+  }, [isGlobalAdmin]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1280px)");
+    const syncWorkspaceMode = () => setIsDesktopWorkspace(media.matches);
+    syncWorkspaceMode();
+    media.addEventListener("change", syncWorkspaceMode);
+    return () => media.removeEventListener("change", syncWorkspaceMode);
+  }, []);
+
+  const changeViewMode = (mode: ViewMode) => {
+    if (saveInFlightRef.current) return;
+    const nextMode = mode === "map" && !isGlobalAdmin ? "cards" : mode;
+    setViewMode(nextMode);
+    try {
+      window.localStorage.setItem(CROP_STRUCTURE_VIEW_KEY, nextMode);
+    } catch {
+      // View persistence is a convenience; the page should still work without it.
+    }
+  };
+
+  const fieldState = (fieldId: string): FieldState => {
+    const field = fieldMap.get(fieldId);
+    const planned = sumArea(allocByField.get(fieldId) || []);
+    if (!field || planned <= EPS) return "empty";
+    if (planned > field.area + EPS) return "over";
+    if (planned < field.area - EPS) return "partial";
+    return "complete";
+  };
+
+  const stateText = (state: FieldState) => {
+    if (state === "empty") return "Пусто";
+    if (state === "partial") return "Частично";
+    if (state === "over") return "Переплан";
+    return "Заполнено";
+  };
+
+  const stateClass = (state: FieldState) => {
+    if (state === "empty") return "border-amber-200 bg-amber-100 text-amber-800";
+    if (state === "partial") return "border-border bg-muted text-muted-foreground";
+    if (state === "over") return "border-rose-200 bg-rose-100 text-rose-800";
+    return "border-emerald-200 bg-emerald-100 text-emerald-800";
+  };
+
+  const allocationFacts = (allocation: Allocation) => {
+    const rows = allocation.id ? consumptionsByAllocation.get(allocation.id) || [] : [];
+    const stageCompleted = new Map<StageKey, number>();
+    const stageLatest = new Map<StageKey, string>();
+
+    for (const stage of stageDefs) {
+      const byTicket = new Map<string, number>();
+      const stageRows = rows.filter((row) => stageForOperation(row.operation_type) === stage.key);
+      for (const row of stageRows) {
+        const key = row.ticket_id || row.id;
+        byTicket.set(key, Math.max(byTicket.get(key) || 0, Number(row.area_ha || 0)));
+        if (row.consumed_at && (!stageLatest.get(stage.key) || new Date(row.consumed_at) > new Date(stageLatest.get(stage.key) || 0))) {
+          stageLatest.set(stage.key, row.consumed_at);
+        }
+      }
+      stageCompleted.set(stage.key, Array.from(byTicket.values()).reduce((sum, value) => sum + value, 0));
+    }
+
+    const plannedArea = Number(allocation.area || 0);
+    const actualAreaForRate = stageCompleted.get("seeding") || stageCompleted.get("care") || stageCompleted.get("prep") || plannedArea;
+    const operationRows = [...rows].sort((a, b) => new Date(b.consumed_at || 0).getTime() - new Date(a.consumed_at || 0).getTime());
+    const currentStage =
+      stageCompleted.get("harvest") ? "Уборка" :
+      stageCompleted.get("care") ? "Вегетация / уход" :
+      stageCompleted.get("seeding") ? "Посев / посадка" :
+      stageCompleted.get("prep") ? "Подготовка" :
+      "План";
+    return { rows, stageCompleted, stageLatest, operationRows, actualAreaForRate, currentStage };
+  };
+
+  const mainCrop = (fieldId: string) => {
+    const rows = allocByField.get(fieldId) || [];
+    return [...rows].sort((a, b) => Number(b.area || 0) - Number(a.area || 0))[0]?.crop_id || null;
+  };
+
+  const filteredFields = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return fields
+      .filter((field) => !q || field.name.toLowerCase().includes(q))
+      .filter((field) => cropFilter === "all" || (allocByField.get(field.id) || []).some((row) => row.crop_id === cropFilter))
+      .sort((a, b) => {
+        if (q) {
+          const relevance = fieldSearchRank(a.name, q) - fieldSearchRank(b.name, q);
+          if (relevance) return relevance;
+        }
+        if (sortBy === "field") return a.name.localeCompare(b.name, "ru");
+        if (sortBy === "area") return b.area - a.area;
+        if (sortBy === "main_crop") return cropName(mainCrop(a.id)).localeCompare(cropName(mainCrop(b.id)), "ru");
+        const rank: Record<FieldState, number> = { over: 4, partial: 3, empty: 2, complete: 1 };
+        return rank[fieldState(b.id)] - rank[fieldState(a.id)];
+      });
+  }, [fields, search, cropFilter, sortBy, allocByField]);
+
+  useEffect(() => {
+    let mounted = true;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 12_000);
+    (async () => {
+      if (authLoading) return;
+      if (!activeCompanyId) {
+        if (mounted) {
+          setFields([]);
+          setSeasons([]);
+          setSeasonId("");
+          setActiveSeasonId(null);
+          setAllCrops([]);
+          setAllVarieties([]);
+          setAllReproductions([]);
+          setAllocByField(new Map());
+          setInitialByField(new Map());
+          setBootstrappedStructureKey(null);
+          setConsumptions([]);
+          setOperationFacts([]);
+          setOperationConsumptions([]);
+          setLegalLinksByField(new Map());
+          setSpecialists([]);
+          setLoadError("Компания не выбрана. Выберите компанию и обновите страницу.");
+          setLoading(false);
+        }
+        return;
+      }
+      try {
+        setLoading(true);
+        setLoadError(null);
+        setFields([]);
+        setSeasons([]);
+        setSeasonId("");
+        setActiveSeasonId(null);
+        setAllocByField(new Map());
+        setInitialByField(new Map());
+        setBootstrappedStructureKey(null);
+        setConsumptions([]);
+        setOperationFacts([]);
+        setOperationConsumptions([]);
+        setLegalLinksByField(new Map());
+        setSelectedFieldId(null);
+        setDraftRows([]);
+
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (sessionError || !token) {
+          throw new Error("User is not authenticated");
+        }
+
+        const params = new URLSearchParams({ companyId: activeCompanyId });
+        const response = await fetch(`/api/crop-structure/bootstrap?${params.toString()}`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const payload = (await response.json().catch(() => ({}))) as Partial<CropStructureBootstrapPayload> & {
+          error?: string;
+        };
+        if (!response.ok) {
+          throw new Error(payload.error || "Failed to load crop structure bootstrap");
+        }
+        if (payload.companyId && payload.companyId !== activeCompanyId) {
+          throw new Error("Selected company context changed while loading crop structure");
+        }
+        if (!mounted) return;
+        const normalizedFields = ((payload.fields || []) as Field[]).map((field) => ({
+          ...field,
+          name: getFieldDisplayName(field),
+        }));
+        setFields(normalizedFields);
+        const seasonRows = (payload.seasons || []) as Season[];
+        setSeasons(seasonRows);
+        setActiveSeasonId(payload.activeSeasonId || null);
+        setAllCrops((payload.crops || []) as Crop[]);
+        setAllVarieties((payload.varieties || []) as Variety[]);
+        setAllReproductions((payload.reproductions || []) as Reproduction[]);
+        setSpecialists((payload.specialists || []) as SpecialistAssignee[]);
+        const nextSeasonId = payload.activeSeasonId || seasonRows[0]?.id || "";
+        const bootstrapMap = buildAllocationMap(payload.cropStructure || []);
+        setAllocByField(bootstrapMap);
+        setInitialByField(cloneAllocationMap(bootstrapMap));
+        setBootstrappedStructureKey(payload.activeSeasonId ? `${activeCompanyId}:${payload.activeSeasonId}` : null);
+        setSeasonId(nextSeasonId);
+      } catch (error) {
+        if (!mounted) return;
+        const message = error instanceof Error ? error.message : "Не удалось загрузить структуру посевов";
+        if (mounted) setLoadError(message);
+        toast({ title: "Ошибка", description: message, variant: "destructive" });
+      } finally {
+        if (mounted) setLoading(false);
+        window.clearTimeout(timeoutId);
+      }
+    })();
+    return () => {
+      mounted = false;
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [authLoading, activeCompanyId, toast, reloadToken]);
+
+  useEffect(() => {
+    if (!activeCompanyId || !seasonId) {
+      setAllocByField(new Map());
+      setInitialByField(new Map());
+      return;
+    }
+    if (bootstrappedStructureKey === `${activeCompanyId}:${seasonId}`) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        let res: any = await supabase
+          .from("crop_structure")
+          .select(CROP_STRUCTURE_REVIEW_SELECT)
+          .eq("company_id", activeCompanyId)
+          .eq("season_id", seasonId)
+          .eq("archived", false);
+        if (res.error && isMissingIdentityReviewColumn(res.error)) {
+          res = await supabase
+            .from("crop_structure")
+            .select(CROP_STRUCTURE_V4_SELECT)
+            .eq("company_id", activeCompanyId)
+            .eq("season_id", seasonId)
+            .eq("archived", false);
+        }
+        if (res.error && isMissingCropStructureV4Column(res.error)) {
+          res = await supabase
+            .from("crop_structure")
+            .select(CROP_STRUCTURE_BASE_SELECT)
+            .eq("company_id", activeCompanyId)
+            .eq("season_id", seasonId)
+            .eq("archived", false);
+        }
+        if (res.error) throw res.error;
+        const structureRows = res.data || [];
+        const structureIds = structureRows.map((row: any) => String(row.id || "")).filter(Boolean);
+        let mixComponents: any[] = [];
+        if (structureIds.length) {
+          const mixRes = await supabase
+            .from("crop_structure_mix_components")
+            .select("id,company_id,crop_structure_id,crop_id,variety_id,reproduction_id,seed_rate_kg_ha,sort_order")
+            .eq("company_id", activeCompanyId)
+            .in("crop_structure_id", structureIds)
+            .order("sort_order");
+          if (mixRes.error) throw mixRes.error;
+          mixComponents = mixRes.data || [];
+        }
+        const mixByStructure = new Map<string, any[]>();
+        for (const component of mixComponents) {
+          const key = String(component.crop_structure_id || "");
+          mixByStructure.set(key, [...(mixByStructure.get(key) || []), component]);
+        }
+        const map = buildAllocationMap(structureRows.map((row: any) => ({
+          ...row,
+          mix_components: mixByStructure.get(String(row.id || "")) || [],
+        })));
+        if (cancelled) return;
+        setAllocByField(map);
+        setInitialByField(cloneAllocationMap(map));
+      } catch (error) {
+        toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Не удалось загрузить посевные строки", variant: "destructive" });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCompanyId, seasonId, bootstrappedStructureKey, toast]);
+
+  useEffect(() => {
+    if (!isGlobalAdmin || !activeCompanyId || !seasonId || !selectedFieldId) {
+      setConsumptions([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await supabase
+          .from("field_material_consumptions")
+          .select("id,operation_id,field_id,crop_structure_row_id,operation_type,product_id,variety_id,reproduction_id,batch_class,quantity_kg,area_ha,norm_per_ha,consumed_at,ticket_id,responsible_personnel_id,vehicle_id,notes")
+          .eq("company_id", activeCompanyId)
+          .eq("season_id", seasonId)
+          .eq("field_id", selectedFieldId)
+          .order("consumed_at", { ascending: false });
+
+        if (res.error) {
+          const message = String(res.error.message || "").toLowerCase();
+          if (message.includes("field_material_consumptions") || message.includes("schema cache")) {
+            if (!cancelled) setConsumptions([]);
+            return;
+          }
+          throw res.error;
+        }
+
+        const rows = (res.data || []) as any[];
+        const productIds = Array.from(new Set(rows.map((row) => String(row.product_id || "")).filter(Boolean)));
+        const specialistIds = Array.from(new Set(rows.map((row) => String(row.responsible_personnel_id || "")).filter(Boolean)));
+        const vehicleIds = Array.from(new Set(rows.map((row) => String(row.vehicle_id || "")).filter(Boolean)));
+        const [productsRes, specialistsRes, vehiclesRes] = await Promise.all([
+          productIds.length ? supabase.from("products").select("id,name,trade_name,normalized_name").in("id", productIds) : Promise.resolve({ data: [] } as any),
+          specialistIds.length ? supabase.from("reference_specialists").select("id,full_name").in("id", specialistIds) : Promise.resolve({ data: [] } as any),
+          vehicleIds.length ? supabase.from("reference_vehicles").select("id,name,plate_number").in("id", vehicleIds) : Promise.resolve({ data: [] } as any),
+        ]);
+        const productNames = new Map<string, string>((productsRes.data || []).map((row: any) => [String(row.id), brandName(row) || "Материал"]));
+        const specialistNames = new Map<string, string>((specialistsRes.data || []).map((row: any) => [String(row.id), String(row.full_name || "Ответственный")]));
+        const vehicleNames = new Map<string, string>((vehiclesRes.data || []).map((row: any) => [String(row.id), [row.name, row.plate_number].filter(Boolean).join(" ") || "Техника"]));
+        if (cancelled) return;
+        setConsumptions(rows.map((row: any) => ({
+          id: String(row.id),
+          operation_id: row.operation_id ? String(row.operation_id) : null,
+          field_id: String(row.field_id),
+          crop_structure_row_id: row.crop_structure_row_id ? String(row.crop_structure_row_id) : null,
+          operation_type: String(row.operation_type || "other"),
+          material_type: null,
+          unit: null,
+          product_id: row.product_id ? String(row.product_id) : null,
+          product_name: productNames.get(String(row.product_id || "")) || "Материал",
+          variety_name: row.variety_id ? brandName(varietyMap.get(String(row.variety_id)) as never) || null : null,
+          reproduction_name: row.reproduction_id
+            ? localizedName(reproductionMap.get(String(row.reproduction_id)) as never, language, ["name", "code"]) || null
+            : null,
+          batch_class: row.batch_class ? String(row.batch_class) : null,
+          quantity_kg: Number(row.quantity_kg || 0),
+          area_ha: row.area_ha == null ? null : Number(row.area_ha || 0),
+          norm_per_ha: row.norm_per_ha == null ? null : Number(row.norm_per_ha || 0),
+          consumed_at: row.consumed_at || null,
+          ticket_id: row.ticket_id ? String(row.ticket_id) : null,
+          responsible_name: row.responsible_personnel_id ? specialistNames.get(String(row.responsible_personnel_id)) || null : null,
+          vehicle_name: row.vehicle_id ? vehicleNames.get(String(row.vehicle_id)) || null : null,
+          notes: row.notes || null,
+        })));
+      } catch (error) {
+        if (cancelled) return;
+        setConsumptions([]);
+        toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Не удалось загрузить фактический расход по полям", variant: "destructive" });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCompanyId, seasonId, selectedFieldId, varietyMap, reproductionMap, toast, language]);
+
+  useEffect(() => {
+    if (!activeCompanyId || !seasonId || !selectedFieldId || selectedCropStructureRowIds.length === 0) {
+      setOperationFacts([]);
+      setOperationConsumptions([]);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const operations = await getOperationsForCropStructureRows(
+          activeCompanyId,
+          selectedCropStructureRowIds
+        );
+
+        const facts: StructureOperationFact[] = operations.map((operation) => {
+          const presentation = buildOperationPresentation(operation);
+          const materials: StructureOperationMaterialFact[] = (operation.materials || []).map((material) => ({
+            product_id: material.product_id ? String(material.product_id) : null,
+            product_name: String(material.product_name || "Материал"),
+            material_type: material.material_type ? String(material.material_type) : null,
+            unit: material.unit ? String(material.unit) : null,
+            planned_quantity: numberOrNull(material.planned_quantity),
+            issued_quantity: Number(material.issued_quantity || 0),
+            consumed_quantity: numberOrNull(material.consumed_quantity),
+            returned_quantity: numberOrNull(material.returned_quantity),
+            actual_rate: numberOrNull(material.actual_rate),
+          }));
+
+          return {
+            id: String(operation.id),
+            field_id: String(operation.field_id || ""),
+            crop_structure_row_id: operation.crop_structure_id ? String(operation.crop_structure_id) : null,
+            operation_type: presentation.workTitle || String(operation.operation_type || "Операция"),
+            operation_type_slug: operation.operation_type_slug ? String(operation.operation_type_slug) : null,
+            operation_category_slug: operation.operation_category_slug ? String(operation.operation_category_slug) : null,
+            date: operation.date || null,
+            status: operation.status ? String(operation.status) : null,
+            work_status: operation.work_status ? String(operation.work_status) : null,
+            completed_at: operation.completed_at || null,
+            planned_area_ha: presentation.plannedAreaHa,
+            actual_area_ha: presentation.completedAreaHa,
+            materials,
+            presentation,
+          };
+        });
+
+        const derivedConsumptions: Consumption[] = facts.flatMap((fact) => {
+          if (!fact.crop_structure_row_id) return [];
+          const area = fact.actual_area_ha && fact.actual_area_ha > 0
+            ? fact.actual_area_ha
+            : fact.planned_area_ha ?? null;
+          const operationKey = fact.operation_type_slug || fact.operation_category_slug || fact.operation_type;
+          return fact.materials.flatMap((material) => {
+            const quantity = material.consumed_quantity ?? (material.issued_quantity > 0 ? material.issued_quantity : null);
+            if (!material.product_id || quantity == null || quantity <= 0) return [];
+            return [{
+              id: `operation-${fact.id}-${material.product_id}`,
+              operation_id: fact.id,
+              field_id: fact.field_id,
+              crop_structure_row_id: fact.crop_structure_row_id,
+              operation_type: operationKey,
+              material_type: material.material_type,
+              unit: material.unit,
+              product_id: material.product_id,
+              product_name: material.product_name,
+              variety_name: null,
+              reproduction_name: null,
+              batch_class: null,
+              quantity_kg: quantity,
+              area_ha: area,
+              norm_per_ha: material.actual_rate ?? (area && area > 0 ? quantity / area : null),
+              consumed_at: fact.completed_at || fact.date,
+              ticket_id: fact.id,
+              responsible_name: null,
+              vehicle_name: null,
+              notes: "operation_materials",
+            }];
+          });
+        });
+
+        if (cancelled) return;
+        setOperationFacts(facts);
+        setOperationConsumptions(derivedConsumptions);
+      } catch (error) {
+        if (cancelled) return;
+        setOperationFacts([]);
+        setOperationConsumptions([]);
+        toast({
+          title: "Ошибка",
+          description: error instanceof Error ? error.message : "Не удалось загрузить операции по участкам",
+          variant: "destructive",
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCompanyId, seasonId, selectedFieldId, selectedCropStructureRowIds, toast]);
+
+  useEffect(() => {
+    if (!activeCompanyId || !seasonId || !selectedFieldId) {
+      setLegalLinksByField(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: links, error: linksError } = await supabase
+          .from("field_cadastre_links")
+          .select("id, field_id, crop_id, area_ha, cadastral_parcel_id, legal_entity_id, owner_legal_entity_id, usage_legal_entity_id, status, allocation_method, source, notes")
+          .eq("company_id", activeCompanyId)
+          .eq("season_id", seasonId)
+          .eq("field_id", selectedFieldId)
+          .neq("status", "archived");
+        if (linksError) throw new Error(linksError.message);
+
+        const cadastreIds = Array.from(new Set((links || []).map((row: any) => String(row.cadastral_parcel_id || "")).filter(Boolean)));
+        const entityIds = Array.from(
+          new Set(
+            (links || [])
+              .flatMap((row: any) => [row.legal_entity_id, row.owner_legal_entity_id, row.usage_legal_entity_id])
+              .map((value: any) => String(value || ""))
+              .filter(Boolean)
+          )
+        );
+
+        const [{ data: cadastres, error: cadastresError }, { data: entities, error: entitiesError }] = await Promise.all([
+          cadastreIds.length
+            ? supabase.from("cadastral_parcels").select("id, cadastral_number").in("id", cadastreIds)
+            : Promise.resolve({ data: [], error: null } as any),
+          entityIds.length
+            ? supabase.from("legal_entities").select("id, name").in("id", entityIds)
+            : Promise.resolve({ data: [], error: null } as any),
+        ]);
+        if (cadastresError) throw new Error(cadastresError.message);
+        if (entitiesError) throw new Error(entitiesError.message);
+
+        const cadastreMap = new Map<string, string>(
+          (cadastres || []).map((row: any) => [String(row.id), String(row.cadastral_number || "-")])
+        );
+        const entityMap = new Map<string, string>(
+          (entities || []).map((row: any) => [String(row.id), String(row.name || "-")])
+        );
+        const grouped = new Map<string, FieldLegalLink[]>();
+
+        (links || []).forEach((row: any) => {
+          const fieldId = String(row.field_id || "");
+          if (!fieldId) return;
+          grouped.set(fieldId, [
+            ...(grouped.get(fieldId) || []),
+            {
+              id: String(row.id),
+              field_id: fieldId,
+              crop_id: row.crop_id ? String(row.crop_id) : null,
+              area_ha: Number(row.area_ha || 0),
+              cadastral_number: cadastreMap.get(String(row.cadastral_parcel_id || "")) || "-",
+              legal_entity_name: entityMap.get(String(row.legal_entity_id || "")) || null,
+              owner_legal_entity_name: entityMap.get(String(row.owner_legal_entity_id || "")) || null,
+              usage_legal_entity_name: entityMap.get(String(row.usage_legal_entity_id || "")) || null,
+              status: String(row.status || "active"),
+              allocation_method: String(row.allocation_method || "manual_adjusted"),
+              source: String(row.source || "manual"),
+              notes: row.notes ? String(row.notes) : null,
+            },
+          ]);
+        });
+
+        if (!cancelled) setLegalLinksByField(grouped);
+      } catch (error) {
+        if (!cancelled) setLegalLinksByField(new Map());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCompanyId, seasonId, selectedFieldId, cropMap, isGlobalAdmin]);
+
+  const openField = (fieldId: string, tab: FieldWorkspaceTab = "dossier") => {
+    if (tab === "editor" && !canEditSelectedSeason) {
+      toast({
+        title: !seasonId ? "Нет активного сезона" : "Сезон доступен только для чтения",
+        description: !seasonId
+          ? "Создание структуры доступно только после открытия сезона для этой компании."
+          : "Редактировать структуру можно только в текущем открытом сезоне.",
+        variant: "destructive",
+      });
+      tab = "dossier";
+    }
+    const allowedTab = tab === "editor" && !canEditStructure
+      ? "dossier"
+      : tab === "legal" && !isGlobalAdmin
+        ? "dossier"
+        : tab;
+    setSelectedFieldId(fieldId);
+    setFieldDialogTab(allowedTab);
+    setDraftRows((allocByField.get(fieldId) || []).map((item) => ({
+      ...item,
+      mix_components: item.mix_components.map((component) => ({ ...component })),
+    })));
+    setEditorValidationError(null);
+  };
+
+  const closeField = () => {
+    setSelectedFieldId(null);
+    setSelectedOperationDetail(null);
+    setDraftRows([]);
+    setFieldDialogTab("dossier");
+    setPendingDeleteIndex(null);
+    setSaveConfirmationOpen(false);
+    setDiscardConfirmationOpen(false);
+    setPendingSaveRows([]);
+    setPendingSaveSummary({ added: 0, updated: 0, deleted: 0 });
+    setPendingFieldSelection(null);
+    setEditorValidationError(null);
+  };
+
+  const requestCloseField = () => {
+    if (saveInFlightRef.current) {
+      toast({ title: "Сохранение структуры", description: "Дождитесь завершения сохранения перед закрытием поля." });
+      return;
+    }
+    setPendingFieldSelection(null);
+    if (hasUnsavedStructureChanges && !saving) {
+      setDiscardConfirmationOpen(true);
+      return;
+    }
+    closeField();
+  };
+
+  const requestOpenField = (fieldId: string, tab: FieldWorkspaceTab = "dossier") => {
+    if (selectedFieldId === fieldId) return;
+    if (saveInFlightRef.current) {
+      toast({ title: "Сохранение структуры", description: "Дождитесь завершения сохранения перед переходом к другому полю." });
+      return;
+    }
+    if (selectedFieldId && hasUnsavedStructureChanges && !saving) {
+      setPendingFieldSelection({ fieldId, tab });
+      setDiscardConfirmationOpen(true);
+      return;
+    }
+    openField(fieldId, tab);
+  };
+
+  const confirmDiscardFieldChanges = () => {
+    if (saveInFlightRef.current) return;
+    const nextSelection = pendingFieldSelection;
+    closeField();
+    if (nextSelection) openField(nextSelection.fieldId, nextSelection.tab);
+  };
+
+  useEffect(() => {
+    if (!isDesktopWorkspace || viewMode !== "cards" || selectedFieldId || saving || filteredFields.length === 0) return;
+    const fieldId = filteredFields[0].id;
+    setSelectedFieldId(fieldId);
+    setFieldDialogTab("dossier");
+    setDraftRows((allocByField.get(fieldId) || []).map((item) => ({
+      ...item,
+      mix_components: item.mix_components.map((component) => ({ ...component })),
+    })));
+    setEditorValidationError(null);
+  }, [allocByField, filteredFields, isDesktopWorkspace, saving, selectedFieldId, viewMode]);
+
+  const patchDraft = (index: number, patch: Partial<Allocation>) => {
+    if (saveInFlightRef.current) return;
+    setEditorValidationError(null);
+    setDraftRows((prev) => {
+      const next = [...prev];
+      const old = next[index];
+      let merged = { ...old, ...patch };
+      if (patch.land_use_type && patch.land_use_type !== old.land_use_type) {
+        merged.mix_components = patch.land_use_type === "crop_mix"
+          ? Array.from({ length: GRAIN_MIX_MIN_COMPONENTS }, (_, componentIndex) => ({
+              crop_id: null,
+              variety_id: null,
+              reproduction_id: null,
+              seed_rate_kg_ha: null,
+              sort_order: componentIndex + 1,
+            }))
+          : [];
+      }
+      if ("crop_id" in patch && patch.crop_id !== old.crop_id) {
+        merged.variety_id = null;
+        merged.reproduction_id = null;
+      }
+      merged = normalizeCropStructureSeedAttributes(
+        merged,
+        merged.crop_id ? cropMap.get(merged.crop_id) : null
+      );
+      if (isPotatoAllocation(merged)) {
+        merged.row_spacing_m = merged.row_spacing_m || 0.75;
+        merged.irrigation_type = normalizeIrrigationType(merged.irrigation_type);
+      }
+      next[index] = merged;
+      return next;
+    });
+  };
+
+  const patchMixComponent = (rowIndex: number, componentIndex: number, patch: Partial<GrainMixComponent>) => {
+    if (saveInFlightRef.current) return;
+    setEditorValidationError(null);
+    setDraftRows((current) => current.map((row, index) => {
+      if (index !== rowIndex) return row;
+      const components = row.mix_components.map((component, position) => {
+        if (position !== componentIndex) return component;
+        const next = { ...component, ...patch };
+        if (patch.crop_id && patch.crop_id !== component.crop_id) {
+          const options = varietiesByCrop.get(displayCropId(patch.crop_id) || patch.crop_id) || [];
+          next.variety_id = options.length === 1 ? options[0].id : null;
+        }
+        return next;
+      });
+      return { ...row, mix_components: components.map((component, position) => ({ ...component, sort_order: position + 1 })) };
+    }));
+  };
+
+  const addMixComponent = (rowIndex: number) => {
+    if (saveInFlightRef.current) return;
+    setDraftRows((current) => current.map((row, index) => {
+      if (index !== rowIndex || row.mix_components.length >= GRAIN_MIX_MAX_COMPONENTS) return row;
+      return {
+        ...row,
+        mix_components: [
+          ...row.mix_components,
+          {
+            crop_id: null,
+            variety_id: null,
+            reproduction_id: null,
+            seed_rate_kg_ha: null,
+            sort_order: row.mix_components.length + 1,
+          },
+        ],
+      };
+    }));
+  };
+
+  const removeMixComponent = (rowIndex: number, componentIndex: number) => {
+    if (saveInFlightRef.current) return;
+    setDraftRows((current) => current.map((row, index) => {
+      if (index !== rowIndex || row.mix_components.length <= GRAIN_MIX_MIN_COMPONENTS) return row;
+      return {
+        ...row,
+        mix_components: row.mix_components
+          .filter((_, position) => position !== componentIndex)
+          .map((component, position) => ({ ...component, sort_order: position + 1 })),
+      };
+    }));
+  };
+
+  const addRow = () => {
+    if (!selectedFieldId || saveInFlightRef.current) return;
+    setEditorValidationError(null);
+    setDraftRows((prev) => [
+      ...prev,
+      {
+        field_id: selectedFieldId,
+        land_use_type: "crop",
+        crop_id: null,
+        variety_id: null,
+        reproduction_id: null,
+        notes: "",
+        area: null,
+        irrigation_type: "unknown",
+        row_spacing_m: null,
+        seed_spacing_cm: null,
+        mix_components: [],
+      },
+    ]);
+  };
+
+  const removeRow = (index: number) => {
+    if (saveInFlightRef.current) return;
+    setEditorValidationError(null);
+    setDraftRows((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
+  };
+
+  const requestRemoveRow = (index: number) => {
+    if (saveInFlightRef.current) return;
+    const row = draftRows[index];
+    if (!row) return;
+    const operationsCount = row.id ? operationFactsByAllocation.get(row.id)?.length || 0 : 0;
+    const materialsCount = row.id ? consumptionsByAllocation.get(row.id)?.length || 0 : 0;
+    if (operationsCount || materialsCount) {
+      toast({
+        title: "Нельзя удалить участок",
+        description: `По этому участку уже есть ${operationsCount} операций и ${materialsCount} строк материалов. Сначала разберите связанные данные.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setPendingDeleteIndex(index);
+  };
+
+  const confirmRemoveRow = () => {
+    if (pendingDeleteIndex == null || saveInFlightRef.current) return;
+    removeRow(pendingDeleteIndex);
+    setPendingDeleteIndex(null);
+  };
+
+  const fillRemainingArea = (index: number) => {
+    if (!selectedField || saveInFlightRef.current) return;
+    setDraftRows((prev) => {
+      if (!prev.length) {
+        return [
+          {
+            field_id: selectedField.id,
+            land_use_type: "crop",
+            crop_id: null,
+            variety_id: null,
+            reproduction_id: null,
+            notes: "",
+            area: selectedField.area,
+            irrigation_type: "unknown",
+            row_spacing_m: null,
+            seed_spacing_cm: null,
+            mix_components: [],
+          },
+        ];
+      }
+      return prev.map((row, rowIndex) => {
+        if (rowIndex !== index) return row;
+        const otherArea = prev.reduce((sum, item, itemIndex) => (itemIndex === index ? sum : sum + Number(item.area || 0)), 0);
+        return { ...row, area: Math.max(0, selectedField.area - otherArea) };
+      });
+    });
+  };
+
+  const prepareDraftForSave = () => {
+    if (!canEditSelectedSeason || !selectedFieldId || !selectedField || !activeCompanyId) {
+      const message = "Недостаточно данных для сохранения структуры.";
+      setEditorValidationError(message);
+      toast({ title: "Структура не сохранена", description: message, variant: "destructive" });
+      return null;
+    }
+    if (!seasonId) {
+      const message = "У этой компании нет активного сезона. Создайте сезон или войдите в нужную QA-компанию.";
+      setEditorValidationError(message);
+      toast({ title: "Структура не сохранена", description: message, variant: "destructive" });
+      return null;
+    }
+    const validation = validateAndNormalizeCropStructureRows({
+      rows: draftRows,
+      cropsById: cropMap,
+      varietiesById: varietyMap,
+      fieldArea: selectedField.area,
+      areaEpsilon: EPS,
+    });
+    if (!validation.ok) {
+      setEditorValidationError(validation.message);
+      toast({ title: "Структура не сохранена", description: validation.message, variant: "destructive" });
+      return null;
+    }
+    for (const row of validation.rows) {
+      if (isCropMixAllocation(row)) {
+        const mixValidation = validateGrainMixComponents({
+          components: row.mix_components,
+          cropsById: cropMap,
+          varietiesById: varietyMap,
+        });
+        if (!mixValidation.ok) {
+          setEditorValidationError(mixValidation.message);
+          toast({ title: "Структура не сохранена", description: mixValidation.message, variant: "destructive" });
+          return null;
+        }
+        row.mix_components = mixValidation.components;
+      }
+      if (isPotatoAllocation(row) && (!row.seed_spacing_cm || row.seed_spacing_cm <= 0)) {
+        const message = "Для картофеля укажите межсемянное расстояние в структуре.";
+        setEditorValidationError(message);
+        toast({ title: "Структура не сохранена", description: message, variant: "destructive" });
+        return null;
+      }
+    }
+    setEditorValidationError(null);
+    return validation.rows as Allocation[];
+  };
+
+  const requestSave = () => {
+    if (saveInFlightRef.current) return;
+    const validatedRows = prepareDraftForSave();
+    if (!validatedRows || !selectedFieldId) return;
+    const summary = summarizeCropStructureChanges(initialByField.get(selectedFieldId) || [], validatedRows);
+    if (!hasCropStructureChanges(summary)) {
+      toast({ title: "Изменений нет", description: "Структура поля уже сохранена." });
+      return;
+    }
+    setPendingSaveRows(validatedRows.map((row) => ({
+      ...row,
+      mix_components: row.mix_components.map((component) => ({ ...component })),
+    })));
+    setPendingSaveSummary(summary);
+    setSaveConfirmationOpen(true);
+  };
+
+  const confirmSave = async () => {
+    if (saveInFlightRef.current) return;
+    if (!canEditSelectedSeason || !selectedFieldId || !selectedField || !activeCompanyId || !seasonId) {
+      const message = "Контекст поля или сезона изменился. Вернитесь в редактор и повторите сохранение.";
+      setSaveConfirmationOpen(false);
+      setEditorValidationError(message);
+      toast({ title: "Структура не сохранена", description: message, variant: "destructive" });
+      return;
+    }
+    const saveFieldId = selectedFieldId;
+    const saveCompanyId = activeCompanyId;
+    const saveSeasonId = seasonId;
+    const saveContext: CropStructureUiContext = {
+      companyId: saveCompanyId,
+      seasonId: saveSeasonId,
+      fieldId: saveFieldId,
+      profileId: activeProfileId,
+      role: profile?.role || null,
+    };
+    const saveContextIsCurrent = () => isSameCropStructureUiContext(latestSaveContextRef.current, saveContext);
+    const validatedRows = pendingSaveRows;
+    saveInFlightRef.current = true;
+    setSaving(true);
+    setSaveConfirmationOpen(false);
+    try {
+      const prev = initialByField.get(saveFieldId) || [];
+      const prevIds = new Set(prev.map((row) => row.id).filter(Boolean) as string[]);
+      const curIds = new Set(validatedRows.map((row) => row.id).filter(Boolean) as string[]);
+      const delIds = Array.from(prevIds).filter((id) => !curIds.has(id));
+      if (delIds.length) {
+        const protectedIds = delIds.filter((id) => (operationFactsByAllocation.get(id)?.length || 0) > 0 || (consumptionsByAllocation.get(id)?.length || 0) > 0);
+        if (protectedIds.length) {
+          toast({
+            title: "Нельзя удалить участок",
+            description: "У участка уже есть операции или материалы. Сначала разберите связанные данные.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (!saveContextIsCurrent()) return;
+      const token = sessionData.session?.access_token;
+      if (sessionError || !token) throw new Error("User is not authenticated");
+
+      const response = await fetch(`/api/crop-structure/fields/${saveFieldId}`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          companyId: saveCompanyId,
+          seasonId: saveSeasonId,
+          rows: validatedRows,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { rows?: unknown[]; error?: string };
+      if (!saveContextIsCurrent()) return;
+      if (!response.ok) throw new Error(payload.error || "Failed to save crop structure");
+
+      const savedRows = (payload.rows || []).map(allocationFromRow);
+      setAllocByField((current) => {
+        const next = new Map(current);
+        next.set(saveFieldId, savedRows);
+        return next;
+      });
+      setInitialByField((current) => {
+        const next = cloneAllocationMap(current);
+        next.set(saveFieldId, savedRows.map((item) => ({
+          ...item,
+          mix_components: item.mix_components.map((component) => ({ ...component })),
+        })));
+        return next;
+      });
+      setBootstrappedStructureKey(`${saveCompanyId}:${saveSeasonId}`);
+      setDraftRows(savedRows.map((item) => ({
+        ...item,
+        mix_components: item.mix_components.map((component) => ({ ...component })),
+      })));
+      toast({ title: "Сохранено", description: "Структура поля обновлена." });
+      const remainsInline = window.matchMedia("(min-width: 1280px)").matches && viewMode === "cards";
+      if (remainsInline) {
+        setPendingSaveRows([]);
+        setPendingSaveSummary({ added: 0, updated: 0, deleted: 0 });
+        setEditorValidationError(null);
+      } else {
+        closeField();
+      }
+    } catch (error) {
+      if (!saveContextIsCurrent()) return;
+      toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Save failed", variant: "destructive" });
+    } finally {
+      saveInFlightRef.current = false;
+      setSaving(false);
+    }
+  };
+
+  const exportExcel = () => {
+    if (!season) return;
+    const lines = [["Сезон", "Поле", "Площадь поля, га", "Культура", "Сорт", "Репродукция", "Площадь, га"].join(";")];
+    for (const field of fields) {
+      const rows = allocByField.get(field.id) || [];
+      if (!rows.length) lines.push([season.year, field.name, field.area.toFixed(2), "", "", "", "0.00"].join(";"));
+      for (const row of rows) {
+        const mixSummary = isCropMixAllocation(row)
+          ? row.mix_components.map((component) => [
+              cropName(component.crop_id),
+              varietyName(component.variety_id),
+              reproductionName(component.reproduction_id),
+              `${Number(component.seed_rate_kg_ha || 0)} кг/га`,
+            ].filter(Boolean).join(", ")).join(" | ")
+          : "";
+        lines.push([
+          season.year,
+          field.name,
+          field.area.toFixed(2),
+          row.land_use_type === "fallow" ? "Пар" : row.land_use_type === "crop_mix" ? grainMixDisplayName(row.mix_components, cropMap) : cropName(row.crop_id),
+          row.land_use_type === "crop_mix" ? mixSummary : row.land_use_type === "fallow" ? "" : varietyName(row.variety_id),
+          row.land_use_type === "fallow" || row.land_use_type === "crop_mix" ? "" : reproductionName(row.reproduction_id),
+          Number(row.area || 0).toFixed(2),
+        ].join(";"));
+      }
+    }
+    const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `crop-structure-${season.year}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportFieldPdf = async () => {
+    if (!selectedFieldId || !seasonId || !profile?.id) return;
+    try {
+      setPdfLoading(true);
+      const res = await fetch(`/api/crop-structure/fields/${selectedFieldId}/pdf?seasonId=${encodeURIComponent(seasonId)}&userId=${encodeURIComponent(profile.id)}`);
+      if (!res.ok) throw new Error("PDF export failed");
+      const html = await res.text();
+      const w = window.open("", "_blank", "noopener,noreferrer");
+      if (!w) throw new Error("Разрешите всплывающее окно для печати PDF.");
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+    } catch (error) {
+      toast({ title: "Ошибка", description: error instanceof Error ? error.message : "PDF export failed", variant: "destructive" });
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  const operationDialogFields = useMemo(
+    () =>
+      fields.map((field) => ({
+        ...field,
+        display_name: field.name,
+        soil_type: null,
+        archived: false,
+        created_at: "",
+        updated_at: "",
+        user_id: "",
+        company_id: activeCompanyId,
+      })),
+    [fields, activeCompanyId]
+  );
+
+  const operationDialogCropStructures = useMemo<CropStructureWithDetails[]>(() => {
+    const rows: CropStructureWithDetails[] = [];
+    allocByField.forEach((allocations, fieldId) => {
+      const field = fieldMap.get(fieldId);
+      allocations.forEach((allocation) => {
+        if (!allocation.id || (allocation.land_use_type === "crop" && !allocation.crop_id)) return;
+        rows.push({
+          id: allocation.id,
+          field_id: fieldId,
+          season_id: seasonId,
+          land_use_type: allocation.land_use_type,
+          crop_id: allocation.crop_id,
+          variety_id: allocation.variety_id,
+          reproduction_id: allocation.reproduction_id,
+          area: Number(allocation.area || 0),
+          seeding_rate: allocation.seeding_rate ?? null,
+          expected_yield: allocation.expected_yield ?? null,
+          irrigation_type: normalizeIrrigationType(allocation.irrigation_type),
+          row_spacing_m: allocation.row_spacing_m ?? null,
+          seed_spacing_cm: allocation.seed_spacing_cm ?? null,
+          status: "planned",
+          notes: allocation.notes || null,
+          archived: false,
+          created_at: "",
+          updated_at: "",
+          user_id: "",
+          field_name: field?.name || "-",
+          season_year: season?.year || 0,
+          crop_name: allocation.land_use_type === "fallow" ? "Пар" : allocation.land_use_type === "crop_mix" ? grainMixDisplayName(allocation.mix_components, cropMap) : cropName(allocation.crop_id),
+          variety_name: allocation.land_use_type === "fallow" || allocation.land_use_type === "crop_mix" ? null : varietyName(allocation.variety_id),
+          reproduction_name: allocation.land_use_type === "fallow" || allocation.land_use_type === "crop_mix" ? null : reproductionName(allocation.reproduction_id),
+          mix_components: allocation.mix_components.map((component) => ({
+            ...component,
+            crop_name: cropName(component.crop_id),
+            variety_name: varietyName(component.variety_id),
+            reproduction_name: reproductionName(component.reproduction_id),
+          })),
+        });
+      });
+    });
+    return rows;
+  }, [allocByField, fieldMap, season?.year, seasonId]);
+
+  const openOperationPlan = (field: Field, allocation: Allocation, event?: React.MouseEvent) => {
+    event?.stopPropagation();
+    if (!FIELD_FIRST_CREATE_ENABLED) return;
+    if (!allocation.id || (allocation.land_use_type === "crop" && !allocation.crop_id)) {
+      toast({
+        title: "Нужен план по культуре",
+        description: "Сначала сохраните культуру и площадь по полю.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const allocationIsPotato = isPotatoAllocation(allocation);
+    setOperationDefaults({
+      field_id: field.id,
+      crop_structure_id: allocation.id,
+      crop_id: allocation.crop_id,
+      planned_area_ha: Number(allocation.area || 0),
+      row_spacing_m: allocation.row_spacing_m ?? (allocationIsPotato ? 0.75 : null),
+      seed_spacing_cm: allocation.seed_spacing_cm ?? (allocationIsPotato ? 32 : null),
+      operation_params: {
+        irrigation_type: normalizeIrrigationType(allocation.irrigation_type),
+        scope: "structure_line",
+        land_use_type: allocation.land_use_type,
+        season_id: seasonId,
+      },
+      date: todayDateOnlyLocal(),
+      notes: "",
+    });
+    setOperationSourceLabel(
+      `План по полю: ${field.name} • ${allocationIdentityLabel(allocation)} • ${fmtHa(Number(allocation.area || 0))}`
+    );
+    if (!isDesktopWorkspace || viewMode !== "cards") setSelectedFieldId(null);
+    setSectionChoiceField(null);
+    setOperationDialogOpen(true);
+  };
+
+  const openWholeFieldOperationPlan = (field: Field, event?: React.MouseEvent) => {
+    event?.stopPropagation();
+    if (!FIELD_FIRST_CREATE_ENABLED) return;
+    setOperationDefaults({
+      field_id: field.id,
+      crop_structure_id: null,
+      crop_id: null,
+      planned_area_ha: Number(field.area || 0),
+      operation_params: {
+        scope: "whole_field",
+        season_id: seasonId,
+      },
+      date: todayDateOnlyLocal(),
+      notes: "",
+    });
+    setOperationSourceLabel(`План по полю: ${field.name} • Всё поле • ${fmtHa(Number(field.area || 0))}`);
+    if (!isDesktopWorkspace || viewMode !== "cards") setSelectedFieldId(null);
+    setSectionChoiceField(null);
+    setOperationDialogOpen(true);
+  };
+
+  const openPrimaryOperationPlan = (field: Field, event: React.MouseEvent) => {
+    event.stopPropagation();
+    const allocations = operationAllocationsForField(field.id);
+    if (allocations.length === 1) {
+      openOperationPlan(field, allocations[0], event);
+      return;
+    }
+    if (allocations.length > 1) {
+      setSectionChoiceField(field);
+      return;
+    }
+    openWholeFieldOperationPlan(field, event);
+  };
+
+  const handleCreateOperationPlan = async (data: OperationFormData, options?: { idempotencyKey?: string }) => {
+    if (!activeCompanyId) {
+      const message = "Не выбран контекст компании.";
+      toast({ title: "Ошибка", description: message, variant: "destructive" });
+      throw new Error(message);
+    }
+    try {
+      const created = await createOperation(activeCompanyId, data, options);
+      setOperationDialogOpen(false);
+      setOperationDefaults(undefined);
+      if ((created as any)?.offline_queued) {
+        toast({
+          title: "Сохранено оффлайн",
+          description: "План добавлен в очередь и отправится автоматически, когда появится интернет.",
+        });
+        return;
+      }
+      toast({ title: "План создан", description: "Работа добавлена в журнал операций." });
+    } catch (error: any) {
+      toast({ title: "Ошибка", description: error?.message || "Не удалось создать план работы", variant: "destructive" });
+      throw error;
+    }
+  };
+
+  const renderStageStrip = (rows: Allocation[], compact = false) => {
+    const plannedArea = Math.max(sumArea(rows), 0);
+    return (
+      <div className={compact ? "space-y-1.5" : "space-y-2"}>
+        {stageDefs.map((stage) => {
+          const done = rows.reduce((sum, row) => {
+            const facts = allocationFacts(row);
+            return sum + Math.min(facts.stageCompleted.get(stage.key) || 0, Number(row.area || 0));
+          }, 0);
+          const pct = plannedArea > 0 ? Math.min(100, (done / plannedArea) * 100) : 0;
+          return (
+            <div key={stage.key} className="grid grid-cols-[104px_1fr_42px] items-center gap-2 text-[11px]">
+              <div className="truncate font-medium text-muted-foreground">{stage.label}</div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+              </div>
+              <div className="text-right text-muted-foreground">{pct.toFixed(0)}%</div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderOverviewCard = (field: Field) => {
+    const rows = allocByField.get(field.id) || [];
+    const visibleRows = rows.slice(0, 4);
+
+    return (
+      <Card
+        key={field.id}
+        className="h-[202px] cursor-pointer overflow-hidden border-border transition hover:border-emerald-300 hover:shadow-sm"
+        onClick={() => requestOpenField(field.id)}
+      >
+        <CardContent className="grid h-full grid-rows-[auto_minmax(0,1fr)_auto] gap-2 p-3">
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="min-w-0 truncate text-[20px] font-bold leading-tight text-primary">
+              {fieldDisplayName(field)}
+            </div>
+            <div className="shrink-0 rounded-md border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-amber-800">
+              {fmtHa(field.area)}
+            </div>
+          </div>
+
+          <div className="min-h-0 space-y-1 overflow-hidden">
+            {visibleRows.length ? visibleRows.map((row, index) => (
+              <div key={`${field.id}-${row.id || index}`} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-1 py-0 text-[12px] leading-[18px] text-foreground">
+                <span className="shrink-0 text-base leading-none">{cropIcon(cropName(row.crop_id))}</span>
+                <span className="min-w-0 truncate font-medium" title={allocationIdentityLabel(row)}>
+                  {allocationIdentityLabel(row) || "Культура не задана"}
+                </span>
+                <span className="shrink-0 rounded-md bg-muted px-1.5 py-0 text-[10px] font-semibold tabular-nums text-foreground">{fmtHa(Number(row.area || 0))}</span>
+              </div>
+            )) : (
+              <div className="rounded-md border border-dashed border-border bg-muted px-2 py-3 text-center text-xs text-muted-foreground">
+                Культура не задана
+              </div>
+            )}
+          </div>
+
+          <Button
+            type="button"
+            className="h-8 w-full text-[12px]"
+            onClick={(event) => openPrimaryOperationPlan(field, event)}
+            disabled={!FIELD_FIRST_CREATE_ENABLED}
+          >
+            <Plus className="mr-1.5 h-3.5 w-3.5" />Операция
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const renderFieldMasterItem = (field: Field) => {
+    const rows = allocByField.get(field.id) || [];
+    const visibleRows = rows.slice(0, 2);
+    const hiddenRows = Math.max(0, rows.length - visibleRows.length);
+    const planned = sumArea(rows);
+    const progress = field.area > 0 ? Math.min(100, Math.max(0, (planned / field.area) * 100)) : 0;
+    const isSelected = selectedFieldId === field.id;
+
+    return (
+      <article
+        key={`master-${field.id}`}
+        className={`overflow-hidden rounded-lg transition-colors motion-reduce:transition-none ${
+          isSelected ? "bg-primary/10" : "bg-transparent hover:bg-muted/50"
+        }`}
+        data-testid="crop-field-master-item"
+        data-selected={isSelected ? "true" : "false"}
+      >
+        <button
+          type="button"
+          className="block min-h-11 w-full px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-wait disabled:opacity-70"
+          onClick={() => requestOpenField(field.id)}
+          aria-pressed={isSelected}
+          disabled={saving}
+        >
+          <span className="flex min-w-0 items-start justify-between gap-3">
+            <span className="min-w-0">
+              <span className="block truncate text-base font-semibold text-foreground">{fieldDisplayName(field)}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                План {fmtHa(planned)} из {fmtHa(field.area)}
+              </span>
+            </span>
+            <span className={`${stateClass(fieldState(field.id))} inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold`}>
+              {stateText(fieldState(field.id))}
+            </span>
+          </span>
+
+          <span className="mt-3 block space-y-1.5">
+            {visibleRows.length ? visibleRows.map((row, index) => (
+              <span key={`${field.id}-master-${row.id || index}`} className="flex min-w-0 items-center justify-between gap-2 text-xs">
+                <span className="min-w-0 truncate font-medium text-foreground">
+                  <span className="mr-1.5" aria-hidden="true">{cropIcon(cropName(row.crop_id))}</span>
+                  {allocationIdentityLabel(row)}
+                </span>
+                <span className="shrink-0 tabular-nums text-muted-foreground">{fmtHa(Number(row.area || 0))}</span>
+              </span>
+            )) : (
+              <span className="block text-xs text-muted-foreground">Культура не задана</span>
+            )}
+            {hiddenRows > 0 ? (
+              <span className="block text-[11px] text-muted-foreground">Ещё участков: {hiddenRows}</span>
+            ) : null}
+          </span>
+
+        </button>
+        <div className="px-3 pb-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-9 w-full"
+            onClick={(event) => openPrimaryOperationPlan(field, event)}
+            disabled={!FIELD_FIRST_CREATE_ENABLED || hasUnsavedStructureChanges || saving}
+            title={hasUnsavedStructureChanges ? "Сначала сохраните или отмените изменения структуры" : undefined}
+          >
+            <Plus className="mr-1.5 h-3.5 w-3.5" />Операция
+          </Button>
+        </div>
+      </article>
+    );
+  };
+
+  const renderTableView = () => (
+    <Card>
+      <CardContent className="p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full table-fixed text-left text-sm">
+            <thead className="border-b bg-muted text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="w-[220px] px-3 py-2 font-medium">Поле</th>
+                <th className="px-3 py-2 font-medium">Культуры</th>
+                <th className="w-[130px] px-3 py-2 text-right font-medium">Площадь</th>
+                <th className="w-[150px] px-3 py-2 text-right font-medium">Действие</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredFields.map((field) => {
+                const rows = allocByField.get(field.id) || [];
+                const visibleRows = rows.slice(0, 4);
+                const hiddenRows = Math.max(0, rows.length - visibleRows.length);
+                return (
+                  <tr key={field.id} className="cursor-pointer border-b border-border hover:bg-muted" onClick={() => requestOpenField(field.id)}>
+                    <td className="px-3 py-2 font-semibold text-primary">{fieldDisplayName(field)}</td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {visibleRows.length ? (
+                        <div className="flex min-w-0 flex-wrap gap-2">
+                          {visibleRows.map((row, index) => (
+                            <span key={`${field.id}-table-${row.id || index}`} className="inline-flex max-w-[280px] items-center gap-1.5 rounded-md bg-muted px-2 py-1">
+                              <span className="shrink-0">{cropIcon(cropName(row.crop_id))}</span>
+                              <span className="min-w-0 truncate">{allocationIdentityLabel(row)}</span>
+                              <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">{fmtHa(Number(row.area || 0))}</span>
+                            </span>
+                          ))}
+                          {hiddenRows > 0 ? <span className="inline-flex items-center rounded-md bg-muted px-2 py-1 text-muted-foreground">+ ещё {hiddenRows}</span> : null}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">Культура не задана</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold text-muted-foreground">{fmtHa(field.area)}</td>
+                    <td className="px-3 py-2 text-right">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={(event) => openPrimaryOperationPlan(field, event)}
+                        disabled={!FIELD_FIRST_CREATE_ENABLED}
+                      >
+                        Операция
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  const renderMapView = () => (
+    <Card>
+      <CardContent className="flex min-h-[420px] items-center justify-center p-6">
+        <Button type="button" size="lg" onClick={() => router.push("/fields-map")}>
+          <MapIcon className="mr-2 h-5 w-5" />Открыть карту полей
+        </Button>
+      </CardContent>
+    </Card>
+  );
+
+  const categoryLabel = (category: MaterialCategory) => {
+    if (category === "seed") return "Семена";
+    if (category === "fertilizer") return "Удобрения";
+    if (category === "chemical") return "СЗР";
+    if (category === "organic") return "Органика";
+    if (category === "fuel") return "ГСМ";
+    if (category === "irrigation") return "Полив";
+    return "Прочее";
+  };
+
+  const categoryRank: Record<MaterialCategory, number> = {
+    seed: 1,
+    fertilizer: 2,
+    chemical: 3,
+    organic: 4,
+    fuel: 5,
+    irrigation: 6,
+    other: 7,
+  };
+
+  const formatMaterialQty = (category: MaterialCategory, value: number) => {
+    if (category === "organic") return `${(value / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т`;
+    if (category === "chemical" || category === "fuel") return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} л`;
+    if (category === "irrigation") return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} м³`;
+    return fmtKg(value);
+  };
+
+  const formatMaterialRate = (category: MaterialCategory, value: number | null) => {
+    if (value == null) return "-";
+    if (category === "organic") return `${(value / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т/га`;
+    if (category === "chemical" || category === "fuel") return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} л/га`;
+    if (category === "irrigation") return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} м³/га`;
+    return fmtRate(value);
+  };
+
+  const buildSeasonMaterialRows = (rows: Consumption[], actualArea: number) => {
+    const grouped = new Map<
+      string,
+      {
+        category: MaterialCategory;
+        product_name: string;
+        variety_name: string | null;
+        reproduction_name: string | null;
+        batch_class: string | null;
+        total: number;
+        latestDate: string | null;
+      }
+    >();
+
+    for (const row of rows) {
+      const category = materialCategory(row);
+      const key = [category, row.product_id || row.product_name, row.variety_name || "", row.reproduction_name || "", row.batch_class || ""].join("|");
+      const current = grouped.get(key);
+      if (current) {
+        current.total += Number(row.quantity_kg || 0);
+        if (row.consumed_at && (!current.latestDate || new Date(row.consumed_at) > new Date(current.latestDate))) {
+          current.latestDate = row.consumed_at;
+        }
+      } else {
+        grouped.set(key, {
+          category,
+          product_name: row.product_name,
+          variety_name: row.variety_name,
+          reproduction_name: row.reproduction_name,
+          batch_class: row.batch_class,
+          total: Number(row.quantity_kg || 0),
+          latestDate: row.consumed_at || null,
+        });
+      }
+    }
+
+    return Array.from(grouped.values())
+      .map((item) => {
+        const identity =
+          item.category === "seed"
+            ? [item.product_name, item.variety_name, item.reproduction_name].filter(Boolean).join(" / ") || item.product_name
+            : item.product_name;
+        const rate = actualArea > 0 ? item.total / actualArea : null;
+        return {
+          category: item.category,
+          categoryLabel: categoryLabel(item.category),
+          identity,
+          batchClass: batchClassLabel(item.batch_class),
+          total: formatMaterialQty(item.category, item.total),
+          perHa: formatMaterialRate(item.category, rate),
+          date: fmtDate(item.latestDate),
+          latestDate: item.latestDate ? new Date(item.latestDate).getTime() : 0,
+        };
+      })
+      .sort((a, b) => {
+        const byCategory = categoryRank[a.category] - categoryRank[b.category];
+        if (byCategory !== 0) return byCategory;
+        const byDate = b.latestDate - a.latestDate;
+        if (byDate !== 0) return byDate;
+        return a.identity.localeCompare(b.identity, "ru");
+      });
+  };
+
+  const operationKindLabel = (operation: StructureOperationFact) => {
+    const value = [
+      operation.operation_type,
+      operation.operation_type_slug,
+      operation.operation_category_slug,
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    if (value.includes("herbicide") || value.includes("гербиц")) return "Гербицидная";
+    if (value.includes("fungicide") || value.includes("фунгиц")) return "Фунгицидная";
+    if (value.includes("insecticide") || value.includes("инсектиц")) return "Инсектицидная";
+    if (value.includes("desiccation") || value.includes("десика")) return "Десикация";
+    if (value.includes("fertigation") || value.includes("фертиг")) return "Фертигация";
+    if (value.includes("fertilizer") || value.includes("удобр") || value.includes("разбрасыв")) return "Удобрение";
+    if (value.includes("spraying") || value.includes("опрыск") || value.includes("сзр")) return "СЗР";
+    if (value.includes("soil") || value.includes("tillage") || value.includes("почво") || value.includes("диск") || value.includes("греб")) return "Почвообработка";
+    if (value.includes("planting") || value.includes("seeding") || value.includes("посев") || value.includes("посад")) return "Посев / посадка";
+    if (value.includes("harvest") || value.includes("уборк")) return "Уборка";
+    return "Операция";
+  };
+
+  const operationStatusLabel = (operation: StructureOperationFact) => {
+    const value = String(operation.work_status || operation.status || "").toLowerCase();
+    if (value === "completed" || value === "done" || operation.completed_at) return "Закрыта";
+    if (value === "in_progress") return "В работе";
+    if (value === "accepted") return "Принята";
+    if (value === "active" || value === "planned") return "Запланирована";
+    return value || "Статус не указан";
+  };
+
+  const operationStatusClass = (operation: StructureOperationFact) => {
+    const label = operationStatusLabel(operation);
+    if (label === "Закрыта") return "border-emerald-400/30 bg-emerald-400/10 text-emerald-800 hover:bg-emerald-400/10";
+    if (label === "В работе") return "border-amber-400/30 bg-amber-400/10 text-amber-800 hover:bg-amber-400/10";
+    return "border-border bg-muted text-foreground hover:bg-muted";
+  };
+
+  const operationAreaLabel = (operation: StructureOperationFact) => {
+    const value = operation.actual_area_ha && operation.actual_area_ha > 0
+      ? operation.actual_area_ha
+      : operation.planned_area_ha;
+    return value == null ? "площадь не указана" : fmtHa(value);
+  };
+
+  const operationMaterialsPreview = (operation: StructureOperationFact) => {
+    const actualMaterials = operation.materials.filter((material) => {
+      const quantity = material.consumed_quantity ?? material.issued_quantity;
+      return quantity != null && quantity > 0;
+    });
+    if (!actualMaterials.length) return "без фактических материалов";
+    const names = actualMaterials.slice(0, 3).map((material) => material.product_name);
+    const extra = actualMaterials.length > 3 ? ` + ещё ${actualMaterials.length - 3}` : "";
+    return `${names.join(", ")}${extra}`;
+  };
+
+  const buildOperationSummary = (operations: StructureOperationFact[]) => {
+    const grouped = new Map<string, number>();
+    for (const operation of operations) {
+      const label = operationKindLabel(operation);
+      grouped.set(label, (grouped.get(label) || 0) + 1);
+    }
+    return Array.from(grouped.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "ru"));
+  };
+
+  const renderFieldDossierLegacy = () => {
+    if (!selectedField) return null;
+    const rows = allocByField.get(selectedField.id) || [];
+    const planned = sumArea(rows);
+    const fieldConsumptions = consumptionsByField.get(selectedField.id) || [];
+    return (
+      <div className="space-y-3 text-foreground">
+        <div className="rounded-md border border-border bg-card p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-800">Сезонный контур поля</div>
+              <div className="mt-1 text-2xl font-semibold text-foreground">{fieldDisplayName(selectedField)}</div>
+              <div className="mt-1 text-sm text-muted-foreground">
+                Всего {fmtHa(selectedField.area)} · структура {fmtHa(planned)} · сезон {season?.year || "-"} · фактических выдач {fieldConsumptions.length}
+              </div>
+            </div>
+            <Badge className={stateClass(fieldState(selectedField.id))}>{stateText(fieldState(selectedField.id))}</Badge>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {rows.length ? rows.map((allocation) => (
+              <div key={`dossier-head-${allocation.id || allocation.crop_id}`} className="rounded-xl border border-border bg-background px-3 py-2 text-sm">
+                <div className="truncate font-semibold text-foreground">{allocationIdentityLabel(allocation)}</div>
+                {allocation.identity_review_required ? (
+                  <div className="mt-1 text-xs font-medium text-amber-800">
+                    Требуется уточнить культуру, сорт и репродукцию до оформления урожая.
+                  </div>
+                ) : null}
+                <div className="text-xs text-muted-foreground">{fmtHa(Number(allocation.area || 0))}</div>
+              </div>
+            )) : (
+              <div className="rounded-xl border border-dashed border-border bg-background px-3 py-3 text-sm text-muted-foreground">Посевные строки ещё не заданы.</div>
+            )}
+          </div>
+        </div>
+
+        {rows.length ? (
+          <div className="grid gap-3 xl:grid-cols-2">
+            {rows.map((allocation) => {
+              const facts = allocationFacts(allocation);
+              const operationsForAllocation = allocation.id ? operationFactsByAllocation.get(allocation.id) || [] : [];
+              const operationSummary = buildOperationSummary(operationsForAllocation);
+              const plannedArea = Number(allocation.area || 0);
+              const field = fieldMap.get(allocation.field_id);
+              const actualCompletedArea = facts.stageCompleted.get("seeding") || facts.stageCompleted.get("care") || facts.stageCompleted.get("prep") || 0;
+              const rateArea = actualCompletedArea || plannedArea;
+              const rateBasis = actualCompletedArea ? "по выполненной площади" : "по площади участка";
+              const materialRows = buildSeasonMaterialRows(facts.rows, rateArea);
+              const hasMaterials = materialRows.length > 0;
+
+              return (
+                <div key={`detail-${allocation.id || allocation.crop_id}`} className="rounded-md border border-border bg-card p-3 shadow-manor-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-base font-semibold text-foreground">{allocationIdentityLabel(allocation)}</div>
+                      {allocation.identity_review_required ? (
+                        <div className="mt-1 text-xs font-medium text-amber-800">
+                          Требуется уточнить identity урожая
+                        </div>
+                      ) : null}
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {fmtHa(plannedArea)} · операций {operationsForAllocation.length} · материалов {facts.rows.length}
+                      </div>
+                    </div>
+                    {FIELD_FIRST_CREATE_ENABLED && field ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary"
+                        onClick={(event) => openOperationPlan(field, allocation, event)}
+                      >
+                        Запланировать
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-xl border border-border bg-background p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-semibold text-foreground">Материалы</div>
+                          <div className="text-[11px] text-muted-foreground">Факт: {rateBasis}</div>
+                        </div>
+                        <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-semibold text-foreground">{materialRows.length}</span>
+                      </div>
+
+                      {hasMaterials ? (
+                        <div className="mt-2 max-h-48 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:var(--manor-line)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
+                          <table className="w-full text-left text-xs">
+                            <tbody>
+                              {materialRows.map((item) => (
+                                <tr key={`${item.category}-${item.identity}-${item.batchClass}`} className="border-t border-border first:border-t-0">
+                                  <td className="py-2 pr-2">
+                                    <div className="font-medium text-foreground">{item.identity}</div>
+                                    <div className="text-[11px] text-muted-foreground">{item.categoryLabel} · {item.batchClass}</div>
+                                  </td>
+                                  <td className="py-2 text-right">
+                                    <div className="font-semibold text-foreground">{item.total}</div>
+                                    <div className="text-[11px] text-muted-foreground">{item.perHa}</div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="mt-2 rounded-lg border border-dashed border-border bg-background px-3 py-3 text-xs text-muted-foreground">
+                          Фактических выдач пока нет.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-xl border border-border bg-background p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-semibold text-foreground">Операции</div>
+                          <div className="text-[11px] text-muted-foreground">План и факт по участку</div>
+                        </div>
+                        <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-semibold text-foreground">{operationsForAllocation.length}</span>
+                      </div>
+
+                      {operationSummary.length ? (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {operationSummary.slice(0, 4).map((item) => (
+                            <span key={item.label} className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-foreground">
+                              {item.label}: {item.count}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {operationsForAllocation.length ? (
+                        <div className="mt-2 max-h-52 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:var(--manor-line)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent">
+                          {operationsForAllocation.map(renderOperationCard)}
+                        </div>
+                      ) : (
+                        <div className="mt-2 rounded-lg border border-dashed border-border bg-background px-3 py-3 text-xs text-muted-foreground">
+                          Операций по этому участку пока нет.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-border bg-card p-5 text-sm text-muted-foreground">Посевные строки ещё не заданы.</div>
+        )}
+      </div>
+    );
+  };
+
+  const renderOperationCard = (operation: StructureOperationFact) => {
+    const progress = Math.max(0, Math.min(100, operation.presentation.progressPercent));
+    return (
+      <button
+        key={operation.id}
+        type="button"
+        className="w-full rounded-lg border border-border bg-card px-3 py-2 text-left transition hover:border-primary/50 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={() => setSelectedOperationDetail(operation)}
+        aria-label={`Открыть операцию ${operation.operation_type}`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="truncate text-xs font-semibold text-foreground">{operation.operation_type}</div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">
+              {fmtDate(operation.completed_at || operation.date)} · {operationKindLabel(operation)} · {operationAreaLabel(operation)}
+            </div>
+          </div>
+          <Badge className={operationStatusClass(operation)}>{operationStatusLabel(operation)}</Badge>
+        </div>
+        <div className="mt-1 truncate text-[11px] text-muted-foreground">{operationMaterialsPreview(operation)}</div>
+        <div className="mt-2 flex items-center gap-2" aria-label={`Прогресс ${progress.toFixed(0)} процентов`}>
+          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-[width]"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <span className="w-9 shrink-0 text-right text-[10px] font-semibold tabular-nums text-muted-foreground">
+            {progress.toFixed(0)}%
+          </span>
+        </div>
+      </button>
+    );
+  };
+
+  const renderFieldDossier = () => {
+    if (!selectedField) return null;
+    const rows = allocByField.get(selectedField.id) || [];
+    const rowItems = rows.map((allocation, index) => {
+      const facts = allocationFacts(allocation);
+      const operationsForAllocation = allocation.id ? operationFactsByAllocation.get(allocation.id) || [] : [];
+      const operationSummary = buildOperationSummary(operationsForAllocation);
+      const plannedArea = Number(allocation.area || 0);
+      const actualCompletedArea = facts.stageCompleted.get("seeding") || facts.stageCompleted.get("care") || facts.stageCompleted.get("prep") || 0;
+      const rateArea = actualCompletedArea || plannedArea;
+      const rateBasis = actualCompletedArea ? "по выполненной площади" : "по площади участка";
+      const materialRows = buildSeasonMaterialRows(facts.rows, rateArea);
+      const title = allocationIdentityLabel(allocation);
+      return {
+        allocation,
+        facts,
+        key: allocationKey(allocation, index),
+        reviewRequired: Boolean(allocation.identity_review_required),
+        materialRows,
+        operationSummary,
+        operationsForAllocation,
+        plannedArea,
+        rateBasis,
+        title,
+      };
+    });
+    const selectedItem = rowItems.find((item) => item.key === selectedDossierAllocationKey) || rowItems[0] || null;
+    const selectedItemField = selectedItem ? fieldMap.get(selectedItem.allocation.field_id) || selectedField : selectedField;
+
+    return (
+      <div className="space-y-4 text-foreground" data-testid="field-dossier">
+        {FIELD_HARVEST_LIVE_ENABLED && activeCompanyId && seasonId ? (
+          <FieldHarvestLive
+            companyId={activeCompanyId}
+            seasonId={seasonId}
+            fieldId={selectedField.id}
+            allocationId={selectedItem?.allocation.id || null}
+            allocationLabel={selectedItem?.title || null}
+          />
+        ) : null}
+
+        {selectedItem ? (
+          <div className="grid gap-5 lg:h-[min(600px,calc(92vh-220px))] lg:grid-cols-[280px_minmax(0,1fr)]">
+            <aside className="min-w-0 lg:flex lg:min-h-0 lg:flex-col lg:border-r lg:border-border lg:pr-5" aria-label="Участки поля">
+              <div className="flex items-center justify-between pb-2 lg:pb-3">
+                <div>
+                  <div className="text-sm font-semibold text-foreground">Участки</div>
+                </div>
+                <Badge className="border-border bg-background text-foreground hover:bg-background">{rowItems.length}</Badge>
+              </div>
+              <div className="tf-scroll-hidden flex min-h-0 gap-2 overflow-x-auto pb-2 lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0">
+                {rowItems.map((item) => {
+                  const isSelected = item.key === selectedItem.key;
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      className={`flex min-h-16 w-60 shrink-0 items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition-colors motion-reduce:transition-none lg:w-full lg:min-w-0 ${
+                        isSelected
+                          ? "bg-primary/15 ring-1 ring-inset ring-primary/30"
+                          : "bg-card hover:bg-muted/60"
+                      }`}
+                      onClick={() => {
+                        setSelectedDossierAllocationKey(item.key);
+                        setDossierDetailTab("overview");
+                      }}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold leading-snug text-foreground [overflow-wrap:anywhere]">{item.title}</div>
+                        <div className={`mt-1 text-xs ${item.reviewRequired ? "font-medium text-amber-800" : "text-muted-foreground"}`}>
+                          {item.reviewRequired ? "Требуется уточнить сорт и репродукцию" : fmtHa(item.plannedArea)}
+                        </div>
+                      </div>
+                      {item.operationsForAllocation.length || item.materialRows.length ? (
+                        <div className="shrink-0 text-right text-[11px] leading-5 text-muted-foreground">
+                          {item.operationsForAllocation.length ? <div>{item.operationsForAllocation.length} оп.</div> : null}
+                          {item.materialRows.length ? <div>{item.materialRows.length} мат.</div> : null}
+                        </div>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </aside>
+
+            <section className="flex min-h-0 min-w-0 flex-col overflow-hidden" aria-labelledby="selected-allocation-heading">
+              <div className="border-b border-border pb-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 id="selected-allocation-heading" className="truncate text-lg font-semibold text-foreground">{selectedItem.title}</h3>
+                    {selectedItem.reviewRequired ? (
+                      <div className="mt-1 text-xs font-medium text-amber-800">
+                        До оформления урожая уточните культуру, сорт и репродукцию.
+                      </div>
+                    ) : null}
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {[
+                        fmtHa(selectedItem.plannedArea),
+                        selectedItem.operationsForAllocation.length ? `операций ${selectedItem.operationsForAllocation.length}` : null,
+                        selectedItem.materialRows.length ? `материалов ${selectedItem.materialRows.length}` : null,
+                      ].filter(Boolean).join(" · ")}
+                    </div>
+                  </div>
+                  {FIELD_FIRST_CREATE_ENABLED && selectedItemField ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-9 bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary"
+                      onClick={(event) => openOperationPlan(selectedItemField, selectedItem.allocation, event)}
+                    >
+                      Запланировать
+                    </Button>
+                  ) : null}
+                </div>
+
+                <div className="mt-3 flex gap-1 overflow-x-auto" role="tablist" aria-label="Данные участка">
+                  {[
+                    { key: "overview", label: "Обзор" },
+                    { key: "operations", label: "Операции" },
+                    { key: "materials", label: "Материалы" },
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      id={`allocation-tab-${tab.key}`}
+                      type="button"
+                      role="tab"
+                      aria-selected={dossierDetailTab === tab.key}
+                      aria-controls="allocation-detail-panel"
+                      tabIndex={dossierDetailTab === tab.key ? 0 : -1}
+                      onKeyDown={moveTabFocus}
+                      className={`min-h-11 whitespace-nowrap border-b-2 px-3 py-2 text-xs font-semibold transition-colors motion-reduce:transition-none ${
+                        dossierDetailTab === tab.key
+                          ? "border-primary text-foreground"
+                          : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+                      }`}
+                      onClick={() => setDossierDetailTab(tab.key as "overview" | "operations" | "materials")}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div
+                id="allocation-detail-panel"
+                role="tabpanel"
+                aria-labelledby={`allocation-tab-${dossierDetailTab}`}
+                className="min-h-0 flex-1 overflow-y-auto pt-4 [scrollbar-width:thin] [scrollbar-color:var(--manor-line)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent"
+              >
+                {dossierDetailTab === "overview" ? (
+                  <div className="space-y-4">
+                    <dl className="grid grid-cols-3 divide-x divide-border border-y border-border py-3">
+                      <div className="px-3 first:pl-0">
+                        <dt className="text-[10px] uppercase tracking-wide text-muted-foreground sm:text-[11px]">Площадь</dt>
+                        <dd className="mt-1 text-base font-semibold text-foreground sm:text-xl">{fmtHa(selectedItem.plannedArea)}</dd>
+                      </div>
+                      <div className="px-3">
+                        <dt className="text-[10px] uppercase tracking-wide text-muted-foreground sm:text-[11px]">Операций</dt>
+                        <dd className="mt-1 text-base font-semibold text-foreground sm:text-xl">{selectedItem.operationsForAllocation.length}</dd>
+                      </div>
+                      <div className="px-3 last:pr-0">
+                        <dt className="text-[10px] uppercase tracking-wide text-muted-foreground sm:text-[11px]">Материалов</dt>
+                        <dd className="mt-1 text-base font-semibold text-foreground sm:text-xl">{selectedItem.materialRows.length}</dd>
+                      </div>
+                    </dl>
+
+                    {selectedItem.allocation.land_use_type === "crop_mix" ? (
+                      <section className="border-t border-border pt-4" aria-labelledby="field-mixture-heading">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h4 id="field-mixture-heading" className="text-sm font-semibold text-foreground">Состав зерносмеси</h4>
+                          <div className="text-xs font-semibold text-amber-800">
+                            Всего семян: {grainMixTotalKg(selectedItem.plannedArea, selectedItem.allocation.mix_components).toLocaleString("ru-RU")} кг
+                          </div>
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          {selectedItem.allocation.mix_components.map((component, index) => (
+                            <div
+                              key={component.id || `${component.crop_id}-${index}`}
+                              className="grid gap-2 border-b border-border py-2 text-xs last:border-b-0 sm:grid-cols-[minmax(0,1fr)_110px_120px] sm:items-center"
+                            >
+                              <div className="min-w-0 truncate font-semibold text-foreground">
+                                {index + 1}. {cropName(component.crop_id)} · {varietyName(component.variety_id)} · {reproductionName(component.reproduction_id)}
+                              </div>
+                              <div className="text-foreground">{component.seed_rate_kg_ha} кг/га</div>
+                              <div className="font-semibold text-foreground">
+                                {grainMixComponentTotalKg(selectedItem.plannedArea, component.seed_rate_kg_ha).toLocaleString("ru-RU")} кг
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    ) : null}
+
+                    {selectedItem.operationSummary.length ? (
+                      <section className="border-t border-border pt-4" aria-labelledby="field-operation-summary-heading">
+                        <h4 id="field-operation-summary-heading" className="text-sm font-semibold text-foreground">Сводка операций</h4>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {selectedItem.operationSummary.map((item) => (
+                            <span key={item.label} className="rounded-full border border-border bg-background px-3 py-1 text-xs text-foreground">
+                              {item.label}: {item.count}
+                            </span>
+                          ))}
+                        </div>
+                      </section>
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-border bg-background p-4 text-sm text-muted-foreground">
+                        По участку пока нет операций.
+                      </div>
+                    )}
+
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <section className="border-t border-border pt-4" aria-labelledby="latest-field-operations-heading">
+                        <h4 id="latest-field-operations-heading" className="text-sm font-semibold text-foreground">Последние операции</h4>
+                        <div className="mt-3 space-y-2">
+                          {selectedItem.operationsForAllocation.slice(0, 4).map(renderOperationCard)}
+                          {!selectedItem.operationsForAllocation.length ? <div className="text-xs text-muted-foreground">Операций нет.</div> : null}
+                        </div>
+                      </section>
+
+                      <section className="border-t border-border pt-4" aria-labelledby="primary-field-materials-heading">
+                        <h4 id="primary-field-materials-heading" className="text-sm font-semibold text-foreground">Основные материалы</h4>
+                        <div className="mt-3 space-y-2">
+                          {selectedItem.materialRows.slice(0, 4).map((item) => (
+                            <div key={`${item.category}-${item.identity}-${item.batchClass}`} className="flex items-center justify-between gap-3 border-b border-border py-2 text-xs last:border-b-0">
+                              <div className="min-w-0">
+                                <div className="truncate font-semibold text-foreground">{item.identity}</div>
+                                <div className="text-[11px] text-muted-foreground">{item.categoryLabel}</div>
+                              </div>
+                              <div className="shrink-0 text-right font-semibold text-foreground">{item.total}</div>
+                            </div>
+                          ))}
+                          {!selectedItem.materialRows.length ? <div className="text-xs text-muted-foreground">Материалов нет.</div> : null}
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                ) : null}
+
+                {dossierDetailTab === "operations" ? (
+                  <div className="overflow-x-auto border-y border-border">
+                    <table className="min-w-[640px] w-full text-left text-xs">
+                      <thead className="bg-background text-[11px] uppercase tracking-wide text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2 font-medium">Дата</th>
+                          <th className="px-3 py-2 font-medium">Тип</th>
+                          <th className="px-3 py-2 font-medium">Работа</th>
+                          <th className="px-3 py-2 text-right font-medium">Площадь</th>
+                          <th className="px-3 py-2 text-right font-medium">Статус</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedItem.operationsForAllocation.map((operation) => (
+                          <tr
+                            key={operation.id}
+                            className="cursor-pointer border-t border-border transition hover:bg-background"
+                            onClick={() => setSelectedOperationDetail(operation)}
+                          >
+                            <td className="px-3 py-2 text-muted-foreground">{fmtDate(operation.completed_at || operation.date)}</td>
+                            <td className="px-3 py-2 text-foreground">{operationKindLabel(operation)}</td>
+                            <td className="px-3 py-2 font-medium text-foreground">{operation.operation_type}</td>
+                            <td className="px-3 py-2 text-right text-foreground">{operationAreaLabel(operation)}</td>
+                            <td className="px-3 py-2 text-right"><Badge className={operationStatusClass(operation)}>{operationStatusLabel(operation)}</Badge></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {!selectedItem.operationsForAllocation.length ? (
+                      <div className="border-t border-border px-4 py-8 text-center text-sm text-muted-foreground">Операций по этому участку пока нет.</div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {dossierDetailTab === "materials" ? (
+                  <div className="space-y-3">
+                    <div className="text-xs text-muted-foreground">Расчёт факта: {selectedItem.rateBasis}</div>
+                    <div className="overflow-x-auto border-y border-border">
+                      <table className="min-w-[680px] w-full text-left text-xs">
+                        <thead className="bg-background text-[11px] uppercase tracking-wide text-muted-foreground">
+                          <tr>
+                            <th className="px-3 py-2 font-medium">Группа</th>
+                            <th className="px-3 py-2 font-medium">Материал</th>
+                            <th className="px-3 py-2 font-medium">Партия/класс</th>
+                            <th className="px-3 py-2 text-right font-medium">Итого</th>
+                            <th className="px-3 py-2 text-right font-medium">На га</th>
+                            <th className="px-3 py-2 font-medium">Дата</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedItem.materialRows.map((item) => (
+                            <tr key={`${item.category}-${item.identity}-${item.batchClass}`} className="border-t border-border">
+                              <td className="px-3 py-2 text-muted-foreground">{item.categoryLabel}</td>
+                              <td className="px-3 py-2 font-medium text-foreground">{item.identity}</td>
+                              <td className="px-3 py-2 text-muted-foreground">{item.batchClass}</td>
+                              <td className="px-3 py-2 text-right font-semibold text-foreground">{item.total}</td>
+                              <td className="px-3 py-2 text-right text-foreground">{item.perHa}</td>
+                              <td className="px-3 py-2 text-muted-foreground">{item.date}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {!selectedItem.materialRows.length ? (
+                        <div className="border-t border-border px-4 py-8 text-center text-sm text-muted-foreground">Фактических выдач по этому участку пока нет.</div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-border bg-card p-5 text-sm text-muted-foreground">Посевные строки ещё не заданы.</div>
+        )}
+      </div>
+    );
+  };
+
+  const renderEditor = () => {
+    if (!selectedField) return null;
+    const editorLabelClass = "mb-1.5 block text-xs font-medium leading-snug text-foreground";
+    const editorControlClass =
+      "h-11 w-full min-w-0 border-input bg-card text-sm text-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0";
+    const editorNumberControlClass = `${editorControlClass} [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
+    const editorSelectContentClass = "border-border bg-card text-foreground shadow-xl";
+    const plannedArea = sumArea(draftRows);
+    const remainingArea = selectedField.area - plannedArea;
+    const areaIsOver = remainingArea < -EPS;
+    const plannedPercent = selectedField.area > 0
+      ? Math.min(100, Math.max(0, (plannedArea / selectedField.area) * 100))
+      : 0;
+
+    return (
+      <fieldset
+        disabled={saving}
+        className="tf-estate-editor m-0 min-w-0 space-y-4 border-0 p-0 text-foreground disabled:cursor-wait"
+        aria-labelledby="crop-structure-editor-heading"
+        aria-busy={saving}
+        data-testid="crop-structure-editor"
+      >
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h3 id="crop-structure-editor-heading" className="font-display text-xl font-semibold text-foreground">Участки поля</h3>
+              <p className={`mt-1 text-xs ${areaIsOver ? "font-semibold text-rose-800" : "text-muted-foreground"}`}>
+                План: {fmtHa(plannedArea)} / {fmtHa(selectedField.area)} · {areaIsOver ? "Превышение" : "Остаток"}: {fmtHa(Math.abs(remainingArea))}
+              </p>
+            </div>
+            {hasUnsavedStructureChanges ? (
+              <Badge className="border border-amber-400/30 bg-amber-400/10 text-amber-800 hover:bg-amber-400/10">
+                Не сохранено
+              </Badge>
+            ) : null}
+          </div>
+          <div
+            className="h-1.5 overflow-hidden rounded-full bg-muted"
+            role="progressbar"
+            aria-label="Заполненная площадь структуры"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(plannedPercent)}
+          >
+            <div
+              className={`h-full rounded-full transition-[width] duration-150 motion-reduce:transition-none ${areaIsOver ? "bg-destructive" : "bg-primary"}`}
+              style={{ width: `${plannedPercent}%` }}
+            />
+          </div>
+          {!seasonId ? (
+            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-800">
+              У этой компании нет активного сезона. Структуру нельзя сохранить; выберите компанию с активным сезоном или сначала откройте сезон.
+            </div>
+          ) : null}
+          {editorValidationError ? (
+            <div role="alert" className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-800">
+              {editorValidationError}
+            </div>
+          ) : null}
+        </div>
+
+        <div>
+          {draftRows.map((row, index) => {
+            const rowCropId = displayCropId(row.crop_id);
+            const vars = rowCropId ? varietiesByCrop.get(rowCropId) || [] : [];
+            const pct = selectedField.area > 0 ? ((Number(row.area || 0) / selectedField.area) * 100).toFixed(2) : "0.00";
+            const operationsCount = row.id ? operationFactsByAllocation.get(row.id)?.length || 0 : 0;
+            const materialsCount = row.id ? consumptionsByAllocation.get(row.id)?.length || 0 : 0;
+            const isDeleteLocked = operationsCount > 0 || materialsCount > 0;
+            const isFallowRow = isFallowAllocation(row);
+            const isCropMixRow = isCropMixAllocation(row);
+            return (
+              <section
+                key={`${row.id || "new"}-${index}`}
+                className="tf-estate-plot border-t border-border py-4 first:border-t-0 first:pt-0"
+                aria-labelledby={`crop-structure-row-${index}`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span aria-hidden="true" className="flex h-6 w-6 items-center justify-center border border-border bg-secondary text-xs font-semibold text-foreground">{String(index + 1).padStart(2, "0")}</span>
+                    <h4 id={`crop-structure-row-${index}`} className="font-display text-lg font-semibold text-foreground">{isFallowRow ? "Пар" : isCropMixRow ? "Зерносмесь" : "Посев"}</h4>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs tabular-nums text-muted-foreground">{fmtHa(Number(row.area || 0))} · {pct}% поля</span>
+                    <Button
+                      type="button"
+                      className="h-11 w-11 border border-transparent text-muted-foreground hover:border-rose-500/40 hover:bg-rose-500/15 hover:text-rose-800 disabled:cursor-not-allowed disabled:opacity-40"
+                      variant="ghost"
+                      size="icon"
+                      title={isDeleteLocked ? "Почему нельзя удалить участок" : "Удалить участок"}
+                      aria-label={isDeleteLocked ? "Показать причину запрета удаления участка" : "Удалить участок"}
+                      onClick={() => requestRemoveRow(index)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-12 items-end gap-3 pt-2">
+                <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-4">
+                  <Label htmlFor={`plot-use-${index}`} className={editorLabelClass}>Использование *</Label>
+                  <Select
+                    value={row.land_use_type}
+                    onValueChange={(value) => patchDraft(index, { land_use_type: value as "crop" | "crop_mix" | "fallow" })}
+                  >
+                    <SelectTrigger id={`plot-use-${index}`} className={editorControlClass}><SelectValue /></SelectTrigger>
+                    <SelectContent className={editorSelectContentClass}>
+                      <SelectItem value="crop">Культура</SelectItem>
+                      <SelectItem value="crop_mix">Зерносмесь</SelectItem>
+                      <SelectItem value="fallow">Пар</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
+                  <Label htmlFor={`plot-area-${index}`} className={editorLabelClass}>Площадь, га *</Label>
+                  <div className="flex gap-1.5">
+                    <Input id={`plot-area-${index}`} className={editorNumberControlClass} type="text" inputMode="decimal" value={row.area == null ? "" : String(row.area)} onChange={(event) => patchDraft(index, { area: parseNum(event.target.value) })} placeholder="га" />
+                    <Button
+                      type="button"
+                      title="Заполнить остатком площади"
+                      aria-label="Заполнить остатком площади"
+                      className="h-11 w-11 shrink-0 border-input p-0 text-foreground hover:bg-accent"
+                      variant="outline"
+                      onClick={() => fillRemainingArea(index)}
+                    >
+                      <Maximize2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                {!isFallowRow && !isCropMixRow ? (
+                  <>
+                    <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-5">
+                      <Label htmlFor={`plot-crop-${index}`} className={editorLabelClass}>Культура *</Label>
+                      <Select value={rowCropId || "none"} onValueChange={(value) => patchDraft(index, { crop_id: value === "none" ? null : value })}>
+                        <SelectTrigger id={`plot-crop-${index}`} className={editorControlClass}><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
+                        <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{cropSelectOptions(rowCropId).map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    {row.crop_id && vars.length > 0 ? (
+                    <div className="col-span-12 min-w-0 sm:col-span-6">
+                      <Label htmlFor={`plot-variety-${index}`} className={editorLabelClass}>Сорт</Label>
+                      <CatalogIdentityCombobox
+                        id={`plot-variety-${index}`}
+                        ariaLabel={`Сорт участка ${index + 1}`}
+                        value={row.variety_id}
+                        options={vars.map((variety) => ({
+                          id: variety.id,
+                          label: localizedName(variety as never, language, ["name"]) || variety.name,
+                          searchValue: catalogIdentitySearchValue(variety),
+                          legacy: variety.archived === true || variety.is_active === false,
+                        }))}
+                        placeholder="Выберите сорт"
+                        searchPlaceholder="Поиск сорта..."
+                        emptyMessage={row.crop_id ? "Для выбранной культуры пока нет глобальных сортов." : "Сначала выберите культуру"}
+                        className={editorControlClass}
+                        disabled={!row.crop_id}
+                        onChange={(value) => patchDraft(index, { variety_id: value })}
+                      />
+                    </div>
+                    ) : null}
+                    {row.crop_id && globalReproductions.length > 0 ? (
+                    <div className="col-span-12 min-w-0 sm:col-span-6">
+                      <Label htmlFor={`plot-reproduction-${index}`} className={editorLabelClass}>Репродукция / поколение</Label>
+                      <CatalogIdentityCombobox
+                        id={`plot-reproduction-${index}`}
+                        ariaLabel={`Репродукция участка ${index + 1}`}
+                        value={row.reproduction_id}
+                        options={globalReproductions.map((item) => ({
+                          id: item.id,
+                          label: standardReproductionLabel(item),
+                          searchValue: catalogIdentitySearchValue(item),
+                          legacy: item.archived === true || item.is_active === false,
+                        }))}
+                        placeholder="Выберите репродукцию"
+                        searchPlaceholder="Поиск репродукции..."
+                        emptyMessage="Доступные репродукции не найдены"
+                        className={editorControlClass}
+                        disabled={globalReproductions.length === 0}
+                        onChange={(value) => patchDraft(index, { reproduction_id: value })}
+                      />
+                    </div>
+                    ) : null}
+                  </>
+                ) : null}
+                {isCropMixRow ? (
+                  <section className="col-span-12 space-y-3 border-y border-border py-4" aria-labelledby={`crop-mixture-${index}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h5 id={`crop-mixture-${index}`} className="text-sm font-semibold text-foreground">Состав зерносмеси</h5>
+                        <div className="text-xs text-muted-foreground">Нормы задаются отдельно; площадь участка учитывается один раз.</div>
+                      </div>
+                      <div className="text-sm font-semibold text-amber-800">
+                        Всего: {grainMixTotalKg(row.area, row.mix_components).toLocaleString("ru-RU")} кг
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {row.mix_components.map((component, componentIndex) => {
+                        const componentCropId = displayCropId(component.crop_id);
+                        const componentVarieties = componentCropId ? varietiesByCrop.get(componentCropId) || [] : [];
+                        return (
+                          <div key={`${component.id || "new"}-${componentIndex}`} className="grid grid-cols-12 items-end gap-2 border-b border-border py-3 last:border-b-0">
+                            <div className="col-span-12 min-w-0 md:col-span-2">
+                              <Label className={editorLabelClass}>Компонент {componentIndex + 1}: культура *</Label>
+                              <Select
+                                value={componentCropId || "none"}
+                                onValueChange={(value) => patchMixComponent(index, componentIndex, { crop_id: value === "none" ? null : value })}
+                              >
+                                <SelectTrigger className={editorControlClass}><SelectValue placeholder="Культура" /></SelectTrigger>
+                                <SelectContent className={editorSelectContentClass}>
+                                  <SelectItem value="none">—</SelectItem>
+                                  {cropSelectOptions(componentCropId).map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="col-span-12 min-w-0 md:col-span-3">
+                              <Label className={editorLabelClass}>Сорт *</Label>
+                              <CatalogIdentityCombobox
+                                value={component.variety_id}
+                                options={componentVarieties.map((variety) => ({
+                                  id: variety.id,
+                                  label: localizedName(variety as never, language, ["name"]) || variety.name,
+                                  searchValue: catalogIdentitySearchValue(variety),
+                                  legacy: variety.archived === true || variety.is_active === false,
+                                }))}
+                                placeholder="Выберите сорт"
+                                searchPlaceholder="Поиск сорта..."
+                                emptyMessage={component.crop_id ? "Для культуры нет сортов." : "Сначала выберите культуру"}
+                                className={editorControlClass}
+                                disabled={!component.crop_id || componentVarieties.length === 0}
+                                onChange={(value) => patchMixComponent(index, componentIndex, { variety_id: value })}
+                              />
+                            </div>
+                            <div className="col-span-12 min-w-0 md:col-span-3">
+                              <Label className={editorLabelClass}>Репродукция / поколение *</Label>
+                              <CatalogIdentityCombobox
+                                value={component.reproduction_id}
+                                options={globalReproductions.map((item) => ({
+                                  id: item.id,
+                                  label: standardReproductionLabel(item),
+                                  searchValue: catalogIdentitySearchValue(item),
+                                  legacy: item.archived === true || item.is_active === false,
+                                }))}
+                                placeholder="Репродукция"
+                                searchPlaceholder="Поиск репродукции..."
+                                emptyMessage="Репродукции не найдены"
+                                className={editorControlClass}
+                                onChange={(value) => patchMixComponent(index, componentIndex, { reproduction_id: value })}
+                              />
+                            </div>
+                            <div className="col-span-8 min-w-0 md:col-span-2">
+                              <Label className={editorLabelClass}>Норма, кг/га *</Label>
+                              <Input
+                                className={editorNumberControlClass}
+                                type="text"
+                                inputMode="decimal"
+                                value={component.seed_rate_kg_ha == null ? "" : String(component.seed_rate_kg_ha)}
+                                onChange={(event) => patchMixComponent(index, componentIndex, { seed_rate_kg_ha: parseNum(event.target.value) })}
+                                placeholder="кг/га"
+                              />
+                            </div>
+                            <div className="col-span-3 min-w-0 md:col-span-1">
+                              <Label className={editorLabelClass}>Всего</Label>
+                              <div className="flex h-11 items-center truncate text-xs font-semibold text-foreground" title={`${grainMixComponentTotalKg(row.area, component.seed_rate_kg_ha)} кг`}>
+                                {grainMixComponentTotalKg(row.area, component.seed_rate_kg_ha).toLocaleString("ru-RU")} кг
+                              </div>
+                            </div>
+                            <div className="col-span-1 flex justify-end">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                title="Удалить компонент"
+                                className="h-11 w-11 text-muted-foreground hover:bg-rose-500/15 hover:text-rose-800"
+                                disabled={row.mix_components.length <= GRAIN_MIX_MIN_COMPONENTS}
+                                onClick={() => removeMixComponent(index, componentIndex)}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="min-h-11 border-border bg-card text-foreground"
+                      disabled={row.mix_components.length >= GRAIN_MIX_MAX_COMPONENTS}
+                      onClick={() => addMixComponent(index)}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />Добавить компонент
+                    </Button>
+                  </section>
+                ) : null}
+                <details className="tf-estate-details col-span-12 min-w-0 border-t border-border pt-2">
+                  <summary className="cursor-pointer py-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    Дополнительные параметры <span className="font-normal text-muted-foreground">· орошение, посадка, комментарий{row.notes ? " · есть заметка" : ""}</span>
+                  </summary>
+                <div className={`grid grid-cols-1 gap-3 pt-2 ${isFallowRow || isCropMixRow ? "" : "md:grid-cols-3"}`}>
+                  <div>
+                    <Label htmlFor={`plot-irrigation-${index}`} className={editorLabelClass}>Орошение</Label>
+                    <Select
+                      value={normalizeIrrigationType(row.irrigation_type)}
+                      onValueChange={(value) => patchDraft(index, { irrigation_type: normalizeIrrigationType(value) })}
+                    >
+                      <SelectTrigger id={`plot-irrigation-${index}`} className={editorControlClass}><SelectValue /></SelectTrigger>
+                      <SelectContent className={editorSelectContentClass}>
+                        <SelectItem value="unknown">Не указано</SelectItem>
+                        <SelectItem value="drip">Капельное</SelectItem>
+                        <SelectItem value="sprinkler">Дождевание</SelectItem>
+                        <SelectItem value="dryland">Богара</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {!isFallowRow && !isCropMixRow ? (
+                    <>
+                      <div>
+                        <Label htmlFor={`plot-row-spacing-${index}`} className={editorLabelClass}>Междурядье, м</Label>
+                        <Input
+                          id={`plot-row-spacing-${index}`}
+                          className={editorNumberControlClass}
+                          type="text"
+                          inputMode="decimal"
+                          value={row.row_spacing_m == null ? "" : String(row.row_spacing_m)}
+                          onChange={(event) => patchDraft(index, { row_spacing_m: parseNum(event.target.value) })}
+                          placeholder={isPotatoAllocation(row) ? "0.75" : "м"}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor={`plot-seed-spacing-${index}`} className={editorLabelClass}>Расстояние между семенами, см</Label>
+                        <Input
+                          id={`plot-seed-spacing-${index}`}
+                          className={editorNumberControlClass}
+                          type="text"
+                          inputMode="decimal"
+                          value={row.seed_spacing_cm == null ? "" : String(row.seed_spacing_cm)}
+                          onChange={(event) => patchDraft(index, { seed_spacing_cm: parseNum(event.target.value) })}
+                          placeholder={isPotatoAllocation(row) ? "32" : "см"}
+                        />
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+                <div className="pt-3">
+                  <Label htmlFor={`plot-notes-${index}`} className={editorLabelClass}>Комментарий</Label>
+                  <Input
+                    id={`plot-notes-${index}`}
+                    className={editorControlClass}
+                    value={row.notes}
+                    onChange={(event) => patchDraft(index, { notes: event.target.value })}
+                    placeholder={isFallowRow ? "Например: чистый пар, подготовка под посев" : "Необязательный комментарий"}
+                  />
+                </div>
+                </details>
+                </div>
+              </section>
+            );
+          })}
+          {!draftRows.length ? (
+            <div className="border-y border-dashed border-border py-8 text-center text-sm text-muted-foreground">
+              В поле пока нет участков структуры. Добавьте первый участок в панели действий.
+            </div>
+          ) : null}
+        </div>
+      </fieldset>
+    );
+  };
+
+  const renderLegalContour = () => {
+    if (!selectedField) return null;
+    const links = legalLinksByField.get(selectedField.id) || [];
+    const totalLegalArea = links.reduce((sum, row) => sum + Number(row.area_ha || 0), 0);
+    const diff = totalLegalArea - selectedField.area;
+    const diffAbs = Math.abs(diff);
+    const diffStatus =
+      diffAbs <= 0.01 ? "ok" : diffAbs <= 1 ? "warning" : links.length ? "mismatch" : "missing_cadastre";
+    const diffStatusLabel = diffStatus === "ok"
+      ? "Совпадает"
+      : diffStatus === "warning"
+        ? "Проверьте"
+        : diffStatus === "mismatch"
+          ? "Расхождение"
+          : "Нет кадастра";
+
+    return (
+      <div className="space-y-5 text-foreground" data-testid="field-legal-contour">
+        <section aria-labelledby="field-legal-contour-heading" className="space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 id="field-legal-contour-heading" className="text-sm font-semibold text-foreground">Юридический контур</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Агро-площадь {fmtHa(selectedField.area)} · юридическая {fmtHa(totalLegalArea)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Разница: {diff > 0 ? "+" : diff < 0 ? "−" : ""}{fmtHa(diffAbs).replace(" га", "")} га
+              </p>
+            </div>
+            <Badge
+              className={
+                diffStatus === "ok"
+                  ? "border border-emerald-400/30 bg-emerald-400/10 text-emerald-800 hover:bg-emerald-400/10"
+                  : diffStatus === "warning"
+                    ? "border border-amber-400/30 bg-amber-400/10 text-amber-800 hover:bg-amber-400/10"
+                    : "border border-rose-400/30 bg-rose-400/10 text-rose-800 hover:bg-rose-400/10"
+              }
+            >
+              {diffStatusLabel}
+            </Badge>
+          </div>
+        </section>
+
+        {links.length ? (
+          <div className="overflow-x-auto border-y border-border">
+              <table className="w-full min-w-[760px] text-left text-xs">
+                <thead className="bg-background text-[11px] uppercase tracking-wide text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Кадастровый номер</th>
+                    <th className="px-3 py-2 font-medium">Площадь</th>
+                    <th className="px-3 py-2 font-medium">Культура</th>
+                    <th className="px-3 py-2 font-medium">Юрлицо</th>
+                    <th className="px-3 py-2 font-medium">Владелец</th>
+                    <th className="px-3 py-2 font-medium">Метод</th>
+                    <th className="px-3 py-2 font-medium">Источник</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {links.map((row) => (
+                    <tr key={row.id} className="border-t border-border">
+                      <td className="px-3 py-2 font-medium text-foreground">{row.cadastral_number}</td>
+                      <td className="px-3 py-2 text-foreground">{fmtHa(row.area_ha)}</td>
+                      <td className="px-3 py-2 text-foreground">{row.crop_id ? cropName(row.crop_id) : "—"}</td>
+                      <td className="px-3 py-2 text-foreground">{row.legal_entity_name || "—"}</td>
+                      <td className="px-3 py-2 text-foreground">{row.owner_legal_entity_name || row.usage_legal_entity_name || "—"}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{row.allocation_method}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{row.source}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+          </div>
+        ) : (
+          <div className="border-y border-dashed border-border py-6 text-sm text-muted-foreground">
+            Для этого поля пока нет юридической разбивки по кадастрам в выбранном сезоне.
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderDesktopFieldWorkspace = () => {
+    if (!selectedField) {
+      return (
+        <Card className="hidden min-h-[540px] min-w-0 items-center justify-center border-dashed xl:flex" data-testid="crop-field-workspace-empty">
+          <CardContent className="max-w-sm p-8 text-center">
+            <div className="text-lg font-semibold text-foreground">Выберите поле</div>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Слева показаны поля выбранного сезона. Откройте поле, чтобы увидеть его структуру, операции и материалы.
+            </p>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    return (
+      <Card
+        className="hidden h-[calc(100dvh-12rem)] min-h-[540px] max-h-[860px] min-w-0 flex-col overflow-hidden xl:flex"
+        data-testid="crop-field-workspace"
+      >
+        <div className="shrink-0 border-b border-border px-5 pt-5">
+          <div className="flex min-w-0 items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Сезонный контур поля</div>
+              <h2 className="tf-manor-heading mt-1 truncate text-2xl font-semibold text-foreground">
+                {fieldDisplayName(selectedField)}
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {fmtHa(selectedField.area)} · сезон {season?.year || "—"}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 shrink-0 px-3"
+              onClick={exportFieldPdf}
+              disabled={pdfLoading || !selectedFieldId || !seasonId}
+              aria-label={pdfLoading ? "Формируется PDF поля" : "Скачать PDF поля"}
+            >
+              <FileText className="mr-2 h-4 w-4" />
+              {pdfLoading ? "Формирование..." : "PDF поля"}
+            </Button>
+          </div>
+
+          <div className="mt-4 flex gap-1 overflow-x-auto" role="tablist" aria-label="Разделы выбранного поля">
+            <Button
+              id="field-workspace-tab-dossier"
+              role="tab"
+              aria-selected={fieldDialogTab === "dossier"}
+              aria-controls="field-workspace-panel"
+              tabIndex={fieldDialogTab === "dossier" ? 0 : -1}
+              variant="ghost"
+              size="sm"
+              className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "dossier" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
+              onClick={() => setFieldDialogTab("dossier")}
+              onKeyDown={moveTabFocus}
+            >
+              Агро-контур
+            </Button>
+            {canEditStructure ? (
+              <Button
+                id="field-workspace-tab-editor"
+                role="tab"
+                aria-selected={fieldDialogTab === "editor"}
+                aria-controls="field-workspace-panel"
+                tabIndex={fieldDialogTab === "editor" ? 0 : -1}
+                variant="ghost"
+                size="sm"
+                className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "editor" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
+                onClick={() => setFieldDialogTab("editor")}
+                onKeyDown={moveTabFocus}
+                disabled={!canEditSelectedSeason}
+                title={!seasonId ? "У компании нет активного сезона" : !canEditSelectedSeason ? "Сезон доступен только для чтения" : undefined}
+              >
+                Редактор структуры
+              </Button>
+            ) : null}
+            {isGlobalAdmin ? (
+              <Button
+                id="field-workspace-tab-legal"
+                role="tab"
+                aria-selected={fieldDialogTab === "legal"}
+                aria-controls="field-workspace-panel"
+                tabIndex={fieldDialogTab === "legal" ? 0 : -1}
+                variant="ghost"
+                size="sm"
+                className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "legal" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
+                onClick={() => setFieldDialogTab("legal")}
+                onKeyDown={moveTabFocus}
+              >
+                Юр. контур
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        <div
+          id="field-workspace-panel"
+          role="tabpanel"
+          aria-labelledby={`field-workspace-tab-${fieldDialogTab}`}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 travkin-scrollbar"
+        >
+          {fieldDialogTab === "dossier" ? renderFieldDossier() : null}
+          {fieldDialogTab === "editor" ? renderEditor() : null}
+          {fieldDialogTab === "legal" ? renderLegalContour() : null}
+        </div>
+
+        {fieldDialogTab === "editor" ? (
+          <div
+            className="flex shrink-0 items-center justify-between gap-3 border-t border-border bg-card px-5 py-3"
+            data-testid="crop-field-workspace-action-bar"
+          >
+            <div className="min-h-5 text-xs text-muted-foreground" aria-live="polite">
+              {hasUnsavedStructureChanges ? "Есть несохранённые изменения" : "Все изменения сохранены"}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {canEditSelectedSeason ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11"
+                  onClick={addRow}
+                  disabled={saving}
+                >
+                  <Plus className="mr-2 h-4 w-4" />Добавить участок
+                </Button>
+              ) : null}
+              {canEditSelectedSeason ? (
+                <Button className="h-11" onClick={requestSave} disabled={saving || !hasUnsavedStructureChanges}>
+                  <Edit3 className="mr-2 h-4 w-4" />{saving ? "Сохранение..." : "Сохранить"}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </Card>
+    );
+  };
+
+  if (loading) {
+    return <div className="tf-estate-document flex min-h-40 items-center justify-center gap-2 p-6 text-sm text-muted-foreground" role="status" aria-live="polite"><Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />Загружаем структуру посевов…</div>;
+  }
+
+  const hasFields = fields.length > 0;
+  const sectionChoiceRows = sectionChoiceField ? operationAllocationsForField(sectionChoiceField.id) : [];
+  const pendingDeleteRow = pendingDeleteIndex == null ? null : draftRows[pendingDeleteIndex] || null;
+
+  return (
+    <div className="space-y-4">
+
+      {season && !canEditSelectedSeason && canEditStructure ? (
+        <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-800">
+          Сезон {season.year} доступен только для чтения. Редактирование возможно только в текущем открытом сезоне.
+        </div>
+      ) : null}
+
+      <Card>
+        <CardContent className="p-3">
+          <div className="grid items-center gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(180px,1fr)_minmax(140px,170px)_minmax(135px,155px)_auto]">
+            <div className="relative min-w-0">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input className="h-9 w-full pl-8" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск поля..." />
+            </div>
+            <Select value={cropFilter} onValueChange={setCropFilter}>
+              <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="all">Все культуры</SelectItem>{globalCrops.map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
+            </Select>
+            <Select value={sortBy} onValueChange={(value: "field" | "area" | "main_crop" | "state") => setSortBy(value)}>
+              <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="field">Сорт: поле</SelectItem>
+                <SelectItem value="area">Сорт: площадь</SelectItem>
+                <SelectItem value="main_crop">Сорт: культура</SelectItem>
+                <SelectItem value="state">Сорт: статус</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:col-span-2 xl:col-span-1">
+              {canManageFields ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-9 w-full whitespace-nowrap px-3 sm:w-auto"
+                  onClick={() => setFieldCreateOpen(true)}
+                >
+                  <Plus className="mr-2 h-4 w-4" />Добавить поле
+                </Button>
+              ) : null}
+              <div className="flex shrink-0 rounded-md border border-border bg-card p-0.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={viewMode === "cards" ? "default" : "ghost"}
+                  className="h-8 px-2.5 xl:px-2 2xl:px-2.5"
+                  onClick={() => changeViewMode("cards")}
+                  disabled={saving}
+                  aria-label="Показать карточками"
+                  title="Карточки"
+                >
+                  <LayoutGrid className="h-4 w-4 sm:mr-1.5 xl:mr-0 2xl:mr-1.5" />
+                  <span className="hidden sm:inline xl:hidden 2xl:inline">Карточки</span>
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={viewMode === "table" ? "default" : "ghost"}
+                  className="h-8 px-2.5 xl:px-2 2xl:px-2.5"
+                  onClick={() => changeViewMode("table")}
+                  disabled={saving}
+                  aria-label="Показать таблицей"
+                  title="Таблица"
+                >
+                  <Table2 className="h-4 w-4 sm:mr-1.5 xl:mr-0 2xl:mr-1.5" />
+                  <span className="hidden sm:inline xl:hidden 2xl:inline">Таблица</span>
+                </Button>
+                {isGlobalAdmin ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={viewMode === "map" ? "default" : "ghost"}
+                    className="h-8 px-2.5 xl:px-2 2xl:px-2.5"
+                    onClick={() => changeViewMode("map")}
+                    disabled={saving}
+                    aria-label="Показать на карте"
+                    title="Карта"
+                  >
+                    <MapIcon className="h-4 w-4 sm:mr-1.5 xl:mr-0 2xl:mr-1.5" />
+                    <span className="hidden sm:inline xl:hidden 2xl:inline">Карта</span>
+                  </Button>
+                ) : null}
+              </div>
+              <Button
+                size="sm"
+                className="h-9 whitespace-nowrap px-3 xl:px-2.5 2xl:px-3"
+                variant="outline"
+                onClick={exportExcel}
+                aria-label="Экспортировать в Excel"
+                title="Excel"
+              >
+                <Download className="h-4 w-4 sm:mr-1.5 xl:mr-0 2xl:mr-1.5" />
+                <span className="hidden sm:inline xl:hidden 2xl:inline">Excel</span>
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {loadError ? (
+        <Card>
+          <CardContent className="p-8 text-center">
+            <div className="text-lg font-semibold text-muted-foreground">Не удалось загрузить структуру посевов</div>
+            <div className="mt-2 text-sm text-muted-foreground">{loadError}</div>
+            <Button type="button" variant="outline" className="mt-4" onClick={() => setReloadToken((value) => value + 1)}>
+              <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />Повторить загрузку
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {!loadError && !hasFields ? (
+        <Card>
+          <CardContent className="p-8 text-center">
+            <div className="text-lg font-semibold text-muted-foreground">Поля не найдены</div>
+            <div className="mt-2 text-sm text-muted-foreground">
+              Создайте поля или импортируйте структуру посевов, чтобы заполнить сезон {season?.year || "2026"}.
+            </div>
+            {isGlobalAdmin ? (
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                <Button type="button" onClick={() => router.push("/import")}>
+                  <Plus className="mr-2 h-4 w-4" />Импортировать структуру
+                </Button>
+                <Button type="button" variant="outline" onClick={() => router.push("/fields-map")}>
+                  <MapIcon className="mr-2 h-4 w-4" />Открыть карту полей
+                </Button>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {!loadError && hasFields && filteredFields.length > 0 && viewMode === "cards" ? (
+        <>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 xl:hidden" data-testid="crop-field-card-grid">
+            {filteredFields.map(renderOverviewCard)}
+          </div>
+          <div
+            className="hidden min-w-0 gap-4 xl:grid xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]"
+            data-testid="crop-master-detail-workspace"
+          >
+            <Card className="flex h-[calc(100dvh-12rem)] min-h-[540px] max-h-[860px] min-w-0 flex-col overflow-hidden border-0 bg-transparent shadow-none">
+              <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">Поля</h2>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Выберите поле для подробного обзора</p>
+                </div>
+                <Badge className="border-border bg-background text-foreground hover:bg-background">{filteredFields.length}</Badge>
+              </div>
+              <div className="tf-scroll-hidden min-h-0 flex-1 space-y-1 overflow-y-auto p-1" aria-label="Поля выбранного сезона">
+                {filteredFields.map(renderFieldMasterItem)}
+              </div>
+            </Card>
+            {renderDesktopFieldWorkspace()}
+          </div>
+        </>
+      ) : null}
+      {!loadError && hasFields && viewMode === "table" ? renderTableView() : null}
+      {!loadError && hasFields && viewMode === "map" && isGlobalAdmin ? renderMapView() : null}
+      {!loadError && hasFields && !filteredFields.length ? (
+        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">По заданным фильтрам поля не найдены.</CardContent></Card>
+      ) : null}
+
+      {canManageFields ? (
+        <FieldFormDialog
+          open={fieldCreateOpen}
+          onOpenChange={setFieldCreateOpen}
+          onSubmit={handleCreateField}
+          existingFields={fields}
+        />
+      ) : null}
+
+      {!isDesktopWorkspace || viewMode !== "cards" ? (
+        <Dialog open={Boolean(selectedFieldId)} onOpenChange={(open) => !open && requestCloseField()}>
+          <DialogContent
+          hideCloseButton
+          data-testid="field-dialog-content"
+          overlayClassName="motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none motion-reduce:duration-0"
+          className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-none flex-col gap-0 !overflow-hidden rounded-md border-border bg-card p-0 text-foreground shadow-manor-md motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none motion-reduce:duration-0 sm:max-h-[92vh] sm:w-[94vw] sm:max-w-[1180px]"
+        >
+          <DialogHeader className="shrink-0 gap-3 space-y-0 border-b border-border px-4 py-4 pr-4 text-left sm:px-6">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 pt-1">
+                <DialogTitle className="truncate text-lg leading-tight sm:text-xl">
+                  {selectedField ? fieldDisplayName(selectedField) : "Поле"}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs text-muted-foreground sm:text-sm">
+                  {selectedField ? `${fmtHa(selectedField.area)} · сезон ${season?.year || "—"}` : "Данные поля"}
+                </DialogDescription>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-11 min-w-11 px-3 text-foreground hover:bg-muted hover:text-foreground"
+                  onClick={exportFieldPdf}
+                  disabled={pdfLoading || !selectedFieldId || !seasonId}
+                  aria-label={pdfLoading ? "Формируется PDF поля" : "Скачать PDF поля"}
+                >
+                  <FileText className="h-4 w-4 min-[420px]:mr-2" />
+                  <span className="hidden min-[420px]:inline">{pdfLoading ? "Формирование..." : "PDF поля"}</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-11 w-11 text-foreground hover:bg-muted hover:text-foreground"
+                  onClick={requestCloseField}
+                  disabled={saving}
+                  aria-label="Закрыть карточку поля"
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+            </div>
+            <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Разделы карточки поля">
+              <Button
+                id="field-tab-dossier"
+                role="tab"
+                aria-selected={fieldDialogTab === "dossier"}
+                aria-controls="field-dialog-panel"
+                tabIndex={fieldDialogTab === "dossier" ? 0 : -1}
+                variant="ghost"
+                size="sm"
+                className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "dossier" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
+                onClick={() => setFieldDialogTab("dossier")}
+                onKeyDown={moveTabFocus}
+              >
+                Обзор
+              </Button>
+              {canEditStructure ? (
+                <Button
+                  id="field-tab-editor"
+                  role="tab"
+                  aria-selected={fieldDialogTab === "editor"}
+                  aria-controls="field-dialog-panel"
+                  tabIndex={fieldDialogTab === "editor" ? 0 : -1}
+                  variant="ghost"
+                  size="sm"
+                  className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "editor" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
+                  onClick={() => setFieldDialogTab("editor")}
+                  onKeyDown={moveTabFocus}
+                  disabled={!canEditSelectedSeason}
+                  title={!seasonId ? "У компании нет активного сезона" : !canEditSelectedSeason ? "Сезон доступен только для чтения" : undefined}
+                >
+                  Структура
+                </Button>
+              ) : null}
+              {isGlobalAdmin ? (
+                <Button
+                  id="field-tab-legal"
+                  role="tab"
+                  aria-selected={fieldDialogTab === "legal"}
+                  aria-controls="field-dialog-panel"
+                  tabIndex={fieldDialogTab === "legal" ? 0 : -1}
+                  variant="ghost"
+                  size="sm"
+                  className={`h-11 shrink-0 rounded-none border-b-2 px-3 motion-reduce:transition-none ${fieldDialogTab === "legal" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"}`}
+                  onClick={() => setFieldDialogTab("legal")}
+                  onKeyDown={moveTabFocus}
+                >
+                  Юр. контур
+                </Button>
+              ) : null}
+            </div>
+          </DialogHeader>
+          <div
+            id="field-dialog-panel"
+            role="tabpanel"
+            aria-labelledby={`field-tab-${fieldDialogTab}`}
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 [scrollbar-width:thin] [scrollbar-color:var(--manor-line)_transparent] sm:px-6 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted [&::-webkit-scrollbar-track]:bg-transparent"
+          >
+            {fieldDialogTab === "dossier" ? renderFieldDossier() : null}
+            {fieldDialogTab === "editor" ? renderEditor() : null}
+            {fieldDialogTab === "legal" ? renderLegalContour() : null}
+          </div>
+          <div
+            className="sticky bottom-0 z-20 flex shrink-0 flex-col gap-2 border-t border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+            data-testid="field-dialog-action-bar"
+          >
+            <div className="min-h-5 text-xs text-muted-foreground" aria-live="polite">
+              {hasUnsavedStructureChanges
+                ? "Есть несохранённые изменения"
+                : fieldDialogTab === "editor"
+                  ? "Все изменения сохранены"
+                : "Esc или кнопка справа закроет карточку"}
+            </div>
+            <div className={`grid w-full gap-2 sm:flex sm:w-auto ${canEditSelectedSeason && fieldDialogTab === "editor" ? "grid-cols-2" : "grid-cols-1"}`}>
+              {canEditSelectedSeason && fieldDialogTab === "editor" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 border-border bg-transparent text-foreground hover:border-primary/50 hover:bg-muted hover:text-foreground"
+                  onClick={addRow}
+                  disabled={saving}
+                >
+                  <Plus className="mr-2 h-4 w-4" />Добавить участок
+                </Button>
+              ) : null}
+              <Button type="button" className="h-11" variant="outline" onClick={requestCloseField} disabled={saving}>Закрыть</Button>
+              {canEditSelectedSeason && fieldDialogTab === "editor" ? (
+                <Button className="col-span-2 h-11 sm:col-span-1" onClick={requestSave} disabled={saving || !hasUnsavedStructureChanges}>
+                  <Edit3 className="mr-2 h-4 w-4" />{saving ? "Сохранение..." : "Сохранить"}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+
+      <AlertDialog open={saveConfirmationOpen} onOpenChange={setSaveConfirmationOpen}>
+        <AlertDialogContent className="border-border bg-card text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Подтвердить изменения структуры?</AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              Только после подтверждения изменения будут записаны в сезон {season?.year || "—"}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-lg border border-border bg-background px-3 py-2">
+              <div className="text-xs text-muted-foreground">Добавить</div>
+              <div className="mt-1 text-lg font-semibold text-foreground">{pendingSaveSummary.added}</div>
+            </div>
+            <div className="rounded-lg border border-border bg-background px-3 py-2">
+              <div className="text-xs text-muted-foreground">Изменить</div>
+              <div className="mt-1 text-lg font-semibold text-foreground">{pendingSaveSummary.updated}</div>
+            </div>
+            <div className="rounded-lg border border-border bg-background px-3 py-2">
+              <div className="text-xs text-muted-foreground">Удалить</div>
+              <div className="mt-1 text-lg font-semibold text-foreground">{pendingSaveSummary.deleted}</div>
+            </div>
+          </div>
+          <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-800">
+            Итоговая площадь структуры: {fmtHa(sumArea(pendingSaveRows))} из {fmtHa(selectedField?.area || 0)}.
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-border bg-transparent text-foreground hover:bg-muted hover:text-foreground">
+              Вернуться к редактированию
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-primary text-primary-foreground hover:bg-primary"
+              onClick={() => void confirmSave()}
+            >
+              Подтвердить и сохранить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={discardConfirmationOpen}
+        onOpenChange={(open) => {
+          setDiscardConfirmationOpen(open);
+          if (!open) setPendingFieldSelection(null);
+        }}
+      >
+        <AlertDialogContent className="border-border bg-card text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{pendingFieldSelection ? "Перейти к другому полю без сохранения?" : "Закрыть без сохранения?"}</AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              Несохранённые добавления, изменения и удаления будут отменены. «Агро-контур» и база уже сохранённые данные не меняли.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-border bg-transparent text-foreground hover:bg-muted hover:text-foreground">
+              Продолжить редактирование
+            </AlertDialogCancel>
+            <AlertDialogAction className="bg-rose-600 text-white hover:bg-rose-500" onClick={confirmDiscardFieldChanges}>
+              {pendingFieldSelection ? "Перейти без сохранения" : "Закрыть без сохранения"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={Boolean(selectedOperationDetail)} onOpenChange={(open) => !open && setSelectedOperationDetail(null)}>
+        <DialogContent className="travkin-scrollbar max-h-[92vh] w-[94vw] max-w-none overflow-y-auto rounded-md border-border bg-card text-foreground shadow-manor-md sm:max-w-[1040px]">
+          {selectedOperationDetail ? (
+            <>
+              <DialogHeader>
+                <div className="flex flex-wrap items-start justify-between gap-3 pr-6">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold uppercase text-amber-800">
+                      {selectedOperationDetail.presentation.categoryTitle}
+                    </div>
+                    <DialogTitle className="mt-1 text-2xl">
+                      {selectedOperationDetail.presentation.workTitle}
+                    </DialogTitle>
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      {fieldDisplayName(selectedField || fieldMap.get(selectedOperationDetail.field_id) || { id: "", name: "Поле", area: 0 })}
+                      {selectedOperationDetail.presentation.cropName ? ` · ${selectedOperationDetail.presentation.cropName}` : ""}
+                      {selectedOperationDetail.presentation.varietyName ? ` · ${selectedOperationDetail.presentation.varietyName}` : ""}
+                      {selectedOperationDetail.presentation.reproductionName ? ` · ${selectedOperationDetail.presentation.reproductionName}` : ""}
+                      {` · ${fmtDate(selectedOperationDetail.date)}`}
+                    </div>
+                  </div>
+                  <Badge className={operationStatusClass(selectedOperationDetail)}>
+                    {selectedOperationDetail.presentation.statusLabel}
+                  </Badge>
+                </div>
+              </DialogHeader>
+
+              <SpecialistOperationPlan presentation={selectedOperationDetail.presentation} />
+
+              <section className="rounded-xl border border-border bg-background p-4">
+                <div className="text-sm font-semibold text-foreground">Прогресс по сменам</div>
+                {selectedOperationDetail.presentation.progressReports.length ? (
+                  <div className="mt-3 space-y-2">
+                    {selectedOperationDetail.presentation.progressReports.map((report) => (
+                      <div key={report.id} className="rounded-lg border border-border bg-card px-3 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <span className="font-semibold text-foreground">
+                            {fmtDate(report.reported_at)} · +{fmtHa(Number(report.completed_area_ha || 0))}
+                          </span>
+                          <span className="tabular-nums text-muted-foreground">
+                            {Number(report.progress_percent || 0).toLocaleString("ru-RU", { maximumFractionDigits: 1 })}% · осталось {fmtHa(Number(report.remaining_area_ha || 0))}
+                          </span>
+                        </div>
+                        {report.comment ? <div className="mt-1 text-xs text-muted-foreground">{report.comment}</div> : null}
+                        {report.stop_reason ? <div className="mt-1 text-xs text-amber-800">Причина остановки: {report.stop_reason}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-2 text-sm text-muted-foreground">Сменный прогресс ещё не сдавался.</div>
+                )}
+              </section>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setSelectedOperationDetail(null)}>Закрыть</Button>
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pendingDeleteIndex !== null} onOpenChange={(open) => !open && setPendingDeleteIndex(null)}>
+        <DialogContent className="max-w-md rounded-md border-border bg-card text-foreground shadow-manor-md">
+          <DialogHeader>
+            <DialogTitle>Удалить участок структуры?</DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              {pendingDeleteRow
+                ? `Будет удалена строка на ${fmtHa(Number(pendingDeleteRow.area || 0))}. Это действие применится после сохранения структуры.`
+                : "Будет удалена выбранная строка структуры после сохранения."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
+            Если у участка уже есть операции, материалы или история, удаление заблокируется.
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingDeleteIndex(null)}>Отмена</Button>
+            <Button className="bg-rose-600 text-white hover:bg-rose-500" onClick={confirmRemoveRow}>
+              Удалить участок
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(sectionChoiceField)} onOpenChange={(open) => !open && setSectionChoiceField(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Что обрабатываем?</DialogTitle>
+            <DialogDescription>
+              {sectionChoiceField
+                ? `Поле ${sectionChoiceField.name} содержит несколько участков. Выберите конкретный участок или всё поле.`
+                : "Выберите участок для операции."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {sectionChoiceRows.map((allocation) => (
+              <button
+                key={allocation.id}
+                type="button"
+                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-left text-sm text-foreground transition hover:border-primary"
+                onClick={(event) => sectionChoiceField && openOperationPlan(sectionChoiceField, allocation, event)}
+              >
+                <div className="font-semibold">{allocationTitle(allocation)}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Операция будет привязана к этому участку структуры.
+                </div>
+              </button>
+            ))}
+            {sectionChoiceField ? (
+              <button
+                type="button"
+                className="w-full rounded-lg border border-dashed border-border bg-background px-3 py-2 text-left text-sm text-foreground transition hover:border-primary"
+                onClick={(event) => openWholeFieldOperationPlan(sectionChoiceField, event)}
+              >
+                <div className="font-semibold">Всё поле — {fmtHa(Number(sectionChoiceField.area || 0))}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Только для уборки, логистики, сервиса и послеуборочных работ.
+                </div>
+              </button>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <OperationFormDialog
+        open={operationDialogOpen}
+        onOpenChange={(open) => {
+          setOperationDialogOpen(open);
+          if (!open) {
+            setOperationDefaults(undefined);
+            setOperationSourceLabel("");
+          }
+        }}
+        onSubmit={handleCreateOperationPlan}
+        defaultValues={operationDefaults}
+        lockedContext={Boolean(operationDefaults?.crop_structure_id || operationDefaults?.operation_params?.scope === "whole_field")}
+        sourceLabel={operationSourceLabel}
+        fields={operationDialogFields as any}
+        cropStructures={operationDialogCropStructures}
+        specialists={specialists}
+      />
+    </div>
+  );
+}

@@ -1,0 +1,492 @@
+export type TicketStatus = "draft" | "active" | "ready_to_close" | "finalized" | "voided";
+export type TicketDirection = "incoming" | "outgoing" | "transfer" | "processing";
+export type WeighMethod = "double_weighing" | "preset_tare" | "manual_override_with_reason";
+
+export interface ImpuritySourceReference {
+  harvest_lot_id: string;
+  crop_structure_id: string;
+}
+
+export interface ImpuritySourceScopeInput {
+  allocation_mode: "unresolved_total";
+  sources: ImpuritySourceReference[];
+}
+
+export interface ImpuritySourceScope extends ImpuritySourceScopeInput {
+  source_count?: number;
+  total_net_kg?: number | null;
+  source_total_kg?: number | null;
+  clean_total_kg?: number | null;
+  state?: string | null;
+  member_resolution_status?: string | null;
+  sources: Array<ImpuritySourceReference & {
+    field_id?: string | null;
+    field_name_snapshot?: string | null;
+    crop_name_snapshot?: string | null;
+    variety_name_snapshot?: string | null;
+    reproduction_name_snapshot?: string | null;
+    area_ha_snapshot?: number | null;
+    source_total_kg?: number | null;
+    clean_mass_kg?: number | null;
+    clean_yield_t_ha?: number | null;
+    clean_balance_status?: string | null;
+    yield_status?: string | null;
+  }>;
+}
+
+export interface TicketLineInput {
+  product_id: string;
+  crop_id?: string | null;
+  batch_id?: string | null;
+  lot_id?: string | null;
+  supplier_lot?: string | null;
+  warehouse_from_id?: string | null;
+  warehouse_to_id?: string | null;
+  quantity: number;
+  uom?: string;
+  unit_price?: number | null;
+  amount?: number | null;
+  notes?: string;
+  net_line_weight_kg?: number | null;
+  moisture_percent?: number | null;
+  dockage_percent?: number | null;
+  dirt_tare_percent?: number | null;
+  class_grade?: string | null;
+  variety_id?: string | null;
+  reproduction_id?: string | null;
+  batch_class?: string | null;
+  operation_line_id?: string | null;
+  composition_snapshot?: Array<Record<string, unknown>> | null;
+  composition_hash?: string | null;
+  is_mixed_harvest?: boolean;
+  mass_kg?: number | null;
+  density_kg_per_l?: number | null;
+  density_unit?: string | null;
+  density_source?: string | null;
+  density_verification_status?: string | null;
+  density_verified_at?: string | null;
+  unit_source?: string | null;
+  unit_contract_version?: number | null;
+}
+
+export interface TicketInput {
+  company_id: string;
+  batch_id?: string | null;
+  harvest_lot_id?: string | null;
+  source_physical_state?: string | null;
+  audit_json?: Record<string, unknown> | null;
+  requires_review?: boolean;
+  review_reason?: string | null;
+  season_id?: string | null;
+  ticket_type: string;
+  op_type: string;
+  direction: TicketDirection;
+  source_kind: string;
+  source_id?: string | null;
+  destination_kind: string;
+  destination_id?: string | null;
+  processing_node_id?: string | null;
+  linked_processing_id?: string | null;
+  processing_output_role?: string | null;
+  processing_last_truck?: boolean;
+  field_id?: string | null;
+  crop_structure_allocation_id?: string | null;
+  warehouse_from_id?: string | null;
+  warehouse_to_id?: string | null;
+  supplier_id?: string | null;
+  buyer_id?: string | null;
+  supplier_document_no?: string | null;
+  shipment_purpose?: string | null;
+  destination_text?: string | null;
+  external_document_no?: string | null;
+  receipt_mode?: "weighbridge" | "direct" | string | null;
+  supplier_receipt_kind?: "generic" | "agro_identity" | string | null;
+  field_operation_type?: string | null;
+  field_material_category?: string | null;
+  disposal_category?: string | null;
+  processing_point_from_id?: string | null;
+  processing_point_to_id?: string | null;
+  vehicle_id?: string | null;
+  driver_id?: string | null;
+  ptc_event_id?: string | null;
+  ptc_cycle?: number | null;
+  combine_operator_person_id?: string | null;
+  responsible_user_id?: string | null;
+  created_by: string;
+  created_by_person_id?: string | null;
+  finalized_by_person_id?: string | null;
+  weigh_method?: WeighMethod;
+  gross_weight_kg?: number | null;
+  tare_weight_kg?: number | null;
+  notes?: string | null;
+  linked_operation_id?: string | null;
+  linked_request_id?: string | null;
+  shift_id?: string | null;
+}
+
+export interface WeighingInput {
+  weighing_no: 1 | 2;
+  measured_weight_kg: number;
+  measured_at?: string;
+  device_source?: "scale_device" | "manual";
+  operator_user_id?: string | null;
+  comment?: string | null;
+}
+
+export interface WeighbridgeTicket {
+  id: string;
+  company_id: string;
+  harvest_lot_id?: string | null;
+  batch_id?: string | null;
+  audit_json?: Record<string, unknown> | null;
+  requires_review?: boolean;
+  review_reason?: string | null;
+  season_id?: string | null;
+  company_name?: string | null;
+  supplier_name_snapshot?: string | null;
+  buyer_name_snapshot?: string | null;
+  crop_name_snapshot?: string | null;
+  variety_name_snapshot?: string | null;
+  reproduction_name_snapshot?: string | null;
+  created_by?: string | null;
+  created_by_name_snapshot?: string | null;
+  created_by_person_id?: string | null;
+  finalized_by_person_id?: string | null;
+  opened_by_person_name?: string | null;
+  finalized_by_person_name?: string | null;
+  operator_attribution_source?: "ticket_person" | "shift_unambiguous" | "unrecorded";
+  technical_audit?: {
+    auth_account_created: string | null;
+    auth_account_finalized: string | null;
+    shift_id: string | null;
+    opened_at: string | null;
+    finalized_at: string | null;
+  };
+  void_reason?: string | null;
+  correction_of_ticket_id?: string | null;
+  replacement_ticket_id?: string | null;
+  correction_reason?: string | null;
+  correction_started_at?: string | null;
+  correction_completed_at?: string | null;
+  correction_of_ticket?: { id: string; ticket_no: string; status: TicketStatus } | null;
+  replacement_ticket?: { id: string; ticket_no: string; status: TicketStatus } | null;
+  correction_audit?: Array<{
+    id: string;
+    action: string;
+    when_at: string;
+    reason?: string | null;
+    old_values?: Record<string, unknown> | null;
+    new_values?: Record<string, unknown> | null;
+  }>;
+  field_name_snapshot?: string | null;
+  warehouse_from_name_snapshot?: string | null;
+  warehouse_to_name_snapshot?: string | null;
+  vehicle_name_snapshot?: string | null;
+  vehicle_plate_snapshot?: string | null;
+  trailer_name_snapshot?: string | null;
+  trailer_plate_snapshot?: string | null;
+  driver_name_snapshot?: string | null;
+  combine_operator_person_id?: string | null;
+  combine_operator_person_name?: string | null;
+  ticket_no: string;
+  ticket_type: string;
+  op_type: string;
+  status: TicketStatus;
+  shift_id?: string | null;
+  direction: TicketDirection;
+  source_kind: string;
+  destination_kind: string;
+  destination_id?: string | null;
+  processing_node_id?: string | null;
+  linked_processing_id?: string | null;
+  processing_output_role?: string | null;
+  processing_last_truck?: boolean;
+  field_id?: string | null;
+  warehouse_from_id?: string | null;
+  warehouse_to_id?: string | null;
+  supplier_id?: string | null;
+  buyer_id?: string | null;
+  supplier_document_no?: string | null;
+  shipment_purpose?: string | null;
+  destination_text?: string | null;
+  external_document_no?: string | null;
+  receipt_mode?: string | null;
+  supplier_receipt_kind?: string | null;
+  field_material_category?: string | null;
+  disposal_category?: string | null;
+  processing_point_from_id?: string | null;
+  processing_point_to_id?: string | null;
+  vehicle_id?: string | null;
+  driver_id?: string | null;
+  ptc_event_id?: string | null;
+  ptc_cycle?: number | null;
+  ptc_trip_minutes?: number | null;
+  gross_weight_kg?: number | null;
+  tare_weight_kg?: number | null;
+  net_weight_kg?: number | null;
+  /** Read-only dashboard projection; never persisted into a ticket. */
+  harvest_clean_weight_kg?: number | null;
+  physical_net_kg?: number | null;
+  explicit_deductions_kg?: number | null;
+  accepted_weight_kg?: number | null;
+  weigh_method: WeighMethod;
+  is_finalized: boolean;
+  is_voided: boolean;
+  finalized_at?: string | null;
+  voided_at?: string | null;
+  weighing_1_at?: string | null;
+  weighing_2_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  notes?: string | null;
+  crop_structure_allocation_id?: string | null;
+  crop_structure_allocation_label?: string | null;
+  crop_structure_area_ha?: number | null;
+  impurity_source_scope?: ImpuritySourceScope | null;
+  lines?: Array<{
+    id: string;
+    product_id: string;
+    crop_id?: string | null;
+    crop_slug?: string | null;
+    crop_name?: string | null;
+    product_name: string;
+    quantity: number;
+    uom: string;
+    variety_id?: string | null;
+    variety_name?: string | null;
+    reproduction_id?: string | null;
+    reproduction_name?: string | null;
+    batch_class?: string | null;
+    lot_id?: string | null;
+    warehouse_from_id?: string | null;
+    warehouse_to_id?: string | null;
+    warehouse_from_name?: string | null;
+    warehouse_to_name?: string | null;
+    unit_price?: number | null;
+    amount?: number | null;
+    moisture_percent?: number | null;
+    dockage_percent?: number | null;
+    dirt_tare_percent?: number | null;
+    product_name_snapshot?: string | null;
+    variety_name_snapshot?: string | null;
+    reproduction_name_snapshot?: string | null;
+    notes?: string | null;
+    operation_line_id?: string | null;
+    is_mixed_harvest?: boolean | null;
+  }>;
+}
+
+export interface HarvestBatchCropStructureSource {
+  harvestLotId: string;
+  cropStructureId: string;
+  fieldId?: string | null;
+  fieldName?: string | null;
+  cropId?: string | null;
+  cropName?: string | null;
+  varietyId?: string | null;
+  varietyName?: string | null;
+  reproductionId?: string | null;
+  reproductionName?: string | null;
+  areaHa?: number | null;
+  availableKg?: number | null;
+  tripCount?: number | null;
+}
+
+export interface HarvestBatchSummary {
+  id: string;
+  batchCode: string;
+  warehouseId: string;
+  warehouseName: string;
+  productId: string;
+  productIds?: string[];
+  productName: string;
+  cropId: string | null;
+  cropName: string;
+  cropCategorySlug?: string;
+  processingEligible?: boolean;
+  detailLevel?: "summary" | "origins" | "full";
+  varietyId: string | null;
+  varietyName: string;
+  reproductionId: string | null;
+  reproductionName: string;
+  fieldId: string | null;
+  fieldName: string;
+  operationLineId: string | null;
+  cropStructureLabel: string;
+  seasonLabel: string;
+  seasonId?: string | null;
+  operationName: string;
+  firstReceivedAt: string | null;
+  lastReceivedAt: string | null;
+  receivedKg: number;
+  companyReceivedKg?: number;
+  companyCurrentKg?: number;
+  voidedKg?: number;
+  removedKg: number;
+  cleanMassKg: number;
+  impurityPercent: number;
+  processingInputKg?: number;
+  processingOutputKg?: number;
+  transferInKg?: number;
+  transferOutKg?: number;
+  writeoffKg?: number;
+  issueKg?: number;
+  otherAdjustmentKg?: number;
+  reservedKg?: number;
+  availableKg?: number;
+  reconciliationDeltaKg?: number;
+  reconciliationState?: "reconciled" | "mismatch" | "incomplete_lineage";
+  harvestedAreaHa: number | null;
+  grossYieldTPerHa: number | null;
+  cleanYieldTPerHa: number | null;
+  aggregateLot?: boolean;
+  aggregateLotId?: string | null;
+  sharedImpurityPool?: boolean;
+  originState?: "ticket_lineage" | "ticket_lineage_absent";
+  tripCount?: number;
+  stockComponents?: Array<{
+    batchClass: string;
+    physicalState: string;
+    quantityKg: number;
+    tripCount: number;
+  }>;
+  reviewState?: "confirmed" | "requires_review";
+  reviewReasons?: string[];
+  fieldSummaries?: Array<{
+    fieldId: string | null;
+    fieldName: string;
+    netWeightKg: number;
+    cleanWeightKg?: number | null;
+    areaHa?: number | null;
+    yieldTPerHa?: number | null;
+    harvestedAreaHa?: number | null;
+    yieldCleanWeightKg?: number | null;
+    yieldStatus?: "confirmed" | "awaiting_shift" | "missing_area" | "area_exceeds_plan" | "uncertain_mass";
+    enteredProcessingKg?: number | null;
+    tripCount: number;
+  }>;
+  cropStructureSources?: HarvestBatchCropStructureSource[];
+  tripBatches?: Array<{
+    id: string;
+    batchCode: string;
+    ticketId: string | null;
+    ticketNo: string;
+    fieldId: string | null;
+    fieldName: string;
+    netWeightKg: number;
+    enteredProcessingKg?: number | null;
+    moisturePercent: number | null;
+    vehicleName?: string | null;
+    driverName?: string | null;
+    status: string;
+    occurredAt: string | null;
+  }>;
+  outgoingDocuments?: Array<{
+    id: string;
+    label: string;
+    detailLabel?: string | null;
+    quantityKg: number;
+    occurredAt: string | null;
+    warehouseName: string;
+    actorName: string | null;
+    sourceType: "weighbridge_ticket" | "processing_document" | "missing";
+    sourceId: string | null;
+    documentNo: string | null;
+    ticketId: string | null;
+    ticketNo: string | null;
+    vehicleName: string | null;
+    driverName: string | null;
+    notes: string | null;
+    direction?: "in" | "out" | "processing";
+    processingDocument?: {
+      id: string;
+      transformationType: string;
+      status: string;
+      processingNodeName: string | null;
+      startedAt: string | null;
+      completedAt: string | null;
+      sourceWarehouseName: string | null;
+      inputBatchId: string | null;
+      inputBatchCode: string | null;
+      inputWeightKg: number;
+      sourceTicketId: string | null;
+      sourceTicketNo: string | null;
+      createdByName: string | null;
+      completedByName: string | null;
+      note: string | null;
+      outputs: Array<{
+        lineType: string;
+        batchClass: string;
+        warehouseName: string | null;
+        weightKg: number;
+      }>;
+    } | null;
+  }>;
+  tickets: Array<{
+    id: string;
+    ticketNo: string;
+    operation: "harvest_incoming" | "weighbridge_impurities";
+    netWeightKg: number;
+    occurredAt: string | null;
+  }>;
+  movements: Array<{
+    id: string;
+    label: string;
+    quantityKg: number;
+    direction: "in" | "out";
+    occurredAt: string | null;
+    ticketNo: string;
+  }>;
+}
+
+export interface WeighbridgeHumanOperator {
+  id: string;
+  name: string;
+  has_pin?: boolean;
+  pin_active?: boolean;
+  locked_until?: string | null;
+}
+
+export interface WeighbridgeOperatorState {
+  shift: Record<string, any> | null;
+  unlocked: boolean;
+  session_expires_at?: string | null;
+  shift_expires_at?: string | null;
+  lock_reason?: "inactivity_24h" | "admin_revoked" | string | null;
+  operator?: WeighbridgeHumanOperator | null;
+  operators: WeighbridgeHumanOperator[];
+  unconfigured_operator_count?: number;
+}
+
+export interface ActiveHarvestRoute {
+  id: string;
+  companyId: string;
+  seasonId: string;
+  seasonYear: number;
+  cropStructureId: string;
+  fieldId: string;
+  fieldName: string;
+  areaHa: number;
+  warehouseId: string;
+  warehouseName: string;
+  cropId: string;
+  cropName: string;
+  varietyId: string | null;
+  varietyName: string;
+  reproductionId: string | null;
+  reproductionName: string;
+  requiresReview: boolean;
+  status: "active" | "completed";
+  openTicketCount: number;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+}
+
+export type TareVarianceConfirmation = {
+  requires_confirmation: true;
+  code: "tare_variance_confirmation_required";
+  previous_tare_kg: number;
+  current_tare_kg: number;
+  difference_percent: number;
+};

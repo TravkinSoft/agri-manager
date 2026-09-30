@@ -1,0 +1,7244 @@
+"use client";
+
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { CheckCircle2, Clock3, FileDown, Info, Loader2, MoreHorizontal, Pencil, Scale, Trash2 } from "lucide-react";
+import { PageHeader } from "@/components/layout/page-header";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/lib/contexts/auth-context";
+import { WeighbridgeShiftCloseDialog } from "@/components/weighbridge/shift-close-dialog";
+import { useToast } from "@/hooks/use-toast";
+import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
+import { useLanguage } from "@/lib/contexts/language-context";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
+import { supabase } from "@/lib/supabase/client";
+import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
+import { adminTicketAction, changeActiveHarvestRouteContext, closeShift, correctSharedImpurityWeights, createActiveHarvestRoute, createTicket, downloadTicketPdf, finalizeTicket, getTicketDetails, getWeighbridgeBootstrap, getWeighbridgeOperatorState, getWeighbridgeResources, getWeighbridgeTransportPickerData, handoverWeighbridgeOperator, listActiveHarvestRoutes, listHarvestBatchSummaries, listWeighbridgeWorkspaceTickets, patchTicket, startTicketCorrection, unlockWeighbridgeOperator, updateActiveHarvestRoute, voidTicket, type ActiveHarvestRouteList } from "@/lib/services/weighbridge";
+import type { ActiveHarvestRoute, HarvestBatchSummary, ImpuritySourceScopeInput, TicketDirection, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket } from "@/lib/types/weighbridge";
+import { hasQaDataMarker } from "@/lib/utils/qa-data";
+import {
+  isHarvestDestinationPlace,
+  isProcessingPlace,
+  storagePlaceTypeGroupLabel,
+  storagePlaceTypeLabel,
+  storagePlaceTypeSortOrder,
+} from "@/lib/warehouse/warehouse-scope";
+import { createWarehouseTransfer } from "@/lib/services/warehouses";
+import { isWeighedFieldMaterial, isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
+import { dedupeProductsForSelect } from "@/lib/catalog/catalog-identity";
+import { automaticHarvestAllocation, validateHarvestWeights } from "@/lib/weighbridge/harvest-contract";
+import { harvestFieldsWithAllocations } from "@/lib/weighbridge/field-picker";
+import { harvestQueuePlotPatch } from "@/lib/weighbridge/harvest-queue-plot";
+import type { WeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
+import { SearchableCombobox, type SearchableComboboxOption } from "@/components/weighbridge/searchable-combobox";
+import { WeighbridgeTicketPaper, type WeighbridgeTicketPaperLabels } from "@/components/weighbridge/weighbridge-ticket-paper";
+import { weighbridgeHarvestDraftsStorageKey } from "@/lib/weighbridge/fast-repeat";
+import { formatWeightKg, formatWeightNumber } from "@/lib/weighbridge/weight-format";
+import { aggregateTicketCargoLines, shouldUseCanonicalJournalNet } from "@/lib/weighbridge/ticket-cargo-composition";
+import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
+import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
+import {
+  combineOperatorContextKey,
+  recentCombineOperatorIds,
+} from "@/lib/weighbridge/combine-operator";
+import { HarvestAllocationPicker } from "@/components/weighbridge/active-harvest-tabs";
+import { UniversalWorkspaceTabs, type UniversalWorkspaceTab } from "@/components/weighbridge/universal-workspace-tabs";
+import { TransportDriverSelects } from "@/components/weighbridge/transport-driver-picker";
+import { OpenTicketCard } from "@/components/weighbridge/open-ticket-card";
+import { subscribeVehicleDriverAssignments } from "@/lib/vehicles/driver-assignment-client";
+import { DriverVehicleReplacement } from "@/components/vehicles/driver-vehicle-replacement";
+import { ProcessingWorkspace } from "@/components/weighbridge/processing-workspace";
+import { isOpenProcessingWorkItem, processingMassSnapshot } from "@/lib/weighbridge/processing-work-state";
+import { DailyReconciliation } from "@/components/weighbridge/daily-reconciliation";
+import { TicketHistoryPanel } from "@/components/weighbridge/ticket-history-panel";
+import { ReadOnlyTrafficBoard } from "@/components/weighbridge/read-only-traffic-board";
+import { historyDateTime } from "@/lib/weighbridge/ticket-history-filters";
+import { CompactField, PrimaryActionBar } from "@/components/operations/operational-ui";
+import { performProcessingAction, type BatchTransformationRow } from "@/lib/services/processing";
+import {
+  normalizeWeighbridgeTransportPickerData,
+  type WeighbridgeTransportPickerData,
+} from "@/lib/weighbridge/transport-pairing";
+import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
+import { buildHarvestLotOptionLabel } from "@/lib/weighbridge/harvest-lot-option-label";
+import { ImpuritySourcePicker, type ImpuritySourcePickerOption } from "@/components/weighbridge/impurity-source-picker";
+import {
+  createTicketSubmissionFingerprint,
+  parsePersistedCreateTicketAttempt,
+  resolveCreateTicketAttempt,
+  serializePersistedCreateTicketAttempt,
+  type PersistedCreateTicketAttempt,
+} from "@/lib/weighbridge/create-ticket-idempotency";
+import {
+  UNIVERSAL_WORKSPACE_MAX_TABS,
+  UNIVERSAL_WORKSPACE_SCHEMA_VERSION,
+  createUniversalWorkspace,
+  getWeighbridgeDefaultDestinationId,
+  getWeighbridgeWorkstationId,
+  isUniversalWorkspaceDirty,
+  migrateLegacyHarvestWorkspaces,
+  parseUniversalWorkspaceState,
+  serializeUniversalWorkspaceState,
+  universalWorkspaceStorageKey,
+  type UniversalWeighbridgeWorkspace,
+  type UniversalWorkspaceOperationType,
+} from "@/lib/weighbridge/universal-workspaces";
+import { WEIGHBRIDGE_PIN_REQUIRED } from "@/lib/weighbridge/operator-access-mode";
+
+type Lang = "ru" | "kz" | "en";
+type OperationType = "harvest_incoming" | "supplier_receipt" | "issue_to_field" | "transfer_between_warehouses" | "shipment_outbound" | "disposal_writeoff" | "impurity_removal" | "drying";
+type MovementGroup = "warehouse_inbound" | "field_issue" | "internal_transfer" | "shipment" | "writeoff" | "impurities";
+type Option = { id: string; name: string };
+type FieldOption = Option & { area: number; fieldCode: string | null };
+type WarehouseOption = Option & { warehouseType: string; placeType: string };
+type SecondaryCatalogStatus = {
+  key: string;
+  status: "idle" | "loading" | "ready" | "error";
+  error: string;
+};
+
+type TicketClosePhase = "idle" | "closing" | "reconciling" | "retry";
+type TicketCloseState = {
+  ticketId: string | null;
+  ticketNo: string;
+  phase: TicketClosePhase;
+  message: string;
+};
+
+const EMPTY_TICKET_CLOSE_STATE: TicketCloseState = {
+  ticketId: null,
+  ticketNo: "",
+  phase: "idle",
+  message: "",
+};
+
+type HistoryAdminVoidTarget = Readonly<{
+  id: string;
+  ticketNumber: string;
+  vehicleDisplay: string;
+  netWeightKg: number | null;
+}>;
+
+const notifyWeighbridgeDataChanged = () => {
+  window.dispatchEvent(new Event("travkin:weighbridge-data-changed"));
+};
+
+type VehicleOption = Option & {
+  model: string;
+  plate: string;
+  type: string;
+  fleetType: string;
+  transportCategory: string;
+  source: "reference_vehicles" | "reference_machines";
+  primaryPersonnelId: string | null;
+  ptcAssigned?: boolean;
+  searchTerms: string[];
+};
+type DriverOption = Option & {
+  machineId: string | null;
+  roleType: WeighbridgePersonnelRole;
+  position: string;
+  department: string;
+  assignedVehicleIds: string[];
+};
+type CombineOperatorOption = Option & {
+  roleType: string;
+  position: string;
+  department: string;
+};
+type SupplierOption = Option & { source?: "counterparty" | "global_supplier"; globalSupplierId?: string };
+type SupplierReceiptLineDraft = {
+  localId: string;
+  productId: string;
+  quantityKg: string;
+  uom: string;
+  warehouseToId: string;
+  supplierLot: string;
+  unitPrice: string;
+  notes: string;
+};
+type LinkedOperationOption = {
+  id: string;
+  field_id: string | null;
+  category_slug: string | null;
+  type_slug: string | null;
+  status: string | null;
+  label: string;
+};
+type LinkedOperationLineOption = {
+  id: string;
+  operation_id: string;
+  variety_id: string | null;
+  reproduction_id: string | null;
+  label: string;
+};
+type LocalizedRef = {
+  id: string;
+  name?: string | null;
+  name_ru?: string | null;
+  name_kz?: string | null;
+  name_en?: string | null;
+};
+type ProductOption = Option & {
+  type?: string;
+  productType?: string;
+  unit?: string;
+  defaultUnit?: string;
+  baseUom?: string;
+  packUom?: string;
+  packageUnit?: string;
+  productForm?: string;
+  formulation?: string;
+  category?: string;
+  subcategory?: string;
+  stockUnit?: string;
+  physicalState?: string;
+  isSeedMaterial?: boolean;
+  cropId?: string | null;
+  varietyId?: string | null;
+  reproductionId?: string | null;
+};
+type StockIdentityOption = {
+  key: string;
+  source_kind?: "aggregate_harvest_lot" | "exact_stock_identity";
+  harvest_lot_id?: string | null;
+  crop_id?: string | null;
+  composition_snapshot?: Array<Record<string, unknown>>;
+  composition_hash?: string | null;
+  is_mixed_harvest?: boolean;
+  source_physical_state?: string | null;
+  trip_count?: number | null;
+  product_id: string;
+  product_name: string;
+  variety_id: string | null;
+  variety_name: string;
+  reproduction_id: string | null;
+  reproduction_name: string;
+  batch_id: string | null;
+  batch_class: string;
+  batch_class_label: string;
+  uom: string;
+  is_legacy_invalid?: boolean;
+  product_type?: string;
+  stock_unit?: string;
+  physical_state?: string;
+  is_seed_material?: boolean;
+  quantity: number;
+  label: string;
+};
+type SupplierReceiptMode = "weighbridge" | "direct";
+type SupplierItemMode = "generic" | "agro_identity";
+type TransferMode = "weighbridge" | "direct";
+type FieldIssueMode = "weighbridge" | "direct";
+type FieldMaterialCategory = "seed_planting_material" | "fertilizer" | "organic" | "other";
+type DisposalCategory = "utilization" | "spoilage" | "shortage" | "waste" | "other_removal";
+type ImpurityType = "soil_and_trash" | "nonconforming_crop" | "plant_residues" | "other";
+type ImpuritySourceFormSelection = {
+  batchId: string;
+  harvestLotId: string | null;
+  cropStructureId: string | null;
+};
+type ImpuritySourceOption = ImpuritySourcePickerOption & ImpuritySourceFormSelection & {
+  warehouseId: string;
+  productId: string;
+  cropId: string | null;
+  cleanMassKg: number;
+};
+type ProcessingOutputContext = {
+  transformationId: string;
+  warehouseId: string;
+  placeType: "DRYER" | "CLEANER";
+  harvestLotId: string;
+  productId: string;
+  cropId: string | null;
+  varietyId: string | null;
+  reproductionId: string | null;
+  compositionHash: string | null;
+  compositionSnapshot: Array<Record<string, unknown>>;
+  isMixedHarvest: boolean;
+  identityLabel: string;
+  transformationLabel: string;
+  unallocatedKg: number;
+  processingState: "in_processing" | "processing_pending_outputs" | "processing_closed";
+  lastMainOutputMarked: boolean;
+};
+type ShipmentPurpose = "sale" | "export" | "seed_release" | "return" | "processor" | "other";
+type HarvestStructureOption = {
+  allocationId: string;
+  areaHa: number;
+  cropId: string;
+  cropName: string;
+  varietyId: string;
+  varietyName: string;
+  reproductionId: string;
+  reproductionName: string;
+  cropSlug: string;
+  cropCategorySlug: string;
+  cropCategoryName: string;
+  cropSubcategory: string;
+  allocationCode: string;
+  plotOrdinal: number;
+  plotCount: number;
+  plotLabel: string;
+  notes: string;
+  isIncomplete: boolean;
+  debug?: {
+    cropId: string;
+    varietyId: string;
+    reproductionId: string;
+    hasVarietyRef: boolean;
+    hasReproductionRef: boolean;
+  };
+};
+
+type PtcQueueItem = {
+  ptcEventId: string;
+  ptcCycle: number;
+  loadedAt: string;
+  vehicleId: string;
+  vehicleLabel: string;
+  driverId: string | null;
+  driverName: string;
+  fieldId: string | null;
+  fieldName: string;
+  cropStructureId: string | null;
+  cropName: string;
+  varietyName: string;
+  reproductionName: string;
+};
+type HarvestContextState = {
+  status: "idle" | "loading" | "ready" | "missing" | "ambiguous" | "invalid" | "error";
+  message: string;
+  harvestedMassKg: number;
+  harvestedAreaHa: number;
+  yieldTPerHa: number | null;
+  yieldStatus: "not_available" | "preliminary" | "final";
+};
+type HarvestAggregate = {
+  netKg: number;
+  trips: number;
+  averageTripKg: number;
+  averageMoisture: number | null;
+  measuredMoistureTrips?: number;
+  firstTripAt?: string | null;
+  lastTripAt?: string | null;
+  ticketIds?: string[];
+};
+type HarvestSummaryState = {
+  seasonId: string | null;
+  today: HarvestAggregate;
+  byField: Record<string, { today: HarvestAggregate; cumulative: HarvestAggregate }>;
+  byDay: Record<string, HarvestAggregate>;
+  reconciliationRows: Array<{ day: string; fieldId: string | null; aggregate: HarvestAggregate }>;
+};
+
+const EMPTY_HARVEST_AGGREGATE: HarvestAggregate = {
+  netKg: 0,
+  trips: 0,
+  averageTripKg: 0,
+  averageMoisture: null,
+  firstTripAt: null,
+  lastTripAt: null,
+  ticketIds: [],
+};
+
+type FormState = {
+  operationType: OperationType;
+  fieldId: string;
+  warehouseFromId: string;
+  warehouseToId: string;
+  processingPointId: string;
+  cropId: string;
+  varietyId: string;
+  reproductionId: string;
+  cropStructureAllocationId: string;
+  supplierId: string;
+  buyerId: string;
+  supplierDocumentNo: string;
+  shipmentPurpose: ShipmentPurpose;
+  destinationText: string;
+  externalDocumentNo: string;
+  paperRecordedAt: string;
+  paperTareKg: string;
+  supplierReceiptMode: SupplierReceiptMode;
+  supplierItemMode: SupplierItemMode;
+  transferMode: TransferMode;
+  fieldIssueMode: FieldIssueMode;
+  fieldMaterialCategory: FieldMaterialCategory;
+  supplierLot: string;
+  harvestYear: string;
+  productId: string;
+  stockIdentityKey: string;
+  sourceBatchId: string;
+  impuritySourceSelections: ImpuritySourceFormSelection[];
+  impurityType: ImpurityType;
+  processingOutputRole: ProcessingOutputRole | "";
+  processingTransformationId: string;
+  linkedOperationId: string;
+  linkedOperationLineId: string;
+  quantityKg: string;
+  quantityUom: string;
+  unitPrice: string;
+  dryingOutputKg: string;
+  moistureIn: string;
+  moistureOut: string;
+  grossKg: string;
+  harvestMoisture: string;
+  vehicleId: string;
+  driverId: string;
+  ptcEventId: string;
+  ptcCycle: number | null;
+  combineOperatorPersonId: string;
+  disposalCategory: DisposalCategory;
+  disposalReason: string;
+  notes: string;
+};
+
+type WeighbridgeWorkspace = UniversalWeighbridgeWorkspace<FormState, SupplierReceiptLineDraft>;
+
+const INITIAL_FORM: FormState = {
+  operationType: "harvest_incoming",
+  fieldId: "",
+  warehouseFromId: "",
+  warehouseToId: "",
+  processingPointId: "",
+  cropId: "",
+  varietyId: "",
+  reproductionId: "",
+  cropStructureAllocationId: "",
+  supplierId: "",
+  buyerId: "",
+  supplierDocumentNo: "",
+  shipmentPurpose: "sale",
+  destinationText: "",
+  externalDocumentNo: "",
+  paperRecordedAt: "",
+  paperTareKg: "",
+  supplierReceiptMode: "weighbridge",
+  supplierItemMode: "generic",
+  transferMode: "weighbridge",
+  fieldIssueMode: "weighbridge",
+  fieldMaterialCategory: "seed_planting_material",
+  supplierLot: "",
+  harvestYear: "",
+  productId: "",
+  stockIdentityKey: "",
+  sourceBatchId: "",
+  impuritySourceSelections: [],
+  impurityType: "soil_and_trash",
+  processingOutputRole: "",
+  processingTransformationId: "",
+  linkedOperationId: "",
+  linkedOperationLineId: "",
+  quantityKg: "",
+  quantityUom: "",
+  unitPrice: "",
+  dryingOutputKg: "",
+  moistureIn: "",
+  moistureOut: "",
+  grossKg: "",
+  harvestMoisture: "",
+  vehicleId: "",
+  driverId: "",
+  ptcEventId: "",
+  ptcCycle: null,
+  combineOperatorPersonId: "",
+  disposalCategory: "utilization",
+  disposalReason: "",
+  notes: "",
+};
+
+const createEmptyWorkspace = (
+  operationType: UniversalWorkspaceOperationType = "harvest_incoming",
+  id?: string
+) => createUniversalWorkspace<FormState, SupplierReceiptLineDraft>(
+  INITIAL_FORM,
+  operationType,
+  id
+);
+
+const createSupplierReceiptLineDraft = (warehouseToId = ""): SupplierReceiptLineDraft => ({
+  localId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  productId: "",
+  quantityKg: "",
+  uom: "",
+  warehouseToId,
+  supplierLot: "",
+  unitPrice: "",
+  notes: "",
+});
+
+const LEGACY_MOVEMENT_GROUPS: Array<{ id: MovementGroup; title: string; hint: string }> = [
+  { id: "warehouse_inbound", title: "Приход на склад", hint: "Урожай или поставка" },
+  { id: "field_issue", title: "Выдача в поле", hint: "Материалы со склада" },
+  { id: "internal_transfer", title: "Внутреннее перемещение", hint: "Склад → склад" },
+  { id: "writeoff", title: "Списание / выбытие", hint: "Порча, утилизация, недостача" },
+];
+
+const LEGACY_GROUP_DEFAULT_OPERATION: Record<string, OperationType> = {
+  warehouse_inbound: "harvest_incoming",
+  field_issue: "issue_to_field",
+  internal_transfer: "transfer_between_warehouses",
+  writeoff: "disposal_writeoff",
+};
+
+const LEGACY_OPERATION_GROUP: Partial<Record<OperationType, MovementGroup>> = {
+  harvest_incoming: "warehouse_inbound",
+  supplier_receipt: "warehouse_inbound",
+  issue_to_field: "field_issue",
+  transfer_between_warehouses: "internal_transfer",
+  disposal_writeoff: "writeoff",
+};
+
+const LEGACY_GROUP_SUBTYPES: Record<string, Array<{ type: OperationType; title: string; hint: string }>> = {
+  warehouse_inbound: [
+    { type: "harvest_incoming", title: "Урожай с поля", hint: "Поле → склад" },
+    { type: "supplier_receipt", title: "Поставка от контрагента", hint: "Поставщик → склад" },
+  ],
+  field_issue: [{ type: "issue_to_field", title: "Склад → поле", hint: "Выдача материалов" }],
+  internal_transfer: [{ type: "transfer_between_warehouses", title: "Склад → склад", hint: "Перемещение остатка" }],
+  writeoff: [{ type: "disposal_writeoff", title: "Списание со склада", hint: "Утилизация, порча, недостача" }],
+};
+
+const legacyMovementGroupForOperation = (operationType: OperationType): MovementGroup =>
+  OPERATION_GROUP[operationType] || "warehouse_inbound";
+
+const legacyOpMeta = (type: OperationType) => {
+  if (type === "harvest_incoming") return { title: "Урожай с поля", ticketType: "harvest", opType: "harvest_incoming", direction: "incoming" as TicketDirection, sourceKind: "field", destinationKind: "warehouse" };
+  if (type === "supplier_receipt") return { title: "Поставка от контрагента", ticketType: "receipt", opType: "supplier_receipt", direction: "incoming" as TicketDirection, sourceKind: "supplier", destinationKind: "warehouse" };
+  if (type === "issue_to_field") return { title: "Выдача в поле", ticketType: "issue", opType: "issue_to_field", direction: "outgoing" as TicketDirection, sourceKind: "warehouse", destinationKind: "field" };
+  if (type === "transfer_between_warehouses") return { title: "Склад → склад", ticketType: "transfer", opType: "warehouse_transfer", direction: "transfer" as TicketDirection, sourceKind: "warehouse", destinationKind: "warehouse" };
+  if (type === "disposal_writeoff") return { title: "Списание / выбытие", ticketType: "disposal", opType: "disposal", direction: "outgoing" as TicketDirection, sourceKind: "warehouse", destinationKind: "disposal" };
+  return { title: "Сушка", ticketType: "processing", opType: "drying", direction: "processing" as TicketDirection, sourceKind: "warehouse", destinationKind: "processing_point" };
+};
+
+const legacyStatusLabel = (status: string) => {
+  if (status === "draft") return "Черновик";
+  if (status === "active") return "Активен";
+  if (status === "ready_to_close") return "Готов к закрытию";
+  if (status === "finalized") return "Закрыт";
+  if (status === "voided") return "Аннулирован";
+  return status;
+};
+
+const statusClass = (status: string) => (status === "finalized" ? "bg-emerald-100 text-emerald-800" : status === "voided" ? "bg-muted text-muted-foreground" : "bg-amber-100 text-amber-800");
+const lotLabel = (lotId?: string | null) => {
+  const value = String(lotId || "").trim();
+  if (!value) return "";
+  return /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value) ? `#${value.slice(0, 8)}` : value;
+};
+const harvestIdentityLabel = (...parts: Array<string | null | undefined>) =>
+  parts.map((part) => String(part || "").trim()).filter(Boolean).join(" / ");
+const legacyOperationUiLabel = (opType: string) => {
+  if (opType === "harvest_incoming") return "Урожай";
+  if (opType === "supplier_receipt") return "Поставка от контрагента";
+  if (opType === "issue_to_field") return "Выдача в поле";
+  if (opType === "warehouse_transfer") return "Склад → склад";
+  if (opType === "disposal") return "Списание";
+  if (opType === "drying") return "Сушка";
+  return opType || "Операция";
+};
+const legacyFieldIssueOperationLabels: Record<string, string> = {
+  seeding: "Семена",
+  top_dressing: "Удобрения",
+  herbicide: "СЗР",
+  fungicide: "Фунгицид",
+  insecticide: "Инсектицид",
+  desiccation: "Десикация",
+  irrigation: "Полив",
+  fuel: "ГСМ",
+  other: "Другое",
+};
+const legacyIsSeedIssueOperation = (value: string) => value === "seeding";
+const legacyMaterialMatchesOperation = (item: StockIdentityOption, operationType: string) => {
+  const hay = `${item.product_name} ${item.product_type || ""} ${item.batch_class_label}`.toLowerCase();
+  if (operationType === "seeding") {
+    return item.batch_class === "seed" || hay.includes("сем") || hay.includes("seed") || hay.includes("картофель");
+  }
+  if (operationType === "top_dressing") return hay.includes("fert") || hay.includes("удобр") || hay.includes("селит") || hay.includes("аммо") || hay.includes("npk");
+  if (operationType === "herbicide") return hay.includes("herb") || hay.includes("герб");
+  if (operationType === "fungicide") return hay.includes("fung") || hay.includes("фунг");
+  if (operationType === "insecticide") return hay.includes("insect") || hay.includes("инсект");
+  if (operationType === "desiccation") return hay.includes("desic") || hay.includes("десик");
+  if (operationType === "fuel") return hay.includes("fuel") || hay.includes("гсм") || hay.includes("диз") || hay.includes("топлив");
+  return true;
+};
+const legacyTicketStageLabel = (t: WeighbridgeTicket) => {
+  if (t.status === "ready_to_close") return "Закрыть";
+  if (t.status === "voided") return "Проверка";
+  if (t.status === "finalized") return "Закрыт";
+  if (t.gross_weight_kg == null) return "Ждёт брутто";
+  if (t.tare_weight_kg == null) return "Ждёт тару";
+  return "Брутто";
+};
+const OPERATION_GROUP: Partial<Record<OperationType, MovementGroup>> = {
+  harvest_incoming: "warehouse_inbound",
+  supplier_receipt: "warehouse_inbound",
+  issue_to_field: "field_issue",
+  transfer_between_warehouses: "internal_transfer",
+  shipment_outbound: "shipment",
+  disposal_writeoff: "writeoff",
+  impurity_removal: "impurities",
+};
+
+const WEIGHBRIDGE_MODES: Array<{
+  type: OperationType;
+  label: string;
+  description: string;
+  steps: [string, string, string];
+}> = [
+  { type: "harvest_incoming", label: "Урожай с поля", description: "Фактический рейс с поля на место приёмки", steps: ["Поле и культура", "Транспорт", "Брутто и тара"] },
+  { type: "supplier_receipt", label: "От контрагента", description: "Приёмка закупленного материала или продукции", steps: ["Поставщик", "Номенклатура", "Вес или количество"] },
+  { type: "issue_to_field", label: "Выдача в поле", description: "Материалы со склада на конкретную операцию", steps: ["Поле и операция", "Остаток", "Транспорт или выдача"] },
+  { type: "transfer_between_warehouses", label: "Перемещение", description: "Внутренний маршрут между объектами хранения", steps: ["Маршрут", "Партия", "Транспорт или количество"] },
+  { type: "shipment_outbound", label: "Отгрузка", description: "Выбытие продукции контрагенту", steps: ["Получатель", "Партия", "Транспорт и вес"] },
+  { type: "disposal_writeoff", label: "Списание", description: "Документированное выбытие со склада", steps: ["Источник", "Остаток", "Причина и количество"] },
+  { type: "impurity_removal", label: "Примеси", description: "Вывоз примесей из принятой партии урожая", steps: ["Склад", "Партия урожая", "Транспорт и вес"] },
+];
+
+function WorkflowSectionHeading(_props: { title: string; description?: string }) {
+  return null;
+}
+
+const movementGroupForOperation = (operationType: OperationType): MovementGroup =>
+  OPERATION_GROUP[operationType] || "warehouse_inbound";
+
+const opMeta = (type: OperationType) => {
+  if (type === "harvest_incoming") return { title: "Урожай с поля", ticketType: "harvest", opType: "harvest_incoming", direction: "incoming" as TicketDirection, sourceKind: "field", destinationKind: "warehouse" };
+  if (type === "supplier_receipt") return { title: "Поставка от контрагента", ticketType: "receipt", opType: "supplier_receipt", direction: "incoming" as TicketDirection, sourceKind: "supplier", destinationKind: "warehouse" };
+  if (type === "issue_to_field") return { title: "Выдача в поле", ticketType: "issue", opType: "issue_to_field", direction: "outgoing" as TicketDirection, sourceKind: "warehouse", destinationKind: "field" };
+  if (type === "transfer_between_warehouses") return { title: "Склад → склад", ticketType: "transfer", opType: "warehouse_transfer", direction: "transfer" as TicketDirection, sourceKind: "warehouse", destinationKind: "warehouse" };
+  if (type === "shipment_outbound") return { title: "Отгрузка", ticketType: "shipment", opType: "shipment_outbound", direction: "outgoing" as TicketDirection, sourceKind: "warehouse", destinationKind: "counterparty" };
+  if (type === "disposal_writeoff") return { title: "Списание / выбытие", ticketType: "disposal", opType: "disposal", direction: "outgoing" as TicketDirection, sourceKind: "warehouse", destinationKind: "disposal" };
+  if (type === "impurity_removal") return { title: "Вывоз примесей", ticketType: "impurity_removal", opType: "weighbridge_impurities", direction: "outgoing" as TicketDirection, sourceKind: "warehouse", destinationKind: "impurity_removal" };
+  return { title: "Сушка", ticketType: "processing", opType: "drying", direction: "processing" as TicketDirection, sourceKind: "warehouse", destinationKind: "processing_point" };
+};
+
+const statusLabel = (status: string) => {
+  if (status === "draft") return "Черновик";
+  if (status === "active") return "Активен";
+  if (status === "ready_to_close") return "Готов к закрытию";
+  if (status === "finalized") return "Закрыт";
+  if (status === "voided") return "Аннулирован";
+  return status;
+};
+
+const ticketCompanyLabel = (ticket: WeighbridgeTicket | null | undefined) =>
+  String(ticket?.company_name || "").trim() || "Компания";
+
+const operationUiLabel = (opType: string) => {
+  if (opType === "harvest_incoming") return "Урожай";
+  if (opType === "supplier_receipt") return "Поставка от контрагента";
+  if (opType === "issue_to_field") return "Выдача в поле";
+  if (opType === "warehouse_transfer") return "Склад → склад";
+  if (opType === "shipment_outbound") return "Отгрузка";
+  if (opType === "disposal") return "Списание";
+  if (opType === "weighbridge_impurities") return "Вывоз примесей";
+  if (opType === "drying") return "Сушка";
+  return opType || "Операция";
+};
+
+const disposalCategoryLabels: Record<DisposalCategory, string> = {
+  utilization: "Утилизация",
+  spoilage: "Порча",
+  shortage: "Недостача",
+  waste: "Отходы",
+  other_removal: "Прочий вывоз",
+};
+
+const impurityTypeLabels: Record<ImpurityType, string> = {
+  soil_and_trash: "Земля и мусор",
+  nonconforming_crop: "Некондиционный урожай",
+  plant_residues: "Растительные остатки",
+  other: "Прочее",
+};
+
+const sourceCountLabel = (count: number) => {
+  const normalized = Math.abs(Math.trunc(count));
+  const mod100 = normalized % 100;
+  const mod10 = normalized % 10;
+  const noun = mod100 >= 11 && mod100 <= 14
+    ? "источников"
+    : mod10 === 1
+      ? "источник"
+      : mod10 >= 2 && mod10 <= 4
+        ? "источника"
+        : "источников";
+  return `${normalized} ${noun}`;
+};
+
+const formatWeightTonnes = (valueKg: unknown) => {
+  const kilograms = Number(valueKg);
+  if (!Number.isFinite(kilograms)) return "—";
+  return `${formatWeightNumber(kilograms / 1000)} т`;
+};
+
+type ProcessingOutputRole = "GRAIN" | "SCREENINGS" | "FEED" | "WASTE" | "TRIER_WASTE" | "OTHER";
+
+const processingOutputRoleLabels: Record<ProcessingOutputRole, string> = {
+  GRAIN: "Основная продукция",
+  SCREENINGS: "Отсев",
+  FEED: "Фураж / кормовая фракция",
+  WASTE: "Веяльные отходы",
+  TRIER_WASTE: "Триерные отходы",
+  OTHER: "Лёгкая фракция / прочие складские отходы",
+};
+
+const shipmentPurposeLabels: Record<ShipmentPurpose, string> = {
+  sale: "Продажа",
+  export: "Экспорт",
+  seed_release: "Семенной отпуск",
+  return: "Возврат",
+  processor: "Переработчику",
+  other: "Прочее",
+};
+
+const isSeedIssueOperation = (value: string) => value === "seed_planting_material";
+const inferFieldMaterialCategory = (item: StockIdentityOption): FieldMaterialCategory => {
+  const hay = `${item.product_name} ${item.product_type || ""} ${item.batch_class_label}`.toLowerCase();
+  if (item.is_seed_material || item.batch_class === "seed" || hay.includes("сем") || hay.includes("seed") || hay.includes("посад")) {
+    return "seed_planting_material";
+  }
+  if (hay.includes("fert") || hay.includes("удобр") || hay.includes("селит") || hay.includes("аммо") || hay.includes("npk")) return "fertilizer";
+  if (hay.includes("навоз") || hay.includes("компост") || hay.includes("орган") || hay.includes("biomass") || hay.includes("биомас")) return "organic";
+  return "other";
+};
+const isFieldMaterialOption = (item: StockIdentityOption) => isWeighedFieldMaterial({
+    productType: item.product_type,
+    stockUnit: item.stock_unit || item.uom,
+    physicalState: item.physical_state,
+    isSeedMaterial: item.is_seed_material,
+  });
+
+const ticketStageLabel = (t: WeighbridgeTicket) => {
+  if (t.status === "ready_to_close") return "Закрыть";
+  if (t.status === "voided") return "Проверка";
+  if (t.status === "finalized") return "Закрыт";
+  if (t.gross_weight_kg == null) return "Ждёт брутто";
+  if (t.tare_weight_kg == null) return "Ждёт тару";
+  return "Брутто";
+};
+
+const toNum = (value: string) => {
+  const normalized = value.trim().replace(",", ".");
+  return normalized && Number.isFinite(Number(normalized)) ? Number(normalized) : null;
+};
+const net = (gross: string, tare: string) => {
+  const g = toNum(gross);
+  const t = toNum(tare);
+  if (g == null || t == null) return null;
+  return g - t;
+};
+const normalizeUnit = (value: string | null | undefined) => {
+  const unit = String(value || "").trim().toLowerCase().replace(/\.$/, "");
+  if (!unit) return "";
+  if (["kg", "кг", "kilogram", "kilograms", "килограмм", "килограмма", "килограммы", "килограммов"].includes(unit)) return "kg";
+  if (["g", "гр", "г", "gram", "grams", "грамм", "грамма", "граммы", "граммов"].includes(unit)) return "g";
+  if (["l", "л", "liter", "litre", "liters", "litres", "литр", "литра", "литры", "литров"].includes(unit)) return "l";
+  if (["m", "м", "meter", "metre", "meters", "metres", "метр", "метра", "метры", "метров"].includes(unit)) return "m";
+  if (["roll", "rolls", "бухта", "бухты"].includes(unit)) return "roll";
+  if (["pcs", "pc", "шт", "штука", "штук"].includes(unit)) return "pcs";
+  if (["pack", "package", "уп", "упак", "упаковка"].includes(unit)) return "pack";
+  return unit;
+};
+const unitLabel = (unit: string | null | undefined) => {
+  const normalized = normalizeUnit(unit);
+  if (normalized === "kg") return "кг";
+  if (normalized === "g") return "г";
+  if (normalized === "l") return "л";
+  if (normalized === "m") return "м";
+  if (normalized === "roll") return "бухта";
+  if (normalized === "pcs") return "шт";
+  if (normalized === "pack") return "уп.";
+  return normalized || "ед.";
+};
+const inferProductUnit = (product: ProductOption | null | undefined) => {
+  if (!product) return "";
+  const explicit = normalizeUnit(product.unit || product.defaultUnit || product.baseUom || product.packUom || product.packageUnit);
+  if (explicit) return explicit;
+  const hay = [
+    product.name,
+    product.type,
+    product.productType,
+    product.productForm,
+    product.formulation,
+    product.category,
+    product.subcategory,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (!hay.trim()) return "";
+  if (hay.includes("капель") || hay.includes("drip tape") || hay.includes("лента")) return "m";
+  if (hay.includes("liquid") || hay.includes("жид") || hay.includes("концентрат") || /\b(ec|кэ|вр|sc|sl|se|кс)\b/i.test(hay)) return "l";
+  if (hay.includes("granule") || hay.includes("гранул") || hay.includes("порош") || hay.includes("fertilizer") || hay.includes("удобр") || /\b(wg|вдг|вг)\b/i.test(hay)) return "kg";
+  if (hay.includes("seed") || hay.includes("семен") || hay.includes("семенной картофель")) return "kg";
+  return "";
+};
+const formatQuantityWithUnit = (quantity: unknown, unit?: string | null) => {
+  const formatted = formatWeightNumber(quantity, "-");
+  return formatted === "-" ? formatted : `${formatted} ${unitLabel(unit)}`;
+};
+const getLang = (language: string): Lang => (language === "kz" || language === "en" ? language : "ru");
+const normName = (value: string) => value.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, " ").trim();
+const isUuidLike = (value: string | null | undefined) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || ""));
+const fmt = (value: string | null | undefined, language: Lang) => {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "-";
+  const locale = language === "kz" ? "kk-KZ" : language === "en" ? "en-US" : "ru-RU";
+  return new Intl.DateTimeFormat(locale, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(d);
+};
+const formatDate = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
+};
+
+const weighbridgePageCache = new Map<string, Record<string, unknown>>();
+const activeHarvestRouteCache = new Map<string, ActiveHarvestRouteList>();
+const transportPickerDataCache = new Map<string, WeighbridgeTransportPickerData>();
+const transportPickerRequestCache = new Map<string, Promise<WeighbridgeTransportPickerData>>();
+const harvestContextCache = new Map<string, HarvestContextState>();
+type AbortableRequest<T> = { controller: AbortController; promise: Promise<T> };
+type SharedAbortableRequest<T> = AbortableRequest<T> & { subscribers: number };
+const harvestContextRequestCache = new Map<string, SharedAbortableRequest<HarvestContextState>>();
+const WEIGHBRIDGE_WORKSPACE_CACHE_VERSION = 4;
+const WEIGHBRIDGE_WORKSPACE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const MODE_RESOURCE_STABILITY_DELAY_MS = 75;
+const HARVEST_BATCH_REQUEST_TIMEOUT_MS = 12_000;
+
+const workspaceCacheKey = (companyId: string, profileId: string, language: string) =>
+  `travkin.weighbridge.workspace.v${WEIGHBRIDGE_WORKSPACE_CACHE_VERSION}.${companyId}.${profileId}.${language}`;
+
+const legacySessionCacheKey = (companyId: string, language: string) =>
+  `travkin.weighbridge.workspace.v1.${companyId}.${language}`;
+
+function readWeighbridgeWorkspaceCache(companyId: string, profileId: string, language: string) {
+  if (typeof window === "undefined") return null;
+  try {
+    const key = workspaceCacheKey(companyId, profileId, language);
+    const localRaw = window.localStorage.getItem(key);
+    const legacyKey = legacySessionCacheKey(companyId, language);
+    const raw = localRaw || window.sessionStorage.getItem(legacyKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { savedAt?: number; payload?: Record<string, unknown> };
+    if (!parsed.savedAt || Date.now() - parsed.savedAt > WEIGHBRIDGE_WORKSPACE_CACHE_TTL_MS || !parsed.payload) {
+      window.localStorage.removeItem(key);
+      window.sessionStorage.removeItem(legacyKey);
+      return null;
+    }
+    if (!localRaw) {
+      window.localStorage.setItem(key, raw);
+      window.sessionStorage.removeItem(legacyKey);
+    }
+    return parsed.payload;
+  } catch {
+    return null;
+  }
+}
+
+function writeWeighbridgeWorkspaceCache(
+  companyId: string,
+  profileId: string,
+  language: string,
+  payload: Record<string, unknown>
+) {
+  if (typeof window === "undefined") return;
+  const write = () => {
+    try {
+      window.localStorage.setItem(
+        workspaceCacheKey(companyId, profileId, language),
+        JSON.stringify({ savedAt: Date.now(), payload })
+      );
+    } catch {
+      // Browser storage is an acceleration layer only; canonical data is reconciled in the background.
+    }
+  };
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(write, { timeout: 1000 });
+  } else {
+    setTimeout(write, 0);
+  }
+}
+
+const harvestContextCacheKey = (
+  companyId: string,
+  fieldId: string,
+  allocationId: string,
+  revision: string
+) => `${companyId}:${fieldId}:${allocationId}:${revision}`;
+
+const abortRequestError = () => new DOMException("Request aborted", "AbortError");
+
+function followHarvestContextRequest<T>(entry: SharedAbortableRequest<T>, signal?: AbortSignal): Promise<T> {
+  entry.subscribers += 1;
+  return new Promise<T>((resolve, reject) => {
+    let released = false;
+    const release = () => {
+      if (released) return false;
+      released = true;
+      entry.subscribers = Math.max(0, entry.subscribers - 1);
+      signal?.removeEventListener("abort", abort);
+      return true;
+    };
+    const abort = () => {
+      if (!release()) return;
+      if (entry.subscribers === 0) entry.controller.abort();
+      reject(abortRequestError());
+    };
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    signal?.addEventListener("abort", abort, { once: true });
+    entry.promise.then(
+      (value) => {
+        if (release()) resolve(value);
+      },
+      (error) => {
+        if (release()) reject(error);
+      },
+    );
+  });
+}
+
+const loadHarvestContextCached = async (params: {
+  companyId: string;
+  fieldId: string;
+  allocationId: string;
+  revision: string;
+  signal?: AbortSignal;
+}): Promise<HarvestContextState> => {
+  const key = harvestContextCacheKey(
+    params.companyId,
+    params.fieldId,
+    params.allocationId,
+    params.revision
+  );
+  if (params.signal?.aborted) throw abortRequestError();
+  const cached = harvestContextCache.get(key);
+  if (cached) return cached;
+  const pending = harvestContextRequestCache.get(key);
+  if (pending && !pending.controller.signal.aborted) {
+    return followHarvestContextRequest(pending, params.signal);
+  }
+  if (pending) harvestContextRequestCache.delete(key);
+
+  const controller = new AbortController();
+  let entry: SharedAbortableRequest<HarvestContextState>;
+  const request = (async () => {
+    const headers = await buildClientAuthHeaders("none");
+    if (controller.signal.aborted) throw abortRequestError();
+    const query = new URLSearchParams({
+      fieldId: params.fieldId,
+      allocationId: params.allocationId,
+    });
+    const response = await fetch(`/api/weighbridge/harvest-context?${query.toString()}`, {
+      headers,
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (controller.signal.aborted) throw abortRequestError();
+    if (!response.ok) throw new Error(String(payload?.error || "Не удалось определить уборку"));
+    const context: HarvestContextState = {
+      status: payload.status,
+      message: String(payload.message || ""),
+      harvestedMassKg: Number(payload.harvestedMassKg || 0),
+      harvestedAreaHa: Number(payload.harvestedAreaHa || 0),
+      yieldTPerHa: payload.yieldTPerHa == null ? null : Number(payload.yieldTPerHa),
+      yieldStatus: payload.yieldStatus || "not_available",
+    };
+    if (!controller.signal.aborted) harvestContextCache.set(key, context);
+    return context;
+  })().finally(() => {
+    if (harvestContextRequestCache.get(key) === entry) harvestContextRequestCache.delete(key);
+  });
+  entry = { controller, promise: request, subscribers: 0 };
+  harvestContextRequestCache.set(key, entry);
+  return followHarvestContextRequest(entry, params.signal);
+};
+
+const emptyTransportPickerData = (): WeighbridgeTransportPickerData => ({
+  seasonId: null,
+  operationalDayStartHour: 7,
+  recentPairs: [],
+  latestDriverByVehicle: {},
+  latestVehicleByDriver: {},
+  openAssignments: [],
+  fetchedAt: "",
+});
+
+const loadTransportPickerDataCached = async (
+  companyId: string,
+  force = false,
+  signal?: AbortSignal
+): Promise<WeighbridgeTransportPickerData> => {
+  const pending = transportPickerRequestCache.get(companyId);
+  // A request tied to an aborted page lifecycle must not block a fresh mount.
+  if (pending && !signal) return pending;
+  if (!force) {
+    const cached = transportPickerDataCache.get(companyId);
+    if (cached) return cached;
+  }
+  const request = getWeighbridgeTransportPickerData(companyId, { signal })
+    .then((payload) => {
+      transportPickerDataCache.set(companyId, payload);
+      return payload;
+    })
+    .finally(() => {
+      if (transportPickerRequestCache.get(companyId) === request) {
+        transportPickerRequestCache.delete(companyId);
+      }
+    });
+  transportPickerRequestCache.set(companyId, request);
+  return request;
+};
+
+export default function WeighbridgeOperationsPage() {
+  const { profile, loading: authLoading } = useAuth();
+  const { toast } = useToast();
+  const { language } = useLanguage();
+  const lang = getLang(language);
+
+  const [loading, setLoading] = useState(true);
+  const [coreDataReady, setCoreDataReady] = useState(false);
+  const [ticketsLoading, setTicketsLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const createTicketIdempotencyRef = useRef<PersistedCreateTicketAttempt | null>(null);
+  const finalizeTicketIdempotencyRef = useRef<{ ticketId: string; key: string } | null>(null);
+  const finalizingRef = useRef(false);
+  const [finalizing, setFinalizing] = useState(false);
+  const [ticketCloseState, setTicketCloseState] = useState<TicketCloseState>(EMPTY_TICKET_CLOSE_STATE);
+  const ticketCloseStateRef = useRef<TicketCloseState>(EMPTY_TICKET_CLOSE_STATE);
+  const commitTicketCloseState = (next: TicketCloseState) => {
+    ticketCloseStateRef.current = next;
+    setTicketCloseState(next);
+  };
+  const [voiding, setVoiding] = useState(false);
+  const [form, setForm] = useState<FormState>(INITIAL_FORM);
+  const [processingItems, setProcessingItems] = useState<BatchTransformationRow[]>([]);
+  const [supplierReceiptLines, setSupplierReceiptLines] = useState<SupplierReceiptLineDraft[]>([]);
+  const [showSupplierExtraFields, setShowSupplierExtraFields] = useState(false);
+  const [tickets, setTickets] = useState<WeighbridgeTicket[]>([]);
+	  const [harvestBatches, setHarvestBatches] = useState<HarvestBatchSummary[]>([]);
+	  const [harvestBatchOptionsStatus, setHarvestBatchOptionsStatus] = useState<"idle" | "loading" | "refreshing" | "ready" | "stale" | "error">("idle");
+	  const [harvestBatchOptionsError, setHarvestBatchOptionsError] = useState("");
+	  const [harvestBatchDetailLoading, setHarvestBatchDetailLoading] = useState(false);
+	  const [harvestBatchDetailError, setHarvestBatchDetailError] = useState("");
+	  const [harvestBatchDetailRetry, setHarvestBatchDetailRetry] = useState(0);
+  const [fields, setFields] = useState<FieldOption[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
+  const [buyers, setBuyers] = useState<Option[]>([]);
+  const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
+  const [trailers, setTrailers] = useState<VehicleOption[]>([]);
+  const [processingPoints, setProcessingPoints] = useState<Option[]>([]);
+  const [products, setProducts] = useState<ProductOption[]>([]);
+  const [stockIdentityOptions, setStockIdentityOptions] = useState<StockIdentityOption[]>([]);
+  const [linkedOperations, setLinkedOperations] = useState<LinkedOperationOption[]>([]);
+  const [linkedOperationLines, setLinkedOperationLines] = useState<LinkedOperationLineOption[]>([]);
+  const [linkedOperationLinesLoading, setLinkedOperationLinesLoading] = useState(false);
+  const [stockIdentityLoading, setStockIdentityLoading] = useState(false);
+  const [crops, setCrops] = useState<Option[]>([]);
+  const [varieties, setVarieties] = useState<{ id: string; name: string; cropId: string; cropName: string }[]>([]);
+  const [reproductions, setReproductions] = useState<Option[]>([]);
+  const [drivers, setDrivers] = useState<DriverOption[]>([]);
+  const [driverNames, setDriverNames] = useState<Record<string, string>>({});
+  const [combineOperators, setCombineOperators] = useState<CombineOperatorOption[]>([]);
+  const [coreResourceErrors, setCoreResourceErrors] = useState<Array<{ code: string; message: string }>>([]);
+  const [transportPickerData, setTransportPickerData] = useState<WeighbridgeTransportPickerData>(emptyTransportPickerData);
+  const vehicleAssignmentRevisionRef = useRef(0);
+  const resourceCompanyRef = useRef(profile?.company_id);
+  resourceCompanyRef.current = profile?.company_id;
+  const [harvestStructureByField, setHarvestStructureByField] = useState<Record<string, HarvestStructureOption[]>>({});
+  const [ptcQueue, setPtcQueue] = useState<PtcQueueItem[]>([]);
+  const ptcQueueGenerationRef = useRef(0);
+  const [harvestIncompleteFields, setHarvestIncompleteFields] = useState<Record<string, boolean>>({});
+  const [harvestAllocationsReady, setHarvestAllocationsReady] = useState(false);
+  const [activeHarvests, setActiveHarvests] = useState<ActiveHarvestRoute[]>([]);
+  const [completedHarvests, setCompletedHarvests] = useState<ActiveHarvestRoute[]>([]);
+  const [activeHarvestSeasonId, setActiveHarvestSeasonId] = useState<string | null>(null);
+  const [activeHarvestSeasonYear, setActiveHarvestSeasonYear] = useState<number | null>(null);
+  const [selectedActiveHarvestId, setSelectedActiveHarvestId] = useState("");
+  const [activeHarvestBusy, setActiveHarvestBusy] = useState(false);
+  const [workspaces, setWorkspaces] = useState<WeighbridgeWorkspace[]>([
+    createEmptyWorkspace("harvest_incoming", "workspace-default"),
+  ]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("workspace-default");
+  const selectedWorkspaceIdRef = useRef("workspace-default");
+  const [workspaceHydratedKey, setWorkspaceHydratedKey] = useState("");
+  const [workstationId, setWorkstationId] = useState("");
+  // Lock belongs to the selected workspace, never to the whole terminal.
+  const harvestDestinationLockRef = useRef("");
+  const [lockedHarvestDestinationId, setLockedHarvestDestinationId] = useState("");
+  const [pendingOpenTicket, setPendingOpenTicket] = useState<WeighbridgeTicket | null>(null);
+  const [activeTicket, setActiveTicket] = useState<WeighbridgeTicket | null>(null);
+  const [closingTare, setClosingTare] = useState("");
+  const [closingMoisture, setClosingMoisture] = useState("");
+  const [closingLastMainOutput, setClosingLastMainOutput] = useState(false);
+
+  useEffect(() => {
+    setClosingLastMainOutput(false);
+  }, [activeTicket?.id]);
+  const [suggestedFieldId, setSuggestedFieldId] = useState<string | null>(null);
+  const [voidReason, setVoidReason] = useState("");
+  const [voidReasonOpen, setVoidReasonOpen] = useState(false);
+  const [shiftHandoverNote, setShiftHandoverNote] = useState("");
+  const [activeShift, setActiveShift] = useState<any | null>(null);
+  const [shiftCounters, setShiftCounters] = useState<{ activeTickets: number; stuckTickets: number; unsynced: number; requiresReview: number; manualCorrections: number }>({
+    activeTickets: 0,
+    stuckTickets: 0,
+    unsynced: 0,
+    requiresReview: 0,
+    manualCorrections: 0,
+  });
+  const [shiftGuard, setShiftGuard] = useState<{ stale: boolean; ageHours: number }>({ stale: false, ageHours: 0 });
+  const [shiftSummary, setShiftSummary] = useState<{ trips: number; netKg: number; open: number; voided: number; manualCorrections: number }>({
+    trips: 0,
+    netKg: 0,
+    open: 0,
+    voided: 0,
+    manualCorrections: 0,
+  });
+  const [harvestSummary, setHarvestSummary] = useState<HarvestSummaryState>({
+    seasonId: null,
+    today: EMPTY_HARVEST_AGGREGATE,
+    byField: {},
+    byDay: {},
+    reconciliationRows: [],
+  });
+  const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
+  const [shiftClosing, setShiftClosing] = useState(false);
+  const [operatorState, setOperatorState] = useState<WeighbridgeOperatorState>({ shift: null, unlocked: false, operators: [] });
+  const [operatorSessionStatus, setOperatorSessionStatus] = useState<"unknown" | "checking" | "ready" | "error">("checking");
+  const [operatorDialogOpen, setOperatorDialogOpen] = useState(false);
+  const [operatorDialogRequested, setOperatorDialogRequested] = useState(false);
+  const [operatorPersonId, setOperatorPersonId] = useState("");
+  const [operatorPin, setOperatorPin] = useState("");
+  const [operatorError, setOperatorError] = useState("");
+  const [operatorBusy, setOperatorBusy] = useState(false);
+  const [harvestContext, setHarvestContext] = useState<HarvestContextState>({
+    status: "idle",
+    message: "Выберите поле.",
+    harvestedMassKg: 0,
+    harvestedAreaHa: 0,
+    yieldTPerHa: null,
+    yieldStatus: "not_available",
+  });
+  const [commentOpen, setCommentOpen] = useState(false);
+  const [historyPreviewTicket, setHistoryPreviewTicket] = useState<WeighbridgeTicket | null>(null);
+  const [openTicketEditOpen, setOpenTicketEditOpen] = useState(false);
+  const [editGrossKg, setEditGrossKg] = useState("");
+  const [editTareKg, setEditTareKg] = useState("");
+  const [editReason, setEditReason] = useState("");
+  const [ticketCorrectionOpen, setTicketCorrectionOpen] = useState(false);
+  const [ticketCorrectionReason, setTicketCorrectionReason] = useState("");
+  const [ticketCorrectionBusy, setTicketCorrectionBusy] = useState(false);
+  const sharedWeightRequestRef = useRef<{ fingerprint: string; key: string } | null>(null);
+  const sharedWeightBusyRef = useRef(false);
+  const isSharedHistoryCorrection = historyPreviewTicket?.impurity_source_scope?.allocation_mode === "unresolved_total";
+  const [historyAdminVoidTarget, setHistoryAdminVoidTarget] = useState<HistoryAdminVoidTarget | null>(null);
+  const [historyAdminVoidReason, setHistoryAdminVoidReason] = useState("");
+  const [historyAdminVoiding, setHistoryAdminVoiding] = useState(false);
+  const notificationDeepLinkHandledRef = useRef(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmTitle, setConfirmTitle] = useState("Подтвердите действие");
+  const [confirmDescription, setConfirmDescription] = useState("");
+  const [confirmActionLabel, setConfirmActionLabel] = useState("Подтвердить");
+  const confirmResolverRef = useRef<null | ((value: boolean) => void)>(null);
+  const historyRef = useRef<HTMLDivElement | null>(null);
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const grossInputRef = useRef<HTMLInputElement | null>(null);
+  const tareInputRef = useRef<HTMLInputElement | null>(null);
+  const coreLoadRequestRef = useRef<Promise<void> | null>(null);
+  const harvestAllocationsRequestRef = useRef<Promise<void> | null>(null);
+  const harvestAllocationsAbortRef = useRef<AbortController | null>(null);
+  const harvestAllocationsGenerationRef = useRef(0);
+  const ticketsRequestRef = useRef<Promise<void> | null>(null);
+	  const harvestBatchesRequestRef = useRef<Promise<void> | null>(null);
+	  const harvestBatchesAbortRef = useRef<AbortController | null>(null);
+	  const harvestBatchesRequestKeyRef = useRef("");
+	  const harvestBatchesTrailingRefreshRef = useRef<{ requestKey: string; warehouseId: string } | null>(null);
+	  const harvestBatchesReadyRef = useRef("");
+	  const harvestBatchesGenerationRef = useRef(0);
+	  const harvestBatchesCacheRef = useRef(new Map<string, HarvestBatchSummary[]>());
+  const bootstrapRequestRef = useRef<Promise<void> | null>(null);
+  const bootstrapSummaryRequestRef = useRef<Promise<void> | null>(null);
+  const operatorRequestRef = useRef<Promise<WeighbridgeOperatorState | undefined> | null>(null);
+  const operatorRequestGenerationRef = useRef(0);
+  const operatorRequestAbortRef = useRef<AbortController | null>(null);
+  const operatorMutationGenerationRef = useRef(0);
+  const operatorMutationInFlightRef = useRef(false);
+  const operatorCanonicalStateRef = useRef<WeighbridgeOperatorState>({ shift: null, unlocked: false, operators: [] });
+  const operatorUnlockConfirmedAtRef = useRef(0);
+  const operatorContextKeyRef = useRef("");
+  const initialWorkspaceHydratedRef = useRef(false);
+  const secondaryCatalogRequestsRef = useRef(new Map<string, AbortableRequest<void>>());
+  const secondaryCatalogReadyRef = useRef(new Set<string>());
+  const stockIdentityCacheRef = useRef(new Map<string, StockIdentityOption[]>());
+  const stockIdentityRequestsRef = useRef(new Map<string, AbortableRequest<StockIdentityOption[]>>());
+  const stockIdentityGenerationRef = useRef(0);
+  const operationLinesCacheRef = useRef(new Map<string, LinkedOperationLineOption[]>());
+  const operationLinesRequestsRef = useRef(new Map<string, AbortableRequest<LinkedOperationLineOption[]>>());
+  const operationLinesGenerationRef = useRef(0);
+  const harvestContextGenerationRef = useRef(0);
+  const [statisticsOpen, setStatisticsOpen] = useState(false);
+  const [secondaryCatalogStatus, setSecondaryCatalogStatus] = useState<SecondaryCatalogStatus>({
+    key: "",
+    status: "idle",
+    error: "",
+  });
+
+  const canOperate =
+    profile?.role === "company_admin" ||
+    profile?.role === "global_admin" ||
+    profile?.role === "director" ||
+    profile?.role === "warehouse" ||
+    profile?.role === "warehouse_operator" ||
+    profile?.role === "weighman";
+  const canView = canOperate || profile?.role === "agronomist" || profile?.role === "specialist";
+  const canVoid = profile?.role === "company_admin" || profile?.role === "global_admin" || profile?.role === "director";
+  const canCorrectTicket = profile?.role === "company_admin" || profile?.role === "global_admin" || profile?.role === "director" || profile?.role === "weighman";
+  const canAdminVoidHistoryTicket = profile?.role === "global_admin";
+  const canUseOperatorSession = ["company_admin", "global_admin", "director", "weighman"].includes(String(profile?.role || ""));
+  const eligibleOperators = useMemo(
+    () => operatorState.operators.filter((operator) => operator.has_pin !== false && operator.pin_active !== false),
+    [operatorState.operators]
+  );
+  const unconfiguredOperatorCount = Number(operatorState.unconfigured_operator_count || 0);
+  const operatorGateBlocked = canUseOperatorSession && !operatorState.unlocked;
+  const operatorGateChecking = operatorGateBlocked && (operatorSessionStatus === "unknown" || operatorSessionStatus === "checking");
+  const canManageActiveHarvests =
+    profile?.role === "global_admin" ||
+    profile?.role === "company_admin" ||
+    (profile?.role === "weighman" && Boolean(activeShift?.id) && operatorState.unlocked);
+  const idempotencyPersistKey = useMemo(
+    () => (profile?.company_id && selectedWorkspaceId
+      ? `travkin.weighbridge.workspaceIdempotency.v1.${profile.company_id}.${selectedWorkspaceId}`
+      : ""),
+    [profile?.company_id, selectedWorkspaceId]
+  );
+  const legacyHarvestDraftPersistKey = useMemo(
+    () => weighbridgeHarvestDraftsStorageKey(profile?.company_id, activeShift?.id),
+    [profile?.company_id, activeShift?.id]
+  );
+  const universalWorkspacePersistKey = useMemo(
+    () => universalWorkspaceStorageKey(
+      profile?.company_id,
+      activeHarvestSeasonId || activeHarvestSeasonYear,
+      workstationId
+    ),
+    [profile?.company_id, activeHarvestSeasonId, activeHarvestSeasonYear, workstationId]
+  );
+  const hydratedWorkspaceKeyRef = useRef("");
+  const [harvestBatchDetailRequestedKey, setHarvestBatchDetailRequestedKey] = useState("");
+  const workspaceReady = Boolean(
+    universalWorkspacePersistKey && workspaceHydratedKey === universalWorkspacePersistKey
+  );
+
+  const loadSuppliers = async (companyId: string, signal?: AbortSignal) => {
+    const headers = await getSessionAuthHeaders();
+    const resp = await fetch(`/api/weighbridge/suppliers?companyId=${encodeURIComponent(companyId)}`, {
+      cache: "no-store",
+      headers,
+      signal,
+    });
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(String(json?.error || "Не удалось загрузить поставщиков"));
+    return (json?.suppliers || []) as SupplierOption[];
+
+  };
+
+  const loadBuyers = async (companyId: string, signal?: AbortSignal) => {
+    const headers = await getSessionAuthHeaders();
+    const response = await fetch(`/api/counterparties?companyId=${encodeURIComponent(companyId)}&type=buyer`, {
+      cache: "no-store",
+      headers,
+      signal,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(String(payload?.error || "Не удалось загрузить покупателей"));
+    return ((payload?.counterparties || []) as any[]).map((row) => ({ id: String(row.id), name: String(row.legal_name || row.name || "Покупатель") }));
+  };
+
+  const getSessionAuthHeaders = async () => {
+    return buildClientAuthHeaders("none");
+  };
+
+  const resolveSupplierCounterparty = async (supplierId: string) => {
+    if (!supplierId || !profile?.company_id) return supplierId;
+    if (!supplierId.startsWith("global_supplier:")) return supplierId;
+
+    const headers = await buildClientAuthHeaders("json");
+    const resp = await fetch("/api/weighbridge/suppliers", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ companyId: profile.company_id, supplierId }),
+    });
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(String(json?.error || "Не удалось подготовить поставщика"));
+
+    const localSupplier = json?.supplier as SupplierOption | undefined;
+    if (localSupplier?.id) {
+      setSuppliers((prev) => {
+        const next = prev.filter((item) => item.id !== supplierId && item.id !== localSupplier.id);
+        next.push(localSupplier);
+        return next.sort((a, b) => a.name.localeCompare(b.name, "ru"));
+      });
+    }
+
+    return String(json?.supplierId || supplierId);
+  };
+
+  const loadMasterIdentityRefs = async (companyId: string, signal?: AbortSignal) => {
+    const headers = await getSessionAuthHeaders();
+    const resp = await fetch(
+      `/api/weighbridge/master-identity?companyId=${encodeURIComponent(companyId)}`,
+      { cache: "no-store", headers, signal }
+    );
+    const json = await resp.json();
+    if (!resp.ok) throw new Error(String(json?.error || "Не удалось загрузить культуры, сорта и репродукции"));
+    return {
+      crops: (json?.crops || []) as any[],
+      varieties: (json?.varieties || []) as any[],
+      reproductions: (json?.reproductions || []) as any[],
+    };
+  };
+
+  const loadHarvestAllocations = async (companyId: string, signal?: AbortSignal) => {
+    const headers = await getSessionAuthHeaders();
+    const response = await fetch(
+      `/api/weighbridge/harvest-allocations?companyId=${encodeURIComponent(companyId)}`,
+      { cache: "no-store", headers, signal }
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(String(payload?.error || "Не удалось загрузить структуру урожая"));
+    return payload;
+  };
+
+  const loadPtcQueue = async (companyId: string, signal?: AbortSignal) => {
+    const headers = await getSessionAuthHeaders();
+    const response = await fetch(
+      `/api/weighbridge/ptc-queue?companyId=${encodeURIComponent(companyId)}`,
+      { cache: "no-store", headers, signal }
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(String(payload?.error || "Не удалось загрузить очередь машин с поля"));
+    return (Array.isArray(payload?.queue) ? payload.queue : []) as PtcQueueItem[];
+  };
+
+  const refreshPtcQueue = async (signal?: AbortSignal) => {
+    if (!profile?.company_id) return [] as PtcQueueItem[];
+    const companyId = profile.company_id;
+    const generation = ++ptcQueueGenerationRef.current;
+    const queue = await loadPtcQueue(companyId, signal);
+    if (generation === ptcQueueGenerationRef.current && resourceCompanyRef.current === companyId) {
+      setPtcQueue(queue);
+    }
+    return queue;
+  };
+
+  const applyHarvestAllocations = (payload: any) => {
+    setActiveHarvestSeasonId(payload?.seasonId ? String(payload.seasonId) : null);
+    setActiveHarvestSeasonYear(payload?.seasonYear ? Number(payload.seasonYear) : null);
+    setHarvestStructureByField((payload?.byField || {}) as Record<string, HarvestStructureOption[]>);
+    setHarvestIncompleteFields((payload?.incompleteByField || {}) as Record<string, boolean>);
+    setHarvestAllocationsReady(true);
+  };
+
+  const refreshHarvestAllocations = async (parentSignal?: AbortSignal) => {
+    if (!profile?.company_id) return;
+    if (harvestAllocationsRequestRef.current) return harvestAllocationsRequestRef.current;
+
+    const companyId = profile.company_id;
+    const controller = new AbortController();
+    const generation = ++harvestAllocationsGenerationRef.current;
+    const abortFromParent = () => controller.abort();
+    parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+    harvestAllocationsAbortRef.current = controller;
+
+    const request = (async () => {
+      const payload = await loadHarvestAllocations(companyId, controller.signal);
+      if (controller.signal.aborted || generation !== harvestAllocationsGenerationRef.current) return;
+      applyHarvestAllocations(payload);
+    })().finally(() => {
+      parentSignal?.removeEventListener("abort", abortFromParent);
+      if (harvestAllocationsRequestRef.current === request) harvestAllocationsRequestRef.current = null;
+      if (harvestAllocationsAbortRef.current === controller) harvestAllocationsAbortRef.current = null;
+    });
+    harvestAllocationsRequestRef.current = request;
+    return request;
+  };
+
+  const applyActiveHarvestRouteList = (payload: ActiveHarvestRouteList) => {
+    setActiveHarvestSeasonId(payload.seasonId);
+    setActiveHarvestSeasonYear(payload.seasonYear);
+    setActiveHarvests(payload.active || []);
+    setCompletedHarvests(payload.completed || []);
+    if (profile?.company_id) activeHarvestRouteCache.set(profile.company_id, payload);
+  };
+
+  const refreshActiveHarvestRoutes = async () => {
+    if (!profile?.company_id) return;
+    const payload = await listActiveHarvestRoutes(profile.company_id);
+    applyActiveHarvestRouteList(payload);
+  };
+
+  const applyTransportPickerData = (payload: WeighbridgeTransportPickerData) => {
+    const normalized = normalizeWeighbridgeTransportPickerData(payload);
+    setTransportPickerData(normalized);
+    if (profile?.company_id) transportPickerDataCache.set(profile.company_id, normalized);
+  };
+
+  const refreshTransportPickerData = async () => {
+    if (!profile?.company_id) return;
+    applyTransportPickerData(await loadTransportPickerDataCached(profile.company_id, true));
+  };
+
+  const loadSecondaryCatalogs = async (
+    operationType: OperationType,
+    fieldId: string,
+    supplierItemMode: SupplierItemMode,
+    cacheKey: string,
+  ) => {
+    if (!profile?.company_id || !cacheKey || secondaryCatalogReadyRef.current.has(cacheKey)) return;
+    const existing = secondaryCatalogRequestsRef.current.get(cacheKey);
+    if (existing) return existing.promise;
+
+    const companyId = profile.company_id;
+    const controller = new AbortController();
+    const signal = controller.signal;
+    setSecondaryCatalogStatus({ key: cacheKey, status: "loading", error: "" });
+    let entry: AbortableRequest<void>;
+    const request = (async () => {
+      if (operationType === "supplier_receipt") {
+        const needsIdentity = supplierItemMode === "agro_identity";
+        const [productsRes, supplierRows, identityRefs] = await Promise.all([
+          supabase
+            .from("products")
+            .select("id,name,trade_name,normalized_name,company_id,type,product_type,unit,default_unit,base_uom,pack_uom,package_unit,product_form,formulation,category,subcategory,stock_unit,physical_state,is_seed_material,crop_id,variety_id,seed_reproduction_id")
+            .or(`company_id.eq.${companyId},company_id.is.null`)
+            .eq("archived", false)
+            .order("name")
+            .abortSignal(signal),
+          loadSuppliers(companyId, signal),
+          needsIdentity
+            ? loadMasterIdentityRefs(companyId, signal)
+            : Promise.resolve({ crops: [] as any[], varieties: [] as any[], reproductions: [] as any[] }),
+        ]);
+        if (productsRes.error) throw productsRes.error;
+
+        const productRows = dedupeProductsForSelect(
+          (productsRes.data || []).filter((row: any) =>
+            !hasQaDataMarker(`${brandName(row) || row.name || ""} ${row.product_type || ""} ${row.type || ""}`)
+          )
+        );
+        const nextProducts = productRows.map((row: any) => ({
+          id: String(row.id), name: brandName(row) || String(row.name || "Номенклатура"),
+          type: String(row.product_type || row.type || "").toLowerCase(), productType: String(row.product_type || ""),
+          unit: String(row.unit || ""), defaultUnit: String(row.default_unit || ""), baseUom: String(row.base_uom || ""),
+          packUom: String(row.pack_uom || ""), packageUnit: String(row.package_unit || ""), productForm: String(row.product_form || ""),
+          formulation: String(row.formulation || ""), category: String(row.category || ""), subcategory: String(row.subcategory || ""),
+          stockUnit: String(row.stock_unit || ""), physicalState: String(row.physical_state || ""), isSeedMaterial: row.is_seed_material === true,
+          cropId: row.crop_id ? String(row.crop_id) : null, varietyId: row.variety_id ? String(row.variety_id) : null,
+          reproductionId: row.seed_reproduction_id ? String(row.seed_reproduction_id) : null,
+        }));
+
+        startTransition(() => {
+          setProducts(nextProducts);
+          setSuppliers(supplierRows);
+          if (needsIdentity) {
+            const dedupeByName = (rows: any[]) => {
+              const map = new Map<string, any>();
+              rows.forEach((row) => {
+                const key = String(row.name || row.name_ru || row.id || "").trim().toLowerCase();
+                if (!key) return;
+                const current = map.get(key);
+                if (!current || (current.company_id == null && row.company_id != null)) map.set(key, row);
+              });
+              return Array.from(map.values());
+            };
+            const cropRows = dedupeByName((identityRefs.crops || []).filter(
+              (row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || "")
+            ));
+            const varietyRows = dedupeByName((identityRefs.varieties || []).filter(
+              (row: any) => !hasQaDataMarker(brandName(row) || row.name || "")
+            ));
+            const reproductionRows = dedupeByName((identityRefs.reproductions || []).filter(
+              (row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || "")
+            ));
+            const cropNameById = new Map<string, string>(cropRows.map((crop: any) => [
+              String(crop.id), localizedName(crop, lang, ["name"]) || String(crop.name || "").trim(),
+            ]));
+            setCrops(cropRows.map((row: any) => ({
+              id: String(row.id), name: localizedName(row, lang, ["name"]) || String(row.name || "Культура"),
+            })));
+            setVarieties(varietyRows.map((row: any) => ({
+              id: String(row.id), name: brandName(row) || String(row.name || "Сорт"), cropId: String(row.crop_id || ""),
+              cropName: localizedName(row.crops, lang, ["name"]) || cropNameById.get(String(row.crop_id || "")) || "",
+            })));
+            setReproductions(reproductionRows.map((row: any) => ({
+              id: String(row.id), name: localizedName(row, lang, ["name"]) || String(row.name || "Репродукция"),
+            })));
+          }
+        });
+      } else if (operationType === "shipment_outbound") {
+        const buyerRows = await loadBuyers(companyId, signal);
+        startTransition(() => setBuyers(buyerRows));
+      } else if (operationType === "issue_to_field" && fieldId) {
+        const operationsRes = await supabase
+          .from("operations")
+          .select("id,field_id,operation_type,operation_category_slug,operation_type_slug,date,status")
+          .eq("company_id", companyId)
+          .eq("field_id", fieldId)
+          .eq("archived", false)
+          .order("date", { ascending: false })
+          .limit(100)
+          .abortSignal(signal);
+        if (operationsRes.error) throw operationsRes.error;
+        const fieldName = fields.find((field) => field.id === fieldId)?.name || "Поле";
+        const nextLinkedOperations = (operationsRes.data || []).map((row: any) => ({
+          id: String(row.id), field_id: row.field_id ? String(row.field_id) : null,
+          category_slug: row.operation_category_slug ? String(row.operation_category_slug) : null,
+          type_slug: row.operation_type_slug ? String(row.operation_type_slug) : null,
+          status: row.status ? String(row.status) : null,
+          label: `${row.operation_type || "Operation"} • ${fieldName} • ${row.date ? formatDate(String(row.date)) : "—"}`,
+        })).filter((row: any) => !hasQaDataMarker(row.label));
+        startTransition(() => {
+          setLinkedOperations(nextLinkedOperations);
+          setLinkedOperationLines([]);
+        });
+      }
+
+      if (signal.aborted) return;
+      secondaryCatalogReadyRef.current.add(cacheKey);
+      setSecondaryCatalogStatus({ key: cacheKey, status: "ready", error: "" });
+    })().catch((error: any) => {
+      if (signal.aborted || error?.name === "AbortError") return;
+      const message = String(error?.message || "Не удалось загрузить справочник выбранного режима");
+      setSecondaryCatalogStatus({ key: cacheKey, status: "error", error: message });
+      throw error;
+    }).finally(() => {
+      if (secondaryCatalogRequestsRef.current.get(cacheKey) === entry) {
+        secondaryCatalogRequestsRef.current.delete(cacheKey);
+      }
+    });
+    entry = { controller, promise: request };
+    secondaryCatalogRequestsRef.current.set(cacheKey, entry);
+    return request;
+  };
+
+  const load = async (signal?: AbortSignal, background = false) => {
+    if (authLoading || !profile?.company_id || !profile?.id || !canView) return;
+    if (coreLoadRequestRef.current) return coreLoadRequestRef.current;
+
+    const companyId = profile.company_id;
+    const assignmentRevision = vehicleAssignmentRevisionRef.current;
+    const ptcQueueGeneration = ++ptcQueueGenerationRef.current;
+    const requestSignal = signal || new AbortController().signal;
+    const request = (async () => {
+      if (!background && !coreDataReady) setLoading(true);
+      try {
+        const [resourcesResult, allocationsResult, transportPairsResult, ptcQueueResult] = await Promise.allSettled([
+          getWeighbridgeResources(companyId, { signal: requestSignal }),
+          loadHarvestAllocations(companyId, requestSignal),
+          loadTransportPickerDataCached(companyId, false, requestSignal),
+          loadPtcQueue(companyId, requestSignal),
+        ]);
+        if (requestSignal.aborted || resourceCompanyRef.current !== companyId) return;
+        const issues: Array<{ code: string; message: string }> = [];
+        const addIssue = (code: string, message: string) => {
+          if (!issues.some((issue) => issue.code === code)) issues.push({ code, message });
+        };
+
+        if (ptcQueueResult.status === "fulfilled") {
+          if (ptcQueueGeneration === ptcQueueGenerationRef.current) setPtcQueue(ptcQueueResult.value);
+        } else if (ptcQueueResult.reason?.name !== "AbortError") {
+          addIssue("PTC_QUEUE", "Очередь машин с поля временно недоступна. Машину можно выбрать вручную.");
+        }
+
+        if (resourcesResult.status === "fulfilled") {
+          const resourceRows = resourcesResult.value;
+          const resourceErrors = Array.isArray(resourceRows?.resourceErrors)
+            ? resourceRows.resourceErrors as Array<{ resource?: string; code?: string; message?: string }>
+            : [];
+          const failedResources = new Set(resourceErrors.map((error) => String(error.resource || "")));
+          resourceErrors.forEach((error) => addIssue(
+            String(error.code || "WB_RESOURCES"),
+            String(error.message || "Не удалось обновить часть справочников. Ранее загруженные данные сохранены.")
+          ));
+          if (!failedResources.has("fields")) {
+            setFields(((resourceRows?.fields || []) as any[])
+              .map((row: any) => ({
+                id: String(row.id),
+                name: String(row.name || "Поле"),
+                area: Number(row.area || 0),
+                fieldCode: row.fieldCode ? String(row.fieldCode) : null,
+              }))
+              .filter((row) => !hasQaDataMarker(row.name)));
+          }
+          if (!failedResources.has("warehouses")) {
+            setWarehouses(((resourceRows?.destinations || []) as any[])
+              .map((row: any) => ({
+                id: String(row.id),
+                name: localizedName(row, lang, ["name"]) || String(row.name || "Склад"),
+                warehouseType: String(row.warehouseType || ""),
+                placeType: String(row.placeType || "WAREHOUSE"),
+              }))
+              .filter((row) => !hasQaDataMarker(row.name)));
+          }
+          const mappedVehicles = ((resourceRows?.vehicles || []) as any[]).map((row: any) => ({
+            id: String(row.id), name: String(row.name || "Машина"), model: String(row.model || row.name || ""),
+            plate: String(row.plate || ""), type: String(row.type || ""), fleetType: String(row.fleetType || ""),
+            transportCategory: String(row.transportCategory || ""),
+            source: row.source === "reference_machines" ? "reference_machines" as const : "reference_vehicles" as const,
+            primaryPersonnelId: row.primaryPersonnelId ? String(row.primaryPersonnelId) : null,
+            ptcAssigned: Boolean(row.ptcAssigned),
+            searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
+          }));
+          if (!failedResources.has("reference_vehicles") && assignmentRevision === vehicleAssignmentRevisionRef.current) {
+            setVehicles(mappedVehicles);
+          }
+          if (!failedResources.has("reference_vehicles")) {
+            setTrailers(((resourceRows?.trailers || []) as any[]).map((row: any) => ({
+              id: String(row.id), name: String(row.name || "Прицеп"), model: String(row.model || row.name || ""),
+              plate: String(row.plate || ""), type: String(row.type || "trailer"), fleetType: String(row.fleetType || "tractor_trailer"),
+              transportCategory: String(row.transportCategory || "trailer"), source: "reference_vehicles", primaryPersonnelId: null,
+              ptcAssigned: false,
+              searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
+            })));
+          }
+          if (!failedResources.has("company_people") && assignmentRevision === vehicleAssignmentRevisionRef.current) {
+            setDrivers(((resourceRows?.drivers || []) as any[]).map((row: any) => ({
+              id: String(row.id), name: String(row.name || "Сотрудник"), machineId: row.machineId ? String(row.machineId) : null,
+              roleType: row.roleType === "mechanic_operator" ? "mechanic_operator" : "driver",
+              position: String(row.position || ""), department: String(row.department || ""),
+              assignedVehicleIds: Array.isArray(row.assignedVehicleIds) ? row.assignedVehicleIds.map(String) : [],
+            })));
+            setCombineOperators(((resourceRows?.combineOperators || []) as any[]).map((row: any) => ({
+              id: String(row.id),
+              name: String(row.name || "Сотрудник"),
+              roleType: String(row.roleType || ""),
+              position: String(row.position || ""),
+              department: String(row.department || ""),
+            })));
+          }
+          const nextDriverNames = Object.fromEntries(
+            Object.entries((resourceRows?.driverNames || {}) as Record<string, unknown>)
+              .map(([id, name]) => [String(id), String(name || "Водитель")])
+          );
+          setDriverNames((previous) => resourceErrors.length > 0 ? { ...previous, ...nextDriverNames } : nextDriverNames);
+        } else {
+          addIssue("WB_RESOURCES", "Не удалось обновить транспорт и водителей. Ранее загруженные данные сохранены.");
+        }
+        setProcessingPoints([]);
+        if (transportPairsResult.status === "fulfilled") {
+          applyTransportPickerData(transportPairsResult.value);
+        } else {
+          addIssue("WB_TRANSPORT_PAIRS", "Не удалось обновить последние связки транспорта. Ранее загруженные данные сохранены.");
+        }
+        if (allocationsResult.status === "fulfilled") {
+          applyHarvestAllocations(allocationsResult.value);
+        } else {
+          addIssue("WB_HARVEST_ALLOCATIONS", "Не удалось обновить структуру посевов. Ранее загруженные данные сохранены.");
+        }
+        setCoreResourceErrors(issues);
+        if (issues.length > 0) {
+          toast({
+            title: "Часть справочников не обновлена",
+            description: `${issues[0].message} Код ошибки: ${issues[0].code}`,
+            variant: "destructive",
+          });
+        }
+        setCoreDataReady(true);
+      } catch (error: any) {
+        if (requestSignal.aborted || error?.name === "AbortError") return;
+        setCoreResourceErrors([{ code: "WB_BOOTSTRAP", message: "Не удалось обновить рабочие справочники. Ранее загруженные данные сохранены." }]);
+        toast({ title: "Ошибка загрузки", description: "Не удалось обновить рабочие справочники. Код ошибки: WB_BOOTSTRAP", variant: "destructive" });
+      } finally {
+        if (!requestSignal.aborted) setLoading(false);
+      }
+    })().finally(() => {
+      if (coreLoadRequestRef.current === request) coreLoadRequestRef.current = null;
+    });
+    coreLoadRequestRef.current = request;
+    return request;
+  };
+
+  const refreshTickets = async (showLoading = false, signal?: AbortSignal) => {
+    if (!profile?.company_id || !profile?.id) return;
+    if (ticketsRequestRef.current) return ticketsRequestRef.current;
+    const companyId = profile.company_id;
+    const profileId = profile.id;
+    if (showLoading) setTicketsLoading(true);
+    const request = (async () => {
+      try {
+        const workspace = await listWeighbridgeWorkspaceTickets(companyId, profileId, {
+          historyLimit: 10,
+          signal,
+        });
+        if (!signal?.aborted) {
+          const nextRows = workspace.tickets || [];
+          const activeRows = nextRows.filter((ticket) =>
+            !ticket.is_voided && ["draft", "active", "ready_to_close"].includes(String(ticket.status))
+          );
+          const stuckRows = activeRows.filter((ticket) => {
+            const openedAt = new Date(String(ticket.created_at || "")).getTime();
+            return Number.isFinite(openedAt) && Date.now() - openedAt > 6 * 60 * 60 * 1000;
+          });
+          setTickets(nextRows);
+          setShiftCounters((current) => ({
+            ...current,
+            activeTickets: activeRows.length,
+            stuckTickets: stuckRows.length,
+            requiresReview: nextRows.filter((ticket) => Boolean(ticket.requires_review) && !ticket.is_voided).length,
+            manualCorrections: nextRows.filter((ticket) =>
+              Boolean((ticket as any).manual_correction_reason) || ticket.weigh_method === "manual_override_with_reason"
+            ).length,
+          }));
+        }
+      } catch (error: any) {
+        if (!signal?.aborted && error?.name !== "AbortError") throw error;
+      } finally {
+        if (!signal?.aborted) setTicketsLoading(false);
+      }
+    })().finally(() => {
+      if (ticketsRequestRef.current === request) ticketsRequestRef.current = null;
+    });
+    ticketsRequestRef.current = request;
+    return request;
+  };
+
+	  const refreshHarvestBatches = async (options: { force?: boolean; signal?: AbortSignal; warehouseId?: string } = {}) => {
+	    if (!profile?.company_id) return;
+	    const companyId = profile.company_id;
+	    const warehouseId = String(options.warehouseId || "").trim();
+	    if (!warehouseId) {
+	      harvestBatchesTrailingRefreshRef.current = null;
+	      setHarvestBatches([]);
+	      setHarvestBatchOptionsStatus("idle");
+	      setHarvestBatchOptionsError("");
+	      return;
+	    }
+	    const requestKey = `${companyId}:${warehouseId}`;
+	    if (!options.force && harvestBatchesReadyRef.current === requestKey) return;
+	    if (harvestBatchesRequestRef.current && harvestBatchesRequestKeyRef.current === requestKey) {
+	      if (options.force) {
+	        harvestBatchesTrailingRefreshRef.current = { requestKey, warehouseId };
+	      }
+	      return harvestBatchesRequestRef.current;
+	    }
+	    if (harvestBatchesRequestRef.current) {
+	      harvestBatchesTrailingRefreshRef.current = null;
+	      harvestBatchesGenerationRef.current += 1;
+	      harvestBatchesAbortRef.current?.abort();
+	      harvestBatchesRequestRef.current = null;
+	    }
+
+	    const controller = new AbortController();
+	    const generation = ++harvestBatchesGenerationRef.current;
+	    let requestTimedOut = false;
+	    const timeoutId = window.setTimeout(() => {
+	      requestTimedOut = true;
+	      controller.abort();
+	    }, HARVEST_BATCH_REQUEST_TIMEOUT_MS);
+	    const abortFromParent = () => controller.abort();
+	    options.signal?.addEventListener("abort", abortFromParent, { once: true });
+	    harvestBatchesAbortRef.current = controller;
+	    harvestBatchesRequestKeyRef.current = requestKey;
+	    harvestBatchesReadyRef.current = "";
+	    const retainedRows = harvestBatchesCacheRef.current.get(requestKey) || [];
+	    setHarvestBatches(retainedRows);
+	    setHarvestBatchOptionsStatus(retainedRows.length ? "refreshing" : "loading");
+	    setHarvestBatchOptionsError("");
+
+	    const request = (async () => {
+	      try {
+	        const rows = await listHarvestBatchSummaries(companyId, {
+	          warehouseId,
+	          aggregateLots: true,
+	          summaryOnly: true,
+	          signal: controller.signal,
+	        });
+	        if (controller.signal.aborted || generation !== harvestBatchesGenerationRef.current) return;
+	        harvestBatchesCacheRef.current.set(requestKey, rows);
+	        setHarvestBatches(rows);
+	        harvestBatchesReadyRef.current = requestKey;
+	        setHarvestBatchOptionsStatus("ready");
+	      } catch (error: any) {
+	        if ((controller.signal.aborted || error?.name === "AbortError") && !requestTimedOut) return;
+	        harvestBatchesReadyRef.current = "";
+	        const fallbackRows = harvestBatchesCacheRef.current.get(requestKey) || [];
+	        setHarvestBatches(fallbackRows);
+	        setHarvestBatchOptionsStatus(fallbackRows.length ? "stale" : "error");
+	        setHarvestBatchOptionsError(requestTimedOut
+	          ? "Склад отвечает слишком долго. Нажмите «Повторить»."
+	          : "Не удалось загрузить партии урожая. Нажмите «Повторить»."
+	        );
+	        throw error;
+	      }
+    })().finally(() => {
+	      window.clearTimeout(timeoutId);
+	      options.signal?.removeEventListener("abort", abortFromParent);
+	      const wasCurrentRequest = harvestBatchesRequestRef.current === request;
+	      if (wasCurrentRequest) harvestBatchesRequestRef.current = null;
+	      if (harvestBatchesAbortRef.current === controller) {
+	        harvestBatchesAbortRef.current = null;
+	        harvestBatchesRequestKeyRef.current = "";
+	      }
+	      const trailingRefresh = harvestBatchesTrailingRefreshRef.current;
+	      if (trailingRefresh?.requestKey === requestKey) {
+	        harvestBatchesTrailingRefreshRef.current = null;
+	        const shouldRunTrailingRefresh = wasCurrentRequest
+	          && resourceCompanyRef.current === companyId
+	          && !options.signal?.aborted
+	          && (!controller.signal.aborted || requestTimedOut);
+	        if (shouldRunTrailingRefresh) {
+	          void refreshHarvestBatches({
+	            force: true,
+	            warehouseId: trailingRefresh.warehouseId,
+	          }).catch((error) => {
+	            if (error?.name !== "AbortError") {
+	              console.error("Trailing harvest batch refresh failed", error);
+	            }
+	          });
+	        }
+	      }
+	    });
+    harvestBatchesRequestRef.current = request;
+    return request;
+  };
+
+  const selectImpurityWarehouse = (warehouseFromId: string) => {
+    if (warehouseFromId === form.warehouseFromId) return;
+	    harvestBatchesTrailingRefreshRef.current = null;
+    harvestBatchesGenerationRef.current += 1;
+    harvestBatchesAbortRef.current?.abort();
+    harvestBatchesAbortRef.current = null;
+    harvestBatchesRequestRef.current = null;
+    harvestBatchesRequestKeyRef.current = "";
+    harvestBatchesReadyRef.current = "";
+    const requestKey = profile?.company_id && warehouseFromId ? `${profile.company_id}:${warehouseFromId}` : "";
+    const retainedRows = requestKey ? harvestBatchesCacheRef.current.get(requestKey) || [] : [];
+    setHarvestBatches(retainedRows);
+    setHarvestBatchOptionsStatus(warehouseFromId ? (retainedRows.length ? "refreshing" : "loading") : "idle");
+    setHarvestBatchOptionsError("");
+    setHarvestBatchDetailLoading(false);
+    setHarvestBatchDetailError("");
+    setForm((previous) => ({
+      ...previous,
+      warehouseFromId,
+      sourceBatchId: "",
+      impuritySourceSelections: [],
+    }));
+  };
+
+  const refreshBootstrap = async (includeSummary = false, signal?: AbortSignal) => {
+    if (!profile?.company_id || !profile?.id) return;
+    const requestRef = includeSummary ? bootstrapSummaryRequestRef : bootstrapRequestRef;
+    if (requestRef.current) return requestRef.current;
+    const companyId = profile.company_id;
+    const profileId = profile.id;
+    const request = (async () => {
+      const bootstrap = await getWeighbridgeBootstrap(companyId, profileId, { includeSummary, signal });
+      if (signal?.aborted) return;
+      setActiveShift(bootstrap?.shift || null);
+      setShiftCounters((current) => includeSummary
+        ? { ...current, ...(bootstrap?.counters || {}) }
+        : { ...current, unsynced: Number(bootstrap?.counters?.unsynced || 0) }
+      );
+      setShiftGuard(bootstrap?.shiftGuard || { stale: false, ageHours: 0 });
+      setShiftSummary(bootstrap?.shiftSummary || { trips: 0, netKg: 0, open: 0, voided: 0, manualCorrections: 0 });
+      if (includeSummary) {
+        setHarvestSummary(bootstrap?.harvestSummary || { seasonId: null, today: EMPTY_HARVEST_AGGREGATE, byField: {}, byDay: {}, reconciliationRows: [] });
+      }
+    })().finally(() => {
+      if (requestRef.current === request) requestRef.current = null;
+    });
+    requestRef.current = request;
+    return request;
+  };
+
+  const invalidateOperatorSessionRequest = () => {
+    operatorRequestGenerationRef.current += 1;
+    operatorRequestAbortRef.current?.abort();
+    operatorRequestAbortRef.current = null;
+    operatorRequestRef.current = null;
+  };
+
+  const applyInitialOperatorWorkspace = (payload: any) => {
+    const resources = payload?.resources;
+    const allocations = payload?.harvestAllocations;
+    if (!resources || !allocations) return false;
+
+    setFields(((resources.fields || []) as any[]).map((row: any) => ({
+      id: String(row.id),
+      name: String(row.name || "Поле"),
+      area: Number(row.area || 0),
+      fieldCode: row.fieldCode ? String(row.fieldCode) : null,
+    })));
+    setWarehouses(((resources.destinations || []) as any[]).map((row: any) => ({
+      id: String(row.id),
+      name: localizedName(row, lang, ["name"]) || String(row.name || "Склад"),
+      warehouseType: String(row.warehouseType || ""),
+      placeType: String(row.placeType || "WAREHOUSE"),
+    })));
+    setVehicles(((resources.vehicles || []) as any[]).map((row: any) => ({
+      id: String(row.id),
+      name: String(row.name || "Машина"),
+      model: String(row.model || row.name || ""),
+      plate: String(row.plate || ""),
+      type: String(row.type || ""),
+      fleetType: String(row.fleetType || ""),
+      transportCategory: String(row.transportCategory || ""),
+      source: row.source === "reference_machines" ? "reference_machines" as const : "reference_vehicles" as const,
+      primaryPersonnelId: row.primaryPersonnelId ? String(row.primaryPersonnelId) : null,
+      ptcAssigned: Boolean(row.ptcAssigned),
+      searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
+    })));
+    setTrailers(((resources.trailers || []) as any[]).map((row: any) => ({
+      id: String(row.id),
+      name: String(row.name || "Прицеп"),
+      model: String(row.model || row.name || ""),
+      plate: String(row.plate || ""),
+      type: String(row.type || "trailer"),
+      fleetType: String(row.fleetType || "tractor_trailer"),
+      transportCategory: String(row.transportCategory || "trailer"),
+      source: "reference_vehicles" as const,
+      primaryPersonnelId: null,
+      ptcAssigned: false,
+      searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
+    })));
+    setDrivers(((resources.drivers || []) as any[]).map((row: any) => ({
+      id: String(row.id),
+      name: String(row.name || "Сотрудник"),
+      machineId: row.machineId ? String(row.machineId) : null,
+      roleType: row.roleType === "mechanic_operator" ? "mechanic_operator" : "driver",
+      position: String(row.position || ""),
+      department: String(row.department || ""),
+      assignedVehicleIds: Array.isArray(row.assignedVehicleIds) ? row.assignedVehicleIds.map(String) : [],
+    })));
+    setCombineOperators(((resources.combineOperators || []) as any[]).map((row: any) => ({
+      id: String(row.id),
+      name: String(row.name || "Сотрудник"),
+      roleType: String(row.roleType || ""),
+      position: String(row.position || ""),
+      department: String(row.department || ""),
+    })));
+    setDriverNames(Object.fromEntries(
+      Object.entries((resources.driverNames || {}) as Record<string, unknown>)
+        .map(([id, name]) => [String(id), String(name || "Водитель")])
+    ));
+    setActiveHarvestSeasonId(allocations.seasonId ? String(allocations.seasonId) : null);
+    setActiveHarvestSeasonYear(allocations.seasonYear ? Number(allocations.seasonYear) : null);
+    setHarvestStructureByField((allocations.byField || {}) as Record<string, HarvestStructureOption[]>);
+    setHarvestIncompleteFields((allocations.incompleteByField || {}) as Record<string, boolean>);
+    setHarvestAllocationsReady(true);
+    setCoreResourceErrors([]);
+    setCoreDataReady(true);
+    setLoading(false);
+    initialWorkspaceHydratedRef.current = true;
+    return true;
+  };
+
+  const commitOperatorState = (nextState: WeighbridgeOperatorState) => {
+    operatorCanonicalStateRef.current = nextState;
+    setOperatorState(nextState);
+  };
+
+  const updateOperatorState = (updater: (current: WeighbridgeOperatorState) => WeighbridgeOperatorState) => {
+    commitOperatorState(updater(operatorCanonicalStateRef.current));
+  };
+
+  const verifyOperatorSession = async (signal?: AbortSignal, includeWorkspace = false) => {
+    if (!profile?.company_id) return;
+    if (!canUseOperatorSession) {
+      setOperatorSessionStatus("ready");
+      return;
+    }
+    if (operatorMutationInFlightRef.current) return operatorCanonicalStateRef.current;
+    if (operatorRequestRef.current) return operatorRequestRef.current;
+    const companyId = profile.company_id;
+    const generation = ++operatorRequestGenerationRef.current;
+    const mutationGeneration = operatorMutationGenerationRef.current;
+    const controller = new AbortController();
+    operatorRequestAbortRef.current = controller;
+    const abortFromParent = () => controller.abort();
+    signal?.addEventListener("abort", abortFromParent, { once: true });
+    setOperatorSessionStatus("checking");
+    setOperatorError("");
+    const request = (async () => {
+      try {
+        const nextState = await getWeighbridgeOperatorState(companyId, {
+          signal: controller.signal,
+          includeWorkspace,
+        });
+        if (
+          controller.signal.aborted ||
+          generation !== operatorRequestGenerationRef.current ||
+          mutationGeneration !== operatorMutationGenerationRef.current
+        ) return;
+        const canonicalState = operatorCanonicalStateRef.current;
+        const isPostUnlockStaleResponse =
+          canonicalState.unlocked &&
+          !nextState.unlocked &&
+          !nextState.lock_reason &&
+          Date.now() - operatorUnlockConfirmedAtRef.current < 5_000;
+        if (isPostUnlockStaleResponse) return canonicalState;
+        applyInitialOperatorWorkspace((nextState as any).initial_workspace);
+        commitOperatorState(nextState);
+        setActiveShift(nextState.shift || null);
+        if (nextState.operator?.id) setOperatorPersonId(nextState.operator.id);
+        if (nextState.unlocked) {
+          setOperatorDialogRequested(false);
+          setOperatorDialogOpen(false);
+        }
+        setOperatorSessionStatus("ready");
+        return nextState;
+      } catch (error: any) {
+        if (controller.signal.aborted || generation !== operatorRequestGenerationRef.current || error?.name === "AbortError") return;
+        setOperatorSessionStatus("error");
+        setOperatorError("Не удалось загрузить доступ к Весовой. Повторите проверку.");
+        console.error("Operator session verification failed", error);
+      }
+    })().finally(() => {
+      signal?.removeEventListener("abort", abortFromParent);
+      if (operatorRequestRef.current === request) operatorRequestRef.current = null;
+      if (operatorRequestAbortRef.current === controller) operatorRequestAbortRef.current = null;
+    });
+    operatorRequestRef.current = request;
+    return request;
+  };
+
+  const refreshLiveData = async (event?: { source: string; table?: string; tables?: string[] }) => {
+    const isResourcePoll = event?.source === "interval";
+    const isForeground = !event || (event.source !== "realtime" && !isResourcePoll);
+    const table = event?.table || "";
+    const changedTables = new Set([...(event?.tables || []), table].filter(Boolean));
+    const hasScopedTables = changedTables.size > 0;
+    const shiftChanged = (!hasScopedTables && !isResourcePoll) || changedTables.has("weighbridge_shifts");
+    if (canUseOperatorSession && (isForeground || shiftChanged)) {
+      const canonicalSession = await verifyOperatorSession();
+      if (canonicalSession && !canonicalSession.unlocked) return;
+      if (!canonicalSession && !operatorCanonicalStateRef.current.unlocked) return;
+    } else if (canUseOperatorSession && !operatorCanonicalStateRef.current.unlocked) {
+      return;
+    }
+    const refreshAllForegroundData = !hasScopedTables && !isResourcePoll;
+    const ticketChanged = refreshAllForegroundData || ["tickets", "ticket_lines", "ticket_weighings"].some((name) => changedTables.has(name));
+    const stockChanged = refreshAllForegroundData || [
+      "inventory_batches",
+      "stock_ledger_entries",
+      "weighbridge_shared_impurity_groups",
+      "weighbridge_shared_impurity_members",
+      "weighbridge_shared_impurity_source_batches",
+    ].some((name) => changedTables.has(name));
+    const cropStructureChanged = refreshAllForegroundData || changedTables.has("crop_structure");
+    const transportResourcesChanged = refreshAllForegroundData || [
+      "reference_vehicles",
+      "reference_specialists",
+      "reference_machines",
+      "company_people",
+    ].some((name) => changedTables.has(name));
+    const ptcQueueChanged = ticketChanged || [
+      "ptc_vehicle_states",
+      "ptc_events",
+    ].some((name) => changedTables.has(name));
+    if (stockChanged) stockIdentityCacheRef.current.clear();
+    const tasks: Promise<unknown>[] = [];
+    if (isResourcePoll) {
+      // Poll only the compact live assignment projection. Static resources and
+      // crop allocations already have realtime subscriptions and are refreshed
+      // on foreground resume; periodically reloading all of them created a
+      // permanent request storm on the weighbridge workstation.
+      tasks.push(refreshTransportPickerData());
+      tasks.push(refreshPtcQueue());
+    } else if (transportResourcesChanged) {
+      tasks.push(load(undefined, true));
+    }
+    if (!isResourcePoll && !transportResourcesChanged && ptcQueueChanged) {
+      tasks.push(refreshPtcQueue());
+    }
+    if (cropStructureChanged && !transportResourcesChanged) {
+      tasks.push(refreshHarvestAllocations());
+    }
+    if (ticketChanged) {
+      tasks.push(refreshTickets());
+    }
+	    if (ticketChanged || stockChanged) harvestBatchesReadyRef.current = "";
+	    if (form.operationType === "impurity_removal" && form.warehouseFromId && (ticketChanged || stockChanged)) {
+	      tasks.push(refreshHarvestBatches({ force: true, warehouseId: form.warehouseFromId }));
+    }
+    if (ticketChanged && (event?.source === "realtime" || event?.source === "online")) {
+      tasks.push(refreshTransportPickerData());
+    }
+    if (statisticsOpen && ticketChanged) tasks.push(refreshBootstrap(true));
+    if (!canUseOperatorSession && shiftChanged) tasks.push(refreshBootstrap(false));
+    await Promise.all(tasks);
+  };
+
+  useLiveRefresh({
+    enabled: Boolean(!authLoading && profile?.company_id && profile?.id && canView && (!canUseOperatorSession || operatorState.unlocked)),
+    onRefresh: refreshLiveData,
+    companyId: profile?.company_id,
+    tables: LIVE_REFRESH_TABLES.weighbridge,
+    intervalMs: 60_000,
+    debounceMs: 1_000,
+    minRefreshIntervalMs: 10_000,
+  });
+
+  useEffect(() => {
+    if (authLoading || !profile?.company_id || !canView || operatorGateBlocked) return;
+    const companyId = profile.company_id;
+    let requestController: AbortController | null = null;
+    const unsubscribe = subscribeVehicleDriverAssignments((result) => {
+      if (result.companyId !== companyId || resourceCompanyRef.current !== companyId) return;
+      vehicleAssignmentRevisionRef.current += 1;
+      requestController?.abort();
+      const controller = new AbortController();
+      requestController = controller;
+      // Invalidate only resource options. Never rewrite a draft, saved ticket or correction snapshot.
+      setVehicles((current) => current.map((vehicle) => vehicle.id === result.vehicle.id
+        ? { ...vehicle, primaryPersonnelId: result.vehicle.assignmentId } : vehicle));
+      setDrivers((current) => current.map((driver) => ({
+        ...driver,
+        assignedVehicleIds: [
+          ...driver.assignedVehicleIds.filter((id) => id !== result.vehicle.id),
+          ...(driver.id === result.vehicle.driverPersonId ? [result.vehicle.id] : []),
+        ],
+      })));
+      void getWeighbridgeResources(companyId, { signal: controller.signal }).then((resources) => {
+        if (controller.signal.aborted || resourceCompanyRef.current !== companyId) return;
+        const failed = new Set((resources.resourceErrors || []).map((error: any) => String(error.resource || "")));
+        if (failed.has("company_people") || failed.has("reference_vehicles") || failed.has("reference_specialists")) {
+          throw new Error("Assignment resources unavailable");
+        }
+        setDrivers(((resources.drivers || []) as any[]).map((row: any) => ({
+          id: String(row.id), name: String(row.name || "Сотрудник"), machineId: row.machineId ? String(row.machineId) : null,
+          roleType: row.roleType === "mechanic_operator" ? "mechanic_operator" : "driver",
+          position: String(row.position || ""), department: String(row.department || ""),
+          assignedVehicleIds: Array.isArray(row.assignedVehicleIds) ? row.assignedVehicleIds.map(String) : [],
+        })));
+        const refreshedVehicles = new Map<string, any>((resources.vehicles || []).map((vehicle: any) => [String(vehicle.id), vehicle]));
+        setVehicles((current) => current.map((vehicle) => {
+          const refreshed = refreshedVehicles.get(vehicle.id);
+          return refreshed ? {
+            ...vehicle,
+            primaryPersonnelId: refreshed.primaryPersonnelId ? String(refreshed.primaryPersonnelId) : null,
+            ptcAssigned: Boolean(refreshed.ptcAssigned),
+          } : vehicle;
+        }));
+        setDriverNames((current) => ({ ...current, ...(resources.driverNames || {}) }));
+      }).catch((error) => {
+        if (controller.signal.aborted || error?.name === "AbortError" || resourceCompanyRef.current !== companyId) return;
+        toast({ title: "Привязка сохранена", description: "Не удалось обновить список водителей. Обновите справочники перед следующим рейсом.", variant: "destructive" });
+      });
+    });
+    return () => {
+      unsubscribe();
+      requestController?.abort();
+    };
+  }, [authLoading, profile?.company_id, canView, operatorGateBlocked, toast]);
+
+  const siteConfirm = async (opts: { title: string; description: string; actionLabel: string }) => {
+    setConfirmTitle(opts.title);
+    setConfirmDescription(opts.description);
+    setConfirmActionLabel(opts.actionLabel);
+    setConfirmOpen(true);
+    return new Promise<boolean>((resolve) => {
+      confirmResolverRef.current = resolve;
+    });
+  };
+
+  const resolveConfirm = (value: boolean) => {
+    if (confirmBusy) return;
+    const resolver = confirmResolverRef.current;
+    confirmResolverRef.current = null;
+    setConfirmOpen(false);
+    resolver?.(value);
+  };
+
+  useEffect(() => {
+    if (authLoading || loading || !profile?.company_id) return;
+    performance.clearMarks("travkin-weighbridge-interactive");
+    performance.mark("travkin-weighbridge-interactive");
+  }, [authLoading, loading, profile?.company_id]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!profile?.company_id) return;
+    if (!canUseOperatorSession) {
+      setOperatorSessionStatus("ready");
+      return;
+    }
+
+    const contextKey = `${profile.company_id}:${profile.role}`;
+    const contextChanged = operatorContextKeyRef.current !== contextKey;
+    operatorContextKeyRef.current = contextKey;
+    if (contextChanged) {
+      invalidateOperatorSessionRequest();
+      commitOperatorState({ shift: null, unlocked: false, operators: [] });
+      setActiveShift(null);
+      setOperatorSessionStatus("checking");
+      setOperatorError("");
+      setOperatorDialogOpen(false);
+    } else if (operatorCanonicalStateRef.current.unlocked) {
+      setOperatorSessionStatus("ready");
+      return;
+    }
+    const controller = new AbortController();
+    void verifyOperatorSession(controller.signal, true);
+    return () => {
+      controller.abort();
+      invalidateOperatorSessionRequest();
+    };
+    // Session verification is the only request allowed before the gate unlocks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, profile?.company_id, profile?.role]);
+
+  useEffect(() => {
+    if (authLoading || !profile?.company_id) return;
+    if (canUseOperatorSession && !operatorState.unlocked) return;
+    const companyId = profile.company_id;
+    const cacheKey = `${companyId}:${language}`;
+    const cached = (
+      weighbridgePageCache.get(cacheKey) || readWeighbridgeWorkspaceCache(companyId, profile.id, language)
+    ) as any;
+    const controller = new AbortController();
+    let refreshTimer: number | null = null;
+
+    harvestAllocationsGenerationRef.current += 1;
+    harvestAllocationsAbortRef.current?.abort();
+    harvestAllocationsAbortRef.current = null;
+    harvestAllocationsRequestRef.current = null;
+
+    secondaryCatalogRequestsRef.current.forEach((entry) => entry.controller.abort());
+    secondaryCatalogRequestsRef.current.clear();
+    secondaryCatalogReadyRef.current.clear();
+    harvestBatchesGenerationRef.current += 1;
+    harvestBatchesAbortRef.current?.abort();
+    harvestBatchesAbortRef.current = null;
+	    harvestBatchesRequestRef.current = null;
+	    harvestBatchesRequestKeyRef.current = "";
+	    harvestBatchesTrailingRefreshRef.current = null;
+	    harvestBatchesReadyRef.current = "";
+	    harvestBatchesCacheRef.current.clear();
+	    setHarvestBatches([]);
+	    setHarvestBatchOptionsStatus("idle");
+	    setHarvestBatchOptionsError("");
+	    setHarvestBatchDetailLoading(false);
+	    setHarvestBatchDetailError("");
+    stockIdentityGenerationRef.current += 1;
+    stockIdentityRequestsRef.current.forEach((entry) => entry.controller.abort());
+    stockIdentityRequestsRef.current.clear();
+    stockIdentityCacheRef.current.clear();
+    operationLinesGenerationRef.current += 1;
+    operationLinesRequestsRef.current.forEach((entry) => entry.controller.abort());
+    operationLinesRequestsRef.current.clear();
+    operationLinesCacheRef.current.clear();
+    harvestContextGenerationRef.current += 1;
+    setSecondaryCatalogStatus({ key: "", status: "idle", error: "" });
+    // The operator-session RPC is canonical and may contain crop-structure edits
+    // made after the 12-hour acceleration snapshot was written. Never let that
+    // snapshot overwrite a workspace that was just hydrated from the RPC.
+    if (cached && !initialWorkspaceHydratedRef.current) {
+      setFields(cached.fields || []);
+      setWarehouses(cached.warehouses || []);
+      setVehicles(((cached.vehicles || []) as VehicleOption[])
+        .filter((vehicle) => vehicle.source === "reference_vehicles" || vehicle.source === "reference_machines"));
+      setTrailers(cached.trailers || []);
+      setDrivers(cached.drivers || []);
+      setDriverNames(cached.driverNames || {});
+      setCombineOperators(cached.combineOperators || []);
+      setTransportPickerData(normalizeWeighbridgeTransportPickerData(
+        cached.transportPickerData || transportPickerDataCache.get(companyId) || emptyTransportPickerData()
+      ));
+      setHarvestStructureByField(cached.harvestStructureByField || {});
+      setHarvestIncompleteFields(cached.harvestIncompleteFields || {});
+      const cachedTickets = (cached.tickets || []) as WeighbridgeTicket[];
+      const cachedOpen = cachedTickets.filter((ticket) => ["draft", "active", "ready_to_close"].includes(ticket.status));
+      const cachedHistory = cachedTickets.filter((ticket) => ["finalized", "voided"].includes(ticket.status));
+      setTickets([...cachedOpen, ...cachedHistory.slice(0, 10)]);
+      if (!canUseOperatorSession) setActiveShift(cached.activeShift || null);
+      setShiftCounters(cached.shiftCounters || shiftCounters);
+      setShiftGuard(cached.shiftGuard || { stale: false, ageHours: 0 });
+      setShiftSummary(cached.shiftSummary || shiftSummary);
+      setHarvestSummary(cached.harvestSummary || harvestSummary);
+      setCoreDataReady(true);
+      setLoading(false);
+      setTicketsLoading(false);
+    }
+
+    const reconcile = () => {
+      const usedInitialWorkspace = initialWorkspaceHydratedRef.current;
+      initialWorkspaceHydratedRef.current = false;
+      const tasks: Promise<unknown>[] = [
+        refreshTickets(!cached, controller.signal),
+        refreshBootstrap(false, controller.signal),
+      ];
+      if (usedInitialWorkspace) {
+        tasks.push(loadTransportPickerDataCached(companyId, false, controller.signal).then(applyTransportPickerData));
+      } else {
+        tasks.push(load(controller.signal, Boolean(cached)));
+      }
+      void Promise.all(tasks).catch((error: any) => {
+        if (!controller.signal.aborted && error?.name !== "AbortError") {
+          console.error("Weighbridge background reconciliation failed", error);
+        }
+      });
+    };
+
+    if (cached) refreshTimer = window.setTimeout(reconcile, 100);
+    else reconcile();
+
+    return () => {
+      if (refreshTimer != null) window.clearTimeout(refreshTimer);
+      controller.abort();
+	      harvestBatchesTrailingRefreshRef.current = null;
+      harvestAllocationsGenerationRef.current += 1;
+      harvestAllocationsAbortRef.current?.abort();
+      harvestAllocationsAbortRef.current = null;
+      harvestAllocationsRequestRef.current = null;
+      coreLoadRequestRef.current = null;
+      ticketsRequestRef.current = null;
+      bootstrapRequestRef.current = null;
+      bootstrapSummaryRequestRef.current = null;
+    };
+    // Business data starts only after the canonical operator session unlocks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, profile?.company_id, profile?.id, profile?.role, language, canUseOperatorSession, operatorState.unlocked]);
+
+	  useEffect(() => {
+	    if (canUseOperatorSession && !operatorState.unlocked) return;
+	    if (form.operationType !== "impurity_removal" || !profile?.company_id || !form.warehouseFromId) return;
+	    const requestKey = `${profile.company_id}:${form.warehouseFromId}`;
+	    if (harvestBatchesReadyRef.current === requestKey) return;
+	    const timer = window.setTimeout(() => {
+	      void refreshHarvestBatches({ warehouseId: form.warehouseFromId }).catch((error) => {
+	        console.error("Harvest batch options refresh failed", error);
+	      });
+    }, MODE_RESOURCE_STABILITY_DELAY_MS);
+    return () => window.clearTimeout(timer);
+    // Harvest batches are needed only by impurity removal, not by the default intake form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+	  }, [form.operationType, form.warehouseFromId, profile?.company_id, canUseOperatorSession, operatorState.unlocked]);
+
+  const needsSecondaryCatalogs = ["supplier_receipt", "issue_to_field", "shipment_outbound"]
+    .includes(form.operationType);
+  const secondaryCatalogKey = useMemo(() => {
+    if (!profile?.company_id) return "";
+    if (form.operationType === "supplier_receipt") {
+      return `${profile.company_id}:${language}:supplier:${form.supplierItemMode}`;
+    }
+    if (form.operationType === "shipment_outbound") {
+      return `${profile.company_id}:${language}:shipment`;
+    }
+    if (form.operationType === "issue_to_field" && form.fieldId) {
+      return `${profile.company_id}:${language}:field-operations:${form.fieldId}`;
+    }
+    return "";
+  }, [form.fieldId, form.operationType, form.supplierItemMode, language, profile?.company_id]);
+
+  useEffect(() => {
+    if (canUseOperatorSession && !operatorState.unlocked) return;
+    if (!workspaceReady || !coreDataReady) return;
+    if (!needsSecondaryCatalogs || !secondaryCatalogKey || !profile?.company_id) return;
+    if (secondaryCatalogReadyRef.current.has(secondaryCatalogKey)) {
+      setSecondaryCatalogStatus({ key: secondaryCatalogKey, status: "ready", error: "" });
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void loadSecondaryCatalogs(
+        form.operationType,
+        form.fieldId,
+        form.supplierItemMode,
+        secondaryCatalogKey,
+      ).catch((error: any) => {
+        if (error?.name !== "AbortError") {
+          console.error("Weighbridge secondary catalogs failed", error);
+        }
+      });
+    }, MODE_RESOURCE_STABILITY_DELAY_MS);
+    return () => window.clearTimeout(timer);
+    // A mode detaches from the request without cancelling the shared immutable catalog load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [secondaryCatalogKey, needsSecondaryCatalogs, profile?.company_id, canUseOperatorSession, operatorState.unlocked, workspaceReady, coreDataReady]);
+
+  useEffect(() => {
+    if (canUseOperatorSession && !operatorState.unlocked) return;
+    if (!statisticsOpen || !profile?.company_id) return;
+    const controller = new AbortController();
+    void refreshBootstrap(true, controller.signal).catch((error: any) => {
+      if (!controller.signal.aborted && error?.name !== "AbortError") {
+        console.error("Weighbridge statistics refresh failed", error);
+      }
+    });
+    return () => controller.abort();
+    // Statistics aggregate only after the operator opens the section.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statisticsOpen, profile?.company_id, canUseOperatorSession, operatorState.unlocked]);
+
+  useEffect(() => {
+    if (!coreDataReady || !profile?.company_id) return;
+    const payload = {
+      fields,
+      warehouses,
+      vehicles,
+      trailers,
+      drivers,
+      driverNames,
+      combineOperators,
+      transportPickerData,
+      harvestStructureByField,
+      harvestIncompleteFields,
+      tickets,
+      activeShift,
+      shiftCounters,
+      shiftGuard,
+      shiftSummary,
+      harvestSummary,
+    };
+    weighbridgePageCache.set(`${profile.company_id}:${language}`, payload);
+    writeWeighbridgeWorkspaceCache(profile.company_id, profile.id, language, payload);
+  }, [coreDataReady, profile?.company_id, language, fields, warehouses, vehicles, trailers, drivers, driverNames, combineOperators, transportPickerData, harvestStructureByField, harvestIncompleteFields, tickets, activeShift, shiftCounters, shiftGuard, shiftSummary, harvestSummary]);
+
+  useEffect(() => {
+    if (!coreDataReady || !form.vehicleId || vehicles.some((vehicle) => vehicle.id === form.vehicleId)) return;
+    setForm((current) => current.vehicleId === form.vehicleId ? { ...current, vehicleId: "" } : current);
+  }, [coreDataReady, form.vehicleId, vehicles]);
+
+  useEffect(() => {
+    if (operatorState.unlocked) {
+      setOperatorDialogRequested(false);
+      setOperatorDialogOpen(false);
+      return;
+    }
+    if (operatorSessionStatus !== "ready" || !canUseOperatorSession || eligibleOperators.length === 0) return;
+    setOperatorPersonId((current) => current || eligibleOperators[0]?.id || "");
+    setOperatorDialogOpen(true);
+  }, [operatorSessionStatus, canUseOperatorSession, operatorState.unlocked, eligibleOperators]);
+
+  useEffect(() => {
+    if (!operatorGateBlocked) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [operatorGateBlocked]);
+
+  useEffect(() => {
+    if (!canUseOperatorSession) return;
+    const handleExpiredSession = () => {
+      invalidateOperatorSessionRequest();
+      updateOperatorState((current) => ({
+        ...current,
+        unlocked: false,
+        operator: null,
+        session_expires_at: null,
+        shift_expires_at: null,
+      }));
+      setOperatorSessionStatus("checking");
+      setOperatorError("");
+      setOperatorPin("");
+      setOperatorDialogOpen(true);
+      void verifyOperatorSession();
+    };
+    window.addEventListener("travkin:weighbridge-session-expired", handleExpiredSession);
+    return () => window.removeEventListener("travkin:weighbridge-session-expired", handleExpiredSession);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canUseOperatorSession, profile?.company_id]);
+
+  useEffect(() => {
+    if (!canUseOperatorSession || !operatorState.unlocked) return;
+    const rawExpiry = operatorState.shift_expires_at || operatorState.session_expires_at;
+    const expiresAt = rawExpiry ? new Date(rawExpiry).getTime() : Number.NaN;
+    if (!Number.isFinite(expiresAt)) return;
+    const timeoutMs = Math.max(0, expiresAt - Date.now());
+    const timer = window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("travkin:weighbridge-session-expired", {
+        detail: { code: "inactivity_24h" },
+      }));
+    }, Math.min(timeoutMs, 2_147_000_000));
+    return () => window.clearTimeout(timer);
+  }, [canUseOperatorSession, operatorState.unlocked, operatorState.shift_expires_at, operatorState.session_expires_at]);
+
+  useEffect(() => {
+    if (canUseOperatorSession && !operatorState.unlocked) return;
+    if (finalizingRef.current || ticketCloseState.phase !== "idle") return;
+    if (!profile?.id || notificationDeepLinkHandledRef.current) return;
+    const ticketId = new URLSearchParams(window.location.search).get("ticket");
+    if (!ticketId) {
+      notificationDeepLinkHandledRef.current = true;
+      return;
+    }
+    const cachedTicket = tickets.find((item) => item.id === ticketId) || null;
+    if (cachedTicket) {
+      notificationDeepLinkHandledRef.current = true;
+      if (cachedTicket.status === "finalized" || cachedTicket.status === "voided") {
+        setHistoryPreviewTicket(cachedTicket);
+      } else {
+        setActiveTicket(cachedTicket);
+      }
+      return;
+    }
+    if (ticketsLoading) return;
+
+    notificationDeepLinkHandledRef.current = true;
+    void (async () => {
+      try {
+        const payload = await getTicketDetails(ticketId, profile?.id);
+        const ticket = {
+          ...(payload.ticket || {}),
+          lines: payload.lines || payload.ticket?.lines || [],
+        } as WeighbridgeTicket;
+        if (ticket.status === "finalized" || ticket.status === "voided") {
+          setHistoryPreviewTicket(ticket);
+        } else {
+          if (finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") {
+            notificationDeepLinkHandledRef.current = false;
+            return;
+          }
+          setActiveTicket(ticket);
+        }
+      } catch (error) {
+        toast({
+          title: "Талон не найден",
+          description: error instanceof Error ? error.message : "Не удалось открыть документ",
+          variant: "destructive",
+        });
+      }
+    })();
+  }, [profile?.id, ticketCloseState.phase, tickets, ticketsLoading, toast]);
+
+  useEffect(() => {
+    if (!idempotencyPersistKey) return;
+    const rawAttempt = localStorage.getItem(idempotencyPersistKey);
+    const restoredAttempt = parsePersistedCreateTicketAttempt(rawAttempt);
+    createTicketIdempotencyRef.current = restoredAttempt;
+    if (rawAttempt && !restoredAttempt) localStorage.removeItem(idempotencyPersistKey);
+  }, [idempotencyPersistKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setWorkstationId(getWeighbridgeWorkstationId(window.localStorage));
+  }, []);
+
+  useEffect(() => {
+    setActiveHarvestSeasonId(null);
+    setActiveHarvestSeasonYear(null);
+    setHarvestAllocationsReady(false);
+    setWorkspaceHydratedKey("");
+    harvestDestinationLockRef.current = "";
+    setLockedHarvestDestinationId("");
+  }, [profile?.company_id]);
+
+  useEffect(() => {
+    if (!universalWorkspacePersistKey) {
+      hydratedWorkspaceKeyRef.current = "";
+      setWorkspaceHydratedKey("");
+      return;
+    }
+    // A shift refresh must not restore an older localStorage draft over what
+    // the weighman is typing. Legacy shift keys are only migration inputs.
+    if (hydratedWorkspaceKeyRef.current === universalWorkspacePersistKey) return;
+    setWorkspaceHydratedKey("");
+    const saved = parseUniversalWorkspaceState<FormState, SupplierReceiptLineDraft>(
+      sessionStorage.getItem(universalWorkspacePersistKey) ?? localStorage.getItem(universalWorkspacePersistKey),
+      INITIAL_FORM
+    );
+    const migrated = saved || migrateLegacyHarvestWorkspaces<FormState, SupplierReceiptLineDraft>(
+      legacyHarvestDraftPersistKey ? localStorage.getItem(legacyHarvestDraftPersistKey) : null,
+      INITIAL_FORM
+    );
+    const fallback = createEmptyWorkspace("harvest_incoming", "workspace-default");
+    const restoredState = migrated || {
+      version: UNIVERSAL_WORKSPACE_SCHEMA_VERSION,
+      selectedId: fallback.id,
+      workspaces: [fallback],
+      migratedLegacyHarvest: false,
+    };
+    const lockedDestinationId = getWeighbridgeDefaultDestinationId(
+      localStorage,
+      profile?.company_id,
+      workstationId
+    );
+    // The old terminal default is a migration fallback for a fresh workspace
+    // only. Existing tabs (including an explicitly empty choice) own their form.
+    const nextState = {
+      ...restoredState,
+      workspaces: restoredState.workspaces.map((workspace) => !migrated && workspace.form.operationType === "harvest_incoming"
+        ? { ...workspace, form: { ...workspace.form, warehouseToId: lockedDestinationId } }
+        : workspace),
+    };
+    const selected = nextState.workspaces.find((workspace) => workspace.id === nextState.selectedId)
+      || nextState.workspaces[0];
+    const selectedDestinationId = selected.form.operationType === "harvest_incoming" ? selected.form.warehouseToId : "";
+    harvestDestinationLockRef.current = selectedDestinationId;
+    setLockedHarvestDestinationId(selectedDestinationId);
+    selectedWorkspaceIdRef.current = selected.id;
+    setWorkspaces(nextState.workspaces);
+    setSelectedWorkspaceId(selected.id);
+    setForm(selected.form);
+    setSupplierReceiptLines(selected.supplierReceiptLines || []);
+    setShowSupplierExtraFields(selected.showSupplierExtraFields === true);
+    setClosingTare("");
+    setClosingMoisture("");
+    setCommentOpen(false);
+    if (!saved && migrated) {
+      localStorage.setItem(universalWorkspacePersistKey, serializeUniversalWorkspaceState(nextState));
+    }
+    hydratedWorkspaceKeyRef.current = universalWorkspacePersistKey;
+    setWorkspaceHydratedKey(universalWorkspacePersistKey);
+  }, [universalWorkspacePersistKey, legacyHarvestDraftPersistKey, profile?.company_id, workstationId]);
+
+  useEffect(() => {
+    if (!universalWorkspacePersistKey || workspaceHydratedKey !== universalWorkspacePersistKey) return;
+    setWorkspaces((current) => current.map((workspace) =>
+      workspace.id === selectedWorkspaceId
+        ? { ...workspace, form, supplierReceiptLines, showSupplierExtraFields }
+        : workspace
+    ));
+  }, [
+    universalWorkspacePersistKey,
+    workspaceHydratedKey,
+    selectedWorkspaceId,
+    form,
+    supplierReceiptLines,
+    showSupplierExtraFields,
+  ]);
+
+  useEffect(() => {
+    if (!universalWorkspacePersistKey || workspaceHydratedKey !== universalWorkspacePersistKey) return;
+    const timer = window.setTimeout(() => {
+      const snapshot = serializeUniversalWorkspaceState({
+        version: UNIVERSAL_WORKSPACE_SCHEMA_VERSION,
+        selectedId: selectedWorkspaceId,
+        workspaces,
+        migratedLegacyHarvest: true,
+      });
+      // A browser tab restores its own draft; localStorage remains the fallback
+      // for a new browser session after a crash/restart.
+      sessionStorage.setItem(universalWorkspacePersistKey, snapshot);
+      localStorage.setItem(universalWorkspacePersistKey, snapshot);
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [universalWorkspacePersistKey, workspaceHydratedKey, selectedWorkspaceId, workspaces]);
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined"
+      || !workspaceReady
+      || !coreDataReady
+      || !profile?.company_id
+      || !workstationId
+      || !lockedHarvestDestinationId
+      || warehouses.some((warehouse) => warehouse.id === lockedHarvestDestinationId)
+    ) return;
+    harvestDestinationLockRef.current = "";
+    setLockedHarvestDestinationId("");
+    setForm((current) => current.operationType === "harvest_incoming"
+      ? { ...current, warehouseToId: "" }
+      : current);
+    setWorkspaces((current) => current.map((workspace) => workspace.id === selectedWorkspaceId && workspace.form.operationType === "harvest_incoming"
+      ? { ...workspace, form: { ...workspace.form, warehouseToId: "" } }
+      : workspace));
+    toast({
+      title: "Место приёмки нужно выбрать заново",
+      description: "Ранее зафиксированный склад больше недоступен.",
+      variant: "destructive",
+    });
+  }, [
+    workspaceReady,
+    coreDataReady,
+    profile?.company_id,
+    workstationId,
+    lockedHarvestDestinationId,
+    selectedWorkspaceId,
+    warehouses,
+    toast,
+  ]);
+
+  const stockSourcePlaceType = warehouses.find((warehouse) => warehouse.id === form.warehouseFromId)?.placeType || "";
+
+  useEffect(() => {
+    const sourcePlace = warehouses.find((warehouse) => warehouse.id === form.warehouseFromId);
+    const usesProcessingWip = form.operationType === "transfer_between_warehouses"
+      && isProcessingPlace(sourcePlace?.placeType);
+    const needsStockIdentity =
+      (form.operationType === "transfer_between_warehouses" && !usesProcessingWip) ||
+      form.operationType === "issue_to_field" ||
+      form.operationType === "shipment_outbound" ||
+      form.operationType === "disposal_writeoff";
+    if (!profile?.company_id || !profile?.id || !needsStockIdentity || !form.warehouseFromId) {
+      setStockIdentityOptions([]);
+      if (needsStockIdentity && form.stockIdentityKey) {
+        setForm((prev) => ({ ...prev, stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "" }));
+      }
+      return;
+    }
+
+    const companyId = profile.company_id;
+    const warehouseFromId = form.warehouseFromId;
+    const cacheKey = `${companyId}:${warehouseFromId}`;
+    const requestMap = stockIdentityRequestsRef.current;
+    const cached = stockIdentityCacheRef.current.get(cacheKey);
+    if (cached) {
+      setStockIdentityOptions(cached);
+      setStockIdentityLoading(false);
+      setForm((prev) => {
+        if (!prev.stockIdentityKey || cached.some((item) => item.key === prev.stockIdentityKey)) return prev;
+        return { ...prev, stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "" };
+      });
+      return;
+    }
+
+    let requestEntry = requestMap.get(cacheKey);
+    if (requestEntry?.controller.signal.aborted) {
+      requestMap.delete(cacheKey);
+      requestEntry = undefined;
+    }
+    if (!requestEntry) {
+      const controller = new AbortController();
+      let createdEntry: AbortableRequest<StockIdentityOption[]>;
+      const promise = getSessionAuthHeaders()
+        .then((headers) =>
+          fetch(
+            `/api/weighbridge/stock-identities?companyId=${encodeURIComponent(companyId)}&warehouseId=${encodeURIComponent(warehouseFromId)}`,
+            {
+              cache: "no-store",
+              headers,
+              signal: controller.signal,
+            }
+          )
+        )
+        .then(async (response) => {
+          const payload = await response.json().catch(() => ({}));
+          if (controller.signal.aborted) throw abortRequestError();
+          if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить остатки склада");
+          return ((payload.items || []) as StockIdentityOption[]).filter((item) => !item.is_legacy_invalid);
+        })
+        .finally(() => {
+          if (requestMap.get(cacheKey) === createdEntry) {
+            requestMap.delete(cacheKey);
+          }
+        });
+      createdEntry = { controller, promise };
+      requestMap.set(cacheKey, createdEntry);
+      requestEntry = createdEntry;
+    }
+
+    const activeRequest = requestEntry;
+    const requestGeneration = ++stockIdentityGenerationRef.current;
+    setStockIdentityLoading(true);
+    void activeRequest.promise
+      .then((items) => {
+        if (activeRequest.controller.signal.aborted || requestGeneration !== stockIdentityGenerationRef.current) return;
+        stockIdentityCacheRef.current.set(cacheKey, items);
+        setStockIdentityOptions(items);
+        setForm((prev) => {
+          if (!prev.stockIdentityKey || items.some((item) => item.key === prev.stockIdentityKey)) return prev;
+          return { ...prev, stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "" };
+        });
+      })
+      .catch((error) => {
+        if (activeRequest.controller.signal.aborted || requestGeneration !== stockIdentityGenerationRef.current || error?.name === "AbortError") return;
+        setStockIdentityOptions([]);
+        toast({ title: "Ошибка остатков", description: error?.message || "Не удалось загрузить остатки склада", variant: "destructive" });
+      })
+      .finally(() => {
+        if (requestGeneration === stockIdentityGenerationRef.current) setStockIdentityLoading(false);
+      });
+
+    return () => {
+      if (requestGeneration === stockIdentityGenerationRef.current) stockIdentityGenerationRef.current += 1;
+      activeRequest.controller.abort();
+      if (requestMap.get(cacheKey) === activeRequest) {
+        requestMap.delete(cacheKey);
+      }
+    };
+  }, [form.operationType, form.warehouseFromId, profile?.company_id, profile?.id, stockSourcePlaceType, toast]);
+
+  useEffect(() => {
+    if (!activeTicket) return;
+    setClosingTare(activeTicket.tare_weight_kg != null ? String(activeTicket.tare_weight_kg) : "");
+    const moisture = activeTicket.lines?.[0]?.moisture_percent != null ? String(activeTicket.lines[0].moisture_percent) : "";
+    setClosingMoisture(moisture);
+    finalizeTicketIdempotencyRef.current = null;
+    finalizingRef.current = false;
+    setVoidReason("");
+    if (activeTicket.status !== "finalized" && activeTicket.status !== "voided") {
+      window.setTimeout(() => tareInputRef.current?.focus(), 80);
+    }
+  }, [activeTicket?.id]);
+
+  useEffect(() => {
+    setTicketCloseState((current) => {
+      if (current.phase === "idle" || current.ticketId === activeTicket?.id) return current;
+      ticketCloseStateRef.current = EMPTY_TICKET_CLOSE_STATE;
+      return EMPTY_TICKET_CLOSE_STATE;
+    });
+  }, [activeTicket?.id]);
+
+  useEffect(() => {
+    if (!form.vehicleId) {
+      setSuggestedFieldId(null);
+      return;
+    }
+    const lastShiftTicket = tickets.find((ticket) =>
+      ticket.op_type === "harvest_incoming" &&
+      ticket.vehicle_id === form.vehicleId &&
+      (!activeShift?.id || ticket.shift_id === activeShift.id)
+    );
+    if (lastShiftTicket?.field_id && fields.some((field) => field.id === lastShiftTicket.field_id)) {
+      setSuggestedFieldId(String(lastShiftTicket.field_id));
+    } else {
+      setSuggestedFieldId(null);
+    }
+  }, [form.vehicleId, tickets, activeShift?.id, fields]);
+
+  const fieldHarvestOptions = useMemo(
+    () =>
+      (form.fieldId ? harvestStructureByField[form.fieldId] || [] : []).slice().sort((a, b) => {
+        if (a.isIncomplete === b.isIncomplete) return 0;
+        return a.isIncomplete ? 1 : -1;
+      }),
+    [harvestStructureByField, form.fieldId]
+  );
+  const harvestFieldOptions = useMemo<SearchableComboboxOption[]>(() =>
+    harvestFieldsWithAllocations(fields, harvestStructureByField).map((field) => {
+      const areaLabel = `${field.area.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`;
+      return {
+        value: field.id,
+        label: `${field.name} · ${areaLabel}`,
+        description: field.fieldCode || undefined,
+        keywords: [field.name, areaLabel, String(field.area), field.fieldCode || ""],
+        physicalFieldSearch: {
+          name: field.name,
+          area: field.area,
+          fieldCode: field.fieldCode,
+        },
+      };
+    }),
+  [fields, harvestStructureByField]);
+  const harvestAllocationOptions = useMemo<SearchableComboboxOption[]>(() =>
+    fieldHarvestOptions.map((allocation) => ({
+      value: allocation.allocationId,
+      label: [
+        allocation.cropName,
+        allocation.varietyName,
+        allocation.reproductionName,
+        `${allocation.areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`,
+      ].filter(Boolean).join(" · "),
+      description: allocation.plotCount > 1 ? allocation.plotLabel : undefined,
+      keywords: [
+        allocation.cropName,
+        allocation.varietyName,
+        allocation.reproductionName,
+        allocation.plotLabel,
+        allocation.allocationCode,
+      ],
+    })),
+  [fieldHarvestOptions]);
+  const selectedHarvestAllocation = useMemo(
+    () => fieldHarvestOptions.find((x) => x.allocationId === form.cropStructureAllocationId) || null,
+    [fieldHarvestOptions, form.cropStructureAllocationId]
+  );
+  const combineOperatorContext = useMemo(() => {
+    if (
+      form.operationType !== "harvest_incoming"
+      || !profile?.company_id
+      || !activeHarvestSeasonId
+      || !form.fieldId
+      || !form.cropId
+    ) return null;
+    return {
+      companyId: profile.company_id,
+      seasonId: activeHarvestSeasonId,
+      cropStructureId: form.cropStructureAllocationId || null,
+      fieldId: form.fieldId,
+      cropId: form.cropId,
+    };
+  }, [form.operationType, form.fieldId, form.cropId, form.cropStructureAllocationId, profile?.company_id, activeHarvestSeasonId]);
+  const combineOperatorContextId = combineOperatorContext
+    ? combineOperatorContextKey(combineOperatorContext)
+    : "";
+  const recentCombineOperatorPersonIds = useMemo(
+    () => combineOperatorContext
+      ? recentCombineOperatorIds(tickets, combineOperatorContext, combineOperators.map((person) => person.id), 8)
+      : [],
+    [tickets, combineOperatorContext, combineOperators]
+  );
+  const recentCombineOperatorSignature = recentCombineOperatorPersonIds.join("|");
+  const combineOperatorOptions = useMemo<SearchableComboboxOption[]>(() => {
+    const recentOrder = new Map(recentCombineOperatorPersonIds.map((personId, index) => [personId, index]));
+    return combineOperators
+      .slice()
+      .sort((left, right) => {
+        const leftRecent = recentOrder.get(left.id);
+        const rightRecent = recentOrder.get(right.id);
+        if (leftRecent != null || rightRecent != null) {
+          if (leftRecent == null) return 1;
+          if (rightRecent == null) return -1;
+          return leftRecent - rightRecent;
+        }
+        return left.name.localeCompare(right.name, "ru");
+      })
+      .map((person) => ({
+        value: person.id,
+        label: person.name,
+        description: [person.position, person.department].filter(Boolean).join(" · "),
+        group: recentOrder.has(person.id) ? "Недавние на этом поле" : "Все сотрудники",
+        keywords: [person.name, person.position, person.department],
+      }));
+  }, [combineOperators, recentCombineOperatorPersonIds]);
+  useEffect(() => {
+    if (!combineOperatorContextId) return;
+    const selectedIsAvailable = combineOperators.some((person) => person.id === form.combineOperatorPersonId);
+    let nextPersonId = selectedIsAvailable ? form.combineOperatorPersonId : "";
+    if (!nextPersonId) {
+      nextPersonId = recentCombineOperatorPersonIds[0] || "";
+    }
+    if (nextPersonId !== form.combineOperatorPersonId) {
+      setForm((previous) => ({ ...previous, combineOperatorPersonId: nextPersonId }));
+    }
+  }, [
+    combineOperatorContextId,
+    combineOperators,
+    form.combineOperatorPersonId,
+    recentCombineOperatorSignature,
+    recentCombineOperatorPersonIds,
+  ]);
+  const harvestContextRevision = useMemo(
+    () => tickets
+      .filter((ticket) => ticket.op_type === "harvest_incoming")
+      .map((ticket) => `${ticket.id}:${ticket.status}:${ticket.net_weight_kg ?? ""}:${ticket.updated_at}`)
+      .join("|"),
+    [tickets]
+  );
+  useEffect(() => {
+    if (!profile?.company_id || activeHarvests.length === 0) return;
+    const controller = new AbortController();
+    for (const route of activeHarvests) {
+      void loadHarvestContextCached({
+        companyId: profile.company_id,
+        fieldId: route.fieldId,
+        allocationId: route.cropStructureId,
+        revision: harvestContextRevision,
+        signal: controller.signal,
+      }).catch((error: any) => {
+        if (controller.signal.aborted || error?.name === "AbortError") return;
+        // The selected route reports a concrete error; background warming stays silent.
+      });
+    }
+    return () => controller.abort();
+  }, [profile?.company_id, activeHarvests, harvestContextRevision]);
+  const selectedCropName = useMemo(
+    () => crops.find((c) => c.id === form.cropId)?.name || "",
+    [crops, form.cropId]
+  );
+  const supplierVarietyOptions = useMemo(() => {
+    if (!form.cropId) return [];
+    const selectedNorm = normName(selectedCropName);
+    return varieties.filter((v) => {
+      if (v.cropId === form.cropId) return true;
+      if (!selectedNorm) return false;
+      return normName(v.cropName) === selectedNorm;
+    });
+  }, [varieties, form.cropId, selectedCropName]);
+
+  useEffect(() => {
+    if (form.operationType !== "supplier_receipt" || form.supplierItemMode !== "agro_identity") return;
+    if (!form.varietyId) return;
+    if (!supplierVarietyOptions.some((v) => v.id === form.varietyId)) {
+      setForm((prev) => ({ ...prev, varietyId: "" }));
+    }
+  }, [form.operationType, form.supplierItemMode, form.varietyId, supplierVarietyOptions]);
+
+  useEffect(() => {
+    if (form.operationType !== "harvest_incoming" && form.operationType !== "issue_to_field") return;
+    if (!workspaceReady || !harvestAllocationsReady) return;
+    if (!form.fieldId) {
+      setForm((prev) => ({ ...prev, cropStructureAllocationId: "", cropId: "", varietyId: "", reproductionId: "" }));
+      return;
+    }
+    if (!fieldHarvestOptions.length) {
+      setForm((prev) => ({ ...prev, cropStructureAllocationId: "", cropId: "", varietyId: "", reproductionId: "" }));
+      return;
+    }
+    const exists = fieldHarvestOptions.some((x) => x.allocationId === form.cropStructureAllocationId);
+    const automaticAllocation = automaticHarvestAllocation(fieldHarvestOptions, {
+      allowIncompleteIdentity: form.operationType === "harvest_incoming",
+    });
+    if (!exists && automaticAllocation) {
+      const first = automaticAllocation;
+      setForm((prev) => ({
+        ...prev,
+        cropStructureAllocationId: first.allocationId,
+        cropId: first.cropId,
+        varietyId: first.varietyId,
+        reproductionId: first.reproductionId,
+      }));
+      return;
+    }
+    if (!exists) {
+      setForm((prev) => ({
+        ...prev,
+        cropStructureAllocationId: "",
+        cropId: "",
+        varietyId: "",
+        reproductionId: "",
+      }));
+    }
+  }, [form.operationType, form.fieldId, fieldHarvestOptions, form.cropStructureAllocationId, workspaceReady, harvestAllocationsReady]);
+
+  useEffect(() => {
+    if (form.operationType !== "harvest_incoming" && form.operationType !== "issue_to_field") return;
+    if (!selectedHarvestAllocation) return;
+    if (
+      form.cropId !== selectedHarvestAllocation.cropId ||
+      form.varietyId !== selectedHarvestAllocation.varietyId ||
+      form.reproductionId !== selectedHarvestAllocation.reproductionId
+    ) {
+      setForm((prev) => ({
+        ...prev,
+        cropId: selectedHarvestAllocation.cropId,
+        varietyId: selectedHarvestAllocation.varietyId,
+        reproductionId: selectedHarvestAllocation.reproductionId,
+      }));
+    }
+  }, [form.operationType, selectedHarvestAllocation, form.cropId, form.varietyId, form.reproductionId]);
+
+  useEffect(() => {
+    if (form.operationType !== "harvest_incoming" || !form.fieldId || !form.cropStructureAllocationId) {
+      setHarvestContext({
+        status: "idle",
+        message: form.fieldId ? "Выберите участок / культуру." : "Выберите поле.",
+        harvestedMassKg: 0,
+        harvestedAreaHa: 0,
+        yieldTPerHa: null,
+        yieldStatus: "not_available",
+      });
+      return;
+    }
+
+    const key = harvestContextCacheKey(
+      profile?.company_id || "",
+      form.fieldId,
+      form.cropStructureAllocationId,
+      harvestContextRevision
+    );
+    const cached = harvestContextCache.get(key);
+    if (cached) {
+      setHarvestContext(cached);
+      return;
+    }
+    const controller = new AbortController();
+    const requestGeneration = ++harvestContextGenerationRef.current;
+    setHarvestContext((current) => ({ ...current, status: "loading", message: "Проверяем активную уборку..." }));
+    loadHarvestContextCached({
+      companyId: profile?.company_id || "",
+      fieldId: form.fieldId,
+      allocationId: form.cropStructureAllocationId,
+      revision: harvestContextRevision,
+      signal: controller.signal,
+    }).then((context) => {
+      if (!controller.signal.aborted && requestGeneration === harvestContextGenerationRef.current) {
+        setHarvestContext(context);
+      }
+    }).catch((error: any) => {
+      if (controller.signal.aborted || requestGeneration !== harvestContextGenerationRef.current || error?.name === "AbortError") return;
+      setHarvestContext({
+        status: "error",
+        message: error?.message || "Не удалось определить уборку",
+        harvestedMassKg: 0,
+        harvestedAreaHa: 0,
+        yieldTPerHa: null,
+        yieldStatus: "not_available",
+      });
+    });
+
+    return () => {
+      controller.abort();
+      if (requestGeneration === harvestContextGenerationRef.current) harvestContextGenerationRef.current += 1;
+    };
+  }, [profile?.company_id, form.operationType, form.fieldId, form.cropStructureAllocationId, harvestContextRevision]);
+
+  const linkedOperationsForField = useMemo(() => {
+    if (!form.fieldId || form.operationType !== "issue_to_field") {
+      return [] as LinkedOperationOption[];
+    }
+    return linkedOperations.filter((row) => {
+      if (row.field_id !== form.fieldId) return false;
+      return true;
+    });
+  }, [form.operationType, form.fieldId, linkedOperations]);
+
+  useEffect(() => {
+    if (form.operationType === "issue_to_field") {
+      if (!form.fieldId) {
+        if (form.linkedOperationId || form.linkedOperationLineId) {
+          setForm((prev) => ({ ...prev, linkedOperationId: "", linkedOperationLineId: "" }));
+        }
+        setLinkedOperationLines([]);
+        return;
+      }
+      if (form.linkedOperationId && !linkedOperationsForField.some((row) => row.id === form.linkedOperationId)) {
+        setForm((prev) => ({ ...prev, linkedOperationId: "", linkedOperationLineId: "" }));
+        setLinkedOperationLines([]);
+      }
+      return;
+    }
+    if (form.linkedOperationId || form.linkedOperationLineId) {
+      setForm((prev) => ({ ...prev, linkedOperationId: "", linkedOperationLineId: "" }));
+    }
+    setLinkedOperationLines([]);
+  }, [form.operationType, form.fieldId, form.linkedOperationId, form.linkedOperationLineId, linkedOperationsForField]);
+
+  useEffect(() => {
+    if (form.operationType !== "issue_to_field" || !profile?.company_id || !form.linkedOperationId) {
+      setLinkedOperationLinesLoading(false);
+      setLinkedOperationLines([]);
+      if (form.linkedOperationLineId) {
+        setForm((prev) => ({ ...prev, linkedOperationLineId: "" }));
+      }
+      return;
+    }
+
+    const companyId = profile.company_id;
+    const operationId = form.linkedOperationId;
+    const cacheKey = `${companyId}:${operationId}`;
+    const requestMap = operationLinesRequestsRef.current;
+    const cached = operationLinesCacheRef.current.get(cacheKey);
+    if (cached) {
+      setLinkedOperationLines(cached);
+      setLinkedOperationLinesLoading(false);
+      setForm((prev) => prev.linkedOperationLineId && !cached.some((item) => item.id === prev.linkedOperationLineId)
+        ? { ...prev, linkedOperationLineId: "" }
+        : prev);
+      return;
+    }
+
+    let requestEntry = requestMap.get(cacheKey);
+    if (requestEntry?.controller.signal.aborted) {
+      requestMap.delete(cacheKey);
+      requestEntry = undefined;
+    }
+    if (!requestEntry) {
+      const controller = new AbortController();
+      let createdEntry: AbortableRequest<LinkedOperationLineOption[]>;
+      const promise = (supabase
+        .from("operation_lines")
+        .select("id,operation_id,variety_id,reproduction_id,planned_area_ha,actual_area_ha,varieties:variety_id(name),seed_reproductions:reproduction_id(name)")
+        .eq("company_id", companyId)
+        .eq("operation_id", operationId)
+        .order("created_at", { ascending: true })
+        .abortSignal(controller.signal) as unknown as Promise<{ data: any[] | null; error: any }>)
+        .then(({ data, error }) => {
+          if (controller.signal.aborted) throw abortRequestError();
+          if (error) throw error;
+          return (data || []).map((row: any) => {
+            const varietyName =
+              String(row?.varieties?.name || "").trim();
+            const reproductionName =
+              String(row?.seed_reproductions?.name || "").trim();
+            const area = Number(row.actual_area_ha ?? row.planned_area_ha ?? 0);
+            return {
+              id: String(row.id),
+              operation_id: String(row.operation_id),
+              variety_id: row.variety_id ? String(row.variety_id) : null,
+              reproduction_id: row.reproduction_id ? String(row.reproduction_id) : null,
+              label: `${harvestIdentityLabel(varietyName, reproductionName) || "Участок"} • ${area.toFixed(2)} га`,
+            } satisfies LinkedOperationLineOption;
+          });
+        })
+        .finally(() => {
+          if (requestMap.get(cacheKey) === createdEntry) {
+            requestMap.delete(cacheKey);
+          }
+        });
+      createdEntry = { controller, promise };
+      requestMap.set(cacheKey, createdEntry);
+      requestEntry = createdEntry;
+    }
+
+    const activeRequest = requestEntry;
+    const requestGeneration = ++operationLinesGenerationRef.current;
+    setLinkedOperationLinesLoading(true);
+    void activeRequest.promise
+      .then((options) => {
+        if (activeRequest.controller.signal.aborted || requestGeneration !== operationLinesGenerationRef.current) return;
+        operationLinesCacheRef.current.set(cacheKey, options);
+        setLinkedOperationLines(options);
+        setForm((prev) => prev.linkedOperationLineId && !options.some((item) => item.id === prev.linkedOperationLineId)
+          ? { ...prev, linkedOperationLineId: "" }
+          : prev);
+      })
+      .catch((error: any) => {
+        if (activeRequest.controller.signal.aborted || requestGeneration !== operationLinesGenerationRef.current || error?.name === "AbortError") return;
+        setLinkedOperationLines([]);
+        toast({
+          title: "Ошибка загрузки строк операции",
+          description: String(error?.message || "Не удалось загрузить строки операции"),
+          variant: "destructive",
+        });
+      })
+      .finally(() => {
+        if (requestGeneration === operationLinesGenerationRef.current) setLinkedOperationLinesLoading(false);
+      });
+
+    return () => {
+      if (requestGeneration === operationLinesGenerationRef.current) operationLinesGenerationRef.current += 1;
+      activeRequest.controller.abort();
+      if (requestMap.get(cacheKey) === activeRequest) {
+        requestMap.delete(cacheKey);
+      }
+    };
+  }, [
+    form.operationType,
+    form.linkedOperationId,
+    profile?.company_id,
+    toast,
+  ]);
+
+  useEffect(() => {
+    if (form.operationType !== "issue_to_field") return;
+    if (!form.linkedOperationId || form.linkedOperationLineId || linkedOperationLines.length !== 1) return;
+    setForm((prev) => ({ ...prev, linkedOperationLineId: linkedOperationLines[0].id }));
+  }, [form.linkedOperationId, form.linkedOperationLineId, form.operationType, linkedOperationLines]);
+
+  const linkedOperationLineOptions = useMemo(() => {
+    if (!selectedHarvestAllocation) return linkedOperationLines;
+    return [...linkedOperationLines].sort((a, b) => {
+      const aMatch =
+        a.variety_id === selectedHarvestAllocation.varietyId &&
+        a.reproduction_id === selectedHarvestAllocation.reproductionId;
+      const bMatch =
+        b.variety_id === selectedHarvestAllocation.varietyId &&
+        b.reproduction_id === selectedHarvestAllocation.reproductionId;
+      return Number(bMatch) - Number(aMatch);
+    });
+  }, [linkedOperationLines, selectedHarvestAllocation]);
+
+  useEffect(() => {
+    if (form.operationType !== "issue_to_field" || !form.linkedOperationLineId) return;
+    const selectedLine = linkedOperationLineOptions.find((line) => line.id === form.linkedOperationLineId);
+    if (!selectedLine) return;
+    if (!selectedLine.variety_id || !selectedLine.reproduction_id) return;
+    const allocation = fieldHarvestOptions.find(
+      (line) =>
+        line.varietyId === selectedLine.variety_id &&
+        line.reproductionId === selectedLine.reproduction_id
+    );
+    if (!allocation || allocation.allocationId === form.cropStructureAllocationId) return;
+    setForm((prev) => ({
+      ...prev,
+      cropStructureAllocationId: allocation.allocationId,
+      cropId: allocation.cropId,
+      varietyId: allocation.varietyId,
+      reproductionId: allocation.reproductionId,
+      stockIdentityKey: "",
+      quantityKg: "",
+    }));
+  }, [
+    form.operationType,
+    form.linkedOperationLineId,
+    form.cropStructureAllocationId,
+    linkedOperationLineOptions,
+    fieldHarvestOptions,
+  ]);
+
+  const activeHarvestStorageKey = useMemo(
+    () => profile?.company_id && activeHarvestSeasonId
+      ? `travkin.weighbridge.activeHarvest.v1.${profile.company_id}.${activeHarvestSeasonId}`
+      : "",
+    [profile?.company_id, activeHarvestSeasonId]
+  );
+  const selectedActiveHarvest = useMemo(
+    () => activeHarvests.find((route) => route.id === selectedActiveHarvestId) || null,
+    [activeHarvests, selectedActiveHarvestId]
+  );
+  const workspaceForm = (workspace: WeighbridgeWorkspace) =>
+    workspace.id === selectedWorkspaceId ? form : workspace.form;
+
+  const openTicketCountForWorkspace = (workspace: WeighbridgeWorkspace) => {
+    const draft = workspaceForm(workspace);
+    return tickets.filter((ticket) => {
+      if (!["draft", "active", "ready_to_close"].includes(ticket.status)) return false;
+      if (draft.operationType === "harvest_incoming") {
+        return Boolean(draft.cropStructureAllocationId && draft.warehouseToId)
+          && ticket.op_type === "harvest_incoming"
+          && ticket.crop_structure_allocation_id === draft.cropStructureAllocationId
+          && ticket.warehouse_to_id === draft.warehouseToId;
+      }
+      if (draft.operationType === "transfer_between_warehouses") {
+        return Boolean(draft.warehouseFromId && draft.warehouseToId)
+          && ticket.op_type === "warehouse_transfer"
+          && ticket.warehouse_from_id === draft.warehouseFromId
+          && ticket.warehouse_to_id === draft.warehouseToId;
+      }
+      if (draft.operationType === "supplier_receipt") {
+        return Boolean(draft.supplierId && draft.warehouseToId)
+          && ticket.op_type === "supplier_receipt"
+          && ticket.supplier_id === draft.supplierId
+          && ticket.warehouse_to_id === draft.warehouseToId;
+      }
+      if (draft.operationType === "issue_to_field") {
+        return Boolean(draft.warehouseFromId && draft.fieldId)
+          && ticket.op_type === "issue_to_field"
+          && ticket.warehouse_from_id === draft.warehouseFromId
+          && ticket.field_id === draft.fieldId;
+      }
+      if (draft.operationType === "shipment_outbound") {
+        return Boolean(draft.warehouseFromId && draft.buyerId)
+          && ticket.op_type === "shipment_outbound"
+          && ticket.warehouse_from_id === draft.warehouseFromId
+          && ticket.buyer_id === draft.buyerId;
+      }
+      return false;
+    }).length;
+  };
+
+  const workspaceTabs = useMemo<UniversalWorkspaceTab[]>(() => workspaces.map((workspace) => {
+    const draft = workspaceForm(workspace);
+    const field = fields.find((item) => item.id === draft.fieldId) || null;
+    const allocation = (draft.fieldId ? harvestStructureByField[draft.fieldId] || [] : [])
+      .find((item) => item.allocationId === draft.cropStructureAllocationId) || null;
+    const warehouseFrom = warehouses.find((item) => item.id === draft.warehouseFromId) || null;
+    const warehouseTo = warehouses.find((item) => item.id === draft.warehouseToId) || null;
+    const supplier = suppliers.find((item) => item.id === draft.supplierId) || null;
+    const buyer = buyers.find((item) => item.id === draft.buyerId) || null;
+    const product = products.find((item) => item.id === draft.productId) || null;
+    const crop = crops.find((item) => item.id === draft.cropId) || null;
+    const materialLabel = product?.name || crop?.name || "Материал";
+    let primaryLabel = "Новая вкладка";
+    let secondaryLabel = WEIGHBRIDGE_MODES.find((mode) => mode.type === draft.operationType)?.label || "Рабочая форма";
+
+    if (draft.operationType === "harvest_incoming" && (field || warehouseTo || allocation)) {
+      primaryLabel = warehouseTo?.name || "Выберите место приёмки";
+      secondaryLabel = [
+        field?.name,
+        allocation?.varietyName || allocation?.cropName || crop?.name,
+        allocation?.reproductionName,
+      ].filter(Boolean).join(" · ") || "Урожай с поля";
+    } else if (draft.operationType === "transfer_between_warehouses" && (warehouseFrom || warehouseTo)) {
+      primaryLabel = `${warehouseFrom?.name || "Склад"} → ${warehouseTo?.name || "Склад"}`;
+      secondaryLabel = materialLabel;
+    } else if (draft.operationType === "supplier_receipt" && (supplier || warehouseTo)) {
+      primaryLabel = supplier?.name || "Приход от контрагента";
+      secondaryLabel = [warehouseTo?.name ? `→ ${warehouseTo.name}` : "", materialLabel !== "Материал" ? materialLabel : ""].filter(Boolean).join(" · ") || "От контрагента";
+    } else if (draft.operationType === "issue_to_field" && (warehouseFrom || field)) {
+      primaryLabel = `${warehouseFrom?.name || "Склад"} → ${field?.name || "Поле"}`;
+      secondaryLabel = materialLabel;
+    } else if (draft.operationType === "shipment_outbound" && (warehouseFrom || buyer)) {
+      primaryLabel = `${warehouseFrom?.name || "Склад"} → ${buyer?.name || "Покупатель"}`;
+      secondaryLabel = materialLabel;
+    } else if (draft.operationType === "disposal_writeoff" && warehouseFrom) {
+      primaryLabel = `Списание · ${warehouseFrom.name}`;
+      secondaryLabel = disposalCategoryLabels[draft.disposalCategory];
+    } else if (draft.operationType === "impurity_removal" && warehouseFrom) {
+      primaryLabel = `${warehouseFrom.name} · Примеси`;
+      secondaryLabel = impurityTypeLabels[draft.impurityType];
+    }
+
+    return {
+      id: workspace.id,
+      operationType: draft.operationType as UniversalWorkspaceOperationType,
+      primaryLabel,
+      secondaryLabel,
+      fullLabel: `${primaryLabel}: ${secondaryLabel}`,
+      openTicketCount: openTicketCountForWorkspace(workspace),
+      dirty: isUniversalWorkspaceDirty(draft, INITIAL_FORM, workspace.supplierReceiptLines?.length || 0),
+    };
+  }), [
+    workspaces,
+    selectedWorkspaceId,
+    form,
+    fields,
+    harvestStructureByField,
+    warehouses,
+    suppliers,
+    buyers,
+    products,
+    crops,
+    tickets,
+  ]);
+
+  const activateWorkspace = (workspace: WeighbridgeWorkspace) => {
+    const nextForm = workspace.form;
+    const destinationId = nextForm.operationType === "harvest_incoming" ? nextForm.warehouseToId : "";
+    harvestDestinationLockRef.current = destinationId;
+    setLockedHarvestDestinationId(destinationId);
+    selectedWorkspaceIdRef.current = workspace.id;
+    setSelectedWorkspaceId(workspace.id);
+    setForm(nextForm);
+    setSupplierReceiptLines(workspace.supplierReceiptLines || []);
+    setShowSupplierExtraFields(workspace.showSupplierExtraFields === true);
+    setClosingTare("");
+    setClosingMoisture("");
+    setCommentOpen(false);
+  };
+
+  const selectWorkspace = (workspaceId: string) => {
+    if (submittingRef.current || finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return;
+    if (workspaceId === selectedWorkspaceId) return;
+    const next = workspaces.find((workspace) => workspace.id === workspaceId);
+    if (!next) return;
+    setWorkspaces((current) => current.map((workspace) =>
+      workspace.id === selectedWorkspaceId
+        ? { ...workspace, form, supplierReceiptLines, showSupplierExtraFields }
+        : workspace
+    ));
+    activateWorkspace(next);
+  };
+
+  const addWorkspace = (operationType: UniversalWorkspaceOperationType) => {
+    if (submittingRef.current || finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return;
+    if (workspaces.length >= UNIVERSAL_WORKSPACE_MAX_TABS) {
+      toast({ title: "Можно открыть не более 6 рабочих вкладок." });
+      return;
+    }
+    // New tabs start without a destination; choosing it must never retarget
+    // another tab or inherit an unnoticed terminal-wide lock.
+    const next = createEmptyWorkspace(operationType);
+    setWorkspaces((current) => [
+      ...current.map((workspace) => workspace.id === selectedWorkspaceId
+        ? { ...workspace, form, supplierReceiptLines, showSupplierExtraFields }
+        : workspace),
+      next,
+    ]);
+    activateWorkspace(next);
+  };
+
+  const removeWorkspace = async (workspaceId: string) => {
+    if (submittingRef.current || finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return;
+    const target = workspaces.find((workspace) => workspace.id === workspaceId);
+    if (!target) return;
+    const targetForm = workspaceForm(target);
+    const targetLines = target.id === selectedWorkspaceId ? supplierReceiptLines : target.supplierReceiptLines;
+    const dirty = isUniversalWorkspaceDirty(targetForm, INITIAL_FORM, targetLines.length);
+    const openTicketCount = openTicketCountForWorkspace(target);
+    if (dirty || openTicketCount > 0) {
+      const description = [
+        dirty ? "Несохранённые данные будут потеряны." : "",
+        openTicketCount > 0 ? "Открытый талон останется в разделе “Открытые талоны”." : "",
+      ].filter(Boolean).join(" ");
+      const confirmed = await siteConfirm({
+        title: "Закрыть вкладку?",
+        description,
+        actionLabel: "Закрыть",
+      });
+      if (!confirmed) return;
+    }
+
+    const remaining = workspaces.filter((workspace) => workspace.id !== workspaceId);
+    const nextWorkspaces = remaining.length > 0
+      ? remaining
+      : [createEmptyWorkspace("harvest_incoming")];
+    setWorkspaces(nextWorkspaces);
+    if (workspaceId === selectedWorkspaceId || remaining.length === 0) {
+      activateWorkspace(nextWorkspaces[0]);
+    }
+  };
+
+  const changeHarvestField = (value: string) => {
+    const fieldId = harvestFieldOptions.some((option) => option.value === value) ? value : "";
+    const automaticAllocation = fieldId
+      ? automaticHarvestAllocation(harvestStructureByField[fieldId] || [], { allowIncompleteIdentity: true })
+      : null;
+    setForm((previous) => {
+      if (previous.fieldId === fieldId) return previous;
+      return {
+        ...previous,
+        fieldId,
+        cropStructureAllocationId: automaticAllocation?.allocationId || "",
+        cropId: automaticAllocation?.cropId || "",
+        varietyId: automaticAllocation?.varietyId || "",
+        reproductionId: automaticAllocation?.reproductionId || "",
+        // Correcting the cargo origin does not change the physical PTC trip.
+      };
+    });
+  };
+
+  const changeHarvestTarget = (allocationId: string) => {
+    const allocation = (harvestStructureByField[form.fieldId] || [])
+      .find((item) => item.allocationId === allocationId) || null;
+    setForm((previous) => {
+      if (previous.cropStructureAllocationId === allocation?.allocationId) return previous;
+      return {
+        ...previous,
+        cropStructureAllocationId: allocation?.allocationId || "",
+        cropId: allocation?.cropId || "",
+        varietyId: allocation?.varietyId || "",
+        reproductionId: allocation?.reproductionId || "",
+        // Keep the trip for the unloading/confirmed-tare state transitions.
+      };
+    });
+  };
+
+  const changeHarvestTransport = (vehicleId: string, driverId: string) => {
+    const queued = form.operationType === "harvest_incoming"
+      ? ptcQueue.find((item) => item.vehicleId === vehicleId) || null
+      : null;
+    const allocation = queued?.fieldId && queued.cropStructureId
+      ? (harvestStructureByField[queued.fieldId] || []).find((item) => item.allocationId === queued.cropStructureId) || null
+      : null;
+    setForm((previous) => ({
+      ...previous,
+      vehicleId,
+      driverId,
+      ptcEventId: queued?.ptcEventId || "",
+      ptcCycle: queued?.ptcCycle ?? null,
+      ...harvestQueuePlotPatch(previous, queued?.fieldId, allocation),
+    }));
+  };
+
+  useEffect(() => {
+    // Wait until the persisted workspace has been restored. Otherwise the
+    // queue can populate the empty initial form and draft hydration can erase
+    // the suggested vehicle a moment later.
+    if (!workspaceReady || !coreDataReady || form.operationType !== "harvest_incoming" || form.grossKg) return;
+    const next = ptcQueue[0] || null;
+    if (!next) return;
+    const transportIsEmpty = !form.vehicleId && !form.driverId;
+    const completingSameQueuedVehicle = form.vehicleId === next.vehicleId
+      && !form.driverId
+      && (!form.ptcEventId || form.ptcEventId === next.ptcEventId);
+    // Never replace a choice the weighman has already made. We only fill a
+    // blank draft, or complete the driver for the same frozen queue vehicle.
+    if (!transportIsEmpty && !completingSameQueuedVehicle) return;
+    const allocation = next.fieldId && next.cropStructureId
+      ? (harvestStructureByField[next.fieldId] || []).find((item) => item.allocationId === next.cropStructureId) || null
+      : null;
+    setForm((previous) => {
+      if (previous.operationType !== "harvest_incoming" || previous.grossKg) return previous;
+      const previousTransportIsEmpty = !previous.vehicleId && !previous.driverId;
+      const previousMatchesQueuedVehicle = previous.vehicleId === next.vehicleId
+        && !previous.driverId
+        && (!previous.ptcEventId || previous.ptcEventId === next.ptcEventId);
+      if (!previousTransportIsEmpty && !previousMatchesQueuedVehicle) return previous;
+      return {
+        ...previous,
+        vehicleId: next.vehicleId,
+        driverId: next.driverId || "",
+        ptcEventId: next.ptcEventId,
+        ptcCycle: next.ptcCycle,
+        ...harvestQueuePlotPatch(previous, next.fieldId, allocation),
+      };
+    });
+  }, [workspaceReady, coreDataReady, form.operationType, form.vehicleId, form.driverId, form.grossKg, form.ptcEventId, ptcQueue, harvestStructureByField]);
+
+  const changeHarvestDestination = async (warehouseToId: string) => {
+    if (!workspaceReady || submittingRef.current || finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return false;
+    const targetWorkspaceId = selectedWorkspaceId;
+    const targetWorkspaceKey = universalWorkspacePersistKey;
+    const nextWarehouse = warehouses.find((warehouse) =>
+      warehouse.id === warehouseToId
+      && isHarvestDestinationPlace(warehouse.warehouseType, warehouse.placeType)
+    ) || null;
+    if (!nextWarehouse) return false;
+    const currentWarehouseId = harvestDestinationLockRef.current || form.warehouseToId;
+    if (currentWarehouseId === nextWarehouse.id) return true;
+    const currentWarehouse = warehouses.find((warehouse) => warehouse.id === currentWarehouseId) || null;
+    const confirmed = await siteConfirm({
+      title: currentWarehouse ? "Сменить место приёмки?" : "Зафиксировать место приёмки?",
+      description: currentWarehouse
+        ? `Новые талоны только этой вкладки: ${currentWarehouse.name} → ${nextWarehouse.name}. Другие вкладки и уже открытые талоны не изменятся.`
+        : `Новые талоны только этой вкладки будут направляться в «${nextWarehouse.name}». Другие вкладки и уже открытые талоны не изменятся.`,
+      actionLabel: currentWarehouse ? "Сменить склад" : "Зафиксировать склад",
+    });
+    if (!confirmed || selectedWorkspaceIdRef.current !== targetWorkspaceId || hydratedWorkspaceKeyRef.current !== targetWorkspaceKey) return false;
+
+    harvestDestinationLockRef.current = nextWarehouse.id;
+    setLockedHarvestDestinationId(nextWarehouse.id);
+    setForm((previous) => previous.operationType === "harvest_incoming"
+      ? { ...previous, warehouseToId: nextWarehouse.id }
+      : previous);
+    setWorkspaces((current) => current.map((workspace) => workspace.id === targetWorkspaceId && workspace.form.operationType === "harvest_incoming"
+      ? { ...workspace, form: { ...workspace.form, warehouseToId: nextWarehouse.id } }
+      : workspace));
+    toast({
+      title: "Место приёмки зафиксировано",
+      description: `${nextWarehouse.name} — только для этой вкладки. Другие вкладки не изменены.`,
+    });
+    return true;
+  };
+
+  const setActiveHarvestForm = (route: ActiveHarvestRoute | null, clearTransient = false) => {
+    setForm((previous) => ({
+      ...previous,
+      operationType: "harvest_incoming",
+      fieldId: route?.fieldId || "",
+      cropStructureAllocationId: route?.cropStructureId || "",
+      cropId: route?.cropId || "",
+      varietyId: route?.varietyId || "",
+      reproductionId: route?.reproductionId || "",
+      warehouseToId: harvestDestinationLockRef.current,
+      ...(clearTransient ? { vehicleId: "", driverId: "", grossKg: "", notes: "" } : {}),
+    }));
+  };
+
+  const selectActiveHarvest = async (route: ActiveHarvestRoute, confirmVolatile = true) => {
+    if (route.id === selectedActiveHarvestId) return;
+    const hasVolatileInput = Boolean(form.vehicleId || form.driverId || form.grossKg);
+    if (confirmVolatile && hasVolatileInput) {
+      const confirmed = await siteConfirm({
+        title: "Сменить активную уборку?",
+        description: "Транспорт, водитель и введённый вес будут очищены. Последний выбранный комбайнёр сохранится.",
+        actionLabel: "Сменить",
+      });
+      if (!confirmed) return;
+    }
+    if (
+      route.warehouseId
+      && route.warehouseId !== harvestDestinationLockRef.current
+      && !(await changeHarvestDestination(route.warehouseId))
+    ) return;
+    setSelectedActiveHarvestId(route.id);
+    setActiveHarvestForm(route, true);
+    setClosingTare("");
+    setClosingMoisture("");
+    setCommentOpen(false);
+    if (activeHarvestStorageKey) localStorage.setItem(activeHarvestStorageKey, route.id);
+  };
+
+  const createActiveHarvest = async (cropStructureId: string, warehouseId: string) => {
+    if (!profile?.company_id) return;
+    setActiveHarvestBusy(true);
+    try {
+      const result = await createActiveHarvestRoute(profile.company_id, cropStructureId, warehouseId);
+      let fieldId = "";
+      let allocation: HarvestStructureOption | null = null;
+      for (const [candidateFieldId, options] of Object.entries(harvestStructureByField)) {
+        const candidate = options.find((option) => option.allocationId === cropStructureId);
+        if (!candidate) continue;
+        fieldId = candidateFieldId;
+        allocation = candidate;
+        break;
+      }
+      const field = fields.find((item) => item.id === fieldId) || null;
+      const warehouse = warehouses.find((item) => item.id === warehouseId) || null;
+      const created: ActiveHarvestRoute | null = allocation && field && warehouse
+        ? {
+            id: result.routeId,
+            companyId: profile.company_id,
+            seasonId: result.seasonId,
+            seasonYear: result.seasonYear,
+            cropStructureId,
+            fieldId,
+            fieldName: field.name,
+            areaHa: allocation.areaHa,
+            warehouseId,
+            warehouseName: warehouse.name,
+            cropId: allocation.cropId,
+            cropName: allocation.cropName,
+            varietyId: allocation.varietyId || null,
+            varietyName: allocation.varietyName || "",
+            reproductionId: allocation.reproductionId || null,
+            reproductionName: allocation.reproductionName || "",
+            requiresReview: allocation.isIncomplete || !allocation.varietyId || !allocation.reproductionId,
+            status: "active",
+            openTicketCount: 0,
+            createdAt: result.createdAt,
+            updatedAt: result.updatedAt,
+            closedAt: null,
+          }
+        : null;
+      if (created) {
+        setActiveHarvestSeasonId(result.seasonId);
+        setActiveHarvestSeasonYear(result.seasonYear);
+        setCompletedHarvests((current) => current.filter((route) => route.id !== created.id));
+        setActiveHarvests((current) => [
+          ...current.filter((route) => route.id !== created.id),
+          created,
+        ]);
+        await selectActiveHarvest(created);
+      }
+      void refreshActiveHarvestRoutes().catch(() => {
+        // The optimistic route remains usable until realtime or the next refresh reconciles it.
+      });
+      toast({ title: "Активная уборка добавлена", description: created ? `${created.fieldName} → ${created.warehouseName}` : undefined });
+    } catch (error) {
+      toast({ title: "Не удалось добавить уборку", description: error instanceof Error ? error.message : "Повторите попытку", variant: "destructive" });
+      throw error;
+    } finally {
+      setActiveHarvestBusy(false);
+    }
+  };
+
+  const changeActiveHarvestContext = async (
+    route: ActiveHarvestRoute,
+    cropStructureId: string,
+    warehouseId: string
+  ) => {
+    if (!profile?.company_id) return;
+    if (route.cropStructureId === cropStructureId && route.warehouseId === warehouseId) return;
+    if (activeHarvests.some((item) =>
+      item.id !== route.id &&
+      item.cropStructureId === cropStructureId &&
+      item.warehouseId === warehouseId
+    )) {
+      toast({ title: "Такая активная приёмка уже открыта", variant: "destructive" });
+      return;
+    }
+
+    let fieldId = "";
+    let allocation: HarvestStructureOption | null = null;
+    for (const [candidateFieldId, options] of Object.entries(harvestStructureByField)) {
+      const candidate = options.find((option) => option.allocationId === cropStructureId);
+      if (!candidate) continue;
+      fieldId = candidateFieldId;
+      allocation = candidate;
+      break;
+    }
+    const field = fields.find((item) => item.id === fieldId) || null;
+    const warehouse = warehouses.find((item) => item.id === warehouseId) || null;
+    if (!allocation || !field || !warehouse) {
+      toast({ title: "Не удалось изменить приёмку", description: "Участок или место приёмки больше недоступны.", variant: "destructive" });
+      return;
+    }
+
+    if (route.openTicketCount > 0) {
+      const confirmed = await siteConfirm({
+        title: "Переключить вкладку?",
+        description: `По текущей приёмке открыто ${route.openTicketCount} талонов. Они останутся без изменений.`,
+        actionLabel: "Переключить",
+      });
+      if (!confirmed) return;
+    }
+    if (
+      route.id === selectedActiveHarvestId
+      && warehouseId !== harvestDestinationLockRef.current
+      && !(await changeHarvestDestination(warehouseId))
+    ) return;
+
+    const nextRoute: ActiveHarvestRoute = {
+      ...route,
+      cropStructureId,
+      fieldId,
+      fieldName: field.name,
+      areaHa: allocation.areaHa,
+      warehouseId,
+      warehouseName: warehouse.name,
+      cropId: allocation.cropId,
+      cropName: allocation.cropName,
+      varietyId: allocation.varietyId || null,
+      varietyName: allocation.varietyName || "",
+      reproductionId: allocation.reproductionId || null,
+      reproductionName: allocation.reproductionName || "",
+      requiresReview: allocation.isIncomplete || !allocation.varietyId || !allocation.reproductionId,
+      openTicketCount: tickets.filter((ticket) =>
+        ticket.op_type === "harvest_incoming" &&
+        ["draft", "active", "ready_to_close"].includes(ticket.status) &&
+        ticket.crop_structure_allocation_id === cropStructureId &&
+        ticket.warehouse_to_id === warehouseId
+      ).length,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setActiveHarvestBusy(true);
+    setActiveHarvests((current) => current.map((item) => item.id === route.id ? nextRoute : item));
+    if (route.id === selectedActiveHarvestId) setActiveHarvestForm(nextRoute);
+    try {
+      const result = await changeActiveHarvestRouteContext(
+        profile.company_id,
+        route.id,
+        cropStructureId,
+        fieldId,
+        warehouseId
+      );
+      setActiveHarvests((current) => current.map((item) =>
+        item.id === route.id ? { ...item, updatedAt: result.updatedAt || item.updatedAt } : item
+      ));
+      const cached = activeHarvestRouteCache.get(profile.company_id);
+      if (cached) {
+        activeHarvestRouteCache.set(profile.company_id, {
+          ...cached,
+          active: cached.active.map((item) => item.id === route.id ? nextRoute : item),
+        });
+      }
+    } catch (error) {
+      setActiveHarvests((current) => current.map((item) => item.id === route.id ? route : item));
+      if (route.id === selectedActiveHarvestId) setActiveHarvestForm(route);
+      toast({
+        title: "Не удалось изменить приёмку",
+        description: error instanceof Error ? error.message : "Повторите попытку",
+        variant: "destructive",
+      });
+    } finally {
+      setActiveHarvestBusy(false);
+    }
+  };
+
+  const completeActiveHarvest = async (route: ActiveHarvestRoute) => {
+    if (!profile?.company_id) return;
+    const confirmed = await siteConfirm({
+      title: "Завершить активную уборку?",
+      description: route.openTicketCount > 0
+        ? `Открытых талонов: ${route.openTicketCount}. Они останутся в очереди и истории.`
+        : "Вкладка уйдёт в завершённые. Талоны и история не изменятся.",
+      actionLabel: "Завершить",
+    });
+    if (!confirmed) return;
+    setActiveHarvestBusy(true);
+    try {
+      const payload = await updateActiveHarvestRoute(profile.company_id, route.id, "complete");
+      applyActiveHarvestRouteList(payload);
+      if (route.id === selectedActiveHarvestId) {
+        const next = payload.active[0] || null;
+        setSelectedActiveHarvestId(next?.id || "");
+        setActiveHarvestForm(next, true);
+        if (activeHarvestStorageKey) {
+          if (next) localStorage.setItem(activeHarvestStorageKey, next.id);
+          else localStorage.removeItem(activeHarvestStorageKey);
+        }
+      }
+      toast({ title: "Уборка завершена", description: "Талоны и история сохранены." });
+    } catch (error) {
+      toast({ title: "Не удалось завершить уборку", description: error instanceof Error ? error.message : "Повторите попытку", variant: "destructive" });
+    } finally {
+      setActiveHarvestBusy(false);
+    }
+  };
+
+  const adjustActiveHarvestTicketCount = (ticket: WeighbridgeTicket, delta: number) => {
+    if (ticket.op_type !== "harvest_incoming") return;
+    setActiveHarvests((current) => current.map((route) =>
+      route.cropStructureId === ticket.crop_structure_allocation_id && route.warehouseId === ticket.warehouse_to_id
+        ? { ...route, openTicketCount: Math.max(0, route.openTicketCount + delta) }
+        : route
+    ));
+  };
+
+  const activeHarvestForTicket = (ticket: WeighbridgeTicket) =>
+    [...activeHarvests, ...completedHarvests].find((route) =>
+      route.cropStructureId === ticket.crop_structure_allocation_id && route.warehouseId === ticket.warehouse_to_id
+    ) || null;
+
+  const activeTickets = useMemo(() => tickets.filter((t) => ["draft", "active", "ready_to_close"].includes(t.status)), [tickets]);
+  const ticketById = useMemo(() => new Map(tickets.map((ticket) => [ticket.id, ticket])), [tickets]);
+  const activeCorrectionOriginalIds = useMemo(
+    () => new Set(activeTickets.map((ticket) => ticket.correction_of_ticket_id).filter(Boolean)),
+    [activeTickets]
+  );
+  const visibleActiveTickets = useMemo(
+    () => {
+      const pendingCloseTicketId = ticketCloseState.phase === "closing" || ticketCloseState.phase === "reconciling"
+        ? ticketCloseState.ticketId
+        : null;
+      const rows = pendingCloseTicketId
+        ? activeTickets.filter((ticket) => ticket.id !== pendingCloseTicketId)
+        : activeTickets;
+      return pendingOpenTicket ? [...rows, pendingOpenTicket] : rows;
+    },
+    [activeTickets, pendingOpenTicket, ticketCloseState.phase, ticketCloseState.ticketId]
+  );
+  const harvestWarehouses = useMemo(
+    () => warehouses
+      .filter((warehouse) => isHarvestDestinationPlace(warehouse.warehouseType, warehouse.placeType))
+      .filter((warehouse) => canUseGrainProcessing({
+        cropSlug: selectedHarvestAllocation?.cropSlug,
+        cropName: selectedHarvestAllocation?.cropName,
+        categorySlug: selectedHarvestAllocation?.cropCategorySlug,
+        categoryName: selectedHarvestAllocation?.cropCategoryName,
+        subcategory: selectedHarvestAllocation?.cropSubcategory,
+      }) || !isProcessingPlace(warehouse.placeType))
+      .sort((left, right) => {
+        const typeOrder = storagePlaceTypeSortOrder(left.placeType) - storagePlaceTypeSortOrder(right.placeType);
+        return typeOrder || left.name.localeCompare(right.name, "ru");
+      }),
+    [warehouses, selectedHarvestAllocation]
+  );
+  const impuritySourceWarehouses = useMemo(
+    () => warehouses
+      .filter((warehouse) => isHarvestDestinationPlace(warehouse.warehouseType, warehouse.placeType))
+      .sort((left, right) => {
+        const typeOrder = storagePlaceTypeSortOrder(left.placeType) - storagePlaceTypeSortOrder(right.placeType);
+        return typeOrder || left.name.localeCompare(right.name, "ru");
+      }),
+    [warehouses]
+  );
+  const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
+  const weighedSupplierProducts = useMemo(
+    () => products.filter((product) => isWeighedSupplierProduct({
+      productType: product.productType || product.type,
+      stockUnit: product.stockUnit || product.baseUom || product.unit,
+      physicalState: product.physicalState,
+      isSeedMaterial: product.isSeedMaterial,
+    })),
+    [products]
+  );
+  const activeTicketLineTotal = useMemo(
+    () => (activeTicket?.lines || []).reduce((sum, line) => sum + Number(line.quantity || 0), 0),
+    [activeTicket?.id, activeTicket?.lines]
+  );
+  const selectedTransferStock = useMemo(
+    () => stockIdentityOptions.find((item) => item.key === form.stockIdentityKey) || null,
+    [stockIdentityOptions, form.stockIdentityKey]
+  );
+  const sourceWarehouse = useMemo(
+    () => warehouses.find((warehouse) => warehouse.id === form.warehouseFromId) || null,
+    [warehouses, form.warehouseFromId]
+  );
+  const processingCandidates = useMemo(
+    () => form.operationType === "transfer_between_warehouses" && isProcessingPlace(sourceWarehouse?.placeType)
+      ? processingItems.filter((item) =>
+          item.record_type === "transformation"
+          && item.node_warehouse_id === form.warehouseFromId
+          && isOpenProcessingWorkItem(item)
+          && processingMassSnapshot(item).balanceDeltaKg > 0.001
+        )
+      : [],
+    [form.operationType, form.warehouseFromId, processingItems, sourceWarehouse?.placeType]
+  );
+  const selectedProcessingItem = useMemo(
+    () => processingCandidates.find((item) => item.id === form.processingTransformationId)
+      || (processingCandidates.length === 1 ? processingCandidates[0] : null),
+    [processingCandidates, form.processingTransformationId]
+  );
+  const processingOutputContext = useMemo<ProcessingOutputContext | null>(() => {
+    if (!selectedProcessingItem?.node_warehouse_id || !selectedProcessingItem.harvest_lot_id || !selectedProcessingItem.product_id) return null;
+    const placeType = String(sourceWarehouse?.placeType || selectedProcessingItem.node_place_type || "").toUpperCase();
+    if (placeType !== "DRYER" && placeType !== "CLEANER") return null;
+    return {
+      transformationId: selectedProcessingItem.id,
+      warehouseId: selectedProcessingItem.node_warehouse_id,
+      placeType,
+      harvestLotId: selectedProcessingItem.harvest_lot_id,
+      productId: selectedProcessingItem.product_id,
+      cropId: selectedProcessingItem.crop_id || null,
+      varietyId: selectedProcessingItem.variety_id || null,
+      reproductionId: selectedProcessingItem.reproduction_id || null,
+      compositionHash: selectedProcessingItem.composition_hash || null,
+      compositionSnapshot: selectedProcessingItem.composition_snapshot || [],
+      isMixedHarvest: Boolean(selectedProcessingItem.is_mixed_harvest),
+      identityLabel: selectedProcessingItem.identity_label || selectedProcessingItem.input_label || "Партия урожая",
+      transformationLabel: `${placeType === "DRYER" ? "Сушка" : "Очистка"} · ${selectedProcessingItem.ticket_no ? `талон ${selectedProcessingItem.ticket_no}` : fmt(selectedProcessingItem.started_at || selectedProcessingItem.created_at, lang)}`,
+      unallocatedKg: processingMassSnapshot(selectedProcessingItem).unallocatedKg,
+      processingState: selectedProcessingItem.processing_state || "in_processing",
+      lastMainOutputMarked: Boolean(selectedProcessingItem.last_main_output_marked_at),
+    };
+  }, [lang, selectedProcessingItem, sourceWarehouse?.placeType]);
+
+  useEffect(() => {
+    const processingSource = form.operationType === "transfer_between_warehouses" && isProcessingPlace(sourceWarehouse?.placeType);
+    const onlyCandidate = processingCandidates.length === 1 ? processingCandidates[0] : null;
+    const currentCandidate = processingCandidates.find((item) => item.id === form.processingTransformationId) || null;
+    const targetCandidate = currentCandidate || onlyCandidate;
+    const targetRole: ProcessingOutputRole | "" = processingSource && targetCandidate
+      ? String(sourceWarehouse?.placeType || "").toUpperCase() === "DRYER"
+        ? "GRAIN"
+        : currentCandidate
+          ? form.processingOutputRole
+          : ""
+      : "";
+    const targetId = processingSource ? targetCandidate?.id || "" : "";
+    const targetMode: TransferMode = processingSource ? "weighbridge" : form.transferMode;
+    if (
+      form.processingTransformationId === targetId
+      && form.processingOutputRole === targetRole
+      && form.transferMode === targetMode
+    ) return;
+    setForm((previous) => ({
+      ...previous,
+      processingTransformationId: targetId,
+      processingOutputRole: targetRole,
+      transferMode: targetMode,
+      ...(processingSource ? { stockIdentityKey: "", productId: "", quantityKg: "" } : {}),
+    }));
+  }, [
+    form.operationType,
+    form.processingOutputRole,
+    form.processingTransformationId,
+    form.transferMode,
+    processingCandidates,
+    sourceWarehouse?.placeType,
+  ]);
+  const availableHarvestBatches = useMemo(
+    () => harvestBatches.filter((batch) => !form.warehouseFromId || batch.warehouseId === form.warehouseFromId),
+    [harvestBatches, form.warehouseFromId]
+  );
+  const persistedImpuritySourceSelections = useMemo<ImpuritySourceFormSelection[]>(() => {
+    if (!Array.isArray(form.impuritySourceSelections)) return [];
+    return form.impuritySourceSelections
+      .map((source) => ({
+        batchId: String(source?.batchId || "").trim(),
+        harvestLotId: String(source?.harvestLotId || "").trim() || null,
+        cropStructureId: String(source?.cropStructureId || "").trim() || null,
+      }))
+      .filter((source) => Boolean(source.batchId));
+  }, [form.impuritySourceSelections]);
+  const impuritySourceOptions = useMemo<ImpuritySourceOption[]>(() => {
+    const options: ImpuritySourceOption[] = [];
+    const seen = new Set<string>();
+
+    const pushOption = (option: ImpuritySourceOption) => {
+      if (seen.has(option.key)) return;
+      seen.add(option.key);
+      options.push(option);
+    };
+
+    availableHarvestBatches.forEach((batch) => {
+      const sources = Array.isArray(batch.cropStructureSources) ? batch.cropStructureSources : [];
+      // Exact source rows are the normal weighman path and support combining
+      // several field lots in one impurity ticket. Showing an additional
+      // single-select "whole lot" row for the same stock made the first click
+      // silently block the second lot (most visibly on field 49-2).
+      if (sources.length === 0) {
+        pushOption({
+          key: `legacy:${batch.id}`,
+          label: `Вся партия · ${buildHarvestLotOptionLabel({ ...batch, includeMass: false })}`,
+          description: `Остаток партии: ${formatWeightTonnes(batch.cleanMassKg)}`,
+          groupLabel: "Партия без точной привязки",
+          supportsSharedSelection: false,
+          batchId: batch.id,
+          harvestLotId: batch.aggregateLotId || null,
+          cropStructureId: null,
+          warehouseId: batch.warehouseId,
+          productId: batch.productId,
+          cropId: batch.cropId || null,
+          cleanMassKg: Number(batch.cleanMassKg || 0),
+        });
+      }
+
+      sources.forEach((source) => {
+        const harvestLotId = String(source.harvestLotId || batch.aggregateLotId || "").trim();
+        const cropStructureId = String(source.cropStructureId || "").trim();
+        if (!harvestLotId || !cropStructureId) return;
+        const fieldName = String(source.fieldName || batch.fieldName || "Поле не указано").trim();
+        const cropName = String(source.cropName || batch.cropName || batch.productName || "").trim();
+        const varietyName = String(source.varietyName || batch.varietyName || "").trim();
+        const reproductionName = String(source.reproductionName || batch.reproductionName || "").trim();
+        const areaHa = Number(source.areaHa);
+        const sourceAvailableKg = Number(source.availableKg);
+        const availableKg = Number.isFinite(sourceAvailableKg) && sourceAvailableKg > 0
+          ? sourceAvailableKg
+          : Number(batch.cleanMassKg || 0);
+        const identityParts = [
+          fieldName,
+          cropName,
+          varietyName && varietyName !== cropName ? varietyName : "",
+          reproductionName,
+          Number.isFinite(areaHa) && areaHa > 0 ? `${areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га` : "",
+        ].filter(Boolean);
+        pushOption({
+          key: `${harvestLotId}:${cropStructureId}`,
+          label: identityParts.join(" · "),
+          description: `Остаток партии: ${formatWeightTonnes(availableKg)}`,
+          groupLabel: fieldName,
+          supportsSharedSelection: true,
+          batchId: batch.id,
+          harvestLotId,
+          cropStructureId,
+          warehouseId: batch.warehouseId,
+          productId: batch.productId,
+          cropId: source.cropId || batch.cropId || null,
+          cleanMassKg: availableKg,
+        });
+      });
+    });
+
+    return options;
+  }, [availableHarvestBatches]);
+  const impuritySourceSelectionKeys = useMemo(
+    () => persistedImpuritySourceSelections.length > 0
+      ? persistedImpuritySourceSelections.map((source) => source.harvestLotId && source.cropStructureId
+          ? `${source.harvestLotId}:${source.cropStructureId}`
+          : `legacy:${source.batchId}`
+        )
+      : form.sourceBatchId ? [`legacy:${form.sourceBatchId}`] : [],
+    [form.sourceBatchId, persistedImpuritySourceSelections]
+  );
+  const impuritySourceOptionByKey = useMemo(
+    () => new Map(impuritySourceOptions.map((option) => [option.key, option])),
+    [impuritySourceOptions]
+  );
+  const selectedImpuritySourceOptions = useMemo(
+    () => impuritySourceSelectionKeys
+      .map((key) => impuritySourceOptionByKey.get(key))
+      .filter((option): option is ImpuritySourceOption => Boolean(option)),
+    [impuritySourceOptionByKey, impuritySourceSelectionKeys]
+  );
+  const hasExactImpuritySourceScope = selectedImpuritySourceOptions.length > 0
+    && selectedImpuritySourceOptions.every((source) => source.supportsSharedSelection);
+  const hasMultipleExactImpuritySources = hasExactImpuritySourceScope
+    && selectedImpuritySourceOptions.length > 1;
+  const hasDuplicateImpurityCropStructureSources = selectedImpuritySourceOptions.length > 1
+    && new Set(selectedImpuritySourceOptions.map((source) => source.cropStructureId)).size !== selectedImpuritySourceOptions.length;
+  const changeImpuritySources = (keys: string[]) => {
+    const nextSources = keys
+      .map((key) => impuritySourceOptionByKey.get(key) || persistedImpuritySourceSelections.find((source) =>
+        key === (source.harvestLotId && source.cropStructureId
+          ? `${source.harvestLotId}:${source.cropStructureId}` : `legacy:${source.batchId}`)
+      ))
+      .filter((source): source is ImpuritySourceFormSelection => Boolean(source));
+    setForm((previous) => ({
+      ...previous,
+      sourceBatchId: nextSources[0]?.batchId || "",
+      impuritySourceSelections: nextSources.map((source) => ({
+        batchId: source.batchId,
+        harvestLotId: source.harvestLotId,
+        cropStructureId: source.cropStructureId,
+      })),
+    }));
+  };
+  const selectedHarvestBatch = useMemo(
+    () => harvestBatches.find((batch) =>
+      batch.id === form.sourceBatchId
+      && (!form.warehouseFromId || batch.warehouseId === form.warehouseFromId)
+    ) || null,
+    [harvestBatches, form.sourceBatchId, form.warehouseFromId]
+  );
+
+  useEffect(() => {
+    if (
+      form.operationType !== "impurity_removal"
+      || !profile?.company_id
+      || hasExactImpuritySourceScope
+      || !selectedHarvestBatch?.aggregateLotId
+	      || harvestBatchDetailRequestedKey !== `${profile.company_id}:${selectedHarvestBatch.warehouseId}:${selectedHarvestBatch.id}`
+	      || selectedHarvestBatch.detailLevel === "full"
+	    ) {
+	      setHarvestBatchDetailLoading(false);
+	      setHarvestBatchDetailError("");
+	      return;
+	    }
+
+	    const controller = new AbortController();
+	    let requestTimedOut = false;
+	    const timeoutId = window.setTimeout(() => {
+	      requestTimedOut = true;
+	      controller.abort();
+	    }, HARVEST_BATCH_REQUEST_TIMEOUT_MS);
+	    setHarvestBatchDetailLoading(true);
+	    setHarvestBatchDetailError("");
+    void listHarvestBatchSummaries(profile.company_id, {
+      aggregateLots: true,
+      lotId: selectedHarvestBatch.aggregateLotId,
+      warehouseId: selectedHarvestBatch.warehouseId,
+      signal: controller.signal,
+    }).then((rows) => {
+      if (controller.signal.aborted) return;
+      const detail = rows.find((row) =>
+        row.id === selectedHarvestBatch.id
+        && row.warehouseId === selectedHarvestBatch.warehouseId
+        && row.detailLevel === "full"
+      );
+      if (!detail) throw new Error("Полная карточка партии не найдена");
+      setHarvestBatches((current) => current.map((row) =>
+        row.id === detail.id && row.warehouseId === detail.warehouseId
+          ? {
+              ...detail,
+              cropStructureSources: detail.cropStructureSources || row.cropStructureSources,
+            }
+          : row
+      ));
+	    }).catch((error: any) => {
+	      if ((controller.signal.aborted || error?.name === "AbortError") && !requestTimedOut) return;
+	      const message = requestTimedOut
+	        ? "Карточка партии загружается слишком долго. Нажмите «Повторить»."
+	        : "Не удалось загрузить полные данные партии. Нажмите «Повторить».";
+	      setHarvestBatchDetailError(message);
+	      toast({
+	        title: "Не удалось загрузить партию",
+	        description: message,
+	        variant: "destructive",
+	      });
+	    }).finally(() => {
+	      window.clearTimeout(timeoutId);
+	      if (!controller.signal.aborted || requestTimedOut) setHarvestBatchDetailLoading(false);
+	    });
+
+	    return () => {
+	      window.clearTimeout(timeoutId);
+	      controller.abort();
+	    };
+  }, [
+    form.operationType,
+    hasExactImpuritySourceScope,
+    profile?.company_id,
+    selectedHarvestBatch?.id,
+    selectedHarvestBatch?.warehouseId,
+	    selectedHarvestBatch?.aggregateLotId,
+	    selectedHarvestBatch?.detailLevel,
+	    harvestBatchDetailRetry,
+	    harvestBatchDetailRequestedKey,
+	    toast,
+  ]);
+  const fieldIssueStockOptions = useMemo(() => {
+    const filtered = stockIdentityOptions.filter(isFieldMaterialOption);
+    if (!selectedHarvestAllocation) return filtered;
+    return [...filtered].sort((a, b) => {
+      const aMatch = isSeedIssueOperation(inferFieldMaterialCategory(a)) &&
+        a.product_name.toLowerCase().includes(selectedHarvestAllocation.cropName.toLowerCase()) &&
+        a.variety_id === selectedHarvestAllocation.varietyId &&
+        a.reproduction_id === selectedHarvestAllocation.reproductionId;
+      const bMatch = isSeedIssueOperation(inferFieldMaterialCategory(b)) &&
+        b.product_name.toLowerCase().includes(selectedHarvestAllocation.cropName.toLowerCase()) &&
+        b.variety_id === selectedHarvestAllocation.varietyId &&
+        b.reproduction_id === selectedHarvestAllocation.reproductionId;
+      return Number(bMatch) - Number(aMatch) || a.label.localeCompare(b.label, "ru");
+    });
+  }, [stockIdentityOptions, selectedHarvestAllocation]);
+  const selectedVehicle = useMemo(
+    () => vehicles.find((vehicle) => vehicle.id === form.vehicleId) || null,
+    [vehicles, form.vehicleId]
+  );
+  const updateTransportPickerData = (
+    updater: (current: WeighbridgeTransportPickerData) => WeighbridgeTransportPickerData
+  ) => {
+    setTransportPickerData((current) => {
+      const next = updater(current);
+      if (profile?.company_id) transportPickerDataCache.set(profile.company_id, next);
+      return next;
+    });
+  };
+
+  const markTransportAssignmentOpen = (ticket: WeighbridgeTicket) => {
+    if (!ticket.vehicle_id && !ticket.driver_id) return;
+    updateTransportPickerData((current) => ({
+      ...current,
+      openAssignments: [
+        ...current.openAssignments.filter((item) => item.ticketId !== ticket.id),
+        {
+          ticketId: ticket.id,
+          ticketNo: ticket.ticket_no || "",
+          vehicleId: ticket.vehicle_id || null,
+          driverId: ticket.driver_id || null,
+        },
+      ],
+      fetchedAt: new Date().toISOString(),
+    }));
+  };
+
+  const releaseTransportAssignment = (ticket: WeighbridgeTicket, learnPair: boolean) => {
+    updateTransportPickerData((current) => {
+      const base = {
+        ...current,
+        openAssignments: current.openAssignments.filter((item) => item.ticketId !== ticket.id),
+        fetchedAt: new Date().toISOString(),
+      };
+      if (!learnPair || !ticket.vehicle_id || !ticket.driver_id) return base;
+      const existing = current.recentPairs.find(
+        (pair) => pair.vehicleId === ticket.vehicle_id && pair.driverId === ticket.driver_id
+      );
+      const pair = {
+        vehicleId: ticket.vehicle_id,
+        driverId: ticket.driver_id,
+        lastUsedAt: new Date().toISOString(),
+        usageCount: (existing?.usageCount || 0) + 1,
+        usedInOperationalDay: true,
+        usedInCurrentSeason: !current.seasonId || current.seasonId === ticket.season_id,
+      };
+      return {
+        ...base,
+        recentPairs: [
+          pair,
+          ...current.recentPairs.filter(
+            (item) => item.vehicleId !== pair.vehicleId || item.driverId !== pair.driverId
+          ),
+        ].slice(0, 4),
+        latestDriverByVehicle: {
+          ...current.latestDriverByVehicle,
+          [pair.vehicleId]: pair.driverId,
+        },
+        latestVehicleByDriver: {
+          ...current.latestVehicleByDriver,
+          [pair.driverId]: pair.vehicleId,
+        },
+      };
+    });
+  };
+
+  const openTransportAssignmentTicket = async (ticketId: string) => {
+    if (finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return;
+    const local = tickets.find((ticket) => ticket.id === ticketId);
+    if (local) {
+      setActiveTicket(local);
+      return;
+    }
+    try {
+      const payload = await getTicketDetails(ticketId, profile?.id);
+      if (finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return;
+      setActiveTicket({
+        ...(payload.ticket || {}),
+        lines: payload.lines || payload.ticket?.lines || [],
+      } as WeighbridgeTicket);
+    } catch (error) {
+      toast({
+        title: "Талон недоступен",
+        description: error instanceof Error ? error.message : "Повторите попытку",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleBlockedTransportAssignment = async (assignment: { ticketId: string; ticketNo: string }) => {
+    if (finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return;
+    const confirmed = await siteConfirm({
+      title: "Уже ждёт тару",
+      description: assignment.ticketNo
+        ? `Транспорт или водитель уже используется в талоне ${assignment.ticketNo}. Открыть этот талон?`
+        : "Транспорт или водитель уже используется в открытом талоне. Открыть его?",
+      actionLabel: "Открыть талон",
+    });
+    if (confirmed) void openTransportAssignmentTicket(assignment.ticketId);
+  };
+  const gross = activeTicket?.gross_weight_kg != null ? String(activeTicket.gross_weight_kg) : activeTicket?.weigh_method === "manual_override_with_reason" && activeTicketLineTotal > 0 ? String(activeTicketLineTotal) : "";
+  const pure = net(gross, closingTare);
+  const grossInputValidation = form.grossKg.trim() ? parseStrictWeightKg(form.grossKg, "Брутто") : null;
+  const closingTareValidation = closingTare.trim() ? parseStrictWeightKg(closingTare, "Тара") : null;
+  const liveWeightKg = useMemo(() => {
+    const formWeight = form.grossKg.trim() ? parseStrictWeightKg(form.grossKg, "Брутто") : null;
+    if (formWeight?.ok) return formWeight.value;
+    const ticketWeight = gross ? parseStrictWeightKg(gross, "Брутто") : null;
+    if (ticketWeight?.ok) return ticketWeight.value;
+    return 0;
+  }, [form.grossKg, gross]);
+  const nextActionLabel = activeTicket
+    ? ticketStageLabel(activeTicket)
+    : form.grossKg
+      ? "Ждёт тару"
+      : "Ждёт брутто";
+  const isFieldIssue = form.operationType === "issue_to_field";
+  const isTransfer = form.operationType === "transfer_between_warehouses";
+  const isShipment = form.operationType === "shipment_outbound";
+  const isDisposal = form.operationType === "disposal_writeoff";
+  const isImpurityRemoval = form.operationType === "impurity_removal";
+  const isProcessingOutput = isTransfer && Boolean(processingOutputContext);
+  const isDryerOutput = isProcessingOutput && processingOutputContext?.placeType === "DRYER";
+  const isSupplierDirect = form.operationType === "supplier_receipt" && form.supplierReceiptMode === "direct";
+  const isTransferDirect = isTransfer && form.transferMode === "direct";
+  const isFieldIssueDirect = isFieldIssue && form.fieldIssueMode === "direct";
+  const isWeighbridgeForm =
+    form.operationType === "harvest_incoming" ||
+    (form.operationType === "supplier_receipt" && form.supplierReceiptMode === "weighbridge") ||
+    (isTransfer && form.transferMode === "weighbridge") ||
+    (isFieldIssue && form.fieldIssueMode === "weighbridge") ||
+    isShipment ||
+    isDisposal ||
+    isImpurityRemoval;
+  const supplierReceiptGenericLineDrafts = useMemo(() => {
+    if (form.operationType !== "supplier_receipt" || form.supplierReceiptMode !== "direct") return [];
+    const base: SupplierReceiptLineDraft = {
+      localId: "base",
+      productId: form.productId,
+      quantityKg: form.quantityKg,
+      uom: inferProductUnit(productById.get(form.productId)),
+      warehouseToId: form.warehouseToId,
+      supplierLot: form.supplierLot,
+      unitPrice: form.unitPrice,
+      notes: "",
+    };
+    return [base, ...supplierReceiptLines].filter(
+      (line) =>
+        line.localId === "base" ||
+        Boolean(line.productId || line.quantityKg || line.supplierLot || line.notes)
+    );
+  }, [form.operationType, form.supplierReceiptMode, form.productId, form.quantityKg, form.warehouseToId, form.supplierLot, form.unitPrice, supplierReceiptLines, productById]);
+  const supplierReceiptGenericLineTotal = useMemo(
+    () => supplierReceiptGenericLineDrafts.reduce((sum, line) => sum + Number(toNum(line.quantityKg) || 0), 0),
+    [supplierReceiptGenericLineDrafts]
+  );
+  const supplierReceiptUsesMultipleLines =
+    form.operationType === "supplier_receipt" &&
+    form.supplierReceiptMode === "direct" &&
+    supplierReceiptLines.length > 0;
+
+  const selectOperation = async (operationType: OperationType) => {
+    if (!workspaceReady || submittingRef.current || finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return false;
+    if (operationType === form.operationType) return true;
+    const dirtyCheckForm = harvestDestinationLockRef.current === form.warehouseToId
+      ? { ...form, warehouseToId: "" }
+      : form;
+    if (isUniversalWorkspaceDirty(dirtyCheckForm, INITIAL_FORM, supplierReceiptLines.length)) {
+      const confirmed = await siteConfirm({
+        title: "Сменить тип движения?",
+        description: "Несохранённые данные этой вкладки будут очищены.",
+        actionLabel: "Сменить",
+      });
+      if (!confirmed) return false;
+    }
+    setSupplierReceiptLines([]);
+    setShowSupplierExtraFields(false);
+    setForm({
+      ...INITIAL_FORM,
+      operationType,
+      warehouseToId: operationType === "harvest_incoming"
+        ? harvestDestinationLockRef.current
+        : "",
+    });
+    return true;
+  };
+
+  const validate = () => {
+    if (!profile?.company_id || !profile?.id) return "Нет профиля пользователя";
+    if (form.vehicleId && !vehicles.some((vehicle) => vehicle.id === form.vehicleId)) {
+      return "Выберите машину из действующего автопарка";
+    }
+    if (form.harvestMoisture.trim()) {
+      const moisture = toNum(form.harvestMoisture);
+      if (moisture == null || moisture <= 0 || moisture >= 100) {
+        return "Влажность должна быть больше 0 и меньше 100 %";
+      }
+    }
+    if (form.operationType === "harvest_incoming") {
+      if (form.externalDocumentNo.trim() && !form.paperRecordedAt) return "Укажите дату и время бумажного рейса";
+      if (form.externalDocumentNo.trim()) {
+        const tare = toNum(form.paperTareKg);
+        const gross = toNum(form.grossKg);
+        if (tare == null || tare < 0 || gross == null || tare >= gross) return "Тара бумажного рейса должна быть меньше брутто";
+      }
+      if (!form.driverId) return "Выберите водителя";
+      if (!form.vehicleId) return "Выберите машину";
+      if (!form.combineOperatorPersonId) return "Выберите комбайнера";
+      if (!form.fieldId || !form.cropStructureAllocationId || !form.cropId) {
+        return "Выберите поле и участок / культуру";
+      }
+      if (!form.warehouseToId) {
+        return "Выберите склад назначения";
+      }
+      if (form.warehouseToId !== harvestDestinationLockRef.current) {
+        return "Место приёмки не подтверждено. Выберите склад вручную ещё раз";
+      }
+      if (!fieldHarvestOptions.some((x) => x.allocationId === form.cropStructureAllocationId)) {
+        return "Выбранная посевная строка не связана с этим полем";
+      }
+      if (harvestContext.status !== "ready") {
+        return harvestContext.message || "Активная уборка не определена";
+      }
+      if ((toNum(form.grossKg) ?? 0) <= 0) return "Укажите брутто";
+    } else if (form.operationType === "supplier_receipt") {
+      if (!form.supplierId) return "Выберите контрагента";
+      if (form.supplierReceiptMode === "weighbridge") {
+        if (!form.warehouseToId) return "Выберите склад назначения";
+        if (!form.productId) return "Выберите номенклатуру";
+        if (!weighedSupplierProducts.some((product) => product.id === form.productId)) return "Эта номенклатура не принимается через весовую";
+        if ((toNum(form.grossKg) ?? 0) <= 0) return "Укажите брутто";
+      } else {
+        if (!supplierReceiptGenericLineDrafts.length || supplierReceiptGenericLineDrafts.some((line) => !line.productId)) {
+          return "Выберите номенклатуру по каждой строке поставки";
+        }
+        if (supplierReceiptGenericLineDrafts.some((line) => !String(productById.get(line.productId)?.stockUnit || "").trim())) {
+          return "Для номенклатуры не задана единица хранения";
+        }
+        if (supplierReceiptGenericLineDrafts.some((line) => !line.warehouseToId)) {
+          return "Выберите склад по каждой строке поставки";
+        }
+        if (supplierReceiptGenericLineDrafts.some((line) => (toNum(line.quantityKg) ?? 0) <= 0)) {
+          return "Укажите количество по каждой строке поставки";
+        }
+      }
+    } else if (form.operationType === "issue_to_field") {
+      if (form.fieldId && fieldHarvestOptions.length > 1 && !form.cropStructureAllocationId) return "Выберите посевную строку поля";
+      if (form.fieldId && !selectedHarvestAllocation) return "Для выдачи в поле нужна посевная строка активного сезона";
+      if (!form.warehouseFromId) return "Выберите склад-источник";
+      if (!form.fieldId) return "Выберите поле";
+      if (!form.stockIdentityKey || !selectedTransferStock) return "Выберите материал из остатков склада";
+      if (form.fieldIssueMode === "weighbridge") {
+        if (!form.driverId) return "Выберите водителя";
+        if (!form.vehicleId) return "Выберите машину";
+        if ((toNum(form.grossKg) ?? 0) <= 0) return "Укажите брутто";
+      } else {
+        const qty = toNum(form.quantityKg);
+        if (!qty || qty <= 0) return "Укажите количество выдачи";
+        if (qty > Number(selectedTransferStock?.quantity || 0)) return "Количество больше доступного остатка";
+      }
+      if (isSeedIssueOperation(inferFieldMaterialCategory(selectedTransferStock))) {
+        if (!selectedHarvestAllocation) return "Для семян нужна структура посевов выбранного поля";
+        if (!selectedTransferStock.variety_id || !selectedTransferStock.reproduction_id) {
+          return "Для семян выберите партию с сортом и репродукцией";
+        }
+        const cropMatches = selectedTransferStock.product_name
+          .toLowerCase()
+          .includes(selectedHarvestAllocation.cropName.toLowerCase());
+        if (
+          !cropMatches ||
+          selectedTransferStock.variety_id !== selectedHarvestAllocation.varietyId ||
+          selectedTransferStock.reproduction_id !== selectedHarvestAllocation.reproductionId
+        ) {
+          return "Семенная партия не соответствует культуре, сорту или репродукции поля";
+        }
+      }
+    } else if (form.operationType === "transfer_between_warehouses") {
+      if (!form.warehouseFromId || !form.warehouseToId) return "Выберите склад-источник и склад назначения";
+      if (form.warehouseFromId === form.warehouseToId) return "Склады не должны совпадать";
+      if (isProcessingPlace(sourceWarehouse?.placeType)) {
+        if (processingCandidates.length === 0) return "На этом объекте нет активной партии обработки";
+        if (!processingOutputContext) return "Выберите, от какой обработки вывозится партия";
+        if (!form.processingOutputRole) return "Укажите, что вывозится после обработки";
+        if (processingOutputContext.unallocatedKg <= 0) return "Нераспределённый баланс обработки исчерпан";
+      } else if (!form.stockIdentityKey || !selectedTransferStock) {
+        return "Выберите остаток из склада-источника";
+      }
+      if (!form.driverId) return "Выберите водителя";
+      if (!form.vehicleId) return "Выберите машину";
+      if (form.transferMode === "weighbridge" || processingOutputContext) {
+        if ((toNum(form.grossKg) ?? 0) <= 0) return "Укажите брутто";
+      } else {
+        const qty = toNum(form.quantityKg);
+        if (!qty || qty <= 0) return "Укажите количество перемещения";
+        if (qty > Number(selectedTransferStock?.quantity || 0)) return "Количество больше доступного остатка";
+      }
+    } else if (form.operationType === "shipment_outbound") {
+      if (!form.warehouseFromId) return "Выберите склад-источник";
+      if (!form.stockIdentityKey || !selectedTransferStock) return "Выберите остаток для отгрузки";
+      if (!form.buyerId) return "Выберите контрагента";
+      if (!form.driverId) return "Выберите водителя";
+      if (!form.vehicleId) return "Выберите машину";
+      if ((toNum(form.grossKg) ?? 0) <= 0) return "Укажите брутто";
+    } else if (form.operationType === "impurity_removal") {
+      if (!form.warehouseFromId) return "Выберите склад";
+	  if (harvestBatchOptionsStatus !== "ready") {
+	    return harvestBatchOptionsStatus === "stale"
+	      ? "Повторите обновление партий: сохранённый список устарел"
+	      : "Дождитесь актуальных остатков партий";
+	  }
+      if (impuritySourceSelectionKeys.length === 0) return "Выберите участок или партию урожая";
+      if (selectedImpuritySourceOptions.length !== impuritySourceSelectionKeys.length) {
+        return "Список источников изменился. Откройте выбор участков и подтвердите его заново";
+      }
+      if (selectedImpuritySourceOptions.some((source) => source.warehouseId !== form.warehouseFromId)) {
+        return "Один из источников не принадлежит выбранному складу";
+      }
+      if (hasExactImpuritySourceScope) {
+        if (selectedImpuritySourceOptions.some((source) => !source.harvestLotId || !source.cropStructureId)) {
+          return "Совместный выбор доступен только для партий, связанных со структурой посевов";
+        }
+        if (hasDuplicateImpurityCropStructureSources) {
+          return "Один и тот же участок выбран несколько раз";
+        }
+        const firstSource = selectedImpuritySourceOptions[0];
+        if (selectedImpuritySourceOptions.some((source) => source.productId !== firstSource.productId || source.cropId !== firstSource.cropId)) {
+          return "Для одного талона выберите участки одной культуры и номенклатуры";
+        }
+        if (selectedImpuritySourceOptions.some((source) => source.cleanMassKg <= 0)) {
+          return "В одном из выбранных источников не осталось чистой массы";
+        }
+      } else {
+        if (!form.sourceBatchId || !selectedHarvestBatch) return "Выберите партию урожая";
+        if (selectedHarvestBatch.warehouseId !== form.warehouseFromId) return "Партия не принадлежит выбранному складу";
+        // The summary contains the canonical lot, product and current balance.
+        // Historical trip details are not a prerequisite for opening a ticket;
+        // the server still validates and locks the source at create/finalize.
+        if (selectedHarvestBatch.cleanMassKg <= 0) return "В партии не осталось чистой массы";
+      }
+      if (!form.impurityType) return "Выберите вид примесей";
+      if (form.impurityType === "other" && !form.notes.trim()) return "Для вида «Прочее» добавьте комментарий";
+      if (!form.driverId) return "Выберите водителя";
+      if (!form.vehicleId) return "Выберите машину";
+      if ((toNum(form.grossKg) ?? 0) <= 0) return "Укажите брутто";
+    } else if (form.operationType === "disposal_writeoff") {
+      if (!form.warehouseFromId) return "Выберите склад-источник";
+      if (!form.stockIdentityKey || !selectedTransferStock) return "Выберите остаток для списания";
+      if (!form.disposalReason.trim()) return "Укажите причину списания";
+      if (!form.driverId) return "Выберите водителя";
+      if (!form.vehicleId) return "Выберите машину";
+      if ((toNum(form.grossKg) ?? 0) <= 0) return "Укажите вес";
+    } else if (form.operationType === "drying") {
+      if (!form.warehouseFromId || !form.warehouseToId || !form.processingPointId || !toNum(form.dryingOutputKg)) return "Для сушки заполните все обязательные поля";
+    }
+    return null;
+  };
+
+  const activeSecondaryCatalogError = needsSecondaryCatalogs
+    && secondaryCatalogStatus.key === secondaryCatalogKey
+    && secondaryCatalogStatus.status === "error"
+    ? secondaryCatalogStatus.error
+    : "";
+  const secondaryModeLoading = Boolean(
+    needsSecondaryCatalogs
+    && secondaryCatalogKey
+    && !secondaryCatalogReadyRef.current.has(secondaryCatalogKey)
+    && secondaryCatalogStatus.key === secondaryCatalogKey
+    && secondaryCatalogStatus.status === "loading"
+    && !activeSecondaryCatalogError
+  );
+  const currentValidationError = !coreDataReady
+    ? "Рабочие справочники ещё загружаются"
+    : activeSecondaryCatalogError
+      ? activeSecondaryCatalogError
+    : secondaryModeLoading
+      ? "Справочник выбранного режима ещё загружается"
+      : validate();
+
+  const create = async () => {
+    if (!canOperate || submitting || submittingRef.current) return;
+    if (!coreDataReady || secondaryModeLoading || Boolean(activeSecondaryCatalogError)) {
+      toast({
+        title: "Данные ещё загружаются",
+        description: currentValidationError || "Подождите пару секунд и повторите создание талона.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!activeShift && !(form.operationType === "supplier_receipt" && form.supplierReceiptMode === "direct") && !(form.operationType === "transfer_between_warehouses" && form.transferMode === "direct")) {
+      toast({
+        title: "Смена не открыта",
+        description: "Перед созданием талона откройте смену через меню ⋯.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const validationError = validate();
+    if (validationError) {
+      toast({ title: "Проверьте форму", description: validationError, variant: "destructive" });
+      return;
+    }
+    if (
+      processingOutputContext?.lastMainOutputMarked
+      && form.processingOutputRole === "GRAIN"
+      && !(await siteConfirm({
+        title: "Добавить ещё один основной выход?",
+        description: "Ранее был отмечен последний основной рейс. До окончательного закрытия баланса дополнительный выход разрешён.",
+        actionLabel: "Добавить",
+      }))
+    ) return;
+    if (!(await siteConfirm({
+      title: "Создать талон",
+      description: hasMultipleExactImpuritySources
+        ? `Будет создан один физический талон для ${sourceCountLabel(impuritySourceSelectionKeys.length)}. Общий вес по участкам не распределяется.`
+        : hasExactImpuritySourceScope
+          ? `Будет создан талон только для выбранного участка: ${selectedImpuritySourceOptions[0]?.label || "участок"}.`
+          : "Проверьте данные и подтвердите создание талона.",
+      actionLabel: "Создать",
+    }))) return;
+    if (!profile?.company_id || !profile?.id) return;
+
+    const meta = opMeta(form.operationType);
+    const isFieldIssue = form.operationType === "issue_to_field";
+    const isShipment = form.operationType === "shipment_outbound";
+    const isDisposal = form.operationType === "disposal_writeoff";
+    const isImpurityRemoval = form.operationType === "impurity_removal";
+    const usesExactImpuritySourceScope = isImpurityRemoval && hasExactImpuritySourceScope;
+    const impuritySourceScope: ImpuritySourceScopeInput | undefined = usesExactImpuritySourceScope
+      ? {
+          allocation_mode: "unresolved_total",
+          sources: selectedImpuritySourceOptions.map((source) => ({
+            harvest_lot_id: source.harvestLotId!,
+            crop_structure_id: source.cropStructureId!,
+          })),
+        }
+      : undefined;
+    const isTransfer = form.operationType === "transfer_between_warehouses";
+    const isProcessingOutput = isTransfer && Boolean(processingOutputContext);
+    const productId =
+      form.operationType === "harvest_incoming"
+        ? selectedHarvestAllocation?.cropId
+        : isProcessingOutput
+          ? processingOutputContext?.productId
+        : isImpurityRemoval
+          ? selectedImpuritySourceOptions[0]?.productId || selectedHarvestBatch?.productId
+        : isTransfer || isFieldIssue || isShipment || isDisposal
+          ? selectedTransferStock?.product_id
+        : form.productId;
+    if (!productId) {
+      toast({
+        title: "Ошибка",
+        description: form.operationType === "transfer_between_warehouses" || isDisposal || isImpurityRemoval ? "Выберите партию или остаток из склада-источника." : "Для этой культуры не найдена складская номенклатура. Проверьте справочник номенклатуры.",
+        variant: "destructive",
+      });
+      return;
+    }
+    submittingRef.current = true;
+    setSubmitting(true);
+    const isSupplierDirect = form.operationType === "supplier_receipt" && form.supplierReceiptMode === "direct";
+    const isTransferDirect = isTransfer && form.transferMode === "direct" && !isProcessingOutput;
+    const isFieldIssueDirect = isFieldIssue && form.fieldIssueMode === "direct";
+    const isFieldIssueWeighbridge = isFieldIssue && form.fieldIssueMode === "weighbridge";
+    const isDirectQuantity = isSupplierDirect || isTransferDirect || isFieldIssueDirect;
+    const movementQuantity =
+      form.operationType === "supplier_receipt" && form.supplierReceiptMode === "direct"
+        ? supplierReceiptGenericLineTotal
+        :
+      form.operationType === "harvest_incoming" || (form.operationType === "supplier_receipt" && form.supplierReceiptMode === "weighbridge") || (isTransfer && form.transferMode === "weighbridge") || isFieldIssueWeighbridge || isShipment
+        || isDisposal || isImpurityRemoval
+        ? toNum(form.grossKg) ?? 0
+        : toNum(form.quantityKg) ?? 0;
+    const supplierNotes = [
+      form.operationType === "supplier_receipt" && form.supplierDocumentNo.trim() ? `Документ поставщика: ${form.supplierDocumentNo.trim()}` : "",
+      form.operationType === "supplier_receipt" && form.supplierLot.trim() ? `Партия поставщика: ${form.supplierLot.trim()}` : "",
+      form.operationType === "supplier_receipt" && form.harvestYear.trim() ? `Год урожая: ${form.harvestYear.trim()}` : "",
+    ].filter(Boolean);
+
+    let supplierCounterpartyId = form.supplierId;
+    try {
+      supplierCounterpartyId =
+        form.operationType === "supplier_receipt"
+          ? await resolveSupplierCounterparty(form.supplierId)
+          : form.supplierId;
+    } catch (e: any) {
+      submittingRef.current = false;
+      setSubmitting(false);
+      toast({ title: "Ошибка", description: e?.message || "Не удалось подготовить поставщика", variant: "destructive" });
+      return;
+    }
+
+    const ticketMeta = meta;
+    const ticket: TicketInput = {
+      company_id: profile.company_id,
+      batch_id: isImpurityRemoval && !usesExactImpuritySourceScope && !selectedHarvestBatch?.aggregateLot ? form.sourceBatchId : null,
+      harvest_lot_id: isProcessingOutput
+        ? processingOutputContext?.harvestLotId || null
+        : isImpurityRemoval
+        ? usesExactImpuritySourceScope ? null : selectedHarvestBatch?.aggregateLotId || null
+        : selectedTransferStock?.harvest_lot_id || null,
+      linked_processing_id: isProcessingOutput ? processingOutputContext?.transformationId || null : null,
+      processing_output_role: isProcessingOutput ? form.processingOutputRole || null : null,
+      source_physical_state: selectedTransferStock?.source_physical_state || null,
+      audit_json: {
+        ...(isImpurityRemoval ? { impurity_type: form.impurityType } : {}),
+        ...(isProcessingOutput && processingOutputContext
+          ? {
+              processing_output: {
+                transformation_id: processingOutputContext.transformationId,
+                output_role: form.processingOutputRole,
+              },
+            }
+          : {}),
+        ...(form.vehicleId
+          ? {
+              transport: {
+                vehicle_source: selectedVehicle?.source || "reference_vehicles",
+              },
+            }
+          : {}),
+      },
+      created_by: profile.id,
+      ticket_type: ticketMeta.ticketType,
+      op_type: ticketMeta.opType,
+      direction: ticketMeta.direction,
+      source_kind: ticketMeta.sourceKind,
+      destination_kind: form.operationType === "harvest_incoming" ? "warehouse" : ticketMeta.destinationKind,
+      source_id: form.operationType === "harvest_incoming" ? form.fieldId : form.operationType === "supplier_receipt" ? supplierCounterpartyId : form.warehouseFromId || null,
+      destination_id: form.operationType === "harvest_incoming"
+        ? form.warehouseToId
+        : form.operationType === "issue_to_field" ? form.fieldId : form.operationType === "shipment_outbound" ? form.buyerId : form.operationType === "drying" ? form.processingPointId : form.warehouseToId || null,
+      processing_node_id: null,
+      crop_structure_allocation_id: form.operationType === "harvest_incoming" || isFieldIssue ? form.cropStructureAllocationId || null : null,
+      supplier_id: form.operationType === "supplier_receipt" ? supplierCounterpartyId || null : null,
+      buyer_id: form.operationType === "shipment_outbound" ? form.buyerId || null : null,
+      shipment_purpose: form.operationType === "shipment_outbound" ? form.shipmentPurpose : null,
+      destination_text: form.operationType === "shipment_outbound" ? form.destinationText.trim() || null : null,
+      external_document_no: form.operationType === "shipment_outbound" || form.operationType === "harvest_incoming" ? form.externalDocumentNo.trim() || null : null,
+      supplier_document_no: form.operationType === "supplier_receipt" ? form.supplierDocumentNo.trim() || null : null,
+      receipt_mode: form.operationType === "supplier_receipt" ? form.supplierReceiptMode : null,
+      supplier_receipt_kind: form.operationType === "supplier_receipt" ? "generic" : null,
+      field_operation_type: isFieldIssue ? "issued_to_field" : null,
+      field_material_category: isFieldIssue && selectedTransferStock ? inferFieldMaterialCategory(selectedTransferStock) : null,
+      linked_operation_id: isFieldIssue ? form.linkedOperationId || null : null,
+      disposal_category: form.operationType === "disposal_writeoff" ? form.disposalCategory : null,
+      field_id: form.operationType === "supplier_receipt" ? null : form.fieldId || null,
+      warehouse_from_id: form.operationType === "supplier_receipt" ? null : form.warehouseFromId || null,
+      warehouse_to_id: form.operationType === "supplier_receipt" && form.supplierReceiptMode === "direct" ? null : form.warehouseToId || null,
+      processing_point_from_id: form.operationType === "drying" ? form.processingPointId || null : null,
+      vehicle_id: form.vehicleId || null,
+      driver_id: form.driverId || null,
+      ptc_event_id: form.operationType === "harvest_incoming" ? form.ptcEventId || null : null,
+      ptc_cycle: form.operationType === "harvest_incoming" ? form.ptcCycle : null,
+      combine_operator_person_id: form.operationType === "harvest_incoming" ? form.combineOperatorPersonId || null : null,
+      gross_weight_kg: isSupplierDirect ? null : isDirectQuantity ? movementQuantity : toNum(form.grossKg),
+      tare_weight_kg: isSupplierDirect ? null : isDirectQuantity ? 0 : null,
+      weigh_method: isDirectQuantity ? "manual_override_with_reason" : "preset_tare",
+      notes: [
+        form.operationType === "shipment_outbound" && form.externalDocumentNo.trim() ? `Документ отгрузки: ${form.externalDocumentNo.trim()}` : "",
+        form.operationType === "shipment_outbound" ? `Цель отгрузки: ${shipmentPurposeLabels[form.shipmentPurpose]}` : "",
+        form.operationType === "disposal_writeoff" && form.disposalReason.trim() ? `Причина списания: ${form.disposalReason.trim()}` : "",
+        isProcessingOutput && form.processingOutputRole
+          ? `Выход обработки: ${processingOutputRoleLabels[form.processingOutputRole]}`
+          : isImpurityRemoval
+            ? `Вид примесей: ${impurityTypeLabels[form.impurityType]}`
+          : "",
+        ...supplierNotes,
+        form.notes.trim(),
+      ].filter(Boolean).join("\n") || null,
+    };
+
+    const line: TicketLineInput = {
+      product_id: productId,
+      crop_id: isProcessingOutput
+        ? processingOutputContext?.cropId || null
+        : isImpurityRemoval
+        ? selectedImpuritySourceOptions[0]?.cropId || selectedHarvestBatch?.cropId || null
+        : form.operationType === "harvest_incoming" || (isFieldIssue && selectedTransferStock && isSeedIssueOperation(inferFieldMaterialCategory(selectedTransferStock)))
+          ? form.cropId
+          : selectedTransferStock?.crop_id || null,
+      quantity: movementQuantity,
+      uom:
+        form.operationType === "harvest_incoming" || isProcessingOutput || isImpurityRemoval || (form.operationType === "supplier_receipt" && form.supplierReceiptMode === "weighbridge")
+          ? "kg"
+          : selectedTransferStock?.uom || inferProductUnit(productById.get(productId)),
+      warehouse_from_id: form.warehouseFromId || null,
+      warehouse_to_id: form.warehouseToId || null,
+      notes: form.operationType === "harvest_incoming"
+        ? "Приемка урожая"
+        : isProcessingOutput && form.processingOutputRole
+          ? `Выход обработки: ${processingOutputRoleLabels[form.processingOutputRole]}`
+          : isImpurityRemoval
+            ? `Вывоз примесей: ${impurityTypeLabels[form.impurityType]}`
+          : form.operationType === "supplier_receipt"
+            ? "Приемка от поставщика"
+            : form.operationType === "transfer_between_warehouses"
+              ? "Межскладское перемещение"
+              : undefined,
+      lot_id: isProcessingOutput
+        ? processingOutputContext?.harvestLotId || null
+        : isImpurityRemoval
+        ? usesExactImpuritySourceScope ? null : selectedHarvestBatch?.aggregateLotId || selectedHarvestBatch?.batchCode || null
+        : form.operationType === "supplier_receipt"
+          ? form.supplierLot.trim() || null
+          : (form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal)
+            ? selectedTransferStock?.harvest_lot_id || selectedTransferStock?.batch_id || null
+            : null,
+      supplier_lot: form.operationType === "supplier_receipt" ? form.supplierLot.trim() || null : null,
+      batch_id: isProcessingOutput
+        ? null
+        : isImpurityRemoval
+        ? usesExactImpuritySourceScope ? null : selectedHarvestBatch?.aggregateLot ? null : selectedHarvestBatch?.id || null
+        : (form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal) && isUuidLike(selectedTransferStock?.batch_id)
+          ? selectedTransferStock?.batch_id || null
+          : null,
+      batch_class: isProcessingOutput
+        ? form.processingOutputRole === "GRAIN" ? "commodity" : form.processingOutputRole === "FEED" ? "feed" : "waste"
+        : isImpurityRemoval
+        ? "commodity"
+        : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.batch_class || null : null,
+      variety_id: isProcessingOutput ? processingOutputContext?.varietyId || null : isImpurityRemoval ? usesExactImpuritySourceScope ? null : selectedHarvestBatch?.varietyId || null : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.variety_id || null : form.operationType === "harvest_incoming" ? form.varietyId || null : null,
+      reproduction_id: isProcessingOutput ? processingOutputContext?.reproductionId || null : isImpurityRemoval ? usesExactImpuritySourceScope ? null : selectedHarvestBatch?.reproductionId || null : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.reproduction_id || null : form.operationType === "harvest_incoming" ? form.reproductionId || null : null,
+      operation_line_id: isImpurityRemoval ? usesExactImpuritySourceScope ? null : selectedHarvestBatch?.operationLineId || null : isFieldIssue ? form.linkedOperationLineId || null : null,
+      composition_hash: processingOutputContext?.compositionHash || selectedTransferStock?.composition_hash || null,
+      composition_snapshot: processingOutputContext?.compositionSnapshot || selectedTransferStock?.composition_snapshot || [],
+      is_mixed_harvest: processingOutputContext?.isMixedHarvest || Boolean(selectedTransferStock?.is_mixed_harvest),
+      moisture_percent: toNum(form.harvestMoisture),
+      net_line_weight_kg: form.operationType === "drying" ? toNum(form.dryingOutputKg) : null,
+    };
+    const linesToCreate: TicketLineInput[] =
+      form.operationType === "supplier_receipt" && form.supplierReceiptMode === "direct"
+        ? supplierReceiptGenericLineDrafts.map((draft, index) => {
+            const qty = toNum(draft.quantityKg) ?? (supplierReceiptGenericLineDrafts.length === 1 ? movementQuantity : 0);
+            const unitPrice = toNum(draft.unitPrice);
+            const uom = normalizeUnit(productById.get(draft.productId)?.stockUnit || "");
+            return {
+              product_id: draft.productId,
+              crop_id: null,
+              quantity: qty,
+              uom,
+              warehouse_to_id: draft.warehouseToId || null,
+              unit_price: unitPrice,
+              amount: unitPrice != null && qty ? unitPrice * qty : null,
+              notes: [
+                "Приемка от поставщика",
+                draft.notes.trim(),
+                supplierReceiptGenericLineDrafts.length > 1 ? `Строка ${index + 1} из ${supplierReceiptGenericLineDrafts.length}` : "",
+              ].filter(Boolean).join("\n"),
+              lot_id: draft.supplierLot.trim() || null,
+              supplier_lot: draft.supplierLot.trim() || null,
+              batch_class: null,
+              moisture_percent: toNum(form.harvestMoisture),
+            };
+          })
+        : [line];
+
+    const buildLocalLines = (ticketId: string) => linesToCreate.map((item, index) => {
+      const harvestCropName = form.operationType === "harvest_incoming"
+        ? selectedHarvestAllocation?.cropName || ""
+        : "";
+      const productName = harvestCropName || productById.get(item.product_id)?.name || "Материал";
+      return {
+        id: `local-${ticketId}-${index}`,
+        product_id: item.product_id,
+        crop_id: item.crop_id || null,
+        product_name: productName,
+        product_name_snapshot: productName,
+        quantity: item.quantity,
+        uom: item.uom || "kg",
+        variety_id: item.variety_id || null,
+        variety_name: form.operationType === "harvest_incoming" ? selectedHarvestAllocation?.varietyName || null : null,
+        reproduction_id: item.reproduction_id || null,
+        reproduction_name: form.operationType === "harvest_incoming" ? selectedHarvestAllocation?.reproductionName || null : null,
+        batch_class: item.batch_class || null,
+        lot_id: item.lot_id || null,
+        warehouse_from_id: item.warehouse_from_id || null,
+        warehouse_to_id: item.warehouse_to_id || null,
+        moisture_percent: item.moisture_percent || null,
+        operation_line_id: item.operation_line_id || null,
+      };
+    });
+
+    const paperRecordedDate = form.externalDocumentNo.trim() && form.paperRecordedAt
+      ? new Date(form.paperRecordedAt)
+      : null;
+    const paperDayStart = paperRecordedDate
+      ? new Date(paperRecordedDate.getFullYear(), paperRecordedDate.getMonth(), paperRecordedDate.getDate())
+      : null;
+    const paperBackfill = paperRecordedDate && paperDayStart
+      ? {
+          recorded_at: paperRecordedDate.toISOString(),
+          day_start: paperDayStart.toISOString(),
+          day_end: new Date(paperDayStart.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+          tare_weight_kg: toNum(form.paperTareKg) ?? 0,
+          moisture_percent: form.harvestMoisture.trim() ? Number(form.harvestMoisture.replace(",", ".")) : null,
+        }
+      : undefined;
+    const createPayloadFingerprint = createTicketSubmissionFingerprint(
+      isTransferDirect && selectedTransferStock
+        ? {
+            operation: "warehouse_transfer",
+            company_id: profile.company_id,
+            warehouse_from_id: form.warehouseFromId,
+            destination_warehouse_id: form.warehouseToId,
+            product_id: selectedTransferStock.product_id,
+            harvest_lot_id: selectedTransferStock.harvest_lot_id || null,
+            source_physical_state: selectedTransferStock.source_physical_state || null,
+            quantity: toNum(form.quantityKg) ?? 0,
+            vehicle_id: form.vehicleId,
+            driver_id: form.driverId,
+            notes: form.notes.trim() || null,
+          }
+        : {
+            ticket,
+            lines: linesToCreate,
+            weighings: [],
+            paperBackfill,
+            impurity_source_scope: impuritySourceScope || null,
+          }
+    );
+
+    try {
+      const createAttempt = resolveCreateTicketAttempt(
+        createTicketIdempotencyRef.current,
+        createPayloadFingerprint,
+        () => crypto.randomUUID()
+      );
+      const idempotencyKey = createAttempt.key;
+      createTicketIdempotencyRef.current = createAttempt;
+      if (idempotencyPersistKey) {
+        localStorage.setItem(idempotencyPersistKey, serializePersistedCreateTicketAttempt(createAttempt));
+      }
+      if (isTransferDirect && selectedTransferStock) {
+        await createWarehouseTransfer(profile.company_id, form.warehouseFromId, {
+          destination_warehouse_id: form.warehouseToId,
+          product_id: selectedTransferStock.product_id,
+          harvest_lot_id: selectedTransferStock.harvest_lot_id || null,
+          source_physical_state: selectedTransferStock.source_physical_state || null,
+          quantity: toNum(form.quantityKg) ?? 0,
+          vehicle_id: form.vehicleId,
+          driver_id: form.driverId,
+          notes: form.notes.trim() || null,
+        }, idempotencyKey);
+        createTicketIdempotencyRef.current = null;
+        if (idempotencyPersistKey) localStorage.removeItem(idempotencyPersistKey);
+        toast({ title: "Перемещение проведено", description: "Ledger OUT/IN создан существующим складским lifecycle." });
+        setForm((prev) => ({ ...INITIAL_FORM, operationType: prev.operationType, transferMode: prev.transferMode }));
+        void refreshLiveData({ source: "local", table: "stock_ledger_entries" });
+        return;
+      }
+      if (form.operationType === "harvest_incoming") {
+        const now = new Date().toISOString();
+        setPendingOpenTicket({
+          ...ticket,
+          id: `pending-${idempotencyKey}`,
+          ticket_no: "Сохраняется",
+          status: "active",
+          weigh_method: ticket.weigh_method || "preset_tare",
+          is_finalized: false,
+          is_voided: false,
+          created_at: now,
+          updated_at: now,
+          crop_name_snapshot: selectedHarvestAllocation?.cropName || null,
+          variety_name_snapshot: selectedHarvestAllocation?.varietyName || null,
+          reproduction_name_snapshot: selectedHarvestAllocation?.reproductionName || null,
+          combine_operator_person_name: combineOperators.find((person) => person.id === form.combineOperatorPersonId)?.name || null,
+          created_by_person_id: operatorState.operator?.id || null,
+          opened_by_person_name: operatorState.operator?.name || null,
+          operator_attribution_source: operatorState.operator?.id ? "ticket_person" : "unrecorded",
+          lines: buildLocalLines(`pending-${idempotencyKey}`),
+        });
+      }
+      const result = await createTicket(
+        ticket,
+        linesToCreate,
+        [],
+        idempotencyKey,
+        paperBackfill,
+        impuritySourceScope
+      );
+      createTicketIdempotencyRef.current = null;
+      if (idempotencyPersistKey) localStorage.removeItem(idempotencyPersistKey);
+      const createdStatus = String(result?.ticket?.status || "");
+      const createdTicket = result?.ticket as WeighbridgeTicket | undefined;
+      if (createdTicket?.id && createdStatus !== "finalized") {
+        const localLines = createdTicket.lines || buildLocalLines(createdTicket.id);
+        const attributedCreatedTicket = {
+          ...createdTicket,
+          created_by_person_id: createdTicket.created_by_person_id || operatorState.operator?.id || null,
+          opened_by_person_name: createdTicket.opened_by_person_name || operatorState.operator?.name || null,
+          operator_attribution_source: createdTicket.operator_attribution_source || (operatorState.operator?.id ? "ticket_person" : "unrecorded"),
+        } as WeighbridgeTicket;
+         setTickets((current) => [
+           ...current.filter((item) => item.id !== createdTicket.id),
+           { ...attributedCreatedTicket, lines: localLines },
+         ]);
+         adjustActiveHarvestTicketCount(attributedCreatedTicket, 1);
+         markTransportAssignmentOpen(attributedCreatedTicket);
+      }
+      if (result?.paper_backfill?.ok === true) {
+        toast({
+          title: "Исторический талон проведён",
+          description: result?.ticket?.ticket_no
+            ? `Талон ${result.ticket.ticket_no} сразу завершён и добавлен в журнал.`
+            : "Бумажный талон сразу завершён и добавлен в журнал.",
+        });
+      } else if (isSupplierDirect || createdStatus === "finalized") {
+        toast({
+          title: "Приход по накладной проведён",
+          description: "Партия и складское движение созданы без активного талона весовой.",
+        });
+      }
+      if (!isSupplierDirect && createdStatus !== "finalized") {
+        toast({
+          title: "Талон создан",
+          description: result?.ticket?.ticket_no
+            ? `Талон ${result.ticket.ticket_no} добавлен в активные`
+            : "Талон добавлен в активные",
+        });
+      }
+      if (form.operationType === "harvest_incoming" && form.ptcEventId) {
+        const consumedPtcEventId = form.ptcEventId;
+        ptcQueueGenerationRef.current += 1;
+        setPtcQueue((current) => current.filter((item) => item.ptcEventId !== consumedPtcEventId));
+      }
+      setForm((prev) => {
+        if (prev.operationType === "harvest_incoming") {
+          return {
+            ...INITIAL_FORM,
+            operationType: "harvest_incoming",
+            fieldId: prev.fieldId,
+            cropStructureAllocationId: prev.cropStructureAllocationId,
+            cropId: prev.cropId,
+            varietyId: prev.varietyId,
+            reproductionId: prev.reproductionId,
+            warehouseToId: prev.warehouseToId,
+            combineOperatorPersonId: prev.combineOperatorPersonId,
+            externalDocumentNo: "",
+            paperRecordedAt: "",
+            paperTareKg: "",
+          };
+        }
+        return {
+          ...INITIAL_FORM,
+          operationType: prev.operationType,
+          fieldId: prev.fieldId,
+          warehouseFromId: prev.warehouseFromId,
+          warehouseToId: prev.warehouseToId,
+          processingPointId: prev.processingPointId,
+          cropId: prev.cropId,
+          varietyId: prev.varietyId,
+          reproductionId: prev.reproductionId,
+          cropStructureAllocationId: prev.cropStructureAllocationId,
+          supplierId: form.operationType === "supplier_receipt" ? supplierCounterpartyId : prev.supplierId,
+          buyerId: prev.buyerId,
+          supplierDocumentNo: prev.supplierDocumentNo,
+          shipmentPurpose: prev.shipmentPurpose,
+          destinationText: prev.destinationText,
+          externalDocumentNo: prev.externalDocumentNo,
+          supplierReceiptMode: prev.supplierReceiptMode,
+          supplierItemMode: prev.supplierItemMode,
+          transferMode: prev.transferMode,
+          fieldIssueMode: prev.fieldIssueMode,
+          fieldMaterialCategory: prev.fieldMaterialCategory,
+          supplierLot: "",
+          harvestYear: prev.harvestYear,
+          productId: prev.productId,
+          stockIdentityKey: prev.stockIdentityKey,
+          // The weighman normally removes several loads from the same party.
+          // Keep that party until it is changed by hand; canonical stock refresh
+          // still validates that a positive balance remains before submission.
+          sourceBatchId: prev.operationType === "impurity_removal" ? prev.sourceBatchId : "",
+          impuritySourceSelections: prev.operationType === "impurity_removal"
+            ? prev.impuritySourceSelections.map((source) => ({ ...source }))
+            : [],
+          impurityType: prev.impurityType,
+          processingOutputRole: prev.processingOutputRole,
+          processingTransformationId: prev.processingTransformationId,
+          linkedOperationId: prev.linkedOperationId,
+          linkedOperationLineId: prev.linkedOperationLineId,
+          disposalCategory: prev.disposalCategory,
+          disposalReason: prev.disposalReason,
+          unitPrice: "",
+          notes: prev.notes,
+        };
+      });
+      if (form.operationType === "harvest_incoming") {
+        setCommentOpen(false);
+      }
+      setSupplierReceiptLines([]);
+      setShowSupplierExtraFields(false);
+      window.setTimeout(() => {
+        if (form.operationType === "harvest_incoming") void refreshPtcQueue();
+        void refreshLiveData({
+          source: "realtime",
+          table: createdStatus === "finalized" ? "stock_ledger_entries" : "tickets",
+        });
+      }, 1_500);
+    } catch (e: any) {
+      if (e?.status === 409 && String(e?.message || "").includes("Idempotency-Key was already used")) {
+        createTicketIdempotencyRef.current = null;
+        if (idempotencyPersistKey) localStorage.removeItem(idempotencyPersistKey);
+        toast({
+          title: "Данные талона изменились",
+          description: "Защитный ключ обновлён. Проверьте, нет ли уже созданного талона для этой машины, затем повторите открытие.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Ошибка создания", description: e?.message || "Не удалось создать талон", variant: "destructive" });
+      }
+    } finally {
+      setPendingOpenTicket(null);
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
+  const patchTicketWithTareConfirmation = async (
+    ticketId: string,
+    patch: Parameters<typeof patchTicket>[2]
+  ) => {
+    try {
+      return await patchTicket(ticketId, profile?.id || "", patch);
+    } catch (error: any) {
+      const payload = error?.payload as Record<string, any> | undefined;
+      if (!payload?.requires_confirmation) throw error;
+      const difference = Number(payload.difference_percent || 0);
+      const confirmed = await siteConfirm({
+        title: "Проверьте тару",
+        description: [
+          `Предыдущая тара этой машины: ${formatWeightKg(payload.previous_tare_kg)}.`,
+          `Сейчас: ${formatWeightKg(payload.current_tare_kg)}.`,
+          `Разница: ${difference > 0 ? "+" : ""}${difference.toLocaleString("ru-RU", { maximumFractionDigits: 2 })}%.`,
+        ].join(" "),
+        actionLabel: "Всё верно — продолжить",
+      });
+      if (!confirmed) throw new Error("Проверьте значение тары.");
+      return patchTicket(ticketId, profile?.id || "", { ...patch, confirm_tare_variance: true });
+    }
+  };
+
+  const openActiveTicketEditor = () => {
+    if (!activeTicket || finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return;
+    if (activeTicket.impurity_source_scope?.allocation_mode === "unresolved_total") {
+      toast({
+        title: "Общий талон примеси нельзя менять на месте",
+        description: "Чтобы не нарушить связь с исходными взвешиваниями, аннулируйте талон и откройте новый с правильным брутто.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setEditGrossKg(activeTicket.gross_weight_kg == null ? "" : String(activeTicket.gross_weight_kg));
+    setEditTareKg(activeTicket.tare_weight_kg == null ? "" : String(activeTicket.tare_weight_kg));
+    setEditReason("");
+    setOpenTicketEditOpen(true);
+  };
+
+  const saveOpenTicketCorrection = async () => {
+    if (!activeTicket || !profile?.id || ticketCorrectionBusy || finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return;
+    const gross = parseStrictWeightKg(editGrossKg, "Брутто");
+    if (!gross.ok || gross.value <= 0) {
+      toast({ title: "Проверьте брутто", description: gross.ok ? "Брутто должно быть больше нуля." : gross.message, variant: "destructive" });
+      return;
+    }
+    const tare = editTareKg.trim() ? parseStrictWeightKg(editTareKg, "Тара") : null;
+    if (tare && (!tare.ok || tare.value <= 0)) {
+      toast({ title: "Проверьте тару", description: tare.ok ? "Тара должна быть больше нуля." : tare.message, variant: "destructive" });
+      return;
+    }
+    if (tare?.ok) {
+      const validation = validateHarvestWeights(gross.value, tare.value);
+      if (!validation.ok) {
+        toast({ title: "Проверьте вес", description: validation.message, variant: "destructive" });
+        return;
+      }
+    }
+
+    setTicketCorrectionBusy(true);
+    try {
+      await patchTicketWithTareConfirmation(activeTicket.id, {
+        gross_weight_kg: gross.value,
+        ...(tare?.ok ? { tare_weight_kg: tare.value } : {}),
+        reason: editReason.trim() || null,
+      });
+      const details = await getTicketDetails(activeTicket.id, profile.id);
+      const corrected = (details as any).ticket as WeighbridgeTicket;
+      setActiveTicket(corrected);
+      setTickets((current) => current.map((ticket) => ticket.id === corrected.id ? corrected : ticket));
+      setClosingTare(corrected.tare_weight_kg == null ? "" : String(corrected.tare_weight_kg));
+      setOpenTicketEditOpen(false);
+      toast({ title: "Талон исправлен", description: "Изменение и автор сохранены в истории." });
+    } catch (error: any) {
+      toast({ title: "Не удалось исправить талон", description: error?.message || "Повторите попытку", variant: "destructive" });
+    } finally {
+      setTicketCorrectionBusy(false);
+    }
+  };
+
+  const beginFinalizedTicketCorrection = async () => {
+    if (!historyPreviewTicket || !ticketCorrectionReason.trim() || ticketCorrectionBusy || finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return;
+    if (isSharedHistoryCorrection) {
+      if (sharedWeightBusyRef.current) return;
+      const gross = parseStrictWeightKg(editGrossKg, "Брутто");
+      const tare = parseStrictWeightKg(editTareKg, "Тара");
+      if (!gross.ok || !tare.ok || gross.value <= tare.value || tare.value < 0) {
+        toast({ title: "Проверьте вес", description: "Брутто должно быть больше тары. Укажите оба веса в килограммах.", variant: "destructive" });
+        return;
+      }
+      const target = historyPreviewTicket;
+      const input = { gross_weight_kg: gross.value, tare_weight_kg: tare.value,
+        expected_gross_weight_kg: Number(target.gross_weight_kg), expected_tare_weight_kg: Number(target.tare_weight_kg),
+        reason: ticketCorrectionReason.trim() };
+      const fingerprint = JSON.stringify([target.id, input]);
+      if (sharedWeightRequestRef.current?.fingerprint !== fingerprint) {
+        sharedWeightRequestRef.current = { fingerprint, key: crypto.randomUUID() };
+      }
+      sharedWeightBusyRef.current = true;
+      setTicketCorrectionBusy(true);
+      try {
+        await correctSharedImpurityWeights(target.id, { ...input, idempotency_key: sharedWeightRequestRef.current.key });
+        window.dispatchEvent(new Event("travkin:weighbridge-data-changed"));
+        setTicketCorrectionOpen(false);
+        setTicketCorrectionReason("");
+        // Do not replace the open working ticket, route, warehouse or vehicle.
+        setHistoryPreviewTicket(null);
+        toast({ title: "Вес исправлен", description: "Талон остался в той же смене. Склад пересчитан на разницу, прежние значения сохранены в истории." });
+        await Promise.allSettled([refreshTickets(), load(undefined, true)]);
+        try {
+          const details = await getTicketDetails(target.id, profile?.id);
+          setHistoryPreviewTicket((details as any).ticket as WeighbridgeTicket);
+        } catch {
+          toast({ title: "Исправление сохранено", description: "Не удалось обновить копию талона. Откройте его из истории ещё раз." });
+        }
+      } catch (error: any) {
+        toast({ title: "Исправление не подтверждено", description: error?.message || "Повторите сохранение с теми же значениями — повторного списания не будет.", variant: "destructive" });
+      } finally {
+        sharedWeightBusyRef.current = false;
+        setTicketCorrectionBusy(false);
+      }
+      return;
+    }
+    setTicketCorrectionBusy(true);
+    try {
+      const started = await startTicketCorrection(historyPreviewTicket.id, ticketCorrectionReason.trim());
+      const replacementId = String((started as any)?.ticket?.id || "");
+      if (!replacementId) throw new Error("Исправленный талон не создан.");
+      const details = await getTicketDetails(replacementId, profile?.id);
+      if (finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return;
+      const replacement = (details as any).ticket as WeighbridgeTicket;
+      setHistoryPreviewTicket(null);
+      setTicketCorrectionOpen(false);
+      setTicketCorrectionReason("");
+      setActiveTicket(replacement);
+      setClosingTare(replacement.tare_weight_kg == null ? "" : String(replacement.tare_weight_kg));
+      setClosingMoisture(replacement.lines?.[0]?.moisture_percent == null ? "" : String(replacement.lines[0].moisture_percent));
+      toast({ title: "Создан исправленный талон", description: `Проверьте данные и завершите талон ${replacement.ticket_no}.` });
+    } catch (error: any) {
+      toast({ title: "Исправление недоступно", description: error?.message || "Повторите попытку", variant: "destructive" });
+    } finally {
+      setTicketCorrectionBusy(false);
+    }
+  };
+
+  const closeTicket = async () => {
+    if (!activeTicket || !profile?.id || !canOperate || finalizing || finalizingRef.current) return;
+    const closingTicket = activeTicket;
+    const isDirectSupplierTicket = activeTicket.op_type === "supplier_receipt" && String((activeTicket as any).receipt_mode || "") === "direct";
+    const isDirectTransferTicket = activeTicket.op_type === "warehouse_transfer" && activeTicket.weigh_method === "manual_override_with_reason";
+    const isDirectFieldIssueTicket = activeTicket.op_type === "issue_to_field" && activeTicket.weigh_method === "manual_override_with_reason";
+    const isDirectQuantityTicket = isDirectSupplierTicket || isDirectTransferTicket || isDirectFieldIssueTicket;
+    const g = isDirectQuantityTicket
+      ? Number(activeTicket.gross_weight_kg || 0) || activeTicketLineTotal
+      : Number(activeTicket.gross_weight_kg || 0);
+    const strictTare = isDirectQuantityTicket ? null : parseStrictWeightKg(closingTare, "Тара");
+    if (strictTare && !strictTare.ok) return toast({ title: "Ошибка", description: strictTare.message, variant: "destructive" });
+    const t = isDirectQuantityTicket ? 0 : strictTare?.ok ? strictTare.value : 0;
+    if (!Number.isFinite(g) || g <= 0) return toast({ title: "Ошибка", description: "Брутто не заполнено", variant: "destructive" });
+    if (!isDirectQuantityTicket) {
+      const weightValidation = validateHarvestWeights(g, t);
+      if (!weightValidation.ok) {
+        return toast({ title: "Ошибка", description: weightValidation.message, variant: "destructive" });
+      }
+    }
+    const isHarvestClosure = activeTicket.op_type === "harvest_incoming";
+    const isAtomicHarvestClosure = isHarvestClosure && !activeTicket.correction_of_ticket_id;
+    const isAtomicTransferClosure = activeTicket.op_type === "warehouse_transfer"
+      && activeTicket.weigh_method !== "manual_override_with_reason"
+      && !activeTicket.correction_of_ticket_id;
+    const isAtomicSharedImpurityClosure = activeTicket.op_type === "weighbridge_impurities"
+      && activeTicket.impurity_source_scope?.allocation_mode === "unresolved_total"
+      && !activeTicket.correction_of_ticket_id;
+    const moisture = closingMoisture.trim()
+      ? Number(closingMoisture.replace(",", "."))
+      : null;
+    if (moisture != null && (!Number.isFinite(moisture) || moisture <= 0 || moisture >= 100)) {
+      return toast({ title: "Ошибка", description: "Влажность должна быть больше 0 и меньше 100 %.", variant: "destructive" });
+    }
+    const acceptedLabel = isHarvestClosure && pure != null
+      ? ` Принято на склад: ${formatWeightKg(pure)}.`
+      : "";
+    finalizingRef.current = true;
+    if (!(await siteConfirm({ title: "Закрыть талон", description: `После закрытия будет создано движение по складу.${acceptedLabel}`, actionLabel: "Закрыть" }))) {
+      finalizingRef.current = false;
+      return;
+    }
+
+    const currentFinalizeKey = finalizeTicketIdempotencyRef.current?.ticketId === closingTicket.id
+      ? finalizeTicketIdempotencyRef.current.key
+      : crypto.randomUUID();
+    finalizeTicketIdempotencyRef.current = { ticketId: closingTicket.id, key: currentFinalizeKey };
+    const isCanonicallyClosed = (ticket: WeighbridgeTicket | null | undefined) => Boolean(
+      ticket && (
+        ticket.status === "finalized"
+        || ticket.status === "voided"
+        || ticket.is_finalized
+        || ticket.is_voided
+      )
+    );
+    const finishCanonicalClose = async (
+      canonicalTicket: WeighbridgeTicket,
+      options: { recoveredAfterError?: boolean } = {}
+    ) => {
+      const linkedProcessingId = canonicalTicket.linked_processing_id || closingTicket.linked_processing_id || null;
+      notifyWeighbridgeDataChanged();
+      let lastMainOutputMarkError: any = null;
+      if (closingLastMainOutput && closingTicket.op_type === "warehouse_transfer" && linkedProcessingId) {
+        try {
+          await performProcessingAction(linkedProcessingId, profile.id, {
+            action: "mark_last_main",
+            ticket_id: closingTicket.id,
+            idempotency_key: crypto.randomUUID(),
+          });
+        } catch (error: any) {
+          lastMainOutputMarkError = error;
+        } finally {
+          notifyWeighbridgeDataChanged();
+        }
+      }
+      if (lastMainOutputMarkError) {
+        const traceId = String(lastMainOutputMarkError?.payload?.trace_id || "").trim();
+        const description = `${lastMainOutputMarkError?.message || "Не удалось отметить последний рейс"}${traceId ? `\nTrace ID: ${traceId}` : ""}`;
+        toast({ title: "Талон закрыт, последний рейс не отмечен", description, variant: "destructive" });
+      } else if (options.recoveredAfterError) {
+        toast({
+          title: "Талон закрыт",
+          description: "Ответ прервался, но каноническое состояние проверено: движение зафиксировано.",
+        });
+      } else {
+        toast({ title: "Талон закрыт", description: "Движение зафиксировано и сверено" });
+      }
+      setTickets((current) => [canonicalTicket, ...current.filter((ticket) => ticket.id !== closingTicket.id)]);
+      setActiveTicket(null);
+      adjustActiveHarvestTicketCount(closingTicket, -1);
+      releaseTransportAssignment(closingTicket, true);
+      setClosingTare("");
+      setClosingMoisture("");
+      setClosingLastMainOutput(false);
+      commitTicketCloseState(EMPTY_TICKET_CLOSE_STATE);
+      finalizeTicketIdempotencyRef.current = null;
+      window.setTimeout(() => {
+        void refreshLiveData({ source: "local", table: "tickets" });
+      }, 500);
+    };
+
+    commitTicketCloseState({
+      ticketId: closingTicket.id,
+      ticketNo: closingTicket.ticket_no,
+      phase: "closing",
+      message: "Записываем движение. Остатки изменятся только после сверки с сервером.",
+    });
+    setFinalizing(true);
+    try {
+      let finalizeResponse: Record<string, any> | null = null;
+      if (isAtomicHarvestClosure || isAtomicTransferClosure || isAtomicSharedImpurityClosure) {
+        const finalizeAtomicTicket = async (confirmTareVariance: boolean) => finalizeTicket(closingTicket.id, profile.id, {
+          tare_weight_kg: t,
+          moisture_percent: moisture,
+          confirm_tare_variance: confirmTareVariance,
+          idempotency_key: currentFinalizeKey,
+        });
+        try {
+          finalizeResponse = await finalizeAtomicTicket(false);
+        } catch (error: any) {
+          const payload = error?.payload as Record<string, any> | undefined;
+          if (!payload?.requires_confirmation) throw error;
+          const previous = formatWeightKg(payload.previous_tare_kg);
+          const current = formatWeightKg(payload.current_tare_kg);
+          const confirmed = await siteConfirm({
+            title: "Необычная тара",
+            description: `Предыдущая тара: ${previous}. Текущая: ${current}. Подтвердить отклонение?`,
+            actionLabel: "Подтвердить",
+          });
+          if (!confirmed) {
+            finalizeTicketIdempotencyRef.current = null;
+            commitTicketCloseState(EMPTY_TICKET_CLOSE_STATE);
+            return;
+          }
+          commitTicketCloseState({
+            ticketId: closingTicket.id,
+            ticketNo: closingTicket.ticket_no,
+            phase: "closing",
+            message: "Подтверждение принято. Завершаем атомарную запись.",
+          });
+          finalizeResponse = await finalizeAtomicTicket(true);
+        }
+      } else {
+        await patchTicketWithTareConfirmation(closingTicket.id, {
+          tare_weight_kg: isDirectQuantityTicket ? 0 : toNum(closingTare) ?? undefined,
+          moisture_percent: moisture,
+          status: "ready_to_close",
+        });
+        finalizeResponse = await finalizeTicket(closingTicket.id, profile.id, {
+          tare_weight_kg: t,
+          moisture_percent: moisture,
+          idempotency_key: currentFinalizeKey,
+        });
+      }
+      commitTicketCloseState({
+        ticketId: closingTicket.id,
+        ticketNo: closingTicket.ticket_no,
+        phase: "reconciling",
+        message: "Запись принята. Сверяем талон и складское движение.",
+      });
+      const responseTicket = (finalizeResponse?.ticket || null) as WeighbridgeTicket | null;
+      let canonicalTicket: WeighbridgeTicket | null = !finalizeResponse?.refresh_required
+        && !finalizeResponse?.idempotent_replay
+        && isCanonicallyClosed(responseTicket)
+        ? {
+            ...closingTicket,
+            ...responseTicket,
+            lines: responseTicket?.lines || closingTicket.lines || [],
+          }
+        : null;
+      if (!canonicalTicket) {
+        const canonical = await getTicketDetails(closingTicket.id, profile.id);
+        canonicalTicket = (canonical?.ticket || null) as WeighbridgeTicket | null;
+      }
+      if (!isCanonicallyClosed(canonicalTicket)) {
+        throw new Error("Сервер пока не подтвердил закрытие талона.");
+      }
+      await finishCanonicalClose(canonicalTicket as WeighbridgeTicket);
+    } catch (e: any) {
+      commitTicketCloseState({
+        ticketId: closingTicket.id,
+        ticketNo: closingTicket.ticket_no,
+        phase: "reconciling",
+        message: "Ответ неоднозначен. Проверяем фактический статус без повторной записи.",
+      });
+      try {
+        const canonical = await getTicketDetails(closingTicket.id, profile.id);
+        const canonicalTicket = (canonical?.ticket || null) as WeighbridgeTicket | null;
+        if (isCanonicallyClosed(canonicalTicket)) {
+          await finishCanonicalClose(canonicalTicket as WeighbridgeTicket, { recoveredAfterError: true });
+          return;
+        }
+      } catch {
+        // The original card remains in memory and the same idempotency key is
+        // retained for a safe explicit retry when connectivity returns.
+      }
+      const traceId = String(e?.payload?.trace_id || "").trim();
+      const technicalMessage = `${e?.message || "Не удалось подтвердить закрытие"}${traceId ? `\nTrace ID: ${traceId}` : ""}`;
+      const retryMessage = "Карточка восстановлена. Повтор использует тот же ключ и не создаст второе движение.";
+      commitTicketCloseState({
+        ticketId: closingTicket.id,
+        ticketNo: closingTicket.ticket_no,
+        phase: "retry",
+        message: `${retryMessage} ${technicalMessage}`,
+      });
+      toast({ title: "Закрытие не подтверждено", description: `${retryMessage}\n${technicalMessage}`, variant: "destructive" });
+    } finally {
+      finalizingRef.current = false;
+      setFinalizing(false);
+    }
+  };
+
+  const handleVoid = async () => {
+    if (!activeTicket || !profile?.id || !canCorrectTicket || voiding || finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return;
+    if (!voidReason.trim()) return toast({ title: "Ошибка", description: "Укажите причину аннулирования", variant: "destructive" });
+    const confirmed = await siteConfirm({
+      title: "Аннулировать талон",
+      description: "Талон будет отменен через storno. Действие нельзя выполнить без указанной причины.",
+      actionLabel: "Аннулировать",
+    });
+    if (!confirmed) return;
+    setVoiding(true);
+    try {
+      await voidTicket(activeTicket.id, profile.id, voidReason.trim());
+      toast({ title: "Талон аннулирован", description: "Отмена выполнена через storno" });
+      setVoidReasonOpen(false);
+      setVoidReason("");
+      setActiveTicket(null);
+      adjustActiveHarvestTicketCount(activeTicket, -1);
+      releaseTransportAssignment(activeTicket, false);
+      setTickets((current) => current.filter((ticket) => ticket.id !== activeTicket.id));
+      window.setTimeout(() => {
+        void refreshLiveData({ source: "realtime", table: "tickets" });
+      }, 1_500);
+    } catch (e: any) {
+      toast({ title: "Ошибка", description: e?.message || "Не удалось аннулировать талон", variant: "destructive" });
+    } finally {
+      setVoiding(false);
+    }
+  };
+
+  const handleHistoryAdminVoid = async () => {
+    const target = historyAdminVoidTarget;
+    const reason = historyAdminVoidReason.trim();
+    if (
+      !target ||
+      !profile?.id ||
+      profile.role !== "global_admin" ||
+      historyAdminVoiding
+    ) return;
+    if (!reason) {
+      toast({ title: "Укажите причину", description: "Без причины аннулирование недоступно.", variant: "destructive" });
+      return;
+    }
+
+    setHistoryAdminVoiding(true);
+    try {
+      await adminTicketAction(target.id, profile.id, "void", reason);
+      notifyWeighbridgeDataChanged();
+      setHistoryAdminVoidTarget(null);
+      setHistoryAdminVoidReason("");
+      setHistoryPreviewTicket(null);
+      toast({ title: "Талон аннулирован", description: "Отмена проведена через storno; документ сохранён в истории." });
+      await refreshLiveData({
+        source: "local",
+        tables: ["tickets", "ticket_lines", "inventory_batches", "stock_ledger_entries"],
+      }).catch(() => {
+        toast({ title: "Талон аннулирован", description: "Журнал обновится автоматически при следующей синхронизации." });
+      });
+    } catch (error: any) {
+      toast({
+        title: "Не удалось аннулировать талон",
+        description: error?.message || "Повторите попытку",
+        variant: "destructive",
+      });
+    } finally {
+      setHistoryAdminVoiding(false);
+    }
+  };
+
+  const handleAdminCleanup = async (action: "void" | "archive" | "force_close") => {
+    if (!activeTicket || !profile?.id || !canVoid || finalizingRef.current || ticketCloseStateRef.current.phase !== "idle") return;
+    const titleMap: Record<string, string> = {
+      void: "Отменить зависший талон",
+      archive: "Архивировать зависший талон",
+      force_close: "Принудительно закрыть талон",
+    };
+    const reason = voidReason.trim();
+    if (!reason) {
+      toast({ title: "Ошибка", description: "Укажите причину в поле аннулирования/cleanup", variant: "destructive" });
+      return;
+    }
+    const confirmed = await siteConfirm({
+      title: titleMap[action],
+      description: "Админ-действие будет записано в историю талона. Продолжить?",
+      actionLabel: "Подтвердить",
+    });
+    if (!confirmed) return;
+    try {
+      await adminTicketAction(activeTicket.id, profile.id, action, reason);
+      toast({ title: "Выполнено", description: "Админ-действие применено успешно" });
+      setVoidReason("");
+      setActiveTicket(null);
+      releaseTransportAssignment(activeTicket, false);
+      setTickets((current) => current.filter((ticket) => ticket.id !== activeTicket.id));
+      void refreshLiveData({ source: "local", table: "tickets" });
+    } catch (e: any) {
+      toast({
+        title: "Ошибка admin cleanup",
+        description: e?.message || "Не удалось применить админ-действие",
+        variant: "destructive",
+      });
+    }
+  };
+
+  if (authLoading || operatorGateChecking) return (
+    <div
+      aria-busy="true"
+      aria-label="Загрузка Весовой"
+      className="mx-auto max-w-[1680px] space-y-3 px-2 pb-4 sm:px-3"
+      data-testid="weighbridge-session-skeleton"
+    >
+      <div className="h-10 animate-pulse rounded-md border border-border bg-background" />
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="space-y-3 rounded-md border border-border bg-card p-4">
+          <div className="h-5 w-40 animate-pulse rounded bg-muted" />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="h-16 animate-pulse rounded bg-background" />
+            <div className="h-16 animate-pulse rounded bg-background" />
+            <div className="h-16 animate-pulse rounded bg-background" />
+            <div className="h-16 animate-pulse rounded bg-background" />
+          </div>
+        </div>
+        <div className="space-y-3 rounded-md border border-border bg-card p-4">
+          <div className="h-5 w-36 animate-pulse rounded bg-muted" />
+          <div className="h-24 animate-pulse rounded bg-background" />
+          <div className="h-24 animate-pulse rounded bg-background" />
+        </div>
+      </div>
+      <span className="sr-only">Проверяем доступ к Весовой</span>
+    </div>
+  );
+  if (!canView) return <PageHeader title="Весовая и движения" description="Доступ ограничен по роли" />;
+
+  const openShiftAction = async () => {
+    const selected = operatorState.operator?.id || eligibleOperators[0]?.id || "";
+    setOperatorDialogRequested(true);
+    setOperatorPersonId(selected);
+    setOperatorPin("");
+    setOperatorError("");
+    setOperatorDialogOpen(true);
+  };
+
+  const submitOperatorAction = async () => {
+    if (!profile?.company_id || !operatorPersonId || (WEIGHBRIDGE_PIN_REQUIRED && !/^\d{6}$/.test(operatorPin))) return;
+    setOperatorBusy(true);
+    setOperatorError("");
+    const mutationGeneration = ++operatorMutationGenerationRef.current;
+    operatorMutationInFlightRef.current = true;
+    invalidateOperatorSessionRequest();
+    try {
+      const isHandover = Boolean(
+        activeShift?.id && activeShift?.operator_person_id && activeShift.operator_person_id !== operatorPersonId
+      );
+      const nextState = isHandover
+        ? await handoverWeighbridgeOperator(profile.company_id, operatorPersonId, operatorPin, shiftHandoverNote.trim() || undefined)
+        : await unlockWeighbridgeOperator(profile.company_id, operatorPersonId, operatorPin);
+      const completeOperatorState = {
+        ...nextState,
+        operators: Array.isArray(nextState.operators) ? nextState.operators : operatorState.operators,
+      };
+      if (mutationGeneration !== operatorMutationGenerationRef.current) return;
+      operatorUnlockConfirmedAtRef.current = Date.now();
+      commitOperatorState(completeOperatorState);
+      setOperatorSessionStatus("ready");
+      setActiveShift(nextState.shift || null);
+      setOperatorPin("");
+      setOperatorError("");
+      setShiftHandoverNote("");
+      setOperatorDialogRequested(false);
+      setOperatorDialogOpen(false);
+      toast({
+        title: isHandover ? "Смена передана" : activeShift?.id ? "Терминал разблокирован" : "Смена открыта",
+        description: nextState.operator?.name || "Весовщик подтверждён.",
+      });
+      // The mutation response is canonical. Realtime/background invalidation will reconcile it
+      // without making the unlocked form compete with a full bootstrap.
+    } catch (e: any) {
+      const message = String(e?.message || "");
+      const wrongPin = WEIGHBRIDGE_PIN_REQUIRED && (Number(e?.status) === 401 || message.toLowerCase().includes("неверный pin"));
+      setOperatorPin("");
+      setOperatorSessionStatus(wrongPin ? "ready" : "error");
+      setOperatorError(wrongPin ? "Неверный PIN" : "Не удалось выбрать весовщика. Повторите");
+    } finally {
+      if (mutationGeneration === operatorMutationGenerationRef.current) {
+        operatorMutationInFlightRef.current = false;
+      }
+      setOperatorBusy(false);
+    }
+  };
+
+  const closeShiftAction = async (reviewToken: string) => {
+    if (!profile?.company_id || !profile?.id || !activeShift || shiftClosing) return;
+    setShiftClosing(true);
+    try {
+      await closeShift(profile.company_id, profile.id, {
+        shiftId: activeShift.id,
+        reviewToken,
+      });
+      setClosingTare("");
+      setClosingMoisture("");
+      setCommentOpen(false);
+      toast({ title: "Смена закрыта", description: "Итог сохранён автоматически и доступен в сводке." });
+      setShiftHandoverNote("");
+      setShiftDialogOpen(false);
+      updateOperatorState((state) => ({ ...state, shift: null, unlocked: false, operator: null, session_expires_at: null, shift_expires_at: null }));
+      setActiveShift(null);
+      setOperatorSessionStatus("checking");
+      setOperatorDialogOpen(true);
+      await verifyOperatorSession();
+    } catch (e: any) {
+      toast({
+        title: "Не удалось закрыть смену",
+        description: e?.message || "Не удалось подтвердить закрытие. Обновите состояние смены.",
+        variant: "destructive",
+      });
+      throw e;
+    } finally {
+      setShiftClosing(false);
+    }
+  };
+
+  const driverNameForId = (driverId: string | null | undefined) => {
+    if (!driverId) return "";
+    return driverNames[String(driverId)] || drivers.find((driver) => driver.id === driverId)?.name || "";
+  };
+  const combineOperatorNameForTicket = (ticket: WeighbridgeTicket | null | undefined) => {
+    if (!ticket?.combine_operator_person_id) return "";
+    return ticket.combine_operator_person_name
+      || combineOperators.find((person) => person.id === ticket.combine_operator_person_id)?.name
+      || "";
+  };
+  const trailerForTicket = (ticket: WeighbridgeTicket | null | undefined) => {
+    const transport = ticket?.audit_json?.transport as Record<string, unknown> | undefined;
+    const trailerId = String(transport?.trailer_id || "");
+    const trailer = trailers.find((item) => item.id === trailerId);
+    if (trailer) return trailer;
+    const name = String(transport?.trailer_name_snapshot || "");
+    if (!name) return null;
+    return {
+      id: trailerId,
+      name,
+      model: name,
+      plate: String(transport?.trailer_plate_snapshot || ""),
+      type: "trailer",
+      fleetType: "tractor_trailer",
+      transportCategory: "trailer",
+      source: "reference_vehicles" as const,
+      primaryPersonnelId: null,
+    };
+  };
+  const activeDriverName = activeTicket ? driverNameForId(activeTicket.driver_id) : "";
+  const activeVehicle = activeTicket ? vehicles.find((v) => v.id === activeTicket.vehicle_id) : null;
+  const activeTrailer = trailerForTicket(activeTicket);
+  const activeLine = activeTicket?.lines?.[0] ?? null;
+  const allocationLabelById = new Map<string, string>();
+  Object.values(harvestStructureByField).flat().forEach((item) => {
+    allocationLabelById.set(
+      item.allocationId,
+      `${harvestIdentityLabel(item.cropName, item.varietyName, item.reproductionName)} • ${item.areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`
+    );
+  });
+  const ticketAllocationLabel = (ticket: any) => {
+    const id = String(ticket?.crop_structure_allocation_id || "");
+    return ticket?.crop_structure_allocation_label || allocationLabelById.get(id) || (id ? `Участок ${id.slice(0, 8)}` : "-");
+  };
+  const isHarvestTicket = (ticket: any) => String(ticket?.op_type || "") === "harvest_incoming";
+  const isDirectSupplierTicket = (ticket: any) => String(ticket?.op_type || "") === "supplier_receipt" && String(ticket?.receipt_mode || "") === "direct";
+  const supplierName = (ticket: any) => suppliers.find((item) => item.id === ticket?.supplier_id)?.name || (ticket as any)?.supplier_name_snapshot || "-";
+  const buyerName = (ticket: any) => buyers.find((item) => item.id === ticket?.buyer_id)?.name || (ticket as any)?.buyer_name_snapshot || "-";
+  const warehouseName = (id: string | null | undefined) => warehouses.find((w) => w.id === id)?.name || "-";
+  const lineWarehouseName = (line: any, ticket: any) =>
+    line?.warehouse_to_name ||
+    line?.warehouse_from_name ||
+    warehouseName(line?.warehouse_to_id || line?.warehouse_from_id || ticket?.warehouse_to_id || ticket?.warehouse_from_id);
+  const productSummary = (ticket: any, limit = 3) => {
+    const lines = aggregateTicketCargoLines(ticket?.lines || []);
+    const names = lines.map((line: any) => String(line.product_name || line.product_name_snapshot || "").trim()).filter(Boolean);
+    if (names.length === 0) return "-";
+    const shown = names.slice(0, limit).join(", ");
+    return names.length > limit ? `${shown} + ещё ${names.length - limit}` : shown;
+  };
+  const sharedImpuritySourceCount = (ticket: WeighbridgeTicket | null | undefined) => {
+    const scope = ticket?.impurity_source_scope;
+    if (!scope || scope.allocation_mode !== "unresolved_total") return 0;
+    const rawCount = Number(scope.source_count ?? scope.sources?.length ?? 0);
+    return Number.isFinite(rawCount) && rawCount > 0 ? Math.trunc(rawCount) : 0;
+  };
+  const ticketQuantitySummary = (ticket: any, limit = 3) => {
+    // The header net is the canonical physical weight of one weighbridge
+    // ticket. Lines may be split by FIFO across internal inventory batches.
+    if (shouldUseCanonicalJournalNet(ticket)) return formatQuantityWithUnit(ticket.net_weight_kg, "kg");
+    const lines = aggregateTicketCargoLines(ticket?.lines || []);
+    if (lines.length > 0) {
+      const shown = lines.slice(0, limit).map((line: any) => formatQuantityWithUnit(line.quantity, line.uom)).join(", ");
+      return lines.length > limit ? `${shown} + ещё ${lines.length - limit}` : shown;
+    }
+    return "-";
+  };
+  const ticketCardMeta = (ticket: any, vehicleName: string, driverName: string) => {
+    if (isDirectSupplierTicket(ticket)) return `Поставка от ${supplierName(ticket)}`;
+    const combineOperator = isHarvestTicket(ticket)
+      ? ` • Комбайнер: ${combineOperatorNameForTicket(ticket) || "Не указан"}`
+      : "";
+    return `${operationUiLabel(ticket.op_type)} • ${vehicleName} • ${driverName}${combineOperator}`;
+  };
+  const ticketRouteSummary = (ticket: any) => {
+    if (!ticket) return "-";
+    if (ticket.op_type === "supplier_receipt") return `Поставка от ${supplierName(ticket)} → ${warehouseName(ticket.warehouse_to_id)}`;
+    if (ticket.op_type === "harvest_incoming") return `${fields.find((f) => f.id === ticket.field_id)?.name || "Поле"} → ${warehouseName(ticket.warehouse_to_id)}`;
+    if (ticket.op_type === "warehouse_transfer") return `${warehouseName(ticket.warehouse_from_id)} → ${warehouseName(ticket.warehouse_to_id)}`;
+    if (ticket.op_type === "shipment_outbound") return `${warehouseName(ticket.warehouse_from_id)} → ${buyerName(ticket)}`;
+    if (ticket.op_type === "issue_to_field") return `${warehouseName(ticket.warehouse_from_id)} → ${fields.find((f) => f.id === ticket.field_id)?.name || "Поле"}`;
+    if (ticket.op_type === "weighbridge_impurities") {
+      const sourceCount = sharedImpuritySourceCount(ticket);
+      if (sourceCount > 1) {
+        return `${warehouseName(ticket.warehouse_from_id)} → Общая примесь · ${sourceCountLabel(sourceCount)}`;
+      }
+      const batch = harvestBatches.find((item) => item.id === ticket.batch_id);
+      return `${warehouseName(ticket.warehouse_from_id)} → ${batch ? `${batch.cropName} / ${batch.varietyName}` : "вывоз примесей"}`;
+    }
+    return `${warehouseName(ticket.warehouse_from_id)} → ${ticket.destination_text || ticket.destination_kind || "-"}`;
+  };
+  const ticketPaperLabels = (ticket: WeighbridgeTicket): WeighbridgeTicketPaperLabels => {
+    const vehicle = vehicles.find((item) => item.id === ticket.vehicle_id);
+    const trailer = trailerForTicket(ticket);
+    return {
+      company: ticketCompanyLabel(ticket),
+      field: fields.find((item) => item.id === ticket.field_id)?.name || ticket.field_name_snapshot,
+      warehouseFrom: warehouses.find((item) => item.id === ticket.warehouse_from_id)?.name || ticket.warehouse_from_name_snapshot,
+      warehouseTo: warehouses.find((item) => item.id === ticket.warehouse_to_id)?.name || ticket.warehouse_to_name_snapshot,
+      supplier: supplierName(ticket),
+      buyer: buyerName(ticket),
+      vehicle: ticket.vehicle_name_snapshot || vehicle?.name,
+      vehiclePlate: ticket.vehicle_plate_snapshot || vehicle?.plate,
+      trailer: trailer?.name || ticket.trailer_name_snapshot,
+      trailerPlate: trailer?.plate || ticket.trailer_plate_snapshot,
+      driver: ticket.driver_name_snapshot || driverNameForId(ticket.driver_id),
+      combineOperator: combineOperatorNameForTicket(ticket),
+    };
+  };
+  const openHistoryAdminVoidDialog = (ticket: WeighbridgeTicket) => {
+    if (!canAdminVoidHistoryTicket || ticket.status !== "finalized") return;
+    const catalogVehicle = vehicles.find((vehicle) => vehicle.id === ticket.vehicle_id);
+    const snapshotVehicle = resolveTransportIdentity({
+      name: ticket.vehicle_name_snapshot,
+      plate: ticket.vehicle_plate_snapshot,
+    });
+    const vehicleName = catalogVehicle?.name || snapshotVehicle.name || "Транспорт не указан";
+    const vehiclePlate = catalogVehicle?.plate || snapshotVehicle.plate;
+    const rawNetWeightKg = ticket.net_weight_kg == null ? Number.NaN : Number(ticket.net_weight_kg);
+    const target: HistoryAdminVoidTarget = Object.freeze({
+      id: String(ticket.id),
+      ticketNumber: String(ticket.ticket_no || "Без номера"),
+      vehicleDisplay: vehiclePlate ? `${vehicleName} · ${vehiclePlate}` : vehicleName,
+      netWeightKg: Number.isFinite(rawNetWeightKg) ? rawNetWeightKg : null,
+    });
+    setHistoryAdminVoidReason("");
+    setHistoryAdminVoidTarget(target);
+  };
+  const from = activeTicket ? (activeTicket.direction === "incoming" ? fields.find((f) => f.id === activeTicket.field_id)?.name : warehouses.find((w) => w.id === activeTicket.warehouse_from_id)?.name) || "-" : "-";
+  const to = activeTicket ? (activeTicket.direction === "incoming" ? warehouses.find((w) => w.id === activeTicket.warehouse_to_id)?.name : activeTicket.direction === "outgoing" ? fields.find((f) => f.id === activeTicket.field_id)?.name : warehouses.find((w) => w.id === activeTicket.warehouse_to_id)?.name) || "-" : "-";
+  const currentFieldSummary = form.fieldId ? harvestSummary.byField[form.fieldId] || null : null;
+  const formatTonnes = (valueKg: number) => `${(Number(valueKg || 0) / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т`;
+  const formatMoisture = (value: number | null) => value == null
+    ? "—"
+    : `${value.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} %`;
+  const terminalPanelClass = "rounded-md border border-border bg-card shadow-manor-sm";
+  const formSectionClass = "space-y-4 py-1";
+  const formRailClass = "border-l-2 border-border pl-3 sm:pl-4";
+  const formDataStripClass = "grid gap-2 border-y border-border py-3";
+  const ticketClosePending = ticketCloseState.phase === "closing" || ticketCloseState.phase === "reconciling";
+  const ticketCloseLocked = ticketCloseState.phase !== "idle";
+  const ticketCloseRetry = ticketCloseState.phase === "retry" && ticketCloseState.ticketId === activeTicket?.id;
+  const segmentClass = (active: boolean) =>
+    active
+      ? "h-9 border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+      : "h-9 border-border bg-background text-foreground hover:border-border hover:bg-background hover:text-foreground";
+  const operatorDialogVisible = canUseOperatorSession && (
+    (operatorGateBlocked && !operatorGateChecking) || (operatorDialogOpen && operatorDialogRequested)
+  );
+  return (
+    <div
+      ref={workspaceRef}
+      {...(operatorGateBlocked ? ({ inert: "" } as any) : {})}
+      aria-hidden={operatorGateBlocked ? true : undefined}
+      className={`tf-estate-weighbridge w-full space-y-2 pb-4 ${operatorGateBlocked ? "pointer-events-none select-none blur-sm opacity-35" : ""}`}
+    >
+      {canUseOperatorSession && activeShift ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+          <span className="text-xs text-muted-foreground">Весовщик: {operatorState.operator?.name || "Выберите весовщика"} · смена открыта</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setShiftDialogOpen(true)}
+            disabled={submitting || finalizing || ticketCloseLocked || shiftClosing}
+          >
+            Закрыть смену
+          </Button>
+        </div>
+      ) : null}
+      <UniversalWorkspaceTabs
+        tabs={workspaceTabs}
+        selectedId={selectedWorkspaceId}
+        disabled={!workspaceReady || submitting || finalizing || ticketCloseLocked}
+        onSelect={selectWorkspace}
+        onAdd={addWorkspace}
+        onRemove={(workspaceId) => void removeWorkspace(workspaceId)}
+        onLimit={() => toast({ title: "Можно открыть не более 6 рабочих вкладок." })}
+      />
+
+      <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <Card
+          id="weighbridge-workspace-panel"
+          role="tabpanel"
+          aria-labelledby={`weighbridge-workspace-tab-${selectedWorkspaceId}`}
+          className="overflow-hidden xl:col-start-1"
+        >
+          <CardHeader className="px-4 pb-2 pt-4">
+            <CardTitle className="flex flex-col gap-3 text-2xl text-foreground md:flex-row md:items-center md:justify-between">
+              <span className="flex items-center gap-2">
+                <Scale className="h-5 w-5 text-muted-foreground" />
+                Новый талон
+              </span>
+              <span className="flex items-center justify-between gap-4 rounded-md bg-background px-3 py-2 md:min-w-[260px]">
+                <span className="flex items-center gap-2 text-[10px] font-semibold uppercase text-muted-foreground"><span className="h-1.5 w-1.5 rounded-full bg-muted" />Ручной ввод</span>
+                <span className="tf-manor-data text-2xl font-black tabular-nums leading-none text-foreground">{liveWeightKg.toLocaleString("ru-RU")} кг</span>
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 px-4 pb-4 pt-2">
+            {coreResourceErrors.length > 0 ? (
+              <div className="space-y-1 rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-800" role="status">
+                {coreResourceErrors.map((issue) => (
+                  <div key={issue.code} className="flex flex-wrap items-center justify-between gap-2">
+                    <span>{issue.message} Код ошибки: {issue.code}</span>
+                    <button
+                      type="button"
+                      className="font-semibold text-amber-800 underline underline-offset-2 hover:text-foreground"
+                      onClick={() => void load(undefined, true)}
+                    >
+                      Повторить
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {!canOperate ? (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
+                Режим просмотра: создание и закрытие талонов недоступны.
+              </div>
+            ) : null}
+
+            {form.operationType !== "harvest_incoming" ? (
+            <section data-weighbridge-section="route" aria-label="Маршрут операции" className={formSectionClass}>
+            <WorkflowSectionHeading
+              title={form.operationType === "supplier_receipt" ? "1 · Поставка" : isFieldIssue ? "1 · Поле и источник" : "1 · Маршрут"}
+              description={form.operationType === "supplier_receipt" ? "Контрагент, документ и место приёмки" : "Откуда и куда движется продукция или материал"}
+            />
+            <div className="grid gap-3 md:grid-cols-2">
+              {isFieldIssue ? (
+                <div className="space-y-1">
+                  <Label>Поле *</Label>
+                  <Select value={form.fieldId} onValueChange={(v) => setForm((p) => ({ ...p, fieldId: v, cropStructureAllocationId: "", cropId: "", varietyId: "", reproductionId: "", stockIdentityKey: "", linkedOperationId: "", linkedOperationLineId: "" }))}>
+                    <SelectTrigger className="h-8"><SelectValue placeholder="Выберите поле" /></SelectTrigger>
+                    <SelectContent>{fields.map((f) => <SelectItem key={f.id} value={f.id}>{f.name} • {f.area.toFixed(2)} га</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+
+              {(isTransfer || isFieldIssue || isDisposal || isShipment || isImpurityRemoval) ? (
+                <div className="space-y-1">
+                  <Label>{isTransfer ? "Откуда" : isImpurityRemoval ? "Склад" : "Склад-источник"} *</Label>
+                  {isImpurityRemoval ? (
+                    <SearchableCombobox
+                      value={form.warehouseFromId}
+                      options={impuritySourceWarehouses.map((warehouse) => ({
+                        value: warehouse.id,
+                        label: warehouse.name,
+                        description: storagePlaceTypeLabel(warehouse.placeType),
+                        group: storagePlaceTypeGroupLabel(warehouse.placeType),
+                        keywords: [warehouse.warehouseType, warehouse.placeType],
+                      }))}
+	                      onValueChange={selectImpurityWarehouse}
+                      placeholder="Выберите склад с урожаем"
+                      searchPlaceholder="Поиск склада или площадки"
+                      emptyLabel="Место с урожаем не найдено"
+                      ariaLabel="Склад-источник примесей"
+                    />
+                  ) : (
+                    <Select value={form.warehouseFromId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseFromId: v, sourceBatchId: "", impuritySourceSelections: [], stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "", processingTransformationId: "", processingOutputRole: "" }))}>
+                      <SelectTrigger className="h-9"><SelectValue placeholder="Выберите место отправления" /></SelectTrigger>
+                      <SelectContent>{warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                  )}
+                </div>
+              ) : null}
+
+              {isTransfer ? (
+                <div className="space-y-1">
+                  <Label>Куда *</Label>
+                  <SearchableCombobox
+                    value={form.warehouseToId}
+                    options={warehouses
+                      .filter((warehouse) => warehouse.id !== form.warehouseFromId)
+                      .map((warehouse) => ({
+                        value: warehouse.id,
+                        label: warehouse.name,
+                        description: storagePlaceTypeLabel(warehouse.placeType),
+                        group: storagePlaceTypeGroupLabel(warehouse.placeType),
+                        keywords: [warehouse.warehouseType, warehouse.placeType],
+                      }))}
+                    onValueChange={(warehouseToId) => setForm((previous) => ({ ...previous, warehouseToId }))}
+                    placeholder="Выберите место назначения"
+                    searchPlaceholder="Поиск склада, площадки или объекта"
+                    emptyLabel="Место назначения не найдено"
+                    ariaLabel="Место назначения"
+                    disabled={loading || submitting}
+                  />
+                </div>
+              ) : form.operationType === "supplier_receipt" && form.supplierReceiptMode === "weighbridge" ? (
+                <div className="space-y-1">
+                  <Label>Склад назначения *</Label>
+                  <Select value={form.warehouseToId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseToId: v }))}>
+                    <SelectTrigger className="h-8"><SelectValue placeholder="Выберите склад" /></SelectTrigger>
+                    <SelectContent>{warehouses.filter((w) => !isTransfer || w.id !== form.warehouseFromId).map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+
+              {form.operationType === "supplier_receipt" ? (
+                <>
+                  <div className="space-y-1">
+                    <Label>Контрагент *</Label>
+                    <Select value={form.supplierId} onValueChange={(v) => setForm((p) => ({ ...p, supplierId: v }))}>
+                      <SelectTrigger className="h-8"><SelectValue placeholder="Выберите контрагента" /></SelectTrigger>
+                      <SelectContent>
+                        {suppliers.length === 0 ? <SelectItem value="__empty" disabled>Контрагенты не добавлены</SelectItem> : null}
+                        {suppliers.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Документ</Label>
+                    <Input className="h-8" value={form.supplierDocumentNo} onChange={(e) => setForm((p) => ({ ...p, supplierDocumentNo: e.target.value }))} placeholder="Накладная / ТТН" />
+                  </div>
+                </>
+              ) : null}
+            </div>
+            {isTransfer && isProcessingPlace(sourceWarehouse?.placeType) ? (
+              <div className={`${formRailClass} mt-3 py-1`}>
+                {processingCandidates.length === 0 ? (
+                  <div className="text-sm text-amber-800">На этом объекте нет активной партии. Сначала должен быть закрыт входной талон.</div>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)] md:items-end">
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-semibold uppercase text-muted-foreground">{String(sourceWarehouse?.placeType || "").toUpperCase() === "DRYER" ? "Партия после сушки" : "Партия после очистки"}</div>
+                      {processingOutputContext ? <div className="mt-1 truncate text-sm font-semibold text-foreground" title={processingOutputContext.identityLabel}>{processingOutputContext.identityLabel}</div> : <div className="mt-1 text-sm text-amber-800">Уточните обработку</div>}
+                      {processingOutputContext ? <div className="mt-1 text-xs text-muted-foreground">Осталось распределить: <b className="text-amber-800">{processingOutputContext.unallocatedKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</b></div> : null}
+                    </div>
+                    {processingCandidates.length > 1 ? (
+                      <div className="space-y-1">
+                        <Label>От какой обработки? *</Label>
+                        <Select value={form.processingTransformationId} onValueChange={(processingTransformationId) => setForm((previous) => ({ ...previous, processingTransformationId, processingOutputRole: String(sourceWarehouse?.placeType || "").toUpperCase() === "DRYER" ? "GRAIN" : "" }))}>
+                          <SelectTrigger className="h-9"><SelectValue placeholder="Выберите партию" /></SelectTrigger>
+                          <SelectContent>{processingCandidates.map((item, index) => <SelectItem key={item.id} value={item.id}>Цикл {index + 1} · {item.identity_label || item.input_label} · {item.ticket_no ? `талон ${item.ticket_no}` : "без талона"} · {fmt(item.started_at || item.created_at, lang)} · {Number(item.unallocated_kg || 0).toLocaleString("ru-RU")} кг</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            ) : null}
+            </section>
+            ) : null}
+
+            {form.operationType === "harvest_incoming" ? (
+              <section data-weighbridge-section="harvest-context" aria-label="Поле и культура" className={formSectionClass}>
+                <WorkflowSectionHeading title="1 · Поле и культура" description="Физическое поле, участок и место приёмки рейса" />
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  <div className="min-w-0 space-y-1.5">
+                    <Label>Поле *</Label>
+                    <HarvestAllocationPicker
+                      value={form.fieldId}
+                      options={harvestFieldOptions}
+                      onValueChange={changeHarvestField}
+                      placeholder="Выберите поле"
+                      searchPlaceholder="Название, площадь или код поля"
+                      emptyLabel="Поле не найдено"
+                      ariaLabel="Поле"
+                      listAriaLabel="Физические поля активного сезона"
+                      physicalFieldSearch
+                      disabled={loading || submitting}
+                    />
+                  </div>
+                  {form.fieldId ? (
+                    <div className="min-w-0 space-y-1.5">
+                      <Label>Участок / культура *</Label>
+                      <HarvestAllocationPicker
+                        value={form.cropStructureAllocationId}
+                        options={harvestAllocationOptions}
+                        onValueChange={changeHarvestTarget}
+                        placeholder="Выберите участок / культуру"
+                        searchPlaceholder="Культура, сорт или репродукция"
+                        emptyLabel="Урожайная строка не найдена"
+                        ariaLabel="Участок или культура"
+                        listAriaLabel="Урожайные строки выбранного поля"
+                        maxVisible={60}
+                        disabled={loading || submitting}
+                      />
+                    </div>
+                  ) : null}
+                  <div className="min-w-0 space-y-1.5">
+                    <Label>Место приёмки *</Label>
+                    <SearchableCombobox
+                      value={form.warehouseToId}
+                      options={harvestWarehouses.map((warehouse) => ({
+                        value: warehouse.id,
+                        label: warehouse.name,
+                        description: storagePlaceTypeLabel(warehouse.placeType),
+                        group: storagePlaceTypeGroupLabel(warehouse.placeType),
+                        keywords: [warehouse.warehouseType, warehouse.placeType],
+                      }))}
+                      onValueChange={(warehouseToId) => { void changeHarvestDestination(warehouseToId); }}
+                      placeholder="Выберите место приёмки"
+                      searchPlaceholder="Поиск места приёмки"
+                      emptyLabel="Место приёмки не найдено"
+                      ariaLabel="Место приёмки"
+                      disabled={loading || submitting}
+                    />
+                    <div className={lockedHarvestDestinationId ? "text-xs text-emerald-700" : "text-xs text-amber-800"}>
+                      {lockedHarvestDestinationId
+                        ? "Склад закреплён только за этой вкладкой. Другие вкладки работают независимо."
+                        : "Выберите и подтвердите склад для этой вкладки. Автоматически он меняться не будет."}
+                    </div>
+                  </div>
+                </div>
+                {harvestWarehouses.length === 0 ? (
+                  <div className="text-xs text-amber-800">
+                    {profile?.role === "company_admin" || profile?.role === "global_admin"
+                      ? "Добавьте место приёмки урожая перед началом работы весовой."
+                      : "Место приёмки не настроено. Обратитесь к администратору."}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+
+	            {isImpurityRemoval ? (
+	              <section data-weighbridge-section="impurity-batch" aria-label="Партия и тип примеси" className={formSectionClass}>
+	                <WorkflowSectionHeading title="2 · Партия и тип примеси" description="Выберите партию один раз — она сохранится до ручной смены" />
+	                <div className="space-y-3">
+	                  <div className="space-y-1.5">
+	                    <Label>Партия урожая *</Label>
+                      <ImpuritySourcePicker
+                        options={impuritySourceOptions}
+                        value={impuritySourceSelectionKeys}
+                        onChange={changeImpuritySources}
+                        optionsStatus={harvestBatchOptionsStatus}
+                        disabled={!form.warehouseFromId || submitting || harvestBatchOptionsStatus === "idle" || harvestBatchOptionsStatus === "loading" || harvestBatchOptionsStatus === "error"}
+                        placeholder={!form.warehouseFromId
+                          ? "Сначала выберите склад"
+                          : harvestBatchOptionsStatus === "loading" || harvestBatchOptionsStatus === "idle"
+                            ? "Загружаем источники..."
+                            : harvestBatchOptionsStatus === "error"
+                              ? "Не удалось загрузить источники"
+                              : "Выберите партию урожая"}
+                      />
+	                    {form.warehouseFromId && (harvestBatchOptionsStatus === "error" || harvestBatchOptionsStatus === "stale") ? (
+	                      <div className="flex flex-wrap items-center gap-2 border-l-2 border-red-400/70 bg-red-50 px-3 py-2 text-xs text-red-800" role="alert">
+	                        <span className="min-w-0 flex-1">{harvestBatchOptionsError}</span>
+	                        <Button
+	                          type="button"
+	                          size="sm"
+	                          variant="outline"
+	                          className="h-8 border-red-400/60 text-red-800 hover:bg-red-50"
+	                          onClick={() => {
+	                            void refreshHarvestBatches({ force: true, warehouseId: form.warehouseFromId }).catch((error) => {
+	                              console.error("Harvest batch options retry failed", error);
+	                            });
+	                          }}
+	                        >
+	                          Повторить
+	                        </Button>
+	                      </div>
+	                    ) : null}
+	                  </div>
+                  {hasDuplicateImpurityCropStructureSources ? (
+                    <div className="border-l-4 border-red-400 bg-red-50 px-3 py-3 text-sm font-medium text-red-900" role="alert">
+                      Один и тот же участок выбран несколько раз. Оставьте только один источник этого участка.
+                    </div>
+                  ) : selectedHarvestBatch?.detailLevel === "full" ? (
+                    <div className={`${formDataStripClass} text-xs sm:grid-cols-3`}>
+                      <div><span className="text-muted-foreground">Принято</span><div className="mt-1 font-semibold text-foreground">{selectedHarvestBatch.receivedKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div></div>
+                      <div><span className="text-muted-foreground">Уже вывезено</span><div className="mt-1 font-semibold text-amber-800">{selectedHarvestBatch.removedKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div></div>
+                      <div><span className="text-muted-foreground">Чистая масса</span><div className="mt-1 font-semibold text-emerald-800">{selectedHarvestBatch.cleanMassKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div></div>
+                    </div>
+	                  ) : selectedHarvestBatch ? (
+	                    harvestBatchDetailError ? (
+	                      <div className="flex flex-wrap items-center gap-2 border-l-2 border-red-400/70 bg-red-50 px-3 py-2 text-xs text-red-800" role="alert">
+	                        <span className="min-w-0 flex-1">{harvestBatchDetailError}</span>
+	                        <Button
+	                          type="button"
+	                          size="sm"
+	                          variant="outline"
+	                          className="h-8 border-red-400/60 text-red-800 hover:bg-red-50"
+	                          onClick={() => setHarvestBatchDetailRetry((value) => value + 1)}
+	                        >
+	                          Повторить
+	                        </Button>
+	                      </div>
+	                    ) : (
+	                      <div className={`${formRailClass} space-y-1 py-1 text-xs`}>
+                            <div>Доступно в партии: <span className="font-semibold">{formatWeightKg(selectedHarvestBatch.cleanMassKg)}</span></div>
+                            {harvestBatchDetailLoading ? (
+                              <p className="text-muted-foreground" role="status">Загружаем историю. Можно продолжать заполнение талона.</p>
+                            ) : (
+                              <Button type="button" variant="ghost" size="sm" onClick={() => setHarvestBatchDetailRequestedKey(`${profile?.company_id}:${selectedHarvestBatch.warehouseId}:${selectedHarvestBatch.id}`)}>
+                                Показать приход и вывоз по партии
+                              </Button>
+                            )}
+	                      </div>
+	                    )
+	                  ) : null}
+                  <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                    {(Object.keys(impurityTypeLabels) as ImpurityType[]).map((type) => (
+                      <Button key={type} type="button" size="sm" variant="outline" className={`${segmentClass(form.impurityType === type)} h-auto min-h-10 whitespace-normal`} onClick={() => setForm((p) => ({ ...p, impurityType: type }))}>
+                        {impurityTypeLabels[type]}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
+            {form.operationType === "supplier_receipt" ? (
+              <section data-weighbridge-section="supplier-materials" aria-label="Номенклатура поставки" className={formSectionClass}>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <WorkflowSectionHeading title="2 · Номенклатура" description="Способ приёмки и состав документа" />
+                  <div className="text-xs text-muted-foreground">{form.supplierReceiptMode === "weighbridge" ? "Один талон — один товар" : "Один документ — несколько строк"}</div>
+                </div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <Button type="button" size="sm" variant="outline" className={segmentClass(form.supplierReceiptMode === "weighbridge")} onClick={() => { setSupplierReceiptLines([]); setForm((p) => ({ ...p, supplierReceiptMode: "weighbridge", quantityKg: "", quantityUom: "kg" })); }}>Через весовую</Button>
+                  <Button type="button" size="sm" variant="outline" className={segmentClass(form.supplierReceiptMode === "direct")} onClick={() => setForm((p) => ({ ...p, supplierReceiptMode: "direct", grossKg: "", warehouseToId: "" }))}>По накладной</Button>
+                </div>
+                {form.supplierReceiptMode === "weighbridge" ? (
+                  <div className={`${formRailClass} mt-3 space-y-2 py-1`}>
+                    <Label>Номенклатура *</Label>
+                    <Select value={form.productId} onValueChange={(v) => setForm((p) => ({ ...p, productId: v, quantityKg: "", quantityUom: "kg" }))}>
+                      <SelectTrigger className="h-9"><SelectValue placeholder="Выберите взвешиваемый товар" /></SelectTrigger>
+                      <SelectContent>
+                        {weighedSupplierProducts.length === 0 ? <SelectItem value="__empty" disabled>Нет доступных сыпучих товаров в кг</SelectItem> : null}
+                        {weighedSupplierProducts.map((product) => <SelectItem key={product.id} value={product.id}>{product.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <div className="text-xs text-muted-foreground">Количество будет равно нетто: брутто минус тара. Ручной ввод количества и единицы не используется.</div>
+                  </div>
+                ) : (
+                  <div className="mt-3 space-y-3">
+                    <div className="grid gap-3 border-b border-border pb-4 md:grid-cols-[minmax(220px,1.4fr)_130px_100px_minmax(180px,1fr)]">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground md:col-span-full">Строка 1</div>
+                      <div className="space-y-1 md:col-span-2">
+                        <Label>Номенклатура *</Label>
+                        <Select value={form.productId} onValueChange={(v) => setForm((p) => ({ ...p, productId: v, quantityUom: String(productById.get(v)?.stockUnit || "") }))}>
+                          <SelectTrigger className="h-8"><SelectValue placeholder="Выберите товар" /></SelectTrigger>
+                          <SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Количество *</Label>
+                        <Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Ед.</Label>
+                        <div className="flex h-8 items-center rounded-md border border-border bg-background px-3 text-sm text-foreground">{unitLabel(productById.get(form.productId)?.stockUnit || "") || "—"}</div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Склад строки *</Label>
+                        <Select value={form.warehouseToId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseToId: v }))}>
+                          <SelectTrigger className="h-8"><SelectValue placeholder="Склад" /></SelectTrigger>
+                          <SelectContent>{warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-0 text-xs text-muted-foreground hover:text-foreground"
+                      aria-expanded={showSupplierExtraFields}
+                      aria-controls="supplier-extra-fields"
+                      onClick={() => setShowSupplierExtraFields((v) => !v)}
+                    >
+                      {showSupplierExtraFields ? "Скрыть дополнительные данные" : "Показать номер партии / цену"}
+                    </Button>
+                    {showSupplierExtraFields ? (
+                      <div id="supplier-extra-fields" className="grid gap-2 md:grid-cols-2">
+                        <div className="space-y-1">
+                          <Label>Партия / номер партии</Label>
+                          <Input className="h-8" value={form.supplierLot} onChange={(e) => setForm((p) => ({ ...p, supplierLot: e.target.value }))} placeholder="необязательно" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Цена</Label>
+                          <Input className="h-8" value={form.unitPrice} onChange={(e) => setForm((p) => ({ ...p, unitPrice: e.target.value }))} placeholder="необязательно" />
+                        </div>
+                      </div>
+                    ) : null}
+                    {supplierReceiptLines.map((line, lineIndex) => (
+                      <div key={line.localId} className="grid gap-3 border-t border-border pt-4 md:grid-cols-[1.2fr_110px_90px_160px_auto]">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground md:col-span-full">Строка {lineIndex + 2}</div>
+                        <div className="space-y-1">
+                          <Label>Номенклатура *</Label>
+                          <Select
+                            value={line.productId}
+                            onValueChange={(v) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, productId: v, uom: String(productById.get(v)?.stockUnit || "") } : item))}
+                          >
+                            <SelectTrigger className="h-8"><SelectValue placeholder="Выберите товар" /></SelectTrigger>
+                            <SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Количество *</Label>
+                          <Input className="h-8" value={line.quantityKg} onChange={(e) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, quantityKg: e.target.value } : item))} />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Ед.</Label>
+                          <div className="flex h-8 items-center rounded-md border border-border bg-background px-3 text-sm text-foreground">{unitLabel(productById.get(line.productId)?.stockUnit || "") || "—"}</div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Склад строки *</Label>
+                          <Select value={line.warehouseToId} onValueChange={(v) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, warehouseToId: v } : item))}>
+                            <SelectTrigger className="h-8"><SelectValue placeholder="Склад" /></SelectTrigger>
+                            <SelectContent>{warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>
+                        {showSupplierExtraFields ? (
+                          <>
+                            <div className="space-y-1 md:col-span-2">
+                              <Label>Партия / номер партии</Label>
+                              <Input className="h-8" value={line.supplierLot} onChange={(e) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, supplierLot: e.target.value } : item))} placeholder="необязательно" />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Цена</Label>
+                              <Input className="h-8" value={line.unitPrice} onChange={(e) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, unitPrice: e.target.value } : item))} placeholder="необязательно" />
+                            </div>
+                          </>
+                        ) : null}
+                        <div className="flex items-end">
+                          <Button type="button" variant="outline" size="sm" className="h-8" aria-label={`Удалить строку ${lineIndex + 2}`} onClick={() => setSupplierReceiptLines((prev) => prev.filter((item) => item.localId !== line.localId))}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between gap-2">
+                      <Button type="button" size="sm" variant="outline" className="h-9 border-border bg-background text-foreground hover:bg-background" onClick={() => setSupplierReceiptLines((prev) => [...prev, createSupplierReceiptLineDraft()])}>
+                        + Добавить строку
+                      </Button>
+                      {supplierReceiptGenericLineDrafts.length > 1 ? <div className="text-xs text-muted-foreground">Итого по строкам: {supplierReceiptGenericLineTotal.toLocaleString("ru-RU", { maximumFractionDigits: 3 })}</div> : null}
+                    </div>
+                  </div>
+                )}
+              </section>
+            ) : null}
+
+            {isFieldIssue ? (
+              <section data-weighbridge-section="field-issue-material" aria-label="Материал и способ выдачи" className={formSectionClass}>
+                <WorkflowSectionHeading title="2 · Материал и способ выдачи" description="Выберите фактический остаток и способ фиксации количества" />
+                <div className="grid gap-2 md:grid-cols-2">
+                  <Button type="button" size="sm" variant="outline" className={segmentClass(form.fieldIssueMode === "weighbridge")} onClick={() => setForm((p) => ({ ...p, fieldIssueMode: "weighbridge", quantityKg: "" }))}>Через весовую</Button>
+                  <Button type="button" size="sm" variant="outline" className={segmentClass(form.fieldIssueMode === "direct")} onClick={() => setForm((p) => ({ ...p, fieldIssueMode: "direct", grossKg: "", driverId: "", vehicleId: "" }))}>Ручная выдача</Button>
+                </div>
+                {fieldHarvestOptions.length > 1 ? (
+                  <Select value={form.cropStructureAllocationId} onValueChange={(v) => setForm((p) => ({ ...p, cropStructureAllocationId: v, stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "" }))}>
+                    <SelectTrigger className="h-9"><SelectValue placeholder="Выберите точную посевную строку" /></SelectTrigger>
+                    <SelectContent>{fieldHarvestOptions.map((x) => <SelectItem key={x.allocationId} value={x.allocationId}>{x.plotLabel} · {harvestIdentityLabel(x.cropName, x.varietyName, x.reproductionName)} · {x.areaHa.toFixed(2)} га</SelectItem>)}</SelectContent>
+                  </Select>
+                ) : null}
+                {selectedHarvestAllocation ? <div className="text-xs text-emerald-800">{fields.find((field) => field.id === form.fieldId)?.name} · {selectedHarvestAllocation.plotLabel} · {harvestIdentityLabel(selectedHarvestAllocation.cropName, selectedHarvestAllocation.varietyName, selectedHarvestAllocation.reproductionName)} · {selectedHarvestAllocation.areaHa.toFixed(2)} га</div> : null}
+                {form.fieldIssueMode === "direct" ? (
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <Select value={form.stockIdentityKey} onValueChange={(v) => {
+                      const selected = fieldIssueStockOptions.find((item) => item.key === v);
+                      setForm((p) => ({
+                        ...p,
+                        stockIdentityKey: v,
+                        productId: selected?.product_id || "",
+                        varietyId: selected?.variety_id || "",
+                        reproductionId: selected?.reproduction_id || "",
+                        fieldMaterialCategory: selected ? inferFieldMaterialCategory(selected) : p.fieldMaterialCategory,
+                      }));
+                    }} disabled={!form.warehouseFromId || !selectedHarvestAllocation || stockIdentityLoading}>
+                      <SelectTrigger className="h-8"><SelectValue placeholder="Материал из наличия склада" /></SelectTrigger>
+                      <SelectContent>{fieldIssueStockOptions.map((item) => <SelectItem key={item.key} value={item.key}>{item.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} placeholder="Количество, кг" />
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+
+            {isTransfer || isDisposal || isShipment ? (
+              <section data-weighbridge-section="movement-material" aria-label="Состав операции" className={formSectionClass}>
+                <WorkflowSectionHeading
+                  title={isTransfer ? "2 · Партия и способ перемещения" : isShipment ? "2 · Получатель и партия" : "2 · Остаток и причина"}
+                  description={isTransfer ? "Определите маршрут партии и способ учёта" : isShipment ? "Укажите документ, назначение и отгружаемый остаток" : "Выберите списываемый остаток и зафиксируйте основание"}
+                />
+                {isTransfer ? (
+                  isProcessingPlace(sourceWarehouse?.placeType) ? (
+                    <div className="border-l-2 border-emerald-400/60 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-800">Фактический рейс через весовую. Партия и источник определены маршрутом.</div>
+                  ) : (
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <Button type="button" size="sm" variant="outline" className={segmentClass(form.transferMode === "weighbridge")} onClick={() => setForm((p) => ({ ...p, transferMode: "weighbridge", quantityKg: "" }))}>Через весовую</Button>
+                      <Button type="button" size="sm" variant="outline" className={segmentClass(form.transferMode === "direct")} onClick={() => setForm((p) => ({ ...p, transferMode: "direct", grossKg: "", driverId: "", vehicleId: "" }))}>Ручное перемещение</Button>
+                    </div>
+                  )
+                ) : null}
+                {isProcessingOutput ? (
+                  <div className="space-y-2">
+                    <Label>{isDryerOutput ? "Что вывозим" : "Что вывозим?"} *</Label>
+                    {isDryerOutput ? (
+                      <div className="flex h-10 items-center rounded-md border border-border bg-background px-3 text-sm font-semibold text-foreground">Зерно после сушки</div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                        {(Object.keys(processingOutputRoleLabels) as ProcessingOutputRole[]).map((role) => (
+                          <Button key={role} type="button" size="sm" variant="outline" className={`${segmentClass(form.processingOutputRole === role)} h-auto min-h-10 whitespace-normal`} onClick={() => setForm((previous) => ({ ...previous, processingOutputRole: role }))}>
+                            {processingOutputRoleLabels[role]}
+                          </Button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+                {isShipment ? (
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label>Контрагент *</Label>
+                      <Select value={form.buyerId} onValueChange={(v) => setForm((p) => ({ ...p, buyerId: v }))}>
+                        <SelectTrigger className="h-8"><SelectValue placeholder="Выберите покупателя/получателя" /></SelectTrigger>
+                        <SelectContent>
+                          {buyers.length === 0 ? <SelectItem value="__empty" disabled>Контрагенты не добавлены</SelectItem> : null}
+                          {buyers.map((buyer) => <SelectItem key={buyer.id} value={buyer.id}>{buyer.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Цель отгрузки *</Label>
+                      <Select value={form.shipmentPurpose} onValueChange={(v) => setForm((p) => ({ ...p, shipmentPurpose: v as ShipmentPurpose }))}>
+                        <SelectTrigger className="h-8"><SelectValue placeholder="Выберите цель" /></SelectTrigger>
+                        <SelectContent>
+                          {(Object.keys(shipmentPurposeLabels) as ShipmentPurpose[]).map((purpose) => (
+                            <SelectItem key={purpose} value={purpose}>{shipmentPurposeLabels[purpose]}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Документ</Label>
+                      <Input className="h-8" value={form.externalDocumentNo} onChange={(e) => setForm((p) => ({ ...p, externalDocumentNo: e.target.value }))} placeholder="Накладная / ТТН" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Пункт назначения</Label>
+                      <Input className="h-8" value={form.destinationText} onChange={(e) => setForm((p) => ({ ...p, destinationText: e.target.value }))} placeholder="Адрес, элеватор, база..." />
+                    </div>
+                  </div>
+                ) : null}
+                <div className="grid gap-2 md:grid-cols-2">
+                  {!isProcessingOutput ? <Select value={form.stockIdentityKey} onValueChange={(v) => {
+                    const selected = stockIdentityOptions.find((item) => item.key === v);
+                    setForm((p) => ({ ...p, stockIdentityKey: v, productId: selected?.product_id || "", varietyId: selected?.variety_id || "", reproductionId: selected?.reproduction_id || "" }));
+                  }} disabled={!form.warehouseFromId || stockIdentityLoading}>
+                    <SelectTrigger className="h-8"><SelectValue placeholder={isShipment ? "Остаток к отгрузке" : "Остаток склада"} /></SelectTrigger>
+                    <SelectContent>{stockIdentityOptions.map((item) => <SelectItem key={item.key} value={item.key}>{item.label}</SelectItem>)}</SelectContent>
+                  </Select> : null}
+                  {isTransfer && form.transferMode === "direct" && !isProcessingOutput ? <Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} placeholder="Количество, кг" /> : null}
+                  {isDisposal ? (
+                    <Select value={form.disposalCategory} onValueChange={(v) => setForm((p) => ({ ...p, disposalCategory: v as DisposalCategory }))}>
+                      <SelectTrigger className="h-8"><SelectValue placeholder="Категория выбытия" /></SelectTrigger>
+                      <SelectContent>
+                        {(Object.keys(disposalCategoryLabels) as DisposalCategory[]).map((category) => (
+                          <SelectItem key={category} value={category}>{disposalCategoryLabels[category]}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : null}
+                  {isDisposal ? <Input className="h-8" value={form.disposalReason} onChange={(e) => setForm((p) => ({ ...p, disposalReason: e.target.value }))} placeholder="Причина списания" /> : null}
+                </div>
+              </section>
+            ) : null}
+
+            {isFieldIssueDirect ? null : (
+              <section data-weighbridge-section="transport" aria-label="Транспорт и водитель" className={formSectionClass}>
+              <WorkflowSectionHeading
+                title={form.operationType === "harvest_incoming" ? "2 · Транспорт и водитель" : "3 · Транспорт и водитель"}
+                description={form.operationType === "supplier_receipt" ? "Для поставки транспорт можно не указывать" : "Машина и водитель фактического рейса"}
+              />
+              <TransportDriverSelects
+                vehicleId={form.vehicleId}
+                driverId={form.driverId}
+                vehicles={vehicles}
+                drivers={drivers}
+                recentPairs={transportPickerData.recentPairs}
+                latestDriverByVehicle={transportPickerData.latestDriverByVehicle}
+                latestVehicleByDriver={transportPickerData.latestVehicleByDriver}
+                openAssignments={transportPickerData.openAssignments}
+                optional={form.operationType === "supplier_receipt"}
+                disabled={loading || submitting || ticketCloseLocked}
+                onChange={changeHarvestTransport}
+                onBlockedAssignment={(assignment) => void handleBlockedTransportAssignment(assignment)}
+                onComplete={() => grossInputRef.current?.focus()}
+              />
+              {form.operationType === "harvest_incoming" && form.driverId ? <DriverVehicleReplacement
+                companyId={profile?.company_id || undefined} driverId={form.driverId}
+                disabled={loading || submitting || ticketCloseLocked}
+                onReplaced={async receipt => {
+                  setForm(previous => previous.driverId === receipt.driverId ? {
+                    ...previous, vehicleId: receipt.vehicleId,
+                    ptcEventId: receipt.state === "loaded" ? receipt.ptcEventId || "" : "",
+                    ptcCycle: receipt.state === "loaded" ? receipt.ptcCycle : null,
+                  } : previous);
+                  toast({ title: "Машина заменена", description: "Водитель и текущий рейс сохранены. ПТС обновлён." });
+                  await Promise.allSettled([load(undefined, true), refreshTickets(), refreshPtcQueue()]);
+                }} /> : null}
+              {drivers.length === 0 ? (
+                <div className="mt-1 text-xs text-amber-800">
+                  {profile?.role === "company_admin" || profile?.role === "global_admin"
+                    ? "Добавьте водителей в справочнике сотрудников до начала уборки."
+                    : "Водители не настроены. Обратитесь к администратору компании."}
+                </div>
+              ) : null}
+              {suggestedFieldId && suggestedFieldId !== form.fieldId && form.operationType !== "harvest_incoming" ? (
+                <div className={`${formRailClass} mt-3 flex items-center justify-between gap-3 py-1 text-sm text-foreground`}>
+                  <span>Последнее поле этой машины: {fields.find((field) => field.id === suggestedFieldId)?.name || "поле"}</span>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setForm((prev) => ({ ...prev, fieldId: suggestedFieldId }))}>
+                    Выбрать
+                  </Button>
+                </div>
+              ) : null}
+              </section>
+            )}
+
+            {isWeighbridgeForm ? (
+              <section data-weighbridge-section="weight" aria-label="Вес операции" className={formSectionClass}>
+              <WorkflowSectionHeading title={form.operationType === "harvest_incoming" ? "3 · Вес рейса" : "Вес операции"} description="Введите фактическое показание и при необходимости влажность" />
+              {form.operationType === "harvest_incoming" ? (
+                <div className="mb-3">
+                  <CompactField label="Комбайнер" required>
+                    <SearchableCombobox
+                      value={form.combineOperatorPersonId}
+                      options={combineOperatorOptions}
+                      onValueChange={(value) => setForm((previous) => ({ ...previous, combineOperatorPersonId: value }))}
+                      placeholder="Выберите комбайнера"
+                      searchPlaceholder="Поиск сотрудника"
+                      emptyLabel="Доступные сотрудники не найдены"
+                      ariaLabel="Комбайнер"
+                      disabled={loading || submitting || !combineOperatorContextId}
+                    />
+                  </CompactField>
+                  {combineOperators.length === 0 ? (
+                    <div className="mt-1 text-xs text-amber-800">
+                      Активные сотрудники не настроены. Обратитесь к администратору компании.
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              <div>
+                <div className={form.operationType === "harvest_incoming" ? "grid items-end gap-3 md:grid-cols-[1fr_170px_220px]" : "grid items-end gap-3 md:grid-cols-[1fr_180px]"}>
+                  <CompactField label="Брутто / вес (кг)" required error={grossInputValidation && !grossInputValidation.ok ? grossInputValidation.message : null}>
+                    <Input ref={grossInputRef} className="h-10" inputMode="decimal" value={form.grossKg} onChange={(e) => setForm((p) => ({ ...p, grossKg: e.target.value }))} placeholder="0" />
+                  </CompactField>
+                  <CompactField label="Влажность, %">
+                    <Input className="h-10" inputMode="decimal" value={form.harvestMoisture} onChange={(e) => setForm((p) => ({ ...p, harvestMoisture: e.target.value }))} placeholder="—" />
+                  </CompactField>
+                  {form.operationType === "harvest_incoming" && canOperate ? (
+                    <Button
+                      className="h-10 w-full font-semibold"
+                      onClick={() => void create()}
+                      disabled={submitting || (canUseOperatorSession && !operatorState.unlocked)}
+                    >
+                      {submitting ? "Открытие..." : "Открыть талон"}
+                    </Button>
+                  ) : null}
+                </div>
+                {form.operationType === "harvest_incoming" && canOperate ? (
+                  <div className="mt-2 min-h-5 text-xs" role="status" aria-live="polite">
+                    {!activeShift
+                      ? <span className="text-amber-800">Смена закрыта: нажмите «Открыть талон», чтобы увидеть действие для продолжения.</span>
+                      : canUseOperatorSession && !operatorState.unlocked
+                        ? (
+                          <button type="button" className="font-medium text-amber-800 underline underline-offset-2" onClick={openShiftAction}>
+                            Терминал заблокирован: введите PIN весовщика.
+                          </button>
+                        )
+                        : currentValidationError
+                          ? <span className="text-amber-800">{currentValidationError}</span>
+                          : <span className="text-emerald-800">Форма готова — можно открыть талон.</span>}
+                  </div>
+                ) : null}
+              </div>
+              </section>
+            ) : null}
+
+            {form.operationType !== "harvest_incoming" ? <section data-weighbridge-section="comment" aria-label="Дополнительный комментарий" className={formSectionClass}>
+              <Button type="button" variant="ghost" size="sm" className="h-7 px-0 text-xs" aria-expanded={commentOpen} aria-controls="weighbridge-comment" onClick={() => setCommentOpen((v) => !v)}>
+                {commentOpen ? "− Комментарий" : "+ Комментарий"}
+              </Button>
+              {commentOpen ? <Textarea id="weighbridge-comment" aria-label="Комментарий к талону" value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} rows={2} /> : null}
+            </section> : null}
+
+            {canOperate && form.operationType !== "harvest_incoming" ? (
+              <PrimaryActionBar
+                sticky
+                hint={
+                  !coreDataReady || secondaryModeLoading
+                    ? currentValidationError
+                    : coreDataReady && !activeShift && !isSupplierDirect
+                      ? "Смена закрыта: откройте её через меню ⋯."
+                      : undefined
+                }
+              >
+                <Button
+                  className="h-11 w-full text-base font-semibold"
+                  onClick={() => void create()}
+                  disabled={
+                    submitting ||
+                    Boolean(currentValidationError) ||
+                    (!activeShift && !isSupplierDirect) ||
+                    (canUseOperatorSession && !operatorState.unlocked && !isSupplierDirect)
+                  }
+                >
+                  {submitting ? "Сохранение..." : "Создать талон"}
+                </Button>
+                {coreDataReady && activeShift && canUseOperatorSession && !operatorState.unlocked && !isSupplierDirect ? (
+                  <button type="button" className="mt-1 text-left text-xs font-medium text-amber-800 underline underline-offset-2" onClick={openShiftAction}>
+                    Терминал заблокирован: введите PIN весовщика.
+                  </button>
+                ) : null}
+              </PrimaryActionBar>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <aside className="tf-estate-rail space-y-3 rounded-md p-2 xl:sticky xl:top-16 xl:col-start-2 xl:row-start-1 xl:self-start" aria-label="Открытые талоны и партии на объектах">
+        <Card className={terminalPanelClass}>
+          <CardHeader className="px-4 pb-2 pt-4">
+            <CardTitle className="flex items-center justify-between gap-2 text-base text-foreground">
+              <span className="flex items-center gap-2">
+                <Clock3 className="h-4 w-4 text-amber-800" />Открытые талоны
+              </span>
+              <Badge className="border border-border bg-background text-foreground">{visibleActiveTickets.length}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="max-h-[clamp(190px,36vh,420px)] space-y-4 overflow-y-auto px-3 pb-3 pt-1 travkin-scrollbar">
+            {ticketCloseState.phase !== "idle" ? (
+              <div
+                role="status"
+                aria-live="polite"
+                className={ticketCloseRetry
+                  ? "border-l-2 border-amber-400/70 bg-amber-500/10 px-3 py-2.5"
+                  : "border-l-2 border-emerald-400/70 bg-emerald-500/10 px-3 py-2.5"}
+              >
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  {ticketClosePending ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-emerald-800" /> : <Info className="h-4 w-4 shrink-0 text-amber-800" />}
+                  <span>
+                    {ticketCloseState.phase === "closing"
+                      ? `Закрываем ${ticketCloseState.ticketNo}`
+                      : ticketCloseState.phase === "reconciling"
+                        ? `Сверяем ${ticketCloseState.ticketNo}`
+                        : `Нужен повтор для ${ticketCloseState.ticketNo}`}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs leading-5 text-foreground">{ticketCloseState.message}</p>
+              </div>
+            ) : null}
+            {ticketsLoading ? <div className="text-sm text-muted-foreground">Загрузка очереди...</div> : visibleActiveTickets.length === 0 ? (
+              <div className="flex min-h-24 items-center justify-center border-y border-dashed border-border px-3 text-center text-sm text-muted-foreground">
+                {ticketClosePending ? "Других открытых талонов нет" : "Открытых талонов нет"}
+              </div>
+            ) : [...visibleActiveTickets].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()).map((t) => {
+              const isPending = t.id.startsWith("pending-");
+              const ticketRowDisabled = isPending || ticketCloseLocked;
+              const vehicle = vehicles.find((v) => v.id === t.vehicle_id);
+              const snapshotVehicle = resolveTransportIdentity({
+                name: t.vehicle_name_snapshot,
+                plate: t.vehicle_plate_snapshot,
+              });
+              const vehicleName = vehicle?.name || snapshotVehicle.name || "Транспорт";
+              const vehiclePlate = vehicle?.plate || snapshotVehicle.plate;
+              const vehicleLabel = `${vehicleName} · ${vehiclePlate || "Госномер не указан"}`;
+              const driverName = driverNameForId(t.driver_id) || "Без водителя";
+              const harvestRoute = activeHarvestForTicket(t);
+              const harvestField = harvestRoute?.fieldName || fields.find((field) => field.id === t.field_id)?.name || t.field_name_snapshot || "Поле не указано";
+              return (
+                <OpenTicketCard
+                  key={`open-${t.id}`}
+                  driverName={driverName}
+                  vehicleLabel={vehicleLabel}
+                  fieldLabel={/^поле\s/iu.test(harvestField) ? harvestField : `Поле ${harvestField}`}
+                  weightLabel={ticketQuantitySummary(t)}
+                  outgoing={t.direction === "outgoing"}
+                  disabled={ticketRowDisabled}
+                  pending={isPending}
+                  onOpen={() => setActiveTicket(t)}
+                />
+              );
+            })}
+          </CardContent>
+        </Card>
+        <ProcessingWorkspace
+          enabled={coreDataReady && (!canUseOperatorSession || operatorState.unlocked)}
+          onItemsChange={setProcessingItems}
+        />
+        </aside>
+      </div>
+
+      <ReadOnlyTrafficBoard enabled={coreDataReady && !operatorGateBlocked} />
+
+      <div ref={historyRef}>
+        {profile?.company_id && profile.id ? <TicketHistoryPanel
+          key={`${profile.company_id}:${profile.id}`}
+          companyId={profile.company_id}
+          userId={profile.id}
+          enabled={!authLoading && !operatorGateBlocked}
+          activeShiftId={activeShift?.id}
+          renderTicket={(t) => {
+              const vehicleName = [t.vehicle_name_snapshot, t.vehicle_plate_snapshot].filter(Boolean).join(" · ") || vehicles.find((v) => v.id === t.vehicle_id)?.name || "Транспорт";
+              const driverName = t.driver_name_snapshot || driverNameForId(t.driver_id) || "Без водителя";
+              const meta = ticketCardMeta(t, vehicleName, driverName);
+              const paperDocumentNo = String(t.external_document_no || "").trim();
+              const dt = historyDateTime(t.created_at);
+              return (
+                <div key={t.id} className="border-b border-border px-1 py-3 transition-colors hover:bg-background motion-reduce:transition-none">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                    <div className="min-w-0">
+                      <div className="truncate text-base font-semibold leading-tight text-foreground">{productSummary(t)}</div>
+                      <div className="mt-0.5 truncate text-sm text-foreground">{ticketRouteSummary(t)}</div>
+                      {sharedImpuritySourceCount(t) > 1 ? (
+                        <div className="mt-1 text-xs font-medium text-amber-800">Вес по участкам не распределён</div>
+                      ) : null}
+                      <div className="mt-1 truncate text-xs text-muted-foreground">
+                        {meta} • {t.ticket_no}{paperDocumentNo ? ` • Бумажный № ${paperDocumentNo}` : ""}
+                      </div>
+                    </div>
+                    <div className="grid shrink-0 grid-cols-[1fr_auto_auto] items-center gap-2 md:flex">
+                      <Badge className={statusClass(t.status)}>{statusLabel(t.status)}</Badge>
+                      <Button variant="outline" size="sm" className="h-8 border-border bg-background text-foreground hover:bg-muted" onClick={() => setHistoryPreviewTicket(t)}>Открыть</Button>
+                      <Button variant="outline" size="sm" className="h-8 border-border bg-background text-foreground hover:bg-muted" onClick={async () => { if (!profile?.id) return; try { await downloadTicketPdf(t.id, profile.id); } catch (error: any) { toast({ title: "Ошибка PDF", description: error?.message || "Не удалось скачать PDF", variant: "destructive" }); } }}><FileDown className="mr-1 h-4 w-4" />PDF</Button>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs">
+                    <div><span className="text-muted-foreground">{shouldUseCanonicalJournalNet(t) ? "Нетто" : "Количество"}: </span><span className="font-semibold text-foreground">{ticketQuantitySummary(t)}</span></div>
+                    <div><span className="text-muted-foreground">Открыт: </span><span className="font-semibold text-foreground">{dt}</span></div>
+                    {t.finalized_at ? <div><span className="text-muted-foreground">Закрыт: </span><span className="font-semibold text-foreground">{historyDateTime(t.finalized_at)}</span></div> : null}
+                    {t.voided_at ? <div><span className="text-muted-foreground">Аннулирован: </span><span className="font-semibold text-foreground">{historyDateTime(t.voided_at)}</span></div> : null}
+                    {paperDocumentNo ? <div><span className="text-muted-foreground">Бумажная тара: </span><span className="font-semibold text-foreground">{formatWeightKg(t.tare_weight_kg)}</span></div> : null}
+                  </div>
+                </div>
+              );
+            }}
+        /> : null}
+      </div>
+
+      <details
+        className={`${terminalPanelClass} group`}
+        open={statisticsOpen}
+        onToggle={(event) => setStatisticsOpen(event.currentTarget.open)}
+      >
+        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold text-foreground">
+          <span>Статистика</span>
+          <span className="text-xs font-normal text-muted-foreground">Сегодня и текущее поле</span>
+        </summary>
+        <div className="grid gap-4 px-4 pb-4 pt-1 lg:grid-cols-2">
+          <section aria-label="Сводка за сегодня">
+            <div className="text-xs font-semibold uppercase text-muted-foreground">Сегодня</div>
+            <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div><div className="text-xs text-muted-foreground">Нетто</div><div className="mt-1 text-lg font-bold text-foreground">{formatTonnes(harvestSummary.today.netKg)}</div></div>
+              <div><div className="text-xs text-muted-foreground">Рейсов</div><div className="mt-1 text-lg font-bold text-foreground">{harvestSummary.today.trips}</div></div>
+              <div><div className="text-xs text-muted-foreground">Средний рейс</div><div className="mt-1 text-lg font-bold text-foreground">{formatTonnes(harvestSummary.today.averageTripKg)}</div></div>
+              <div><div className="text-xs text-muted-foreground">Влажность</div><div className="mt-1 text-lg font-bold text-foreground">{formatMoisture(harvestSummary.today.averageMoisture)}</div></div>
+            </div>
+          </section>
+          <section aria-label="Сводка по текущему полю">
+            <div className="text-xs font-semibold uppercase text-muted-foreground">Текущее поле</div>
+            <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div><div className="text-xs text-muted-foreground">Сегодня</div><div className="mt-1 text-lg font-bold text-foreground">{formatTonnes(currentFieldSummary?.today.netKg || 0)}</div></div>
+              <div><div className="text-xs text-muted-foreground">За сезон</div><div className="mt-1 text-lg font-bold text-foreground">{formatTonnes(currentFieldSummary?.cumulative.netKg || 0)}</div></div>
+              <div><div className="text-xs text-muted-foreground">Рейсов</div><div className="mt-1 text-lg font-bold text-foreground">{currentFieldSummary?.cumulative.trips || 0}</div></div>
+              <div><div className="text-xs text-muted-foreground">Влажность</div><div className="mt-1 text-lg font-bold text-foreground">{formatMoisture(currentFieldSummary?.cumulative.averageMoisture ?? null)}</div></div>
+            </div>
+            <div className="mt-2 text-xs text-muted-foreground">
+              {harvestContext.yieldTPerHa != null
+                ? `${harvestContext.yieldStatus === "final" ? "Итоговая" : "Предварительная"} урожайность: ${harvestContext.yieldTPerHa.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т/га`
+                : "Урожайность появится после фиксации убранной площади"}
+            </div>
+          </section>
+          {statisticsOpen ? (
+            <div className="lg:col-span-2">
+              <DailyReconciliation
+                companyId={profile?.company_id}
+                daily={harvestSummary.byDay || {}}
+                fieldRows={harvestSummary.reconciliationRows || []}
+                fieldNames={Object.fromEntries(fields.map((field) => [field.id, field.name]))}
+                onOpenTicket={(ticketId) => {
+                  const cachedTicket = tickets.find((ticket) => ticket.id === ticketId);
+                  if (cachedTicket) {
+                    setHistoryPreviewTicket(cachedTicket);
+                    return;
+                  }
+                  if (!profile?.id) return;
+                  void getTicketDetails(ticketId, profile.id).then((payload) => {
+                    setHistoryPreviewTicket({ ...(payload.ticket || {}), lines: payload.lines || payload.ticket?.lines || [] } as WeighbridgeTicket);
+                  }).catch((ticketError) => toast({
+                    title: "Не удалось открыть рейс",
+                    description: ticketError instanceof Error ? ticketError.message : "Талон недоступен",
+                    variant: "destructive",
+                  }));
+                }}
+              />
+            </div>
+          ) : null}
+        </div>
+      </details>
+
+      {canVoid && activeTicket ? (
+        <section className={`${terminalPanelClass} px-4 py-4`} aria-labelledby="weighbridge-admin-cleanup-title">
+          <div className="mb-3">
+            <h2 id="weighbridge-admin-cleanup-title" className="text-base font-semibold text-foreground">Admin cleanup зависшего талона</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Служебные действия доступны только роли с правом аннулирования.</p>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            <Button variant="outline" disabled={ticketCloseLocked} onClick={() => handleAdminCleanup("force_close")}>
+              Force close (admin-safe)
+            </Button>
+            <Button variant="outline" disabled={ticketCloseLocked} onClick={() => handleAdminCleanup("archive")}>
+              Archive stuck ticket
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
+      <Sheet
+        open={Boolean(activeTicket) && !ticketClosePending}
+        onOpenChange={(open) => {
+          if (!open && !ticketCloseLocked) {
+            setActiveTicket(null);
+            commitTicketCloseState(EMPTY_TICKET_CLOSE_STATE);
+            finalizeTicketIdempotencyRef.current = null;
+          }
+        }}
+      >
+        <SheetContent side="right" className="w-full overflow-y-auto bg-background text-foreground sm:max-w-[540px] lg:overflow-hidden">
+          {activeTicket ? (
+            <div className="flex min-h-0 flex-col gap-2 lg:h-full">
+              <SheetHeader className="sr-only">
+                <SheetTitle>Талон {activeTicket.ticket_no}</SheetTitle>
+                <SheetDescription>{operationUiLabel(activeTicket.op_type)}</SheetDescription>
+              </SheetHeader>
+              <WeighbridgeTicketPaper
+                ticket={activeTicket}
+                labels={ticketPaperLabels(activeTicket)}
+                className="travkin-scrollbar lg:max-h-[calc(100vh-96px)] lg:overflow-y-auto"
+                headerActions={(
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-[#3f3426] hover:bg-[#e8dcc5]" aria-label="Действия с талоном">
+                        <MoreHorizontal className="h-5 w-5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {canCorrectTicket && activeTicket.impurity_source_scope?.allocation_mode !== "unresolved_total" ? <DropdownMenuItem disabled={ticketCloseLocked} onSelect={openActiveTicketEditor}><Pencil className="mr-2 h-4 w-4" />Исправить</DropdownMenuItem> : null}
+                      <DropdownMenuItem onSelect={() => { if (profile?.id) void downloadTicketPdf(activeTicket.id, profile.id); }}><FileDown className="mr-2 h-4 w-4" />PDF</DropdownMenuItem>
+                      {canCorrectTicket ? <DropdownMenuSeparator /> : null}
+                      {canCorrectTicket ? <DropdownMenuItem disabled={ticketCloseLocked} className="text-red-600 focus:text-red-600" onSelect={() => setVoidReasonOpen(true)}><Trash2 className="mr-2 h-4 w-4" />Аннулировать</DropdownMenuItem> : null}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+                weightEditor={canOperate ? {
+                  tareValue: closingTare,
+                  moistureValue: closingMoisture,
+                  physicalNetKg: pure,
+                  disabled: finalizing || ticketClosePending || ticketCloseRetry,
+                  tareError: closingTareValidation && !closingTareValidation.ok
+                    ? closingTareValidation.message
+                    : pure != null && pure <= 0 ? "Тара должна быть меньше брутто." : "",
+                  tareInputRef,
+                  onTareChange: setClosingTare,
+                  onMoistureChange: setClosingMoisture,
+                  onMoistureCommit: () => undefined,
+                } : undefined}
+              />
+
+              {canOperate ? (
+                <div className="flex shrink-0 flex-col items-center gap-3 pt-1">
+                  {activeTicket.op_type === "harvest_incoming" && !activeTicket.is_finalized && !activeTicket.is_voided ?
+                    <DriverVehicleReplacement companyId={profile?.company_id || undefined} vehicleId={activeTicket.vehicle_id || undefined}
+                      driverId={activeTicket.driver_id || undefined} disabled={ticketCloseLocked}
+                      onReplaced={async receipt => {
+                        // Receipt changes identity only. Keep the tare currently being typed.
+                        setActiveTicket(previous => previous && receipt.ticketIds.includes(previous.id)
+                          ? { ...previous, vehicle_id: receipt.vehicleId, vehicle_name_snapshot: null, vehicle_plate_snapshot: null,
+                            ptc_event_id: receipt.ptcEventId, ptc_cycle: receipt.ptcCycle } : previous);
+                        toast({ title: "Машина заменена в ПТС и талоне" });
+                        await Promise.allSettled([load(undefined, true), refreshTickets()]);
+                      }} /> : null}
+                  {ticketCloseRetry ? (
+                    <div role="alert" className="w-full max-w-sm rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-800">
+                      <p>{ticketCloseState.message}</p>
+                      <button
+                        type="button"
+                        className="mt-1.5 font-semibold text-amber-800 underline underline-offset-2 hover:text-amber-800"
+                        onClick={() => {
+                          finalizeTicketIdempotencyRef.current = null;
+                          commitTicketCloseState(EMPTY_TICKET_CLOSE_STATE);
+                        }}
+                      >
+                        Изменить данные перед новой попыткой
+                      </button>
+                    </div>
+                  ) : null}
+                  {activeTicket.op_type === "warehouse_transfer" && activeTicket.linked_processing_id ? (
+                    <label className="flex w-full max-w-sm cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-[hsl(var(--primary))]"
+                        checked={closingLastMainOutput}
+                        onChange={(event) => setClosingLastMainOutput(event.target.checked)}
+                        disabled={finalizing || ticketClosePending || ticketCloseRetry}
+                      />
+                      Последний рейс основной продукции
+                    </label>
+                  ) : null}
+                  <Button className="w-full max-w-sm bg-emerald-600 font-semibold hover:bg-emerald-700" onClick={closeTicket} disabled={finalizing || ticketClosePending || !closingTare || Boolean(closingTareValidation && !closingTareValidation.ok) || (pure != null && pure <= 0)}>
+                    {finalizing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                    {finalizing ? "Закрытие..." : ticketCloseRetry ? "Повторить закрытие безопасно" : "Закрыть талон"}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+      <Dialog open={voidReasonOpen} onOpenChange={(open) => { if (!voiding) setVoidReasonOpen(open); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Аннулировать талон</DialogTitle>
+            <DialogDescription>Укажите причину. Исходный талон и история останутся в системе.</DialogDescription>
+          </DialogHeader>
+          <Textarea value={voidReason} onChange={(event) => setVoidReason(event.target.value)} rows={3} placeholder="Причина аннулирования" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVoidReasonOpen(false)} disabled={voiding}>Отмена</Button>
+            <Button variant="destructive" onClick={handleVoid} disabled={voiding || !voidReason.trim()}>
+              {voiding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              {voiding ? "Аннулирование..." : "Аннулировать"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Sheet open={Boolean(historyPreviewTicket)} onOpenChange={(open) => !open && setHistoryPreviewTicket(null)}>
+        <SheetContent side="right" className="w-full overflow-y-auto bg-background text-foreground sm:max-w-2xl">
+          {historyPreviewTicket ? (
+            <div className="space-y-4">
+              <SheetHeader className="sr-only">
+                <SheetTitle>Талон {historyPreviewTicket.ticket_no}</SheetTitle>
+                <SheetDescription>{operationUiLabel(historyPreviewTicket.op_type)}</SheetDescription>
+              </SheetHeader>
+              <WeighbridgeTicketPaper ticket={historyPreviewTicket} labels={ticketPaperLabels(historyPreviewTicket)} />
+              {historyPreviewTicket.correction_audit?.some((entry) => entry.action === "shared_impurity_weight_corrected") ? (
+                <details className="rounded-md border border-border p-3 text-sm">
+                  <summary className="cursor-pointer font-medium">История исправления веса</summary>
+                  <div className="mt-2 space-y-3">{historyPreviewTicket.correction_audit.filter((entry) => entry.action === "shared_impurity_weight_corrected").map((entry) => (
+                    <div key={entry.id}>
+                      <p>{historyDateTime(entry.when_at)} · {entry.reason}</p>
+                      <p>Брутто: {formatWeightKg(Number(entry.old_values?.gross_weight_kg))} → {formatWeightKg(Number(entry.new_values?.gross_weight_kg))}.</p>
+                      <p>Тара: {formatWeightKg(Number(entry.old_values?.tare_weight_kg))} → {formatWeightKg(Number(entry.new_values?.tare_weight_kg))}.</p>
+                      <p>Земля: {formatWeightKg(Number(entry.old_values?.net_weight_kg))} → {formatWeightKg(Number(entry.new_values?.net_weight_kg))}.</p>
+                    </div>
+                  ))}</div>
+                </details>
+              ) : null}
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {historyPreviewTicket.status === "finalized" && canAdminVoidHistoryTicket ? (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={() => openHistoryAdminVoidDialog(historyPreviewTicket)}
+                  >
+                    <Trash2 className="mr-1 h-4 w-4" />Аннулировать
+                  </Button>
+                ) : null}
+                {historyPreviewTicket.status === "finalized" && canCorrectTicket ? (
+                  <Button variant="outline" onClick={() => {
+                    setTicketCorrectionReason("");
+                    setEditGrossKg(String(historyPreviewTicket.gross_weight_kg ?? ""));
+                    setEditTareKg(String(historyPreviewTicket.tare_weight_kg ?? ""));
+                    sharedWeightRequestRef.current = null;
+                    setTicketCorrectionOpen(true);
+                  }}>
+                    <Pencil className="mr-1 h-4 w-4" />Исправить талон
+                  </Button>
+                ) : null}
+                <Button variant="outline" onClick={async () => { if (!profile?.id || !historyPreviewTicket) return; try { await downloadTicketPdf(historyPreviewTicket.id, profile.id); } catch (error: any) { toast({ title: "Ошибка PDF", description: error?.message || "Не удалось скачать PDF", variant: "destructive" }); } }}><FileDown className="mr-1 h-4 w-4" />Скачать PDF</Button>
+                <Button onClick={() => setHistoryPreviewTicket(null)}>Закрыть</Button>
+              </div>
+            </div>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+      <Dialog
+        open={Boolean(historyAdminVoidTarget)}
+        onOpenChange={(open) => {
+          if (historyAdminVoiding) return;
+          if (!open) {
+            setHistoryAdminVoidTarget(null);
+            setHistoryAdminVoidReason("");
+          }
+        }}
+      >
+        <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Аннулировать завершённый талон</DialogTitle>
+            <DialogDescription>
+              Укажите причину. Система проведёт storno, а сам талон и история действий останутся в журнале.
+            </DialogDescription>
+          </DialogHeader>
+          {historyAdminVoidTarget ? (
+            <dl className="space-y-2 rounded-lg border border-border bg-background p-3 text-sm">
+              <div className="grid grid-cols-[76px_minmax(0,1fr)] gap-3">
+                <dt className="text-muted-foreground">Талон</dt>
+                <dd className="break-words font-semibold text-foreground">{historyAdminVoidTarget.ticketNumber}</dd>
+              </div>
+              <div className="grid grid-cols-[76px_minmax(0,1fr)] gap-3">
+                <dt className="text-muted-foreground">Транспорт</dt>
+                <dd className="break-words font-semibold text-foreground">{historyAdminVoidTarget.vehicleDisplay}</dd>
+              </div>
+              <div className="grid grid-cols-[76px_minmax(0,1fr)] gap-3">
+                <dt className="text-muted-foreground">Нетто</dt>
+                <dd className="font-semibold text-foreground">{formatWeightKg(historyAdminVoidTarget.netWeightKg)}</dd>
+              </div>
+            </dl>
+          ) : null}
+          <div className="space-y-2">
+            <Label htmlFor="history-admin-void-reason">Причина аннулирования</Label>
+            <Textarea
+              id="history-admin-void-reason"
+              value={historyAdminVoidReason}
+              onChange={(event) => setHistoryAdminVoidReason(event.target.value)}
+              rows={3}
+              placeholder="Например: талон внесён повторно"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={historyAdminVoiding}
+              onClick={() => {
+                setHistoryAdminVoidTarget(null);
+                setHistoryAdminVoidReason("");
+              }}
+            >
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={historyAdminVoiding || !historyAdminVoidReason.trim()}
+              onClick={handleHistoryAdminVoid}
+            >
+              {historyAdminVoiding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              {historyAdminVoiding ? "Аннулирование..." : "Аннулировать через storno"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={openTicketEditOpen} onOpenChange={(open) => { if (!ticketCorrectionBusy) setOpenTicketEditOpen(open); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Исправить открытый талон</DialogTitle>
+            <DialogDescription>Талон останется тем же. Система сохранит прежние и новые значения в истории.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Брутто, кг</Label>
+              <Input inputMode="decimal" value={editGrossKg} onChange={(event) => setEditGrossKg(event.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Тара, кг</Label>
+              <Input inputMode="decimal" value={editTareKg} onChange={(event) => setEditTareKg(event.target.value)} placeholder="Ещё не введена" />
+            </div>
+            <div className="space-y-2">
+              <Label>Причина или комментарий</Label>
+              <Textarea value={editReason} onChange={(event) => setEditReason(event.target.value)} rows={2} placeholder="Например: исправлена опечатка веса" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenTicketEditOpen(false)} disabled={ticketCorrectionBusy}>Отмена</Button>
+            <Button onClick={saveOpenTicketCorrection} disabled={ticketCorrectionBusy}>{ticketCorrectionBusy ? "Сохранение..." : "Сохранить исправление"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={ticketCorrectionOpen} onOpenChange={(open) => { if (!ticketCorrectionBusy) setTicketCorrectionOpen(open); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Исправить завершённый талон</DialogTitle>
+            <DialogDescription>{isSharedHistoryCorrection
+              ? "Исправление веса земли и примесей без нового талона. Номер, дата, смена и исходные партии сохранятся. Склад изменится только на разницу веса. Доступно до закрытия смены этого талона."
+              : "Старый документ останется в истории. Склад будет пересчитан только после завершения исправленного талона."}</DialogDescription>
+          </DialogHeader>
+          {isSharedHistoryCorrection ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2"><Label htmlFor="shared-correction-gross">Брутто, кг</Label>
+                  <Input id="shared-correction-gross" inputMode="decimal" value={editGrossKg} disabled={ticketCorrectionBusy} onChange={(event) => setEditGrossKg(event.target.value)} /></div>
+                <div className="space-y-2"><Label htmlFor="shared-correction-tare">Тара, кг</Label>
+                  <Input id="shared-correction-tare" inputMode="decimal" value={editTareKg} disabled={ticketCorrectionBusy} onChange={(event) => setEditTareKg(event.target.value)} /></div>
+              </div>
+              <p className="text-sm text-muted-foreground">Было земли: {formatWeightKg(historyPreviewTicket?.net_weight_kg)}. После исправления: {(() => {
+                const g = parseStrictWeightKg(editGrossKg, "Брутто");
+                const t = parseStrictWeightKg(editTareKg, "Тара");
+                return g.ok && t.ok && g.value > t.value && t.value >= 0 ? formatWeightKg(g.value - t.value) : "проверьте вес";
+              })()}.</p>
+            </div>
+          ) : null}
+          <div className="space-y-2">
+            <Label>Причина исправления *</Label>
+            <Textarea value={ticketCorrectionReason} disabled={ticketCorrectionBusy} maxLength={2000} onChange={(event) => setTicketCorrectionReason(event.target.value)} rows={3} placeholder="Что было указано неверно" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTicketCorrectionOpen(false)} disabled={ticketCorrectionBusy}>Отмена</Button>
+            <Button onClick={beginFinalizedTicketCorrection} disabled={ticketCorrectionBusy || !ticketCorrectionReason.trim()}>{ticketCorrectionBusy ? "Сохранение..." : isSharedHistoryCorrection ? "Сохранить исправление веса" : "Подготовить исправление"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={operatorDialogVisible}
+        onOpenChange={(open) => {
+          if (!open && (operatorGateBlocked || operatorBusy)) return;
+          if (!open) setOperatorDialogRequested(false);
+          setOperatorDialogOpen(open);
+        }}
+      >
+        <DialogContent
+          className="sm:max-w-sm"
+          hideCloseButton={operatorGateBlocked}
+          overlayClassName="bg-black/85 backdrop-blur-md"
+          onEscapeKeyDown={(event) => { if (operatorGateBlocked) event.preventDefault(); }}
+          onPointerDownOutside={(event) => { if (operatorGateBlocked) event.preventDefault(); }}
+          onInteractOutside={(event) => { if (operatorGateBlocked) event.preventDefault(); }}
+        >
+          <DialogHeader>
+            <DialogTitle>{activeShift ? "Весовщик смены" : "Открыть смену"}</DialogTitle>
+            <DialogDescription>
+              {operatorSessionStatus === "error"
+                  ? "Доступ к Весовой остаётся заблокированным."
+                  : WEIGHBRIDGE_PIN_REQUIRED
+                    ? "Выберите сотрудника и подтвердите доступ личным PIN."
+                    : "Временно выберите весовщика без PIN и продолжайте работу."}
+            </DialogDescription>
+          </DialogHeader>
+          {operatorSessionStatus === "error" ? (
+            <div className="space-y-3">
+              <div role="alert" className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-800">
+                {operatorError || "Не удалось загрузить доступ к Весовой. Повторите проверку."}
+              </div>
+              <Button type="button" className="w-full" onClick={() => void verifyOperatorSession()}>
+                Повторить проверку
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+            {eligibleOperators.length ? (
+              <div className="space-y-2">
+                <Label>Весовщик</Label>
+                <Select value={operatorPersonId} onValueChange={(value) => { setOperatorPersonId(value); setOperatorPin(""); }}>
+                  <SelectTrigger><SelectValue placeholder="Выберите весовщика" /></SelectTrigger>
+                  <SelectContent>
+                    {eligibleOperators.map((operator) => (
+                      <SelectItem key={operator.id} value={operator.id}>
+                        {operator.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
+                {unconfiguredOperatorCount > 0
+                  ? "PIN не настроен. Обратитесь к администратору компании."
+                  : "В справочнике сотрудников нет активных весовщиков."}
+              </div>
+            )}
+            {eligibleOperators.length && WEIGHBRIDGE_PIN_REQUIRED ? (
+              <div className="space-y-2">
+                <Label>PIN</Label>
+                 <Input
+                  autoFocus
+                  type="password"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={operatorPin}
+                  onChange={(event) => setOperatorPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                  onKeyDown={(event) => { if (event.key === "Enter" && /^\d{6}$/.test(operatorPin)) void submitOperatorAction(); }}
+                  placeholder="••••••"
+                  className="text-center text-xl tracking-[0.35em]"
+                />
+                {operatorError ? <div role="alert" className="text-sm font-medium text-red-800">{operatorError}</div> : null}
+              </div>
+            ) : null}
+            {activeShift?.id && activeShift?.operator_person_id && activeShift.operator_person_id !== operatorPersonId ? (
+              <div className="space-y-2">
+                <Label>Комментарий к передаче</Label>
+                <Textarea value={shiftHandoverNote} onChange={(event) => setShiftHandoverNote(event.target.value)} rows={2} placeholder="Необязательно" />
+              </div>
+            ) : null}
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button asChild type="button" variant="outline">
+              <Link href="/dashboard">Выйти из Весовой</Link>
+            </Button>
+            {operatorSessionStatus !== "error" ? (
+              <Button type="button" onClick={() => void submitOperatorAction()} disabled={operatorBusy || !eligibleOperators.length || !operatorPersonId || (WEIGHBRIDGE_PIN_REQUIRED && !/^\d{6}$/.test(operatorPin))}>
+                {operatorBusy
+                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Проверка...</>
+                  : activeShift?.id && activeShift?.operator_person_id && activeShift.operator_person_id !== operatorPersonId
+                    ? "Выбрать и передать смену"
+                    : activeShift?.id ? "Выбрать и продолжить" : "Выбрать и открыть смену"}
+              </Button>
+            ) : null}
+
+            {!isWeighbridgeForm ? (
+              <div className="space-y-1">
+                <Label>Влажность, %</Label>
+                <Input
+                  className="h-10"
+                  inputMode="decimal"
+                  value={form.harvestMoisture}
+                  onChange={(event) => setForm((previous) => ({ ...previous, harvestMoisture: event.target.value }))}
+                  placeholder="Необязательно"
+                />
+              </div>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <WeighbridgeShiftCloseDialog
+        open={shiftDialogOpen}
+        onOpenChange={setShiftDialogOpen}
+        companyId={profile?.company_id || ""}
+        shiftId={activeShift?.id || null}
+        onConfirm={closeShiftAction}
+        onOpenShift={async () => { await openShiftAction(); setShiftDialogOpen(false); }}
+      />
+      <AlertDialog open={confirmOpen} onOpenChange={(open) => { if (!open) resolveConfirm(false); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmTitle}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmDescription}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={confirmBusy} onClick={() => resolveConfirm(false)}>Отмена</AlertDialogCancel>
+            <AlertDialogAction disabled={confirmBusy} onClick={() => resolveConfirm(true)}>
+              {confirmBusy ? "Подтверждение..." : confirmActionLabel}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}

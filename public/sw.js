@@ -1,0 +1,191 @@
+const CACHE_VERSION = "travkinflow-v10-brand-tilt45";
+const STATIC_CACHE = `${CACHE_VERSION}:static`;
+
+const STATIC_ASSETS = [
+  "/manifest.webmanifest",
+  "/brand/tilt45-v1/wordmark.png",
+  "/brand/v1/travkinflow-symbol-006f2efc.png",
+  "/brand/tilt45-v1/icons/favicon-32-compact-v2.png",
+  "/brand/tilt45-v1/icons/icon-192-compact-v2.png",
+  "/brand/tilt45-v1/icons/icon-512-compact-v2.png",
+  "/brand/tilt45-v1/icons/maskable-192-compact-v2.png",
+  "/brand/tilt45-v1/icons/maskable-512-compact-v2.png",
+  "/brand/tilt45-v1/icons/apple-touch-icon-180-compact-v2.png",
+];
+const STATIC_ASSET_PATHS = new Set(STATIC_ASSETS);
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches
+      .open(STATIC_CACHE)
+      .then((cache) => cache.addAll(STATIC_ASSETS))
+      .then(() => self.skipWaiting())
+      .catch(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key.startsWith("travkinflow-") && !key.startsWith(CACHE_VERSION))
+            .map((key) => caches.delete(key))
+        )
+      )
+      .then(() => self.clients.claim())
+  );
+});
+
+function isSameOrigin(request) {
+  try {
+    return new URL(request.url).origin === self.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+function isApiRequest(request) {
+  try {
+    return new URL(request.url).pathname.startsWith("/api/");
+  } catch {
+    return false;
+  }
+}
+
+function isNextRuntimeAsset(request) {
+  try {
+    const pathname = new URL(request.url).pathname;
+    return pathname.startsWith("/_next/");
+  } catch {
+    return false;
+  }
+}
+
+function isNextRscRequest(request) {
+  try {
+    const url = new URL(request.url);
+    const accept = request.headers.get("accept") || "";
+    return (
+      url.searchParams.has("_rsc") ||
+      request.headers.get("rsc") === "1" ||
+      request.headers.has("next-router-state-tree") ||
+      accept.includes("text/x-component")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isKnownStaticAsset(request) {
+  try {
+    return STATIC_ASSET_PATHS.has(new URL(request.url).pathname);
+  } catch {
+    return false;
+  }
+}
+
+function offlinePageResponse() {
+  return new Response(
+    `<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>TravkinFlow offline</title>
+  <style>
+    body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f7f1e7;color:#31251c;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+    main{max-width:520px;padding:28px;border:1px solid #d8c8ac;border-radius:12px;background:#fbf8f1}
+    h1{margin:0 0 10px;font-size:24px;font-family:Georgia,serif}
+    p{margin:0;color:#736353;line-height:1.55}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>TravkinFlow offline</h1>
+    <p>Интернета нет. Откройте ранее загруженную страницу или дождитесь связи — приложение продолжит работу и синхронизирует очередь.</p>
+  </main>
+</body>
+</html>`,
+    { headers: { "Content-Type": "text/html; charset=utf-8" }, status: 200 }
+  );
+}
+
+self.addEventListener("fetch", (event) => {
+  const { request } = event;
+  if (request.method !== "GET" || !isSameOrigin(request) || isApiRequest(request)) return;
+
+  // Flight responses are deployment-specific. Reusing one after a deployment
+  // makes the App Router fall back to a full document navigation.
+  if (isNextRuntimeAsset(request) || isNextRscRequest(request)) {
+    event.respondWith(fetch(request));
+    return;
+  }
+
+  if (request.mode === "navigate") {
+    // Authenticated HTML is user/company-specific and must never survive a deployment.
+    event.respondWith(fetch(request).catch(() => offlinePageResponse()));
+    return;
+  }
+
+  if (isKnownStaticAsset(request)) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((response) => {
+          const copy = response.clone();
+          caches.open(STATIC_CACHE).then((cache) => cache.put(request, copy)).catch(() => undefined);
+          return response;
+        });
+      })
+    );
+    return;
+  }
+
+  event.respondWith(fetch(request));
+});
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { body: event.data ? event.data.text() : "" };
+  }
+  const title = payload.title || "TravkinFlow";
+  const href = typeof payload.href === "string" && payload.href.startsWith("/")
+    ? payload.href
+    : "/traffic";
+  const notificationId = String(payload.id || Date.now());
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: payload.body || "Новое событие оборота машин",
+      icon: "/brand/tilt45-v1/icons/icon-192-compact-v2.png",
+      badge: "/brand/tilt45-v1/icons/favicon-32-compact-v2.png",
+      tag: `travkinflow-${notificationId}`,
+      renotify: true,
+      silent: false,
+      vibrate: [180, 80, 180],
+      data: { href, notificationId },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const href = event.notification.data && typeof event.notification.data.href === "string"
+    ? event.notification.data.href
+    : "/traffic";
+  const targetUrl = new URL(href, self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ("navigate" in client) client.navigate(targetUrl);
+        if ("focus" in client) return client.focus();
+      }
+      return self.clients.openWindow ? self.clients.openWindow(targetUrl) : undefined;
+    }),
+  );
+});

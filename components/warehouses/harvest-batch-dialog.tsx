@@ -1,0 +1,462 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { CalendarDays, ChevronDown, ExternalLink, Factory, FileText, Loader2, PackageOpen, Scale, Truck, UserRound } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import type { HarvestBatchSummary } from "@/lib/types/weighbridge";
+import { TicketPreviewDialog } from "@/components/weighbridge/ticket-preview-dialog";
+import { formatMoisturePercent, warehouseFlowSummary } from "@/lib/warehouse/batch-card-presentation";
+
+type Props = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  batch: HarvestBatchSummary | null;
+  loading?: boolean;
+  error?: string | null;
+  onLoadHistory?: () => void;
+  onRetryOrigins?: () => void;
+};
+
+type OutgoingDocument = NonNullable<HarvestBatchSummary["outgoingDocuments"]>[number];
+
+const kg = (value: number) =>
+  `${Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг`;
+
+function formatDate(value?: string | null): string {
+  if (!value) return "Дата не указана";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Дата не указана" : date.toLocaleString("ru-RU");
+}
+
+function reviewReason(reason: string): string {
+  return ({
+    missing_variety: "сорт",
+    missing_reproduction: "репродукция",
+    missing_crop: "культура",
+    missing_field: "поле",
+    missing_season: "сезон",
+    missing_composition: "состав зерносмеси",
+  } as Record<string, string>)[reason] || reason;
+}
+
+const transformationLabel = (value: string) => ({
+  drying: "Сушка",
+  cleaning: "Очистка",
+  sorting: "Сортировка",
+  calibration: "Калибровка",
+  conditioning: "Доработка",
+  potato_sorting: "Сортировка клубней",
+} as Record<string, string>)[value] || "Переработка";
+
+const processingStatusLabel = (value: string) => ({
+  draft: "В процессе",
+  active: "В процессе",
+  completed: "Завершена",
+  reversed: "Отменена",
+  cancelled: "Отменена",
+} as Record<string, string>)[String(value || "").toLowerCase()] || "В процессе";
+
+const outputLabel = (value: string) => ({
+  commodity: "Готовый продукт",
+  process_loss: "Отходы / потери",
+} as Record<string, string>)[value] || "Результат";
+
+function stockComponentLabel(batchClass: string, physicalState: string, processingEligible: boolean): string {
+  const batch = String(batchClass || "commodity").toLowerCase();
+  const state = String(physicalState || "SOURCE").toUpperCase();
+  if (!processingEligible) return batch === "waste" ? "Примеси / мусор" : "Продукция";
+  if (batch === "waste" && state === "SCREENINGS") return "Отсев";
+  if (batch === "waste" && state === "AFTER_CLEANING") return "Отходы после очистки";
+  if (batch === "waste") return "Прочие отходы";
+  if (state === "AFTER_CLEANING") return "Очищенная продукция";
+  if (state === "AFTER_DRYING") return "Продукция после сушки";
+  return "Исходная продукция";
+}
+
+function ProcessingDocumentDialog({ document, onOpenChange, onOpenTicket }: {
+  document: OutgoingDocument | null;
+  onOpenChange: (open: boolean) => void;
+  onOpenTicket: (ticketId: string) => void;
+}) {
+  const processing = document?.processingDocument || null;
+  const processingOutputKg = processing?.outputs.reduce((sum, output) => sum + output.weightKg, 0) || 0;
+  const processingBalanceKg = Math.max((processing?.inputWeightKg || 0) - processingOutputKg, 0);
+  return (
+    <Dialog open={Boolean(document && processing)} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+        {document && processing ? (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Factory className="h-5 w-5 text-amber-800" />
+                Документ переработки
+              </DialogTitle>
+              <DialogDescription>
+                {transformationLabel(processing.transformationType)} · {formatDate(processing.completedAt || processing.startedAt)}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 text-sm">
+              <div className="grid gap-3 rounded-md border border-border bg-background p-4 sm:grid-cols-2">
+                <div><span className="text-muted-foreground">Операция</span><div className="font-semibold text-foreground">{transformationLabel(processing.transformationType)}</div></div>
+                <div><span className="text-muted-foreground">Статус</span><div className="font-semibold text-foreground">{processingStatusLabel(processing.status)}</div></div>
+                {processing.processingNodeName ? <div><span className="text-muted-foreground">Линия</span><div className="font-semibold text-foreground">{processing.processingNodeName}</div></div> : null}
+                {processing.sourceWarehouseName ? <div><span className="text-muted-foreground">Склад сырья</span><div className="font-semibold text-foreground">{processing.sourceWarehouseName}</div></div> : null}
+                <div><span className="text-muted-foreground">Начато</span><div className="font-semibold text-foreground">{formatDate(processing.startedAt)}</div></div>
+                <div><span className="text-muted-foreground">Завершено</span><div className="font-semibold text-foreground">{formatDate(processing.completedAt)}</div></div>
+                {processing.completedByName || processing.createdByName ? <div><span className="text-muted-foreground">Ответственный</span><div className="font-semibold text-foreground">{processing.completedByName || processing.createdByName}</div></div> : null}
+                {processing.inputBatchCode ? <div><span className="text-muted-foreground">Исходная партия</span><div className="font-semibold text-foreground">{processing.inputBatchCode}</div></div> : null}
+              </div>
+
+              <div className="rounded-md border border-border">
+                <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
+                  <span className="text-muted-foreground">Вход сырья</span>
+                  <strong className="text-rose-800">{kg(processing.inputWeightKg)}</strong>
+                </div>
+                {processing.outputs.map((output, index) => (
+                  <div key={`${output.lineType}-${index}`} className="flex items-center justify-between gap-4 border-b border-border px-4 py-3 last:border-0">
+                    <span>
+                      <span className="text-foreground">{outputLabel(output.lineType)}</span>
+                      {output.warehouseName ? <span className="ml-2 text-muted-foreground">· {output.warehouseName}</span> : null}
+                    </span>
+                    <strong className="text-emerald-800">{kg(output.weightKg)}</strong>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between gap-4 border-t border-border px-4 py-3">
+                  <span className="text-muted-foreground">Материальный баланс</span>
+                  <strong className={processingBalanceKg > 0.001 ? "text-amber-800" : "text-emerald-800"}>
+                    {processingBalanceKg > 0.001 ? `Не распределено ${kg(processingBalanceKg)}` : "Сведён"}
+                  </strong>
+                </div>
+              </div>
+
+              {processing.note ? <div className="rounded-md border border-border px-4 py-3"><span className="text-muted-foreground">Примечание:</span> <span className="text-foreground">{processing.note}</span></div> : null}
+              {processing.sourceTicketId ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenTicket(processing.sourceTicketId as string)}
+                  className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                >
+                  <FileText className="h-4 w-4" />
+                  Исходный приходной талон {processing.sourceTicketNo || ""}
+                </button>
+              ) : null}
+            </div>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false, error, onLoadHistory, onRetryOrigins }: Props) {
+  const [historyOpen, setHistoryOpen] = useState(false);
+  useEffect(() => { setHistoryOpen(false); }, [batch?.id, batch?.warehouseId, open]);
+  const [processingDocument, setProcessingDocument] = useState<OutgoingDocument | null>(null);
+  const [ticketPreviewId, setTicketPreviewId] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const savedScrollTopRef = useRef(0);
+  const openTicketPreview = (ticketId: string) => {
+    savedScrollTopRef.current = scrollRef.current?.scrollTop || 0;
+    setTicketPreviewId(ticketId);
+  };
+  const closeTicketPreview = () => {
+    setTicketPreviewId(null);
+    requestAnimationFrame(() => {
+      if (scrollRef.current) scrollRef.current.scrollTop = savedScrollTopRef.current;
+    });
+  };
+  const trips = batch?.tripBatches || [];
+  const stockComponents = batch?.stockComponents || [];
+  const processingEligible = batch?.processingEligible !== false;
+  const outgoingDocuments = (batch?.outgoingDocuments || []).filter(
+    (document) => processingEligible || document.sourceType !== "processing_document"
+  );
+  const activeTrips = trips.filter((trip) => trip.status !== "voided");
+  const flow = batch ? warehouseFlowSummary(batch) : null;
+  const moistureRelevant = Boolean(
+    batch &&
+    !/картоф/i.test(batch.cropName) &&
+    activeTrips.some((trip) => trip.moisturePercent != null)
+  );
+  const moistureWeight = activeTrips.reduce(
+    (sum, trip) => sum + (trip.moisturePercent == null ? 0 : trip.netWeightKg),
+    0
+  );
+  const weightedMoisture = moistureWeight > 0
+    ? activeTrips.reduce(
+        (sum, trip) => sum + (trip.moisturePercent == null ? 0 : trip.moisturePercent * trip.netWeightKg),
+        0
+      ) / moistureWeight
+    : null;
+  const fieldSummaries = batch?.fieldSummaries || [];
+
+  return (
+    <>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex h-[100dvh] max-h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[92vh] sm:max-h-[92vh] sm:w-[min(900px,calc(100vw-32px))] sm:max-w-[900px] sm:rounded-lg">
+        {batch ? (
+          <>
+            <DialogHeader className="shrink-0 border-b border-border px-5 py-4 text-left">
+              <div className="flex flex-wrap items-start justify-between gap-3 pr-8">
+                <div className="min-w-0">
+                  <DialogTitle className="flex items-center gap-2 text-xl">
+                    <PackageOpen className="h-5 w-5 shrink-0 text-emerald-800" />
+                    <span className="truncate">{batch.cropName}</span>
+                  </DialogTitle>
+                  <DialogDescription className="mt-1">
+                    {batch.reviewState === "requires_review"
+                      ? "Требуется уточнение"
+                      : [batch.varietyName, batch.reproductionName].filter(Boolean).join(" · ")}
+                    {` · ${batch.warehouseName}`}
+                  </DialogDescription>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="text-xs text-muted-foreground">Остаток на этом складе</div>
+                  <div className="mt-1 text-lg font-semibold text-emerald-800">{kg(batch.cleanMassKg)}</div>
+                </div>
+              </div>
+            </DialogHeader>
+
+            <div ref={scrollRef} className="tf-scroll-hidden min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+              {loading ? (
+                <div className="flex min-h-52 items-center justify-center gap-2 text-sm text-muted-foreground" role="status">
+                  <Loader2 className="h-4 w-4 animate-spin" /> {historyOpen ? "Загружаем рейсы и движения..." : "Загружаем происхождение..."}
+                </div>
+              ) : (
+              <>
+              {error ? <div role="alert" className="text-sm text-rose-800">{error}<button type="button" className="ml-3 underline" onClick={historyOpen ? onLoadHistory : onRetryOrigins}>Повторить</button></div> : null}
+              <section aria-label="Поступление с полей">
+                <h3 className="mb-3 text-sm font-semibold">С полей</h3>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4 gap-y-3 text-sm">
+                  <span className="text-xs text-muted-foreground">Поле</span><span className="text-right text-xs text-muted-foreground">Чистый урожай</span><span className="text-right text-xs text-muted-foreground">т/га</span>
+                  {fieldSummaries.map((field, index) => <div key={`${field.fieldId}-${index}`} className="contents">
+                    <div className="min-w-0"><div className="font-medium [overflow-wrap:anywhere]">{field.fieldName}</div>{field.areaHa != null ? <div className="text-xs text-muted-foreground">Площадь · {field.areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га</div> : null}{field.harvestedAreaHa != null ? <div className="text-xs text-muted-foreground">Подтверждено убрано · {field.harvestedAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га</div> : null}</div>
+                    <span className="text-right font-semibold tabular-nums text-emerald-800">{field.cleanWeightKg == null ? "Не уточнён" : `${(field.cleanWeightKg / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} т`}</span>
+                    <span className="text-right tabular-nums" title={field.yieldCleanWeightKg != null && field.harvestedAreaHa != null ? `${kg(field.yieldCleanWeightKg)} чистого урожая со всего источника / ${field.harvestedAreaHa} га` : undefined}>{field.cleanWeightKg == null || field.yieldTPerHa == null ? "—" : field.yieldTPerHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })}</span>
+                  </div>)}
+                </div>
+                {fieldSummaries.length > 0 ? <p className="mt-3 text-xs text-muted-foreground">Чистый вес — за вычетом оформленных примесей. т/га — весь чистый урожай участка во всех складах ÷ убранные гектары из закрытых смен, не остаток партии и не плановая площадь.{fieldSummaries.some(field => field.yieldStatus === "awaiting_shift") ? " Комбайнёр должен закрыть смену и указать убранные гектары." : ""}{fieldSummaries.some(field => field.yieldStatus === "missing_area") ? " Нет подтверждённых убранных гектаров." : ""}{fieldSummaries.some(field => field.yieldStatus === "area_exceeds_plan") ? " Убранная площадь превышает плановую: требуется проверка." : ""}{fieldSummaries.some(field => field.cleanWeightKg == null || field.yieldStatus === "uncertain_mass") ? " Распределение примесей по источникам требует уточнения." : ""}</p> : null}
+                {!fieldSummaries.length && !error ? <p className="mt-3 text-xs text-muted-foreground">Происхождение по полям не подтверждено.</p> : null}
+              </section>
+              <button type="button" aria-expanded={historyOpen} className="flex min-h-11 items-center gap-2 rounded-md bg-muted/50 px-3 text-sm font-medium hover:bg-muted" onClick={() => { if (!historyOpen) onLoadHistory?.(); setHistoryOpen(value => !value); }}><FileText className="h-4 w-4" />{historyOpen ? "Скрыть рейсы и движения" : "Рейсы и движения"}</button>
+              {batch.reviewState === "requires_review" ? (
+                <div className="rounded-md border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-800">
+                  <div className="font-semibold">Требуется уточнение</div>
+                  <div className="mt-1 text-amber-800">
+                    Не подтверждены: {(batch.reviewReasons || []).map(reviewReason).join(", ") || "данные партии"}.
+                    Партия не объединяется с подтверждёнными партиями автоматически.
+                  </div>
+                </div>
+              ) : null}
+
+              {stockComponents.length > 1 ? (
+                <section aria-label="Физический состав остатка">
+                  <h3 className="mb-3 text-base font-semibold">Состав партии на этом складе</h3>
+                  <div className="divide-y divide-border border-y border-border">
+                    {stockComponents.map((component, index) => (
+                      <div key={`${component.batchClass}-${component.physicalState}-${index}`} className="flex items-center justify-between gap-4 py-2.5 text-sm">
+                        <span className="text-muted-foreground">{stockComponentLabel(component.batchClass, component.physicalState, processingEligible)}</span>
+                        <span className="font-semibold tabular-nums text-foreground">{kg(component.quantityKg)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {historyOpen && batch.detailLevel === "full" ? <>
+              <section aria-label="Движение массы">
+                {flow ? (
+                  <div className="grid grid-cols-2 gap-4 border-b border-border pb-3">
+                      {[
+                        { label: "Поступило", value: flow.incomingKg, tone: "text-emerald-800", sign: "+" },
+                        { label: "Выбыло", value: flow.outgoingKg, tone: "text-rose-800", sign: "−" },
+                      ].map((item) => (
+                        <div key={item.label}>
+                          <div className="text-xs text-muted-foreground">{item.label}</div>
+                          <div className={`mt-1 text-base font-semibold tabular-nums ${item.tone}`}>{item.sign}{kg(item.value)}</div>
+                        </div>
+                      ))}
+                  </div>
+                ) : null}
+                  {(batch.reservedKg || 0) > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
+                      <span>В резерве: <strong className="text-amber-800">{kg(batch.reservedKg || 0)}</strong></span>
+                      <span>Доступно: <strong className="text-foreground">{kg(batch.availableKg ?? batch.cleanMassKg)}</strong></span>
+                    </div>
+                  ) : null}
+                {batch.reconciliationState === "incomplete_lineage" ? (
+                  <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
+                    Не для всех рейсов восстановлена связь с талонами. Красное несхождение не показывается до полной сверки происхождения.
+                  </div>
+                ) : batch.reconciliationState === "mismatch"
+                  || (batch.reconciliationState == null && Math.abs(batch.reconciliationDeltaKg || 0) > 0.001) ? (
+                  <div className="mt-3 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-800">
+                    Учёт не сходится на {kg(batch.reconciliationDeltaKg || 0)}. Требуется проверка проводок.
+                  </div>
+                ) : null}
+              </section>
+
+              {outgoingDocuments.length > 0 ? (
+                <section aria-label="Операции по партии">
+                  <h3 className="mb-2 text-base font-semibold">Операции по партии на этом складе</h3>
+                  <div className="divide-y divide-border">
+                    {outgoingDocuments.map((document) => {
+                      const content = (
+                        <>
+                          <span className="min-w-0">
+                            <span className="flex items-center gap-2 font-medium text-foreground">
+                              <FileText className="h-4 w-4 shrink-0 text-amber-800" />
+                              <span>{document.label}</span>
+                              <span className="shrink-0 text-xs font-normal text-muted-foreground">{document.direction === "in" || document.direction === "processing" ? "Поступление" : "Выбытие"}</span>
+                            </span>
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              {formatDate(document.occurredAt)}
+                              {document.documentNo ? ` · ${document.documentNo}` : ""}
+                              {document.actorName ? ` · ${document.actorName}` : ""}
+                            </span>
+                            {document.detailLabel ? <span className="mt-1 block text-xs text-foreground">{document.detailLabel}</span> : null}
+                            {document.vehicleName || document.driverName ? (
+                              <span className="mt-1 block truncate text-xs text-muted-foreground">
+                                {[document.vehicleName, document.driverName].filter(Boolean).join(" · ")}
+                              </span>
+                            ) : null}
+                          </span>
+                          <span className="flex shrink-0 items-center gap-3">
+                            <strong className={`tabular-nums ${document.direction === "in" || document.direction === "processing" ? "text-emerald-800" : "text-rose-800"}`}>
+                              {document.direction === "in" || document.direction === "processing" ? "+" : "-"}{kg(document.quantityKg)}
+                            </strong>
+                            {document.sourceType !== "missing" ? <ExternalLink className="h-4 w-4 text-muted-foreground" /> : null}
+                          </span>
+
+                        </>
+                      );
+                      const className = "flex w-full flex-wrap items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+                      if (document.sourceType === "weighbridge_ticket" && document.ticketId) {
+                        return <button key={document.id} type="button" onClick={() => openTicketPreview(document.ticketId as string)} className={className}>{content}</button>;
+                      }
+                      if (document.sourceType === "processing_document" && document.processingDocument) {
+                        return <button key={document.id} type="button" className={className} onClick={() => setProcessingDocument(document)}>{content}</button>;
+                      }
+                      return (
+                        <div key={document.id} className="flex flex-wrap items-center justify-between gap-4 bg-rose-500/10 px-4 py-3 text-left">
+                          {content}
+                          <span className="text-xs font-medium text-rose-800">Документ-основание не найден</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
+
+              <details className="group/origin border-t border-border pt-3">
+                <summary className="flex min-h-[44px] cursor-pointer list-none items-center gap-2 text-sm font-semibold marker:hidden"><ChevronDown className="h-4 w-4 transition-transform group-open/origin:rotate-180" />Происхождение и рейсы — исходное сырьё</summary>
+                {batch.originState === "ticket_lineage_absent" ? (
+                  <div className="mb-3 rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
+                    Талонное происхождение на этом складе отсутствует. Остаток показан по физическим партиям и складскому ledger.
+                  </div>
+                ) : (
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Это история сырья, не дополнительный остаток. Аннулированные рейсы в сумму не входят.
+                  </p>
+                )}
+                {moistureRelevant && weightedMoisture != null ? (
+                  <p className="mb-3 text-xs text-muted-foreground">Влажность исходных рейсов: <strong className="text-foreground">{formatMoisturePercent(weightedMoisture)}</strong> — не замер текущего остатка.</p>
+                ) : null}
+                <div className="space-y-3">
+                  {fieldSummaries.map((field) => {
+                    const fieldTrips = trips.filter((trip) => {
+                      if (field.fieldId && trip.fieldId) return field.fieldId === trip.fieldId;
+                      return field.fieldName === trip.fieldName;
+                    });
+                    return (
+                      <details key={field.fieldId || field.fieldName} className="group overflow-hidden rounded-md border border-border bg-background">
+                        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-4 py-3 marker:hidden">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 font-semibold text-foreground"><ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />{field.fieldName}</div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">{field.tripCount} рейс. · нажмите, чтобы раскрыть</div>
+                          </div>
+                          <div className="flex shrink-0 gap-5 text-right">
+                            <div>
+                              <div className="text-xs text-muted-foreground">Исходно принято</div>
+                              <div className="font-semibold text-emerald-800">{kg(field.netWeightKg)}</div>
+                            </div>
+                            {field.enteredProcessingKg != null ? (
+                              <div>
+                                <div className="text-xs text-muted-foreground">Вошло в обработку</div>
+                                <div className="font-semibold text-amber-800">{kg(field.enteredProcessingKg)}</div>
+                              </div>
+                            ) : null}
+                          </div>
+                        </summary>
+                        <div className="divide-y divide-border border-t border-border">
+                          {fieldTrips.map((trip) => {
+                            const className = `grid gap-2 px-4 py-3 text-sm transition-colors sm:grid-cols-[minmax(150px,1fr)_minmax(140px,1fr)_150px_120px] ${trip.status === "voided" ? "text-muted-foreground" : "text-foreground"} ${trip.ticketId ? "cursor-pointer hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : ""}`;
+                            const content = <>
+                              <span className="flex min-w-0 items-center gap-2">
+                                <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <span className="truncate">{formatDate(trip.occurredAt)}</span>
+                              </span>
+                              <span className="flex min-w-0 items-center gap-2">
+                                <Truck className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <span className="truncate">{trip.vehicleName || "Транспорт не указан"}</span>
+                              </span>
+                              <span className="flex min-w-0 items-center gap-2">
+                                <UserRound className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <span className="truncate">{trip.driverName || "Водитель не указан"}</span>
+                              </span>
+                              <span className={`flex flex-col items-end justify-center gap-0.5 font-medium ${trip.status === "voided" ? "line-through" : "text-emerald-800"}`}>
+                                <span className="flex items-center gap-2"><Scale className="h-4 w-4 shrink-0" />{kg(trip.netWeightKg)}</span>
+                                {trip.enteredProcessingKg != null ? <span className="text-xs font-normal text-amber-800">в обработку {kg(trip.enteredProcessingKg)}</span> : null}
+                                {moistureRelevant && trip.moisturePercent != null ? <span className="text-xs font-normal text-muted-foreground">влажность {formatMoisturePercent(trip.moisturePercent)}</span> : null}
+                              </span>
+                              {trip.status === "voided" ? (
+                                <Badge variant="outline" className="w-fit sm:col-span-4">Аннулирован</Badge>
+                              ) : null}
+                            </>;
+                            return trip.ticketId ? (
+                              <button key={trip.id} type="button" onClick={() => openTicketPreview(trip.ticketId as string)} className={`${className} w-full text-left`} aria-label={`Открыть талон ${trip.ticketNo}`}>
+                                {content}
+                              </button>
+                            ) : (
+                              <div key={trip.id} className={className}>{content}</div>
+                            );
+                          })}
+                          {fieldTrips.length === 0 ? (
+                            <div className="px-4 py-3 text-sm text-muted-foreground">Рейсы по этому полю не найдены</div>
+                          ) : null}
+                        </div>
+                      </details>
+                    );
+                  })}
+                  {fieldSummaries.length === 0 ? (
+                    <div className="rounded-md border border-border bg-background px-4 py-3 text-sm text-muted-foreground">
+                      Рейсы и поля для этого склада не найдены.
+                    </div>
+                  ) : null}
+                </div>
+              </details>
+              </> : null}
+              </>
+              )}
+            </div>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+    <ProcessingDocumentDialog
+      document={processingDocument}
+      onOpenChange={(nextOpen) => !nextOpen && setProcessingDocument(null)}
+      onOpenTicket={openTicketPreview}
+    />
+    <TicketPreviewDialog ticketId={ticketPreviewId} open={Boolean(ticketPreviewId)} onOpenChange={(nextOpen) => !nextOpen && closeTicketPreview()} />
+    </>
+  );
+}
