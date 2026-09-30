@@ -27,3 +27,15 @@ Restart: reinstall from this exact branch/commit into a second empty workspace; 
 ## Transfer scope
 
 This is a new root snapshot, not an E1 or Production release and not a full historical clone. All application source files match D1. Local originals, dirty work and history remain preserved separately. Data exports, operational repair SQL, internal audit documents, credential-bearing QA tools, old download installers and unrelated directories are deliberately excluded. Database migrations, Android and device drivers are not part of this web-only branch. Installer links may return 404. Only the listed offline package scripts are supported. A successful demo does not prove any database or device workflow.
+
+## Managed cloud HTTPS proxy
+
+Some managed cloud workers require their existing HTTPS proxy for Google Fonts. After verifying the worker's effective destination policy permits only the dependency registry and the two Google Fonts hosts, a single build command may opt in:
+
+```bash
+TRA11_BUILD_PROXY=1 node scripts/cloud/run-offline.cjs build
+```
+
+The preparation guard then permits only the exact host and port of the existing effective platform proxy, in addition to its original build allowlist. It follows Next 13.5.1 proxy-variable precedence, never prints credentials, and does not change proxy variables, certificates or TLS verification. The opt-in has no effect on start/dev/unit commands: those still deny external sockets. Do not set it globally or use a proxy from an untrusted source.
+
+This socket transport exception cannot inspect CONNECT destinations. The managed platform must enforce the destination allowlist. It is not a complete OS/browser/native-code network sandbox, and must only run reviewed code with no application secrets. Keep the actual network-policy evidence with the environment report. Do not use mocked font responses, copied Windows build caches, disabled TLS verification or a direct route around the required proxy as a substitute for a clean cloud build.
