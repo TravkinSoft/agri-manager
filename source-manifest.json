@@ -1,0 +1,288 @@
+{
+  "sourceCommit": "c511f5a44cbc94fc5626813600f74e72374fe513",
+  "scope": "Only35 tracked Android files; no parent Git history",
+  "originalCount": 35,
+  "unchanged": 32,
+  "files": [
+    {
+      "path": "android/README.md",
+      "sourceGitBlob": "f1f79a7a529a5a6370d2488ac9f18f1f3593eb0c",
+      "sourceSha256": "cbd257bbb5d9baf82528b97610794cf8299eaac1986c70da40e69eb863864f5d",
+      "candidateSha256": "8f577153a063c00dfb41721f6b3c9ffd3073e5763a575aaa4b0e85a182312579",
+      "byteIdentical": false,
+      "reason": "Replace obsolete release instructions with preparation-only boundary"
+    },
+    {
+      "path": "android/app/build.gradle",
+      "sourceGitBlob": "a895356ae42a94d31dd2205fb71833640428d231",
+      "sourceSha256": "fa2eb05ee21bea4a2f6c91b1a38c4248e1fd565edcc0ba4c32d75911f9a2802b",
+      "candidateSha256": "10af5ea6cc21d7ed70480af48013f93f41f9bfe6c261800a9f1e554389a1c738",
+      "byteIdentical": false,
+      "reason": "Remove official signing discovery; disable release variants; isolate disposable debug store"
+    },
+    {
+      "path": "android/app/proguard-rules.pro",
+      "sourceGitBlob": "2e49c751a586236fd96bf4cd69b83028b7f12296",
+      "sourceSha256": "25bac19e60ba2e93e9b6cfbf10cb6835a114b2a22ee6c432fea2ce1badb20a20",
+      "candidateSha256": "25bac19e60ba2e93e9b6cfbf10cb6835a114b2a22ee6c432fea2ce1badb20a20",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/app/src/main/AndroidManifest.xml",
+      "sourceGitBlob": "2d12bf74b212ec8c66855250019f2dfdb801ce7f",
+      "sourceSha256": "fab2c753df7d735155a0752035b01e5f40c4e0759964e002aa3093f20899601d",
+      "candidateSha256": "fab2c753df7d735155a0752035b01e5f40c4e0759964e002aa3093f20899601d",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/app/src/main/java/com/travkin/flow/DelegationService.java",
+      "sourceGitBlob": "fcfdafe88ec34c85605ac6a85a6eb8cfe4472e0c",
+      "sourceSha256": "4f859275a00856c6167af97fd53b96ac2887d6afbc4a07813fcae20555ab2817",
+      "candidateSha256": "4f859275a00856c6167af97fd53b96ac2887d6afbc4a07813fcae20555ab2817",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/app/src/main/res/drawable-nodpi/travkinflow_icon.png",
+      "sourceGitBlob": "2da124b01e0acba9b828914c61df6fefbef59b5c",
+      "sourceSha256": "1bb81ba3b8ac8c8d99988f311380ac0b372a57e43adbaf83c043340eac636f91",
+      "candidateSha256": "1bb81ba3b8ac8c8d99988f311380ac0b372a57e43adbaf83c043340eac636f91",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/app/src/main/res/drawable-nodpi/travkinflow_maskable.png",
+      "sourceGitBlob": "f6d74e53261e7349cc79ba5b4f2ceabcc39cc3e6",
+      "sourceSha256": "f4a912f27cfcf37af8e2b927085a76fd6c580e584a5daca7641eaf2e3130c364",
+      "candidateSha256": "f4a912f27cfcf37af8e2b927085a76fd6c580e584a5daca7641eaf2e3130c364",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/app/src/main/res/drawable/ic_launcher_background.xml",
+      "sourceGitBlob": "b7abe5ecf97a9ea4cfed8b6d1dd64abe3b5895ab",
+      "sourceSha256": "9b883c5b4c82ab9389a21cf5937b1f9b15df675f687676eb2cf4b2c7ec781378",
+      "candidateSha256": "9b883c5b4c82ab9389a21cf5937b1f9b15df675f687676eb2cf4b2c7ec781378",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/app/src/main/res/drawable/ic_notification.xml",
+      "sourceGitBlob": "6d9f42a3d9c54dd9960f38dbf6074e86d4d9f07c",
+      "sourceSha256": "006a231212c9b42e6a91db6460a4335c1138d8d6d949428446f267833f9d358a",
+      "candidateSha256": "006a231212c9b42e6a91db6460a4335c1138d8d6d949428446f267833f9d358a",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/app/src/main/res/mipmap-anydpi/ic_launcher.xml",
+      "sourceGitBlob": "92b3482f86adea799df71a59979069d82a9b06bf",
+      "sourceSha256": "f61f2d677f0dad968e49be04d64306f6e789316ba39948c9800b200ff78fdf0c",
+      "candidateSha256": "f61f2d677f0dad968e49be04d64306f6e789316ba39948c9800b200ff78fdf0c",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/app/src/main/res/mipmap-anydpi/ic_launcher_round.xml",
+      "sourceGitBlob": "92b3482f86adea799df71a59979069d82a9b06bf",
+      "sourceSha256": "f61f2d677f0dad968e49be04d64306f6e789316ba39948c9800b200ff78fdf0c",
+      "candidateSha256": "f61f2d677f0dad968e49be04d64306f6e789316ba39948c9800b200ff78fdf0c",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/app/src/main/res/values-night/themes.xml",
+      "sourceGitBlob": "20f0c2ce4aad4b78b44f681e80647acde50a089b",
+      "sourceSha256": "c9eeb2337743ec7c0b29c0da8aafcfc6a335dab92ba7b1da27dd8e441eb4b3b8",
+      "candidateSha256": "c9eeb2337743ec7c0b29c0da8aafcfc6a335dab92ba7b1da27dd8e441eb4b3b8",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/app/src/main/res/values/colors.xml",
+      "sourceGitBlob": "ad5242a56ddacc630bb850d68b4b3d43a773d220",
+      "sourceSha256": "d3b246e5ff4280c3b1b058344401209e5272919f09070f31ba7a7e7e2a48a3db",
+      "candidateSha256": "d3b246e5ff4280c3b1b058344401209e5272919f09070f31ba7a7e7e2a48a3db",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/app/src/main/res/values/themes.xml",
+      "sourceGitBlob": "20f0c2ce4aad4b78b44f681e80647acde50a089b",
+      "sourceSha256": "c9eeb2337743ec7c0b29c0da8aafcfc6a335dab92ba7b1da27dd8e441eb4b3b8",
+      "candidateSha256": "c9eeb2337743ec7c0b29c0da8aafcfc6a335dab92ba7b1da27dd8e441eb4b3b8",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/app/src/main/res/values/twa.xml",
+      "sourceGitBlob": "319be625a13df046aebb523ad43e38f52af3aa57",
+      "sourceSha256": "2dd38c4e1b61d19884fa715de10e11059cf20c185bb36409277d522168022b0c",
+      "candidateSha256": "2dd38c4e1b61d19884fa715de10e11059cf20c185bb36409277d522168022b0c",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/app/src/main/res/xml/data_extraction_rules.xml",
+      "sourceGitBlob": "9b1de60c3ff8be453b43c172d9e54ccb0ad88b0e",
+      "sourceSha256": "90c2a755a51682ef7e163e61214d3cf61efb3c1d8dd12f0ed7a52cd38137ad4b",
+      "candidateSha256": "90c2a755a51682ef7e163e61214d3cf61efb3c1d8dd12f0ed7a52cd38137ad4b",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/app/src/main/res/xml/filepaths.xml",
+      "sourceGitBlob": "12daddfe5ab1c63d7f9ee07b08f97a0beef9257a",
+      "sourceSha256": "99957102d5ec6b3491da5e54699965e934e459c4a55c741acc4c02ea0a274305",
+      "candidateSha256": "99957102d5ec6b3491da5e54699965e934e459c4a55c741acc4c02ea0a274305",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/app/src/main/res/xml/network_security_config.xml",
+      "sourceGitBlob": "683208ffda765ff9d68c5dc665fc017fe9f5bbdc",
+      "sourceSha256": "dbc726438a7e99c69fdfc39146cd51ef8300dacb236843bbce3ecd2a1712a80f",
+      "candidateSha256": "dbc726438a7e99c69fdfc39146cd51ef8300dacb236843bbce3ecd2a1712a80f",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/app/src/test/java/com/travkin/flow/TwaContractTest.java",
+      "sourceGitBlob": "f4a8e1d633d7e37721b65f61c29724a8a19e8cdb",
+      "sourceSha256": "0b6f1a913e93c5109a91578918adf91cab22e5682279e7f1c60ab5e887410fb2",
+      "candidateSha256": "0b6f1a913e93c5109a91578918adf91cab22e5682279e7f1c60ab5e887410fb2",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/build-play-bundle.ps1",
+      "sourceGitBlob": "b6d892df646daebc39c2d675b514b54a9e3221b9",
+      "sourceSha256": "8f6a4a4708e5b4d5989ceca10e95696ae4d03fbc602ae47992c41b3889dfa181",
+      "candidateSha256": "a3395821d92f0d645d35d9917f0f4a0eab38dc60fa2e706a7c0da1b4f2bdb35a",
+      "byteIdentical": false,
+      "reason": "Replace credential-aware release helper with immediate error"
+    },
+    {
+      "path": "android/build.gradle",
+      "sourceGitBlob": "0c7f83c2724d06c5a8be3369162459cd67fcbd95",
+      "sourceSha256": "33ffadb26cc1ef936503eb8f1f6c86ce6f3d76168526be92579db94ceba3d802",
+      "candidateSha256": "33ffadb26cc1ef936503eb8f1f6c86ce6f3d76168526be92579db94ceba3d802",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/gradle.properties",
+      "sourceGitBlob": "787321239cfa9aea0e43e45a76d00a69e8fac002",
+      "sourceSha256": "c9e0c24aace19a9beefbfc7d963a379f415ce607e42e96eb77742f7420e2c7d4",
+      "candidateSha256": "c9e0c24aace19a9beefbfc7d963a379f415ce607e42e96eb77742f7420e2c7d4",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/gradle/wrapper/gradle-wrapper.jar",
+      "sourceGitBlob": "5c2d1cf016b3885f6930543d57b744ea8c220a1a",
+      "sourceSha256": "3dc39ad650d40f6c029bd8ff605c6d95865d657dbfdeacdb079db0ddfffedf9f",
+      "candidateSha256": "3dc39ad650d40f6c029bd8ff605c6d95865d657dbfdeacdb079db0ddfffedf9f",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/gradle/wrapper/gradle-wrapper.properties",
+      "sourceGitBlob": "719e73646ded6bce2ca49d465c7ed2a9ec5cf423",
+      "sourceSha256": "32f03ec0547597c12e334bf8fedd7fb13129db49cd8a1aa583170a774aaeb47b",
+      "candidateSha256": "32f03ec0547597c12e334bf8fedd7fb13129db49cd8a1aa583170a774aaeb47b",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/gradlew",
+      "sourceGitBlob": "b740cf13397ab16efc23cba3d6234ff8433403b1",
+      "sourceSha256": "d8231d345ab33433ab7b2c0720d5beb416c8d5c6789dbc01ad122b63bc2cae0d",
+      "candidateSha256": "d8231d345ab33433ab7b2c0720d5beb416c8d5c6789dbc01ad122b63bc2cae0d",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/gradlew.bat",
+      "sourceGitBlob": "25da30dbdeee93f6eaceea674c3b635de168ce06",
+      "sourceSha256": "95e8ae8e8a256a2f066cdd745d56f7a3fc87aa058a2e4beb483300db7171bd1f",
+      "candidateSha256": "95e8ae8e8a256a2f066cdd745d56f7a3fc87aa058a2e4beb483300db7171bd1f",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/play-store/README.md",
+      "sourceGitBlob": "868ee311b6455f614326ad170d8fce9c12fcaf9a",
+      "sourceSha256": "6fba2305df8f6da967f336bf13b584b075fe6b9e8764d878f17f088b9d6d8c3c",
+      "candidateSha256": "6fba2305df8f6da967f336bf13b584b075fe6b9e8764d878f17f088b9d6d8c3c",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/play-store/app-icon-512.png",
+      "sourceGitBlob": "8d6be5ae3e8a97fb7492d10dd2744d00b712e5d6",
+      "sourceSha256": "81b73be1e9755de816fb5e97e546620e5450a52e67886203c9bc2568af8c996a",
+      "candidateSha256": "81b73be1e9755de816fb5e97e546620e5450a52e67886203c9bc2568af8c996a",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/play-store/feature-graphic-1024x500.png",
+      "sourceGitBlob": "89026836e0b0642639feccd9c336949dbba29ead",
+      "sourceSha256": "6bd8d556334c87ad1271c5f2f777ded14d3d61fad351c6fcbb5260855d77db81",
+      "candidateSha256": "6bd8d556334c87ad1271c5f2f777ded14d3d61fad351c6fcbb5260855d77db81",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/play-store/phone-01-login-1080x1920.png",
+      "sourceGitBlob": "96d05c9e08f4bcdccc3776f77c93b5171a7ae574",
+      "sourceSha256": "a614507053b8c6c6bbae05f2ec473e4cf00a18fd922e97aa20d8927f3a4db2f5",
+      "candidateSha256": "a614507053b8c6c6bbae05f2ec473e4cf00a18fd922e97aa20d8927f3a4db2f5",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/play-store/phone-02-cabinet-1080x1920.png",
+      "sourceGitBlob": "275821b662de4f517d123a3d0d2942fe8e72e0dc",
+      "sourceSha256": "df22276f5ad9ed7b239e8a8fa823a1d0e9e03cd345772dd3adea2c891ad508ab",
+      "candidateSha256": "df22276f5ad9ed7b239e8a8fa823a1d0e9e03cd345772dd3adea2c891ad508ab",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/play-store/source/feature-graphic.html",
+      "sourceGitBlob": "11b8ae9e1d332e9452221849a0be19acca933189",
+      "sourceSha256": "842c954139db8da25574aec92671dd34a364d168c1a779a7acfc166ac49481a0",
+      "candidateSha256": "842c954139db8da25574aec92671dd34a364d168c1a779a7acfc166ac49481a0",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/play-store/source/phone-screenshots.html",
+      "sourceGitBlob": "da174b413a77da4f246614d299719bc44e4fc62d",
+      "sourceSha256": "e67e6684dada6c149bdcda9a834cbb8b4634f0ca5123111a667a465cd5ea6bd9",
+      "candidateSha256": "e67e6684dada6c149bdcda9a834cbb8b4634f0ca5123111a667a465cd5ea6bd9",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/settings.gradle",
+      "sourceGitBlob": "9a7da0d89996be05c30db71ed63a64bcd82ea8a0",
+      "sourceSha256": "4ff77f9dbf4b4523cfa0013f67b42ae35e48d7dd6f0386f2b6486525adf600f9",
+      "candidateSha256": "4ff77f9dbf4b4523cfa0013f67b42ae35e48d7dd6f0386f2b6486525adf600f9",
+      "byteIdentical": true,
+      "reason": null
+    },
+    {
+      "path": "android/verify-twa-live.ps1",
+      "sourceGitBlob": "c7af9813dc60dd728151885b06fd95b757b9bc52",
+      "sourceSha256": "7b6b16d4bfb942adfe160efb04b2025f46c088eff2deb7e383fccfefd157cb47",
+      "candidateSha256": "7b6b16d4bfb942adfe160efb04b2025f46c088eff2deb7e383fccfefd157cb47",
+      "byteIdentical": true,
+      "reason": null
+    }
+  ]
+}

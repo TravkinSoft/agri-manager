@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>TravkinFlow Google Play screenshots</title>
+  <style>
+    :root {
+      --bg: #071019;
+      --bg2: #0b1622;
+      --surface: #111b26;
+      --surface-accent: #172536;
+      --gold: #f2c94c;
+      --green: #61d6a8;
+      --muted: #9eadbc;
+      --text: #f3f4f6;
+      --border: #334154;
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 1080px; height: 1920px; margin: 0; overflow: hidden; }
+    body {
+      color: var(--text);
+      font-family: Roboto, "Segoe UI", Arial, sans-serif;
+      background:
+        radial-gradient(circle at 12% -3%, rgba(242,201,76,.14), transparent 32%),
+        linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+    }
+    .screen { width: 100%; height: 100%; padding: 104px 76px 92px; }
+    .login { display: none; height: 100%; align-content: center; }
+    .cabinet { display: none; height: 100%; }
+    body[data-view="login"] .login { display: grid; }
+    body[data-view="cabinet"] .cabinet { display: block; }
+    .brand-icon { width: 116px; height: 116px; object-fit: contain; margin-bottom: 24px; }
+    .brand { margin: 0; font-size: 78px; line-height: 1.05; letter-spacing: -.035em; }
+    .subtitle { margin: 14px 0 54px; color: var(--muted); font-size: 34px; }
+    .card {
+      padding: 48px;
+      border: 1px solid rgba(255,255,255,.06);
+      border-radius: 52px;
+      background: var(--surface);
+      box-shadow: 0 32px 84px rgba(0,0,0,.28);
+    }
+    .card h2 { margin: 0 0 34px; font-size: 52px; }
+    .field {
+      height: 124px;
+      display: flex;
+      align-items: center;
+      padding: 0 34px;
+      margin-top: 24px;
+      border: 2px solid var(--border);
+      border-radius: 18px;
+      color: var(--muted);
+      font-size: 30px;
+    }
+    .button {
+      height: 112px;
+      display: grid;
+      place-items: center;
+      margin-top: 36px;
+      border-radius: 56px;
+      background: #e0b100;
+      color: #111827;
+      font-size: 31px;
+      font-weight: 800;
+    }
+    .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 46px; }
+    .topbar .eyebrow { color: var(--gold); font-size: 30px; font-weight: 800; }
+    .topbar h1 { margin: 8px 0 0; font-size: 58px; line-height: 1.05; }
+    .topbar img { width: 112px; height: 112px; object-fit: contain; }
+    .cabinet .card { margin-bottom: 32px; }
+    .verified { display: flex; gap: 18px; align-items: center; color: var(--green); font-size: 34px; font-weight: 750; }
+    .shield {
+      width: 46px; height: 54px; display: grid; place-items: center;
+      color: #071019; background: var(--green); border-radius: 20px 20px 24px 24px;
+      font-size: 28px; font-weight: 900;
+    }
+    .notice { margin: 30px 0 34px; color: var(--muted); font-size: 28px; line-height: 1.42; }
+    .divider { height: 1px; background: rgba(255,255,255,.09); margin: 0 0 18px; }
+    .row { min-height: 72px; display: flex; justify-content: space-between; align-items: center; gap: 30px; font-size: 27px; }
+    .row span:first-child { color: var(--muted); }
+    .row strong { text-align: right; font-size: 25px; }
+    .phase h2 { margin: 0 0 18px; font-size: 35px; }
+    .phase p { margin: 0; color: var(--muted); font-size: 28px; line-height: 1.46; }
+    .outline {
+      height: 108px;
+      display: grid;
+      place-items: center;
+      margin-top: 24px;
+      border: 2px solid var(--border);
+      border-radius: 54px;
+      color: var(--gold);
+      font-size: 29px;
+      font-weight: 750;
+    }
+  </style>
+</head>
+<body>
+  <main class="screen">
+    <section class="login">
+      <div>
+        <img class="brand-icon" src="../app-icon-512.png" alt="" />
+        <h1 class="brand">TravkinFlow</h1>
+        <p class="subtitle">Мобильный кабинет Агронома</p>
+        <div class="card">
+          <h2>Вход</h2>
+          <div class="field">Email</div>
+          <div class="field">🔒&nbsp;&nbsp;Пароль</div>
+          <div class="button">Войти как Агроном</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="cabinet">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">TravkinFlow</div>
+          <h1>Кабинет Агронома</h1>
+        </div>
+        <img src="../app-icon-512.png" alt="" />
+      </header>
+      <div class="card" style="background:var(--surface-accent)">
+        <div class="verified"><span class="shield">✓</span>Доступ подтверждён</div>
+        <p class="notice">Роль и контекст получены от TravkinFlow.</p>
+        <div class="divider"></div>
+        <div class="row"><span>Роль</span><strong>Агроном</strong></div>
+        <div class="row"><span>Email</span><strong>agronom@example.com</strong></div>
+        <div class="row"><span>Компания</span><strong>00000000-0000-0000-0000-000000000001</strong></div>
+      </div>
+      <div class="card phase">
+        <h2>Первый мобильный этап</h2>
+        <p>Сейчас доступен основной защищённый кабинет Агронома. Рабочие разделы будут добавляться по одному после отдельной приёмки каждого этапа.</p>
+      </div>
+      <div class="outline">↻&nbsp;&nbsp;Обновить профиль</div>
+      <div class="outline" style="color:var(--text)">Выйти</div>
+    </section>
+  </main>
+  <script>
+    document.body.dataset.view = location.hash === '#cabinet' ? 'cabinet' : 'login';
+  </script>
+</body>
+</html>

@@ -1,0 +1,122 @@
+plugins {
+    id "com.android.application"
+}
+
+// TRA-11 preparation only: no official signing-store discovery or release variants.
+if (gradle.startParameter.taskNames.any { it.toLowerCase() =~ /release|publish|signingreport/ }) {
+    throw new GradleException("TRA-11: release, publishing and signing-report tasks are forbidden.")
+}
+
+android {
+    namespace "com.travkin.flow"
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "com.travkin.flow"
+        minSdk 29
+        targetSdk 36
+        versionCode 5
+        versionName "4.0.1"
+
+        resValue "string", "app_name", "TravkinFlow"
+        resValue "string", "launcher_name", "TravkinFlow"
+        resValue "string", "host_name", "travkinflow.com"
+        resValue "string", "launch_url", "https://travkinflow.com/dashboard"
+        resValue "string", "web_manifest_url", "https://travkinflow.com/manifest.webmanifest"
+        resValue "string", "provider_authority", "com.travkin.flow.fileprovider"
+    }
+
+    signingConfigs {
+        debug {
+            // Disposable standard debug identity inside this preparation copy only.
+            storeFile rootProject.file("../.runtime/android/debug.keystore")
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ".qa"
+            versionNameSuffix "-qa"
+            resValue "string", "app_name", "TravkinFlow QA"
+            resValue "string", "host_name", "qa.travkinflow.com"
+            resValue "string", "launch_url", "https://qa.travkinflow.com/dashboard"
+            resValue "string", "web_manifest_url", "https://qa.travkinflow.com/manifest.webmanifest"
+            resValue "string", "provider_authority", "com.travkin.flow.qa.fileprovider"
+        }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError true
+        checkReleaseBuilds true
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+}
+
+androidComponents {
+    beforeVariants(selector().withBuildType("release")) { variantBuilder ->
+        variantBuilder.enable = false
+    }
+}
+
+dependencies {
+    implementation "com.google.androidbrowserhelper:androidbrowserhelper:2.7.3"
+    implementation "com.google.androidbrowserhelper:locationdelegation:1.1.2"
+    testImplementation "junit:junit:4.13.2"
+}
+
+tasks.register("verifyTwaConfig") {
+    group = "verification"
+    description = "Fails the build if the official TravkinFlow TWA identity or URL contract drifts."
+
+    inputs.file("src/main/AndroidManifest.xml")
+    inputs.file("src/main/res/values/twa.xml")
+
+    doLast {
+        def manifestText = file("src/main/AndroidManifest.xml").getText("UTF-8")
+        def twaResourceText = file("src/main/res/values/twa.xml").getText("UTF-8")
+        def requiredManifestValues = [
+            "com.google.androidbrowserhelper.trusted.LauncherActivity",
+            "android.support.customtabs.trusted.DEFAULT_URL",
+            "android.support.customtabs.trusted.FALLBACK_STRATEGY",
+            "android:autoVerify=\"true\"",
+            "android:host=\"@string/host_name\""
+        ]
+
+        requiredManifestValues.each { requiredValue ->
+            if (!manifestText.contains(requiredValue)) {
+                throw new GradleException("Missing required TWA manifest invariant: ${requiredValue}")
+            }
+        }
+
+        def legacyKotlinSources = fileTree("src/main") { include "**/*.kt" }.files
+        if (!legacyKotlinSources.isEmpty()) {
+            throw new GradleException("Legacy native Compose sources remain in the TWA release.")
+        }
+
+        if (manifestText.contains("android.webkit.WebView")) {
+            throw new GradleException("A custom WebView is forbidden; use the verified TWA/custom-tab provider.")
+        }
+
+        if (!twaResourceText.contains("delegate_permission/common.handle_all_urls") ||
+                !twaResourceText.contains("https://travkinflow.com")) {
+            throw new GradleException("The app-to-site Digital Asset Links statement is missing.")
+        }
+    }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("verifyTwaConfig")
+}

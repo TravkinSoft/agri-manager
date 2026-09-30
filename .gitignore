@@ -1,0 +1,13 @@
+.runtime/
+**/.gradle/
+**/build/
+**/local.properties
+.env
+.env.*
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.clixml
+*.aab
+*.apk

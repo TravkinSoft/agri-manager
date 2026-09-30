@@ -1,0 +1,2 @@
+-keep class com.travkin.flow.DelegationService { *; }
+-keepattributes *Annotation*
