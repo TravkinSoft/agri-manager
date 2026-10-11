@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@/lib/contexts/auth-context";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, isPasswordRecoverySession, exchangePasswordRecoveryCode, verifyPasswordRecoveryToken, resumePasswordRecoveryCallback, clearPasswordRecoverySession } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,19 +18,23 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [sessionResolving, setSessionResolving] = useState(true);
+  const [sessionReady, setSessionReady] = useState(false);
   const { updatePassword, signOut } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const resolvedOnceRef = useRef(false);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     if (resolvedOnceRef.current) return;
     resolvedOnceRef.current = true;
 
     const resolveRecoverySession = async () => {
-      const callbackError = searchParams?.get("error");
-      const callbackErrorDescription = searchParams?.get("error_description");
+      const hashParams = new URLSearchParams(window.location.hash.slice(1));
+      const callbackError = searchParams?.get("error") || hashParams.get("error");
+      const callbackErrorDescription = searchParams?.get("error_description") || hashParams.get("error_description");
       if (callbackError) {
+        clearPasswordRecoverySession();
         setError(callbackErrorDescription || callbackError);
         setSessionResolving(false);
         return;
@@ -41,16 +46,32 @@ export default function ResetPasswordPage() {
 
       try {
         if (code) {
-          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-          if (exchangeError) throw exchangeError;
-        } else if (tokenHash && type === "recovery") {
-          const { error: verifyError } = await supabase.auth.verifyOtp({
-            type: "recovery",
-            token_hash: tokenHash,
-          });
-          if (verifyError) throw verifyError;
+          if (!await resumePasswordRecoveryCallback("code", code)) await exchangePasswordRecoveryCode(code);
+        } else if (tokenHash) {
+          if (type !== "recovery") {
+            throw new Error("Это не ссылка восстановления пароля. Запросите новую ссылку.");
+          }
+          if (!await resumePasswordRecoveryCallback("token_hash", tokenHash)) await verifyPasswordRecoveryToken(tokenHash);
         }
+
+        // getSession waits for SDK initialization, including implicit recovery
+        // links whose URL fragment has already been consumed by the client.
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        if (!sessionData.session || !await isPasswordRecoverySession(sessionData.session)) {
+          throw new Error("Ссылка восстановления отсутствует или истекла. Запросите новую ссылку.");
+        }
+        // The early SDK-event receipt handles interrupted reload. Remove URL
+        // material only after full validation succeeds.
+        if (code || tokenHash) {
+          const url = new URL(window.location.href);
+          for (const parameter of ["code", "token_hash", "type"]) url.searchParams.delete(parameter);
+          url.hash = "";
+          window.history.replaceState(window.history.state, "", url.toString());
+        }
+        setSessionReady(true);
       } catch (err: any) {
+        clearPasswordRecoverySession();
         setError(err?.message || "Не удалось открыть сессию восстановления пароля.");
       } finally {
         setSessionResolving(false);
@@ -62,10 +83,16 @@ export default function ResetPasswordPage() {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (submittingRef.current) return;
     setError("");
 
     if (sessionResolving) {
       setError("Сначала дождитесь проверки ссылки восстановления.");
+      return;
+    }
+
+    if (!sessionReady) {
+      setError("Сессия восстановления недействительна. Запросите новую ссылку.");
       return;
     }
 
@@ -79,15 +106,25 @@ export default function ResetPasswordPage() {
       return;
     }
 
+    submittingRef.current = true;
     setLoading(true);
 
     try {
+      const { data: currentSession, error: currentSessionError } = await supabase.auth.getSession();
+      if (currentSessionError) throw currentSessionError;
+      if (!currentSession.session || !await isPasswordRecoverySession(currentSession.session)) {
+        setSessionReady(false);
+        throw new Error("Сессия восстановления недействительна. Запросите новую ссылку.");
+      }
       await updatePassword(password);
+      clearPasswordRecoverySession();
+      setSessionReady(false);
       await signOut();
       router.push("/auth/login?password_reset=1");
     } catch (err: any) {
       setError(err.message || "Не удалось обновить пароль.");
     } finally {
+      submittingRef.current = false;
       setLoading(false);
     }
   };
@@ -108,6 +145,11 @@ export default function ResetPasswordPage() {
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             ) : null}
+            {!sessionResolving && !sessionReady ? (
+              <Link href="/auth/forgot-password" className="block text-sm underline underline-offset-4">
+                Запросить ссылку восстановления
+              </Link>
+            ) : null}
             {sessionResolving ? (
               <Alert>
                 <AlertDescription>Проверяем ссылку восстановления...</AlertDescription>
@@ -123,7 +165,7 @@ export default function ResetPasswordPage() {
                 onChange={(event) => setPassword(event.target.value)}
                 className="h-12"
                 required
-                disabled={loading || sessionResolving}
+                disabled={loading || sessionResolving || !sessionReady}
                 minLength={6}
               />
             </div>
@@ -137,12 +179,12 @@ export default function ResetPasswordPage() {
                 onChange={(event) => setConfirmPassword(event.target.value)}
                 className="h-12"
                 required
-                disabled={loading || sessionResolving}
+                disabled={loading || sessionResolving || !sessionReady}
               />
             </div>
           </CardContent>
           <CardFooter>
-            <Button type="submit" className="h-12 w-full" disabled={loading || sessionResolving}>
+            <Button type="submit" className="h-12 w-full" disabled={loading || sessionResolving || !sessionReady}>
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Сохранить пароль
             </Button>

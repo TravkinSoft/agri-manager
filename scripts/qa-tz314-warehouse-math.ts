@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import vm from "node:vm";
+import ts from "typescript";
 import {
   buildWarehouseMassBreakdown,
   isCanonicalMassKg,
@@ -86,11 +88,44 @@ assert.match(summariesRoute, /position_count:\s*countColdWarehousePositions/);
 assert.match(page, /Остаток превышает указанную вместимость/);
 assert.doesNotMatch(page, /Math\.min\(100, Math\.round\(\(harvestWeightKg \/ capacity\)/);
 assert.match(lotRoute, /const warehouseTrips = trips\.filter/);
-assert.match(lotRoute, /fieldSummaries: warehouseFieldSummaries/);
+// The current read model projects warehouse/lot-scoped origins, preserving
+// area/yield facts and attaching processing facts. Execute the actual route
+// expression: checking an obsolete variable assignment hides this contract.
+const lotAst = ts.createSourceFile("route.ts", lotRoute, ts.ScriptTarget.Latest, true);
+const fieldProjections: ts.Expression[] = [];
+function visitFieldProjection(node: ts.Node) {
+  if (ts.isPropertyAssignment(node) && node.name.getText(lotAst) === "fieldSummaries"
+    && node.initializer.getText(lotAst).includes("enteredProcessingKg")) {
+    fieldProjections.push(node.initializer);
+  }
+  ts.forEachChild(node, visitFieldProjection);
+}
+visitFieldProjection(lotAst);
+assert.equal(fieldProjections.length, 1, "one detailed warehouse field projection must exist");
+const projectionJs = ts.transpileModule(`const result = ${fieldProjections[0].getText(lotAst)}; result;`, {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+}).outputText;
+const fieldA = { fieldId: "field-a", fieldName: "A", netWeightKg: 1000, cleanWeightKg: 900, areaHa: 2, yieldTPerHa: 0.45, tripCount: 1 };
+const fieldB = { fieldId: "field-b", fieldName: "B", netWeightKg: 2000, cleanWeightKg: null, areaHa: null, yieldTPerHa: null, tripCount: 2 };
+function projectOrigins(lotId: string, warehouseId: string, processingFacts: unknown[]) {
+  const result = vm.runInNewContext(projectionJs, {
+    lot: { id: lotId }, stock: { warehouse_id: warehouseId },
+    originsByLotWarehouse: new Map([["lot-a:warehouse-a", [fieldA]], ["lot-a:warehouse-b", [fieldB]]]),
+    warehouseFieldSummaries: processingFacts,
+  });
+  return JSON.parse(JSON.stringify(result));
+}
+assert.deepEqual(projectOrigins("lot-a", "warehouse-a", [
+  { fieldId: "field-a", enteredProcessingKg: 250 },
+  { fieldId: "field-b", enteredProcessingKg: 500 },
+]), [{ ...fieldA, enteredProcessingKg: 250 }], "foreign warehouse origins are excluded and area/yield are preserved");
+assert.deepEqual(projectOrigins("lot-a", "warehouse-b", []), [{ ...fieldB, enteredProcessingKg: null }], "missing processing/area/yield facts stay unknown");
+assert.deepEqual(projectOrigins("lot-a", "missing-warehouse", [{ fieldId: "field-a", enteredProcessingKg: 250 }]), [], "missing warehouse provenance must not fall back to whole-lot fields");
+assert.deepEqual(projectOrigins("other-lot", "warehouse-a", []), [], "another lot must not reuse warehouse origins");
 assert.match(lotRoute, /tripBatches: warehouseOriginTrips/);
 assert.match(lotRoute, /originState: warehouseOriginTrips\.length > 0/);
 assert.match(lotDialog, /Талонное происхождение на этом складе отсутствует/);
 assert.match(lotDialog, /label: "Поступило", value: flow\.incomingKg/);
 assert.doesNotMatch(lotDialog, /label: "Принято по всей партии"/);
 
-console.log("TZ314 warehouse math regression PASS: 48/48");
+console.log("TZ314 warehouse math regression PASS (including 4 executed warehouse/lot origin projection cases)");
