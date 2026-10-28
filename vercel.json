@@ -4,5 +4,8 @@
       "path": "/api/cron/ptc-idle-alerts",
       "schedule": "* * * * *"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": false
+  }
 }
