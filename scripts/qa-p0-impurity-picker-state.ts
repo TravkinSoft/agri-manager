@@ -9,7 +9,7 @@ import { isImpuritySourceSelectionBlocked } from "../lib/weighbridge/impurity-so
 // tsx follows the repository's preserve JSX setting; server markup uses React.
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
-const exactA = { key: "lot-a:field-49-elite", label: "Гала · Элита", supportsSharedSelection: true };
+const exactA = { key: "lot-a:field-49-elite", label: "Гала · Элита", description: "Остаток партии: 44,24 т", supportsSharedSelection: true };
 const exactB = { key: "lot-b:field-49-first", label: "Гала · 1 репродукция", supportsSharedSelection: true };
 const legacy = { key: "legacy:lot-c", label: "Балтик Роуз", supportsSharedSelection: false };
 const options = [exactA, exactB, legacy];
@@ -19,20 +19,23 @@ assert.equal(isImpuritySourceSelectionBlocked([legacy.key], exactA, options), tr
 assert.equal(isImpuritySourceSelectionBlocked([], legacy, options), false);
 const render = (value: string[], rows = options) => renderToStaticMarkup(React.createElement(ImpuritySourcePicker, {options: rows, value, onChange: () => {}}));
 assert.match(render([exactA.key]), /Гала · Элита/);
-assert.match(render([exactA.key, exactB.key]), /Выбрано партий: 2/);
-assert.match(render([exactA.key, exactB.key], []), /Выбрано партий: 2/);
+assert.match(render([exactA.key]), /value="Остаток партии: 44,24 т · Гала · Элита"/);
+assert.match(render([exactA.key, exactB.key]), /Выбрано партий: 2 — выберите одну/);
+assert.match(render([exactA.key, exactB.key], []), /Выбрано партий: 2 — выберите одну/);
 assert.match(render([exactA.key], []), /Ранее выбранная партия/);
 assert.doesNotMatch(render([exactA.key], []), /Выбранная партия сейчас недоступна|Не удалось подтвердить остатки|Обновляем остатки|Выбор сохранён/);
 assert.match(render([exactA.key], []), /value="Ранее выбранная партия"/);
 const picker = fs.readFileSync(path.join(process.cwd(), "components/weighbridge/impurity-source-picker.tsx"), "utf8");
 const page = fs.readFileSync(path.join(process.cwd(), "app/(dashboard)/weighbridge/page.tsx"), "utf8");
 assert.doesNotMatch(picker, /SheetContent|DialogContent|setDraftValue|commitPicker/);
-assert.match(picker, /onChange\(\[\.\.\.availableSelection, option.key\]\)/);
-assert.match(picker, /onChange\(selected.filter/);
-assert.match(picker, /normalizeImpuritySourceSelection\(selected, options\)/);
-assert.doesNotMatch(picker, /unavailableKeys\.length \|\| isImpuritySourceSelectionBlocked/);
+assert.match(picker, /onChange\(\[option\.key\]\);\s*close\(\);/);
+assert.doesNotMatch(picker, /normalizeImpuritySourceSelection|isImpuritySourceSelectionBlocked|Готово/);
+assert.match(picker, /role="listbox"/);
+assert.match(picker, /role="option"/);
 assert.match(page, /hydratedWorkspaceKeyRef.current === universalWorkspacePersistKey\) return/);
-assert.match(page, /The just-created ticket owns\/reserves its sources[\s\S]*?sourceBatchId: "",\s*impuritySourceSelections: \[\],/);
+assert.match(page, /Keep that party until it is changed by hand[\s\S]*?sourceBatchId: prev\.operationType === "impurity_removal" \? prev\.sourceBatchId : "",[\s\S]*?prev\.impuritySourceSelections\.map/);
+assert.match(page, /description: `Остаток партии: \$\{formatWeightTonnes\(availableKg\)\}`/);
+assert.match(page, /Выберите партию один раз — она сохранится до ручной смены/);
 assert.doesNotMatch(page, /return harvestBatchDetailLoading \? "Данные партии ещё загружаются"/);
 assert.match(page, /selectedImpuritySourceOptions.length !== impuritySourceSelectionKeys.length/);
 assert.match(page, /harvestBatchDetailRequestedKey !==/);

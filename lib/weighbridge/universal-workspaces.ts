@@ -53,7 +53,7 @@ export function weighbridgeDefaultDestinationStorageKey(
   const company = clean(companyId);
   const workstation = clean(workstationId);
   return company && workstation
-    ? `travkin.weighbridge.defaultDestination.v1.${company}.${workstation}`
+    ? `travkin.weighbridge.defaultDestination.v2.${company}.${workstation}`
     : "";
 }
 
@@ -75,6 +75,15 @@ export function setWeighbridgeDefaultDestinationId(
   const key = weighbridgeDefaultDestinationStorageKey(companyId, workstationId);
   const warehouse = clean(warehouseId);
   if (key && warehouse) storage.setItem(key, warehouse);
+}
+
+export function clearWeighbridgeDefaultDestinationId(
+  storage: Pick<Storage, "removeItem">,
+  companyId: string | null | undefined,
+  workstationId: string | null | undefined
+): void {
+  const key = weighbridgeDefaultDestinationStorageKey(companyId, workstationId);
+  if (key) storage.removeItem(key);
 }
 
 export function universalWorkspaceStorageKey(

@@ -48,6 +48,7 @@ function page(live: Record<string, unknown>, released = true) {
       useCallback: (callback: unknown) => callback,
       useEffect: () => undefined,
     },
+    "next/navigation": { useRouter: () => ({ replace: () => undefined }) },
     "lucide-react": { Truck: () => null, LogOut: () => null, Loader2: () => null, Plus: () => null, Settings2: () => null },
     "@/lib/traffic/model": { ROLE_LABEL: { harvester: "Комбайнёр", receiver: "Приёмка картофеля" } },
     "@/components/traffic/traffic-board": { TrafficBoard },
@@ -57,6 +58,8 @@ function page(live: Record<string, unknown>, released = true) {
     "@/components/traffic/fleet-entity-creator": { FleetEntityCreator: () => null },
     "@/components/traffic/traffic-shift-controls": { TrafficShiftControls: () => null },
     "@/lib/supabase/client": { supabase: {} },
+    "@/lib/auth/role-contract": { parseCanonicalRole: (role: unknown) => role },
+    "@/lib/auth/role-access": { getDefaultPathForRole: () => "/dashboard" },
     "@/lib/travkinflow-2/release": { TRAVKINFLOW_2_FUNCTIONS_RELEASED: released },
   });
   return materialize(pageModule.default());
@@ -77,12 +80,12 @@ async function main() {
   const root = readFileSync("app/layout.tsx", "utf8");
   check(/minimumScale|maximumScale|userScalable/.test(root), false);
   check(root.includes("manifest: '/manifest.webmanifest'"), true);
-  check(pageSource.includes('trafficRequest("/api/traffic?snapshot=1"'), true);
-  check(/failure\.status === 401 \|\| failure\.status === 403/.test(pageSource), true);
-  check(/mode === "manager"[\s\S]*<TrafficManagerPwa/.test(pageSource), true);
-  check(/<TrafficFleetControls[\s\S]*<FleetEntityCreator/.test(pageSource), true);
-  check(pageSource.includes("fleet={managed?.fleet}"), true);
-  check(/onManageVehicle=\{managed\?\.canManageFleet \? setSelected : undefined\}/.test(pageSource), true);
+  check(pageSource.includes('trafficRequest("/api/auth/actor"'), true);
+  check(pageSource.includes('router.replace("/auth/login")'), true);
+  check(pageSource.includes("getDefaultPathForRole(role)"), true);
+  check(pageSource.includes("TrafficManagerPwa"), false);
+  check(pageSource.includes("supabase.auth.signInWithPassword"), false);
+  check(pageSource.includes('type="password"'), false);
   check(/Settings2|Машины не на линии|drawerOpen|onDrawerOpen/.test(pageSource), false);
   check(pageSource.includes("const PTC_BOARD_V2 = TRAVKINFLOW_2_FUNCTIONS_RELEASED"), true);
   check(readFileSync("lib/travkinflow-2/release.ts", "utf8").includes("export const TRAVKINFLOW_2_FUNCTIONS_RELEASED = true"), true);
@@ -127,8 +130,8 @@ async function main() {
     const legacyContainer = nodes(legacyTree).find(node => node.type === "div" && node.props?.className === "mx-auto max-w-5xl");
     check(Boolean(legacyContainer), true);
     const legacyForm = nodes(legacyTree).find(node => node.type === "form");
-    check(legacyForm.props.className.includes("max-w-sm"), true);
-    check(legacyForm.props.className.includes("tf2-panel"), false);
+    check(Boolean(legacyForm), false);
+    check(renderToStaticMarkup(legacyTree).includes("Открываем общую страницу входа"), true);
     check(renderToStaticMarkup(legacyTree).includes("Единый аккаунт TravkinFlow"), false);
   }
 
@@ -151,7 +154,18 @@ async function main() {
       react: { useEffect: (effect: () => unknown, deps: unknown[]) => { check(deps.length, 0); effects.push(effect); } },
     }, {
       navigator: navigatorMock,
-      window: { isSecureContext: mode !== "insecure", addEventListener: () => { throw new Error("No global event listeners in the headless PWA"); } },
+      window: {
+        isSecureContext: mode !== "insecure",
+        setInterval: () => 1,
+        clearInterval: () => undefined,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      },
+      document: {
+        visibilityState: "visible",
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      },
     });
     check(pwa.TrafficPwa(), null);
     check(effects.length, 1);
@@ -172,7 +186,7 @@ async function main() {
     check(touchRule.nodes.some(node => node.type === "decl" && node.prop === "--tw-pan-y" && node.value === "pan-y"), true);
     check(touchRule.nodes.some(node => node.type === "decl" && node.prop === "touch-action" && node.value === "var(--tw-pan-x) var(--tw-pan-y) var(--tw-pinch-zoom)"), true);
   }
-  for (const expression of [/min-height:\s*100dvh/, /min-height:\s*48px/, /font-size:\s*1rem/, /safe-area-inset-bottom/, /safe-area-inset-top/]) {
+  for (const expression of [/min-height:\s*100dvh/, /min-height:\s*48px/, /safe-area-inset-bottom/, /safe-area-inset-top/]) {
     assert.match(css, expression); checks++;
   }
   console.log(`PTC operator shell PASS: ${checks} checks (component renders, actual headless effect, Next viewport serialization, compiled CSS). Physical Android gestures/accessibility overrides require device QA.`);

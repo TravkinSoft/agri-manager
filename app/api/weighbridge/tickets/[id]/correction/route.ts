@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import {
   WEIGHBRIDGE_WRITE_ROLES,
+  WEIGHBRIDGE_OPERATOR_COOKIE,
   asSessionErrorResponse,
   recordWeighbridgeOperatorActivity,
   requireWeighbridgeOperatorSession,
@@ -11,7 +12,7 @@ import {
 import { loadSharedImpurityTicketIds } from "@/lib/server/weighbridge-shared-impurity";
 
 const CORRECTION_LOT_ERROR = "Не удалось завершить исправление талона. Связь партии не прошла проверку. Исходный талон не изменён.";
-const SHARED_IMPURITY_CORRECTION_ERROR = "Общий талон примесей нельзя исправить копированием. Аннулируйте его и создайте новый талон.";
+const SHARED_IMPURITY_CORRECTION_ERROR = "Для общего талона земли используйте исправление брутто и тары в окне «Исправить талон». Если полей веса нет, обновите страницу между взвешиваниями. Аннулировать талон не требуется.";
 
 function isCorrectionLotError(message: string) {
   return /aggregate (harvest )?lot|batch identity|batch lineage|physical batch|line identity|warehouse-local batch|company stock/i.test(message);
@@ -26,10 +27,10 @@ export async function POST(
     const body = await request.json().catch(() => ({}));
     const action = String(body?.action || "").trim();
     const reason = String(body?.reason || "").trim();
-    if (!id || !["start", "finalize"].includes(action)) {
+    if (!id || !["start", "finalize", "shared_weights"].includes(action)) {
       return NextResponse.json({ error: "ticket id and correction action are required" }, { status: 400 });
     }
-    if (action === "start" && !reason) {
+    if (["start", "shared_weights"].includes(action) && !reason) {
       return NextResponse.json({ error: "Причина исправления обязательна." }, { status: 400 });
     }
 
@@ -52,6 +53,47 @@ export async function POST(
       companyId,
       [id, String(ticket.correction_of_ticket_id || "")]
     );
+    if (action === "shared_weights") {
+      if (!sharedTicketIds.has(id)) return NextResponse.json({ error: "Это не общий талон земли и примесей." }, { status: 400 });
+      const fields = ["gross_weight_kg", "tare_weight_kg", "expected_gross_weight_kg", "expected_tare_weight_kg"] as const;
+      if (fields.some((key) => typeof body[key] !== "number" || !Number.isFinite(body[key]) || body[key] < 0)
+        || body.gross_weight_kg <= body.tare_weight_kg || reason.length > 2000
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(body.idempotency_key || ""))) {
+        return NextResponse.json({ error: "Проверьте брутто, тару и причину исправления." }, { status: 400 });
+      }
+      await requireWeighbridgeOperatorSession(request, { companyId, supabase });
+      const { data, error } = await supabase.rpc("correct_shared_impurity_ticket_weights_v1", {
+        p_ticket_id: id,
+        p_session_token: request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || "",
+        p_gross_weight_kg: body.gross_weight_kg, p_tare_weight_kg: body.tare_weight_kg,
+        p_expected_gross_weight_kg: body.expected_gross_weight_kg, p_expected_tare_weight_kg: body.expected_tare_weight_kg,
+        p_reason: reason, p_idempotency_key: body.idempotency_key,
+      });
+      if (error) {
+        const messages: Record<string, string> = {
+          SHARED_WEIGHT_CONFLICT: "Талон уже изменён в другом окне. Откройте его заново и проверьте вес.",
+          SHARED_WEIGHT_ACCOUNTING_SHIFT_CLOSED: "Смена этого талона уже закрыта. Исправление её сохранённого отчёта требует отдельной сверки; талон и склад не изменены.",
+          SHARED_WEIGHT_STOCK_COMMITTED: "Дополнительный вес земли превышает свободный остаток исходных партий. Талон и склад не изменены.",
+          SHARED_WEIGHT_EXCEEDS_SOURCE: "Вес земли не может превышать исходную массу партий.",
+          SHARED_WEIGHT_SESSION_EXPIRED: "Введите PIN весовщика повторно, затем сохраните исправление.",
+          SHARED_WEIGHT_STATE_INVALID: "Этот талон уже аннулирован, заменён или не поддерживает исправление веса. Откройте его заново.",
+          SHARED_WEIGHT_KEY_REUSED: "Данные запроса изменились. Закройте окно исправления и откройте его снова.",
+        };
+        const code = Object.keys(messages).find((key) => error.message.includes(key));
+        if (code) return NextResponse.json({ error: messages[code], code }, { status: code.includes("SESSION") ? 423 : 409 });
+        console.error("shared_impurity_weight_correction_failed", { ticketId: id, code: error.code, message: error.message });
+        return NextResponse.json({
+          error: error.code === "55P03" || error.code === "57014"
+            ? "Склад сейчас обрабатывает другой талон. Повторите сохранение — повторного списания не будет."
+            : "Исправление не подтверждено. Повторите сохранение с теми же значениями; повторного списания не будет.",
+          code: "shared_weight_correction_failed",
+        }, { status: 409 });
+      }
+      if (!data?.ok) return NextResponse.json({ error: "Исправление не подтверждено. Повторите сохранение." }, { status: 409 });
+      await recordWeighbridgeOperatorActivity(request, { companyId, supabase }, "ticket_correction")
+        .catch((activityError) => console.error("shared_weight_activity_failed", { ticketId: id, error: String(activityError) }));
+      return NextResponse.json({ ...data, ticket: { id } });
+    }
     if (sharedTicketIds.has(id) || (
       ticket.correction_of_ticket_id
       && sharedTicketIds.has(String(ticket.correction_of_ticket_id))

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { TravkinLogo } from "@/components/layout/travkin-logo";
 
 const CODE_TTL_SECONDS = 60;
 
@@ -150,6 +151,7 @@ export default function RegisterPage() {
     <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-background px-4 py-6">
       <Card className="w-full max-w-lg shadow-xl">
         <CardHeader className="space-y-1">
+          <TravkinLogo size="large" className="mx-auto mb-4" />
           <CardTitle className="text-center text-2xl font-bold">
             {step === "verify" ? "Подтверждение email" : "Регистрация компании"}
           </CardTitle>

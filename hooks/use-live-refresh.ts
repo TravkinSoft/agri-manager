@@ -39,6 +39,8 @@ export const LIVE_REFRESH_TABLES = {
     "reference_specialists",
     "reference_machines",
     "company_people",
+    "ptc_vehicle_states",
+    "ptc_events",
   ],
 } as const;
 

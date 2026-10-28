@@ -1,0 +1,44 @@
+// Real route, loaders, mass/hectare calculation and ACL; local transport fixtures.
+const assert=require('node:assert/strict'),vm=require('node:vm'),esbuild=require('esbuild');
+async function main(){
+ const company='10000000-0000-0000-0000-000000000001',at='2026-09-24T12:00:00Z',closed='2026-09-24T13:00:00Z';
+ const line={id:'line',crop_id:'potato',crop:{name:'Картофель'},variety_id:'gala',variety_name_snapshot:'Гала',reproduction_id:'first',reproduction_name_snapshot:'1',quantity:100000,uom:'kg'};
+ const fixtures={profiles:[{id:'actor',company_id:company,role:'agronomist',status:'active'}],
+ tickets:[{id:'t',company_id:company,ticket_no:'T',op_type:'harvest_incoming',status:'finalized',is_finalized:true,is_voided:false,replacement_ticket_id:null,field_id:'f',crop_structure_allocation_id:'p',season_id:'s',net_weight_kg:100000,accepted_weight_kg:100000,created_at:at,finalized_at:at,lines:[line]}],
+ crop_structure:[{id:'p',company_id:company,field_id:'f',season_id:'s',crop_id:'potato',variety_id:'gala',reproduction_id:'first',area:92,archived:false}],fields:[{id:'f',company_id:company,name:'Виноград',area:92}],
+ crops:[{id:'potato',name:'Картофель'}],varieties:[{id:'gala',name:'Гала'}],seed_reproductions:[{id:'first',name:'1'}],ptc_field_progress:[],
+ ptc_combine_shifts:[{id:'shift',company_id:company,current_crop_structure_id:'p',opened_at:at,updated_at:closed,closed_at:closed}],
+ ptc_combine_field_segments:[{id:'seg',company_id:company,shift_id:'shift',crop_structure_id:'p',field_id:'f',planned_area_ha:92,hectares_segment:2,opened_at:at,closed_at:closed}]};
+ const state={actor:{id:'actor',companyId:company,role:'agronomist'},anonymous:false,fail:null};const trace=[];
+ const db={from(table){const filters=[],sorts=[];let start=0,end=Infinity,single=false;
+ const q={select(){return q},eq(k,v){filters.push([k,'eq',v]);return q},is(k,v){return q.eq(k,v)},not(k,op,v){filters.push([k,'not',v]);return q},in(k,v){filters.push([k,'in',v]);return q},lt(k,v){filters.push([k,'lt',v]);return q},order(k,o){sorts.push([k,o?.ascending!==false]);return q},range(a,b){start=a;end=b;return q},limit(n){end=n-1;return q},maybeSingle(){single=true;return q},then(resolve,reject){try{
+ trace.push(table);if(!['profiles','crops','varieties','seed_reproductions'].includes(table))assert(filters.some(([k,o,v])=>k==='company_id'&&o==='eq'&&v===company),'tenant '+table);
+ if(state.fail===table)return Promise.resolve({data:null,error:{message:'read failed'}}).then(resolve,reject);
+ let rows=(fixtures[table]||[]).filter(r=>filters.every(([k,o,v])=>o==='eq'?r[k]===v:o==='not'?r[k]!==v:o==='lt'?r[k]<v:v.includes(r[k])));
+ rows=[...rows].sort((a,b)=>{for(const[k,asc]of sorts)if(a[k]!==b[k])return(a[k]<b[k]?-1:1)*(asc?1:-1);return 0}).slice(start,end+1);
+ return Promise.resolve({data:single?rows[0]??null:rows,error:null}).then(resolve,reject);
+ }catch(e){return Promise.reject(e).then(resolve,reject)}}};return q},async rpc(name,args){trace.push(name);assert.equal(name,'harvest_impurities_by_receipt_v1');assert.equal(args.p_company_id,company);return{data:{t:20000},error:state.fail==='rpc'?{message:'soil unavailable'}:null}}};
+ const stubs={
+ 'next/server':`export const NextResponse={json:(data,options={})=>({data,status:options.status||200,headers:options.headers||{}})};`,
+ '@/lib/supabase/service':`export const getServiceClient=()=>globalThis.db;`,
+ '@/lib/auth/server-session':`export class SessionAuthError extends Error{constructor(message,status=403){super(message);this.status=status}};export async function getServerActorFromSession(){if(globalThis.qa.anonymous)throw new SessionAuthError('anonymous',401);return globalThis.qa.actor};export async function getUserScopedClientFromRequest(){return globalThis.db};export function resolveCompanyForActor(actor,requested){if(requested&&requested!==actor.companyId)throw new SessionAuthError('foreign',403);return actor.companyId;}`,
+ };
+ const build=await esbuild.build({entryPoints:['app/api/dashboard/harvest-summary/route.ts'],bundle:true,platform:'node',format:'cjs',write:false,plugins:[{name:'qa',setup(b){b.onResolve({filter:/.*/},a=>stubs[a.path]?{path:a.path,namespace:'qa'}:undefined);b.onLoad({filter:/.*/,namespace:'qa'},a=>({contents:stubs[a.path],loader:'js'}))}}]});
+ const ctx={module:{exports:{}},exports:{},require,console,URL,Date,qa:state,db};ctx.exports=ctx.module.exports;vm.runInNewContext(build.outputFiles[0].text,ctx);const endpoint=ctx.module.exports;
+ const req=(id=company)=>({method:'GET',nextUrl:new URL('http://localhost/api/dashboard/harvest-summary?section=yield&companyId='+id)});let n=0;async function test(name,fn){trace.length=0;await fn();console.log('PASS '+name);n++}
+ await test('clean 80t / confirmed 2ha = 40t/ha, not planned 92ha',async()=>{const r=await endpoint.GET(req());assert.equal(r.status,200,JSON.stringify(r));assert.equal(r.data.fields[0].yieldTPerHa,40);assert.equal(r.data.readOnly,true);assert.equal(r.headers['Cache-Control'],'no-store');assert(!JSON.stringify(r.data).includes('ticket_no'));assert(!trace.some(x=>/warehouse|driver|vehicle|harvest_lot|stock|weighbridge_shift|ptc_events/.test(x)))});
+ await test('open combine shift cannot publish stale hectares as current yield',async()=>{fixtures.ptc_combine_shifts[0].closed_at=null;const r=await endpoint.GET(req());assert.equal(r.data.fields[0].yieldTPerHa,null);assert.equal(r.data.fields[0].pending,true);fixtures.ptc_combine_shifts[0].closed_at=closed});
+ await test('new open shift shows preliminary yield from confirmed previous hectares, on both summary tabs',async()=>{fixtures.ptc_combine_shifts.push({...fixtures.ptc_combine_shifts[0],id:'open',closed_at:null});fixtures.ptc_combine_field_segments.push({...fixtures.ptc_combine_field_segments[0],id:'pending',shift_id:'open',closed_at:null,hectares_segment:null});const r=await endpoint.GET(req());assert.equal(r.status,200);assert.equal(r.data.fields[0].yieldTPerHa,40);assert.equal(r.data.fields[0].pending,true);assert.equal(r.data.fields[0].harvestedHa,2);fixtures.ptc_combine_shifts.pop();fixtures.ptc_combine_field_segments.pop()});
+ await test('completed potato 54ha on mixed 105ha field retains actual 52ha, not physical field remainder',async()=>{fixtures.fields[0].area=105;fixtures.crop_structure[0].area=54;fixtures.ptc_combine_field_segments[0].hectares_segment=52;fixtures.ptc_field_progress.push({company_id:company,crop_structure_id:'p',actual_completed_ha:52,status:'completed'});const r=await endpoint.GET(req());assert.equal(r.status,200);const f=r.data.fields[0];assert.equal(f.areaHa,54);assert.equal(f.harvestedHa,52);assert.equal(f.completed,true);assert(f.label.includes('54 га'));assert(!f.label.includes('105'));assert.equal(f.yieldTPerHa,80/52);fixtures.fields[0].area=92;fixtures.crop_structure[0].area=92;fixtures.ptc_combine_field_segments[0].hectares_segment=2;fixtures.ptc_field_progress=[]});
+ await test('invalid hectares do not produce preliminary yield',async()=>{fixtures.ptc_combine_field_segments[0].hectares_segment=100;const r=await endpoint.GET(req());assert.equal(r.data.fields[0].yieldTPerHa,null);assert.equal(r.data.fields[0].issue,true);fixtures.ptc_combine_field_segments[0].hectares_segment=2});
+ await test('soil read failure is not inflated clean yield',async()=>{state.fail='rpc';assert.equal((await endpoint.GET(req())).status,500);state.fail=null});
+ await test('hectare read failure is not zero',async()=>{state.fail='ptc_combine_field_segments';assert.equal((await endpoint.GET(req())).status,500);state.fail=null});
+ await test('anonymous denied before data reads',async()=>{state.anonymous=true;assert.equal((await endpoint.GET(req())).status,401);assert.equal(trace.length,0);state.anonymous=false});
+ await test('foreign tenant denied before data reads',async()=>{assert.equal((await endpoint.GET(req('foreign'))).status,403);assert.equal(trace.length,0)});
+ for(const role of ['agronomist','director'])await test(role+' allowed',async()=>{fixtures.profiles[0].role=state.actor.role=role;assert.equal((await endpoint.GET(req())).status,200)});
+ await test('revoked operator role denied by database ACL',async()=>{fixtures.profiles[0].role='weighman';assert.equal((await endpoint.GET(req())).status,403);assert.deepEqual(trace,['profiles']);fixtures.profiles[0].role='director'});
+ await test('pending profile denied',async()=>{fixtures.profiles[0].status='pending';assert.equal((await endpoint.GET(req())).status,403);fixtures.profiles[0].status='active'});
+ await test('voided ticket excluded without changing underlying records',async()=>{fixtures.tickets[0].is_voided=true;const r=await endpoint.GET(req());assert.equal(r.data.fields[0].yieldTPerHa,0);fixtures.tickets[0].is_voided=false});
+ console.log(`PASS ${n} yield API checks; no hosted writes`);
+}
+main().catch(e=>{console.error(e);process.exitCode=1});

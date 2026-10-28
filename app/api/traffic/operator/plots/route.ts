@@ -31,16 +31,26 @@ export async function GET(request: NextRequest) {
       .limit(1);
     if (seasonError) throw seasonError;
     const season = seasons?.[0];
-    if (!season?.id) return noStore({ seasonId: null, seasonYear: null, plots: [] });
+    if (!season?.id) return noStore({ seasonId: null, seasonYear: null, suggestedCropStructureId: null, plots: [] });
 
-    const { data: structures, error: structureError } = await db
-      .from("crop_structure")
-      .select("id,field_id,crop_id,variety_id,reproduction_id,area")
-      .eq("company_id", actor.companyId)
-      .eq("season_id", season.id)
-      .eq("land_use_type", "crop")
-      .eq("archived", false);
-    if (structureError) throw structureError;
+    const [structureResult, lastShiftResult] = await Promise.all([
+      db.from("crop_structure")
+        .select("id,field_id,crop_id,variety_id,reproduction_id,area")
+        .eq("company_id", actor.companyId)
+        .eq("season_id", season.id)
+        .eq("land_use_type", "crop")
+        .eq("archived", false),
+      db.from("ptc_combine_shifts")
+        .select("current_crop_structure_id")
+        .eq("company_id", actor.companyId)
+        .eq("operator_user_id", actor.actorId)
+        .order("opened_at", { ascending: false })
+        .limit(1),
+    ]);
+    if (structureResult.error) throw structureResult.error;
+    if (lastShiftResult.error) throw lastShiftResult.error;
+    const structures = structureResult.data;
+    const lastShiftStructureId = String(lastShiftResult.data?.[0]?.current_crop_structure_id || "");
     const rows = structures || [];
     const ids = (key: string) => Array.from(new Set(rows.map((row: any) => String(row[key] || "")).filter(Boolean)));
     const [fieldsResult, cropsResult, varietiesResult, reproductionsResult, progressResult] = await Promise.all([
@@ -93,12 +103,24 @@ export async function GET(request: NextRequest) {
         status: String(progress?.status || "active"),
         version: Number(progress?.version || 0),
       }];
-    }).sort((left, right) =>
-      left.cropName.localeCompare(right.cropName, "ru")
+    });
+    const suggestedCropStructureId = plots.some((plot) =>
+      plot.cropStructureId === lastShiftStructureId && plot.status !== "completed")
+      ? lastShiftStructureId
+      : null;
+    plots.sort((left, right) =>
+      Number(right.cropStructureId === suggestedCropStructureId)
+      - Number(left.cropStructureId === suggestedCropStructureId)
+      || left.cropName.localeCompare(right.cropName, "ru")
       || left.fieldName.localeCompare(right.fieldName, "ru", { numeric: true })
       || left.varietyName.localeCompare(right.varietyName, "ru")
     );
-    return noStore({ seasonId: String(season.id), seasonYear: Number(season.year), plots });
+    return noStore({
+      seasonId: String(season.id),
+      seasonYear: Number(season.year),
+      suggestedCropStructureId,
+      plots,
+    });
   } catch (error) {
     return failed(error);
   }

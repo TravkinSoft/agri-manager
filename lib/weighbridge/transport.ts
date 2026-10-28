@@ -63,6 +63,33 @@ export function isCargoTractor(transport: WeighbridgeTransportKind | null | unde
   return normalizedKinds(transport).includes("tractor");
 }
 
+type CanonicalVehicleCatalogItem = WeighbridgeTransportKind & {
+  id: string;
+  sourceMachineId?: string | null;
+};
+
+type MachineCatalogItem = WeighbridgeTransportKind & {
+  id: string;
+};
+
+/**
+ * reference_vehicles is the canonical operational fleet. Some tractors also
+ * keep a source reference_machines row for accounting history. The weighbridge
+ * must show the canonical row (plate + driver assignment) exactly once.
+ */
+export function mergeWeighbridgeTransportCatalog<
+  TVehicle extends CanonicalVehicleCatalogItem,
+  TMachine extends MachineCatalogItem,
+>(vehicleRows: TVehicle[], machineRows: TMachine[]): Array<TVehicle | TMachine> {
+  const linkedMachineIds = new Set(
+    vehicleRows.map((row) => String(row.sourceMachineId || "").trim()).filter(Boolean)
+  );
+  return [
+    ...vehicleRows.filter((row) => !isTrailerTransport(row)),
+    ...machineRows.filter((row) => !linkedMachineIds.has(String(row.id))),
+  ];
+}
+
 export function formatVehiclePlate(value: unknown) {
   const readable = String(value || "").trim().toLocaleUpperCase("ru-RU").replace(/\s+/g, " ");
   const compact = readable.replace(/[^\p{L}\p{N}]+/gu, "");
@@ -85,6 +112,10 @@ export function isRealVehiclePlate(value: unknown) {
   const plate = String(value || "").trim();
   if (!plate || INVALID_PLATE_PATTERNS.some((pattern) => pattern.test(plate))) return false;
   const compact = plate.replace(/[^\p{L}\p{N}]+/gu, "");
+  // PTC also uses short, stable fleet numbers (for example 754, 683 and 665)
+  // as the operator-facing vehicle identifier. They are stored explicitly in
+  // plate_number/license_plate and must stay visible in the weighbridge picker.
+  if (/^\d{3}$/u.test(compact)) return true;
   return compact.length >= 4 && /\d/u.test(compact);
 }
 

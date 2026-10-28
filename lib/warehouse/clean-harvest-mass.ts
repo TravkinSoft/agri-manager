@@ -22,11 +22,12 @@ export function cleanHarvestMassByTicket(
   const unknown = new Set<string>();
   for (const [batchId, delta] of Array.from(deltas)) {
     if (Math.abs(delta) < 0.0005) continue;
-    const sources = Array.from(new Set((sourcesByBatch.get(batchId) || []).map(row => row.ticketId))).filter(id => result.has(id));
+    const sources = Array.from(new Set((sourcesByBatch.get(batchId) || []).map(row => row.ticketId)));
     if (sources.length !== 1 || !Number.isFinite(delta)) {
-      sources.forEach(id => unknown.add(id));
+      sources.filter(id => result.has(id)).forEach(id => unknown.add(id));
       continue;
     }
+    if (!result.has(sources[0])) continue;
     result.set(sources[0], result.get(sources[0])! + delta);
   }
   return new Map(Array.from(result).map(([id, mass]) => [id,

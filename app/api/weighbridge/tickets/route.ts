@@ -32,6 +32,9 @@ import {
 } from "@/lib/weighbridge/ticket-history-cursor";
 import { sanitizeClientTicketAuditJson } from "@/lib/weighbridge/ticket-audit";
 import { getServiceClient } from "@/lib/supabase/service";
+import { resolveUniqueLoadedPtcTripByDriver } from "@/lib/weighbridge/ptc-driver-trip";
+import { loadCurrentPtcDriver } from "@/lib/weighbridge/ptc-current-driver";
+import { parseTicketHistoryFilters, type TicketHistoryFilters } from "@/lib/weighbridge/ticket-history-filters";
 
 function buildTicketNo(companyId: string): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -274,6 +277,11 @@ export async function GET(request: NextRequest) {
     const accountantHistoryOnly = actor.role === "accountant";
     const historyOnly = accountantHistoryOnly || request.nextUrl.searchParams.get("historyOnly") === "true";
     const workspace = !historyOnly && request.nextUrl.searchParams.get("workspace") === "true";
+    let historyFilters: TicketHistoryFilters = {};
+    if (historyOnly) {
+      try { historyFilters = parseTicketHistoryFilters(request.nextUrl.searchParams); }
+      catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Проверьте фильтры истории." }, { status: 400 }); }
+    }
     const requestedHistoryLimit = Number(request.nextUrl.searchParams.get("historyLimit") || 10);
     const historyLimit = Number.isFinite(requestedHistoryLimit)
       ? Math.min(100, Math.max(10, Math.trunc(requestedHistoryLimit)))
@@ -337,6 +345,11 @@ export async function GET(request: NextRequest) {
         .select(WEIGHBRIDGE_TICKET_SELECT)
         .eq("company_id", companyId)
         .in("status", ["finalized", "voided"]);
+      if (historyFilters.shiftId) ticketQuery = ticketQuery.eq("shift_id", historyFilters.shiftId);
+      if (historyFilters.from) ticketQuery = ticketQuery.gte("created_at", historyFilters.from);
+      if (historyFilters.to) ticketQuery = ticketQuery.lt("created_at", historyFilters.to);
+      if (historyFilters.operation) ticketQuery = ticketQuery.eq("op_type", historyFilters.operation);
+      if (historyFilters.status) ticketQuery = ticketQuery.eq("status", historyFilters.status);
       if (historyCursor) {
         ticketQuery = ticketQuery.or(ticketHistoryCursorFilter(historyCursor));
       }
@@ -418,7 +431,7 @@ export async function GET(request: NextRequest) {
       tickets: enrichedTickets,
       historyHasMore,
       historyNextCursor: historyOnly ? historyNextCursor : null,
-    });
+    }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) {
@@ -717,6 +730,75 @@ export async function POST(request: NextRequest) {
       if (harvestContext.status !== "ready") {
         return NextResponse.json({ error: harvestContext.message }, { status: 409 });
       }
+      if (
+        !ticket.ptc_event_id
+        && ticket.ptc_cycle == null
+        && ticket.driver_id
+        && ticket.weigh_method !== "manual_override_with_reason"
+      ) {
+        const ptc = getServiceClient();
+        const { data: driverLoadedEvents, error: driverLoadedEventsError } = await ptc
+          .from("ptc_events")
+          .select("id,vehicle_id,driver_id,to_state,cycle,created_at")
+          .eq("company_id", companyId)
+          .eq("driver_id", String(ticket.driver_id))
+          .eq("to_state", "loaded")
+          .order("created_at", { ascending: false })
+          .limit(64);
+        const candidateVehicleIds = Array.from(new Set(
+          (driverLoadedEvents || []).map((row: any) => String(row.vehicle_id || "")).filter(Boolean)
+        ));
+        const driverLoadedStatesResult = !driverLoadedEventsError && candidateVehicleIds.length > 0
+          ? await ptc
+              .from("ptc_vehicle_states")
+              .select("vehicle_id,assigned,state,cycle")
+              .eq("company_id", companyId)
+              .eq("assigned", true)
+              .eq("state", "loaded")
+              .in("vehicle_id", candidateVehicleIds)
+          : { data: [], error: driverLoadedEventsError };
+
+        if (!driverLoadedEventsError && !driverLoadedStatesResult.error) {
+          const resolvedTrip = resolveUniqueLoadedPtcTripByDriver({
+            driverId: ticket.driver_id,
+            states: driverLoadedStatesResult.data || [],
+            events: driverLoadedEvents || [],
+          });
+          if (resolvedTrip.status === "matched") {
+            if (ticket.vehicle_id !== resolvedTrip.vehicleId) {
+              return NextResponse.json({ error: "У водителя в ПТС другая машина. Нажмите «Заменить машину у водителя» и подтвердите замену. Выбранная машина не изменена." }, { status: 409 });
+            }
+            const transportAudit = ticket.audit_json?.transport as Record<string, unknown> | undefined;
+            ticket.ptc_event_id = resolvedTrip.eventId;
+            ticket.ptc_cycle = resolvedTrip.cycle;
+            ticket.audit_json = {
+              ...((ticket.audit_json || {}) as Record<string, unknown>),
+              transport: {
+                ...((transportAudit || {}) as Record<string, unknown>),
+                vehicle_source: "reference_vehicles",
+                ptc_driver_fallback: {
+                  driver_id: String(ticket.driver_id),
+                  event_id: resolvedTrip.eventId,
+                  cycle: resolvedTrip.cycle,
+                },
+              },
+            };
+            console.info("weighbridge_ptc_driver_fallback_matched", {
+              companyId,
+              driverId: String(ticket.driver_id),
+              vehicleId: resolvedTrip.vehicleId,
+              eventId: resolvedTrip.eventId,
+              cycle: resolvedTrip.cycle,
+            });
+          } else if (resolvedTrip.status === "ambiguous") {
+            console.warn("weighbridge_ptc_driver_fallback_ambiguous", {
+              companyId,
+              driverId: String(ticket.driver_id),
+              candidateCount: resolvedTrip.candidateCount,
+            });
+          }
+        }
+      }
       const hasPtcEvent = Boolean(ticket.ptc_event_id);
       const hasPtcCycle = ticket.ptc_cycle != null;
       if (hasPtcEvent !== hasPtcCycle) {
@@ -750,15 +832,16 @@ export async function POST(request: NextRequest) {
         if (existingTripTicket?.id) {
           return NextResponse.json({ error: `На этот рейс уже открыт талон ${existingTripTicket.ticket_no}.` }, { status: 409 });
         }
-        const tripHasExactPlot = Boolean(tripEvent?.crop_structure_id);
+        const driverChanged = Boolean(ticket.driver_id &&
+          String(tripEvent?.driver_id || "") !== String(ticket.driver_id));
+        const assignedDriver = driverChanged
+          ? await loadCurrentPtcDriver(ptc, companyId, String(ticket.vehicle_id || ""))
+          : null;
         if (
           !tripEvent?.id || tripEvent.to_state !== "loaded"
           || String(tripEvent.vehicle_id) !== String(ticket.vehicle_id || "")
+          || (driverChanged && assignedDriver?.id !== String(ticket.driver_id))
           || Number(tripEvent.cycle) !== Number(ticket.ptc_cycle)
-          || (tripHasExactPlot && (
-            String(tripEvent.field_id || "") !== String(ticket.field_id || "")
-            || String(tripEvent.crop_structure_id || "") !== String(ticket.crop_structure_allocation_id || "")
-          ))
           || !tripState?.assigned || tripState.state !== "loaded"
           || Number(tripState.cycle) !== Number(ticket.ptc_cycle)
         ) {
@@ -766,6 +849,24 @@ export async function POST(request: NextRequest) {
             error: "Рейс PTC уже изменился или машина больше не ожидает весовую. Обновите форму — выбранные данные не будут заменены автоматически.",
           }, { status: 409 });
         }
+        // PTC identifies the physical trip, not the authoritative cargo origin.
+        // The weighman's plot has already passed company/season/allocation
+        // validation above. Preserve it even if the combine still has the old
+        // plot; retain both identities in a server-built audit record.
+        ticket.audit_json = {
+          ...((ticket.audit_json || {}) as Record<string, unknown>),
+          harvest_plot_selection: {
+            source: "weighbridge_selection",
+            actor_profile_id: actor.id,
+            field_id: ticket.field_id,
+            crop_structure_allocation_id: ticket.crop_structure_allocation_id,
+            ptc_event_id: tripEvent.id,
+            ptc_field_id: tripEvent.field_id || null,
+            ptc_crop_structure_id: tripEvent.crop_structure_id || null,
+            differs_from_ptc: String(tripEvent.field_id || "") !== String(ticket.field_id || "")
+              || String(tripEvent.crop_structure_id || "") !== String(ticket.crop_structure_allocation_id || ""),
+          },
+        };
       }
       if (lines.length !== 1) {
         return NextResponse.json(
@@ -1353,30 +1454,9 @@ export async function POST(request: NextRequest) {
         if (!ticket.buyer_id || String(ticket.destination_kind || "") !== "counterparty") {
           return NextResponse.json({ error: "counterparty is required for shipment" }, { status: 400 });
         }
-        if (!String(ticket.destination_text || "").trim()) {
-          return NextResponse.json({ error: "Укажите, куда едет груз." }, { status: 400 });
-        }
         if (!ticket.vehicle_id || !ticket.driver_id) {
           return NextResponse.json({ error: "vehicle and driver are required for shipment" }, { status: 400 });
         }
-        const tare = Number(ticket.tare_weight_kg);
-        if (!Number.isFinite(tare) || tare <= 0) {
-          return NextResponse.json({ error: "Укажите тару пустой машины." }, { status: 400 });
-        }
-        if (ticket.gross_weight_kg != null) {
-          return NextResponse.json({ error: "Отгрузка открывается по таре пустой машины. Брутто вводится после загрузки." }, { status: 400 });
-        }
-        const tareWeighings = weighings.filter((item) => Number(item.weighing_no) === 1);
-        if (weighings.some((item) => Number(item.weighing_no) !== 1) || tareWeighings.length !== 1) {
-          return NextResponse.json({ error: "При открытии отгрузки требуется одно первое взвешивание тары." }, { status: 400 });
-        }
-        const tareEvent = tareWeighings[0];
-        if (Math.abs(Number(tareEvent.measured_weight_kg || 0) - tare) > 0.001) {
-          return NextResponse.json({ error: "Первое взвешивание должно совпадать с тарой талона." }, { status: 400 });
-        }
-        tareEvent.device_source = "manual";
-        tareEvent.operator_user_id = actor.id;
-        (ticket as any).weighing_1_at = tareEvent.measured_at || new Date().toISOString();
       }
       if (isDisposal && !String(ticket.notes || "").trim()) {
         return NextResponse.json({ error: "comment/reason is required for write-off" }, { status: 400 });
@@ -1573,13 +1653,13 @@ export async function POST(request: NextRequest) {
       let available = 0;
       try { available = await selectedStockAvailability(line); }
       catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Остаток недоступен." }, { status: 400 }); }
-      // Shipment opens on the empty-truck tare and reserves only a planning
-      // amount in the form. The final authoritative debit is still the actual
-      // net weight, checked atomically when gross is recorded.
-      const quantityToCheck = isShipment ? Number(line.quantity || 0) : stockOutQuantityAtCreate;
-      if (quantityToCheck != null && available < quantityToCheck) {
+      // A normal first weighing only knows gross. Vehicle tare is not stock and
+      // must not make a valid shipment/write-off look larger than its balance.
+      // Finalization replaces the line quantity with net before the canonical
+      // stock RPC performs the authoritative availability check.
+      if (stockOutQuantityAtCreate != null && available < stockOutQuantityAtCreate) {
         return NextResponse.json(
-          { error: `Недостаточно остатка по выбранной складской идентичности. Доступно: ${available.toFixed(3)} кг, нужно: ${Number(quantityToCheck).toFixed(3)} кг` },
+          { error: `Недостаточно остатка по выбранной складской идентичности. Доступно: ${available.toFixed(3)} кг, нужно: ${stockOutQuantityAtCreate.toFixed(3)} кг` },
           { status: 400 }
         );
       }

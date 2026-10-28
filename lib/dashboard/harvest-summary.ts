@@ -1,10 +1,12 @@
 import type { HarvestBatchSummary, WeighbridgeTicket } from "@/lib/types/weighbridge";
 import { transportPickerLabel } from "@/lib/weighbridge/transport";
+import { harvestCleanKg } from "@/lib/dashboard/harvest-clean-mass";
+import { periodImpurityAdjustments, type ImpurityAdjustment } from "@/lib/weighbridge/impurity-adjustments";
 
 export const HARVEST_TIME_ZONE = "Asia/Qyzylorda";
 export const ASTYK_STEM_OPERATIONAL_DAY_START_HOUR = 7;
 
-export type HarvestPeriodPreset = "current_day" | "previous_day" | "current_shift" | "last_24_hours" | "season" | "custom";
+export type HarvestPeriodPreset = "current_day" | "previous_day" | "previous_shift" | "current_shift" | "current_month" | "last_24_hours" | "season" | "all_time" | "custom";
 
 export type HarvestPeriod = {
   preset: HarvestPeriodPreset;
@@ -108,12 +110,82 @@ export type HarvestParty = {
   issues: HarvestIssue[];
 };
 
+export type HarvestPlotSummary = {
+  cropStructureAllocationId: string;
+  fieldId: string;
+  fieldName: string;
+  seasonId: string | null;
+  cropId: string | null;
+  cropName: string;
+  varietyId: string | null;
+  varietyName: string | null;
+  reproductionId: string | null;
+  reproductionName: string | null;
+  areaHa: number | null;
+  /** Physical field area from the field card; may differ from allocated plot area. */
+  fieldAreaHa?: number | null;
+  areaIssue?: string | null;
+  completedAreaHa: number | null;
+  harvestedAreaHa: number | null;
+  areaPending?: boolean;
+  latestShiftAreaHa?: number | null;
+  combineShiftOpen?: boolean;
+  /** Accepted mass inside the requested dashboard period; used for period yield. */
+  acceptedKg: number;
+  /** Accepted mass for this exact crop-structure allocation across all dates. */
+  totalAcceptedKg: number;
+  yieldTPerHa: number | null;
+  status: "active" | "paused" | "completed";
+  isCurrent: boolean;
+  startedAt: string;
+  lastChangedAt: string;
+};
+
+export type HarvestFieldSummary = {
+  key: string;
+  fieldId: string;
+  fieldName: string;
+  fieldAreaHa: number | null;
+  plannedAreaHa: number;
+  areaVarianceHa: number | null;
+  allocationCount: number;
+  seasonId: string | null;
+  cropId: string | null;
+  cropName: string;
+  acceptedKg: number;
+  totalAcceptedKg: number;
+  harvestedAreaHa: number | null;
+  areaPending: boolean;
+  areaIssue?: string | null;
+  combineShiftOpen: boolean;
+  yieldTPerHa: number | null;
+  status: "active" | "paused" | "completed";
+  isCurrent: boolean;
+  lastChangedAt: string;
+};
+
 export type HarvestOverview = {
+  weighbridgeShifts?: Array<{ id: string; status: string; opened_at: string; closed_at: string | null; summary_json: {
+    version?: string; potatoCleanKg?: number; potatoNetKg?: number; impuritiesRemovedKg?: number; closedTicketCount?: number;
+    potatoPeriodResultKg?: number | null; potatoPeriodImpuritiesKg?: number | null; periodAccountingBasis?: string;
+  } | null }>;
   period: HarvestPeriod;
   completedTripCount: number;
   openTicketCount: number;
   potatoAcceptedKg: number;
+  /** Period flows, not receipt-cohort clean mass: net receipts minus removals in this period. */
+  potatoPeriodMovement: {
+    adjustmentKg?: number;
+    adjustmentCount?: number;
+    receivedNetKg: number;
+    removedImpuritiesKg: number | null;
+    netAfterRemovalsKg: number | null;
+    unresolvedTicketCount: number;
+  };
+  /** Accepted mass for the active plot inside the requested dashboard period. */
   currentPlotAcceptedKg: number;
+  /** Accepted mass for the active plot across all dates of this exact allocation. */
+  currentPlotTotalAcceptedKg: number;
   currentPlotHarvestedAreaHa: number | null;
   currentPlotYieldTPerHa: number | null;
   currentPlotHarvestedAreaStatus: "verified" | "no_selection" | "field_has_multiple_plots" | "no_closed_shift";
@@ -133,6 +205,8 @@ export type HarvestOverview = {
     reproductionName: string | null;
     areaHa: number | null;
   } | null;
+  harvestPlots: HarvestPlotSummary[];
+  harvestFields: HarvestFieldSummary[];
   potatoDrivers: Array<{
     key: string;
     driverId: string | null;
@@ -261,9 +335,11 @@ function formatPeriodPoint(value: Date, timeZone: string): string {
 export function resolveHarvestPeriod(input: {
   preset?: HarvestPeriodPreset;
   now?: Date;
+  dayOffset?: number;
   customStart?: string | null;
   customEnd?: string | null;
   shift?: { opened_at?: string | null; closed_at?: string | null; status?: string | null } | null;
+  previousShift?: { opened_at?: string | null; closed_at?: string | null; status?: string | null } | null;
   season?: { start_date?: string | null; end_date?: string | null; year?: number | null } | null;
   timeZone?: string;
   operationalDayStartHour?: number;
@@ -277,15 +353,36 @@ export function resolveHarvestPeriod(input: {
     : { year: localNow.year, month: localNow.month, day: localNow.day };
   const currentStart = localDateTimeToUtc({ ...operationalDate, hour: operationalDayStartHour }, timeZone);
   const requestedPreset = input.preset || "current_day";
+  const dayOffset = Math.min(3_650, Math.max(0, Math.floor(Number(input.dayOffset || 0))));
   let preset = requestedPreset;
   let start = currentStart;
   let end = now;
   const shiftAvailable = Boolean(input.shift?.opened_at && input.shift?.status === "open");
 
-  if (requestedPreset === "previous_day") {
+  if (requestedPreset === "current_day" && dayOffset > 0) {
+    const selectedDate = moveLocalDate(operationalDate, -dayOffset);
+    const nextDate = moveLocalDate(selectedDate, 1);
+    start = localDateTimeToUtc({ ...selectedDate, hour: operationalDayStartHour }, timeZone);
+    end = localDateTimeToUtc({ ...nextDate, hour: operationalDayStartHour }, timeZone);
+    preset = dayOffset === 1 ? "previous_day" : "custom";
+  } else if (requestedPreset === "previous_day") {
     const previousDate = moveLocalDate(operationalDate, -1);
     start = localDateTimeToUtc({ ...previousDate, hour: operationalDayStartHour }, timeZone);
     end = currentStart;
+  } else if (requestedPreset === "previous_shift") {
+    const openedAt = input.previousShift?.opened_at ? new Date(input.previousShift.opened_at) : null;
+    const closedAt = input.previousShift?.closed_at ? new Date(input.previousShift.closed_at) : null;
+    if (openedAt && closedAt && !Number.isNaN(openedAt.getTime()) && !Number.isNaN(closedAt.getTime()) && openedAt < closedAt) {
+      start = openedAt;
+      end = closedAt > now ? now : closedAt;
+    } else {
+      const previousDate = moveLocalDate(operationalDate, -1);
+      start = localDateTimeToUtc({ ...previousDate, hour: operationalDayStartHour }, timeZone);
+      end = currentStart;
+      preset = "previous_day";
+    }
+  } else if (requestedPreset === "current_month") {
+    start = localDateTimeToUtc({ year: localNow.year, month: localNow.month, day: 1, hour: operationalDayStartHour }, timeZone);
   } else if (requestedPreset === "last_24_hours") {
     start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   } else if (requestedPreset === "current_shift") {
@@ -299,6 +396,8 @@ export function resolveHarvestPeriod(input: {
     const startDate = input.season?.start_date ? new Date(`${input.season.start_date}T00:00:00Z`) : new Date(Date.UTC(seasonYear, 0, 1));
     const localStart = { year: startDate.getUTCFullYear(), month: startDate.getUTCMonth() + 1, day: startDate.getUTCDate() };
     start = localDateTimeToUtc({ ...localStart, hour: operationalDayStartHour }, timeZone);
+  } else if (requestedPreset === "all_time") {
+    start = new Date(0);
   } else if (requestedPreset === "custom") {
     const parsedStart = input.customStart ? new Date(input.customStart) : null;
     const parsedEnd = input.customEnd ? new Date(input.customEnd) : null;
@@ -314,7 +413,9 @@ export function resolveHarvestPeriod(input: {
     preset,
     start: start.toISOString(),
     end: end.toISOString(),
-    label: `${formatPeriodPoint(start, timeZone)} — ${Math.abs(end.getTime() - now.getTime()) < 60_000 ? "сейчас" : formatPeriodPoint(end, timeZone)}`,
+    label: preset === "all_time"
+      ? "За всё время"
+      : `${formatPeriodPoint(start, timeZone)} — ${Math.abs(end.getTime() - now.getTime()) < 60_000 ? "сейчас" : formatPeriodPoint(end, timeZone)}`,
     operationalDayStartHour,
     shiftAvailable,
   };
@@ -431,6 +532,71 @@ function ticketTime(ticket: WeighbridgeTicket, ticketById: ReadonlyMap<string, W
   return Date.parse(harvestTicketBusinessTime(ticket, ticketById));
 }
 
+export function buildPotatoPeriodMovement(
+  harvestTickets: WeighbridgeTicket[],
+  impurityTickets: WeighbridgeTicket[],
+  period: HarvestPeriod,
+  filters: HarvestDashboardFilters = {},
+  adjustments: ImpurityAdjustment[] = [],
+): HarvestOverview["potatoPeriodMovement"] {
+  const ticketById = new Map([...harvestTickets, ...impurityTickets].map((ticket) => [ticket.id, ticket]));
+  const start = Date.parse(period.start);
+  const end = Date.parse(period.end);
+  const inPeriod = (ticket: WeighbridgeTicket) => {
+    const time = ticketTime(ticket, ticketById);
+    return time >= start && time < end;
+  };
+  const received = Array.from(new Map(harvestTickets.map((ticket) => [ticket.id, ticket])).values())
+    .filter((ticket) => isEffectiveFinalizedHarvestTicket(ticket)
+      && inPeriod(ticket) && ticketMatchesFilters(ticket, filters)
+      && isPotatoLabel(ticketIdentity(ticket).crop));
+  // Integer grams retain the ticket's kg precision without cumulative float drift.
+  const invalidReceipts = received.filter((ticket) => ticket.net_weight_kg == null
+    || !Number.isFinite(Number(ticket.net_weight_kg)) || Number(ticket.net_weight_kg) < 0);
+  const receivedGrams = received.filter((ticket) => !invalidReceipts.includes(ticket))
+    .reduce((sum, ticket) => sum + Math.round(Number(ticket.net_weight_kg) * 1000), 0);
+  let removedGrams = 0;
+  let unresolvedTicketCount = invalidReceipts.length;
+  for (const ticket of Array.from(new Map(impurityTickets.map((row) => [row.id, row])).values())) {
+    if (ticket.op_type !== "weighbridge_impurities" || ticket.status !== "finalized"
+      || !ticket.is_finalized || ticket.is_voided || ticket.replacement_ticket_id || !inPeriod(ticket)) continue;
+    if (filters.warehouseId && ticket.warehouse_from_id !== filters.warehouseId) continue;
+    const lines = ticket.lines || [];
+    const knownLines = lines.filter((line) => line.crop_id && cleanLabel(line.crop_name));
+    const potatoLines = knownLines.filter((line) => isPotatoLabel(line.crop_name));
+    if (knownLines.length === lines.length && knownLines.length > 0 && !potatoLines.length) continue;
+    if (filters.cropId && knownLines.length === lines.length && knownLines.length > 0
+      && knownLines.every((line) => line.crop_id !== filters.cropId)) continue;
+    // Never silently assign an unknown/mixed removal, or a multi-field pool,
+    // to a specific filtered source. Surface incomplete attribution instead.
+    const attribution = [
+      [filters.fieldId, ticket.field_id],
+      [filters.varietyId, lines.length === 1 ? lines[0].variety_id : null],
+      [filters.reproductionId, lines.length === 1 ? lines[0].reproduction_id : null],
+    ];
+    if (attribution.some(([expected, actual]) => expected && actual && expected !== actual)) continue;
+    const kg = Number(ticket.net_weight_kg);
+    if (!lines.length || potatoLines.length !== lines.length
+      || attribution.some(([expected, actual]) => expected && !actual)
+      || ticket.net_weight_kg == null || !Number.isFinite(kg) || kg < 0) {
+      unresolvedTicketCount += 1;
+      continue;
+    }
+    // Use physical ticket net, NOT accepted_weight_kg or historical allocation.
+    removedGrams += Math.round(kg * 1000);
+  }
+  const adjustment = periodImpurityAdjustments(adjustments, period, filters);
+  removedGrams += Math.round(adjustment.kg * 1000);
+  return {
+    ...(adjustment.documents.length ? { adjustmentKg: adjustment.kg, adjustmentCount: adjustment.documents.length } : {}),
+    receivedNetKg: receivedGrams / 1000,
+    removedImpuritiesKg: unresolvedTicketCount ? null : removedGrams / 1000,
+    // Negative is valid when old stock is cleaned on a day without receipts.
+    netAfterRemovalsKg: unresolvedTicketCount ? null : (receivedGrams - removedGrams) / 1000,
+    unresolvedTicketCount,
+  };
+}
+
 function weighbridgeSelectionTime(ticket: WeighbridgeTicket): number {
   return new Date(ticket.weighing_1_at || ticket.created_at).getTime();
 }
@@ -503,7 +669,11 @@ export function buildHarvestOverview(
     now?: Date;
     warehouseRows?: WarehouseHarvestRow[];
     activeSelection?: HarvestOverview["activeWeighbridgeSelection"];
+    harvestPlots?: HarvestPlotSummary[];
     suppressInferredActiveSelection?: boolean;
+    impurityTickets?: WeighbridgeTicket[];
+    impurityAdjustments?: ImpurityAdjustment[];
+    includeDriverStats?: boolean;
   }
 ): HarvestOverview {
   const now = options.now || new Date();
@@ -512,7 +682,17 @@ export function buildHarvestOverview(
   const endMs = new Date(options.period.end).getTime();
   const ticketById = new Map(tickets.map((ticket) => [ticket.id, ticket]));
   const harvestTickets = tickets.filter((ticket) => ticket.op_type === "harvest_incoming" && ticketMatchesFilters(ticket, filters));
-  const finalized = harvestTickets.filter((ticket) => isEffectiveFinalizedHarvestTicket(ticket) && ticketTime(ticket, ticketById) >= startMs && ticketTime(ticket, ticketById) < endMs);
+  const effectiveFinalized = harvestTickets.filter(isEffectiveFinalizedHarvestTicket);
+  const finalized = effectiveFinalized.filter((ticket) => ticketTime(ticket, ticketById) >= startMs && ticketTime(ticket, ticketById) < endMs);
+  const matchesPlot = (ticket: WeighbridgeTicket, plot: NonNullable<HarvestOverview["activeWeighbridgeSelection"]> | HarvestPlotSummary) => {
+    const identity = ticketIdentity(ticket);
+    return ticket.field_id === plot.fieldId
+      && ticket.crop_structure_allocation_id === plot.cropStructureAllocationId
+      && (ticket.season_id || null) === plot.seasonId
+      && identity.cropId === plot.cropId
+      && identity.varietyId === plot.varietyId
+      && identity.reproductionId === plot.reproductionId;
+  };
   const open = harvestTickets.filter(isOpenHarvestTicket);
   const warehouseRows = options.warehouseRows || [];
   const activeWeighbridgeTicket = harvestTickets
@@ -549,7 +729,7 @@ export function buildHarvestOverview(
   const activeWeighbridgeSelection = options.activeSelection
     || (options.suppressInferredActiveSelection ? null : inferredActiveWeighbridgeSelection);
   const potatoFinalized = finalized.filter((ticket) => isPotatoLabel(ticketIdentity(ticket).crop));
-  const potatoAcceptedKg = potatoFinalized.reduce((total, ticket) => total + harvestTicketHeaderNetKg(ticket), 0);
+  const potatoAcceptedKg = potatoFinalized.reduce((total, ticket) => total + harvestCleanKg(ticket), 0);
   const currentPlotAcceptedKg = activeWeighbridgeSelection
     ? finalized
         .filter((ticket) => {
@@ -561,8 +741,90 @@ export function buildHarvestOverview(
             && identity.varietyId === activeWeighbridgeSelection.varietyId
             && identity.reproductionId === activeWeighbridgeSelection.reproductionId;
         })
-        .reduce((total, ticket) => total + harvestTicketHeaderNetKg(ticket), 0)
+        .reduce((total, ticket) => total + harvestCleanKg(ticket), 0)
     : 0;
+  const currentPlotTotalAcceptedKg = activeWeighbridgeSelection
+    ? effectiveFinalized.filter((ticket) => matchesPlot(ticket, activeWeighbridgeSelection)).reduce((sum, ticket) => sum + harvestCleanKg(ticket), 0)
+    : 0;
+  // A physical plot/field yield must never use only one warehouse or reproduction
+  // worth of mass with the hectares of the entire field. Keep this scope complete.
+  const plotFinalized = Array.from(ticketById.values()).filter((ticket) =>
+    isEffectiveFinalizedHarvestTicket(ticket) && ticketTime(ticket, ticketById) < endMs);
+  const harvestPlots = Array.from(new Map((options.harvestPlots || []).map((plot) => [plot.cropStructureAllocationId, plot])).values()).map((plot) => {
+    const acceptedKg = plotFinalized.filter((ticket) => ticketTime(ticket, ticketById) >= startMs)
+      .filter((ticket) => matchesPlot(ticket, plot))
+      .reduce((total, ticket) => total + harvestCleanKg(ticket), 0);
+    const totalAcceptedKg = plotFinalized.filter((ticket) => matchesPlot(ticket, plot)).reduce((sum, ticket) => sum + harvestCleanKg(ticket), 0);
+    const harvestedAreaHa = plot.harvestedAreaHa && plot.harvestedAreaHa > 0 ? plot.harvestedAreaHa : null;
+    const areaPending = Boolean(plot.areaPending || (totalAcceptedKg > 0 && (!harvestedAreaHa || plot.combineShiftOpen)));
+    const areaIssue = harvestedAreaHa && plot.areaHa && harvestedAreaHa > plot.areaHa + 0.01
+      ? `Проверьте гектары участка ${plot.areaHa.toLocaleString("ru-RU")} га: в закрытых сменах указано ${harvestedAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} га`
+      : plot.areaIssue ?? null;
+    return {
+      ...plot,
+      acceptedKg,
+      totalAcceptedKg,
+      areaPending,
+      areaIssue,
+      // A new open shift adds mass before its worked hectares are known.
+      // Do not divide that growing mass by hectares from earlier shifts.
+      yieldTPerHa: !areaPending && !areaIssue && harvestedAreaHa ? totalAcceptedKg / 1000 / harvestedAreaHa : null,
+    };
+  });
+  const harvestFieldMap = new Map<string, HarvestFieldSummary>();
+  for (const plot of harvestPlots) {
+    const key = JSON.stringify([plot.fieldId, plot.seasonId, plot.cropId || `unknown:${plot.cropStructureAllocationId}`]);
+    const current = harvestFieldMap.get(key) || {
+      key,
+      fieldId: plot.fieldId,
+      fieldName: plot.fieldName,
+      fieldAreaHa: plot.fieldAreaHa ?? null,
+      plannedAreaHa: 0,
+      areaVarianceHa: null,
+      allocationCount: 0,
+      seasonId: plot.seasonId,
+      cropId: plot.cropId,
+      cropName: plot.cropName,
+      acceptedKg: 0,
+      totalAcceptedKg: 0,
+      harvestedAreaHa: null,
+      areaPending: false,
+      areaIssue: null,
+      combineShiftOpen: false,
+      yieldTPerHa: null,
+      status: "completed" as const,
+      isCurrent: false,
+      lastChangedAt: plot.lastChangedAt,
+    };
+    current.plannedAreaHa += Number(plot.areaHa || 0);
+    current.allocationCount += 1;
+    current.acceptedKg += plot.acceptedKg;
+    current.totalAcceptedKg += plot.totalAcceptedKg;
+    current.harvestedAreaHa = (current.harvestedAreaHa || 0) + Number(plot.harvestedAreaHa || 0) || null;
+    current.areaPending ||= Boolean(plot.areaPending);
+    current.areaIssue ||= plot.areaIssue ?? null;
+    current.combineShiftOpen ||= Boolean(plot.combineShiftOpen);
+    current.isCurrent ||= plot.isCurrent;
+    current.status = plot.status === "active" || current.status === "active"
+      ? "active"
+      : plot.status === "paused" || current.status === "paused"
+        ? "paused"
+        : "completed";
+    if (Date.parse(plot.lastChangedAt) > Date.parse(current.lastChangedAt)) current.lastChangedAt = plot.lastChangedAt;
+    harvestFieldMap.set(key, current);
+  }
+  const harvestFields = Array.from(harvestFieldMap.values()).map((field) => {
+    const harvestedAreaHa = field.harvestedAreaHa && field.harvestedAreaHa > 0 ? field.harvestedAreaHa : null;
+    const areaVarianceHa = field.fieldAreaHa == null ? null : field.plannedAreaHa - field.fieldAreaHa;
+    return {
+      ...field,
+      areaVarianceHa,
+      yieldTPerHa: !field.areaPending && !field.areaIssue && harvestedAreaHa
+        ? field.totalAcceptedKg / 1000 / harvestedAreaHa
+        : null,
+    };
+  }).sort((left, right) => Number(right.isCurrent) - Number(left.isCurrent)
+    || Date.parse(right.lastChangedAt) - Date.parse(left.lastChangedAt));
 
   const cropMap = new Map<string, HarvestOverview["cropTotals"][number]>();
   const fieldMap = new Map<string, HarvestOverview["fields"][number]>();
@@ -572,7 +834,7 @@ export function buildHarvestOverview(
   const knownPartyByIdentity = new Map<string, string>();
 
   const potatoDriverIdsByName = new Map<string, Set<string>>();
-  for (const ticket of finalized) {
+  for (const ticket of options.includeDriverStats === false ? [] : finalized) {
     if (!isPotatoLabel(ticketIdentity(ticket).crop)) continue;
     const driverId = cleanLabel(ticket.driver_id);
     const driverName = cleanLabel(ticket.driver_name_snapshot)?.replace(/\s+/gu, " ") || null;
@@ -585,7 +847,7 @@ export function buildHarvestOverview(
 
   const potatoDriverIdentityByTicketId = new Map<string, { key: string; driverId: string | null; driverName: string | null }>();
   const latestPotatoDriverNameByKey = new Map<string, { driverName: string; occurredAtMs: number; ticketId: string }>();
-  for (const ticket of finalized) {
+  for (const ticket of options.includeDriverStats === false ? [] : finalized) {
     if (!isPotatoLabel(ticketIdentity(ticket).crop)) continue;
     const snapshotDriverId = cleanLabel(ticket.driver_id);
     const driverName = cleanLabel(ticket.driver_name_snapshot)?.replace(/\s+/gu, " ") || null;
@@ -669,6 +931,7 @@ export function buildHarvestOverview(
     const party = ensureParty(partyKeyFromIdentity(ticket, identity, knownPartyByIdentity), identity, ticket.season_id || null);
     const fieldName = cleanLabel(ticket.field_name_snapshot) || "Поле не указано";
     const netKg = harvestTicketHeaderNetKg(ticket);
+    const cleanKg = harvestCleanKg(ticket);
     const occurredAt = harvestTicketBusinessTime(ticket, ticketById);
     const partyTicket: HarvestPartyTicket = {
       ticketId: ticket.id,
@@ -696,7 +959,7 @@ export function buildHarvestOverview(
     cropRow.trips += 1;
     cropMap.set(cropKey, cropRow);
 
-    if (isPotatoLabel(identity.crop)) {
+    if (options.includeDriverStats !== false && isPotatoLabel(identity.crop)) {
       const driverIdentity = potatoDriverIdentityByTicketId.get(ticket.id) || {
         key: `ticket:${ticket.id}`,
         driverId: null,
@@ -719,7 +982,10 @@ export function buildHarvestOverview(
         timedTripCount: 0,
       };
       driverRow.tripCount += 1;
-      driverRow.netWeightKg += netKg;
+      // Champions are ranked only by clean potato assigned to the receipt.
+      // Soil/impurity deductions are already projected into harvest_clean_weight_kg
+      // by the API, so no additional subtraction belongs here.
+      driverRow.netWeightKg += cleanKg;
       driverRow.averageNetWeightKg = driverRow.netWeightKg / driverRow.tripCount;
       const tripMinutes = Number(ticket.ptc_trip_minutes);
       if (Number.isFinite(tripMinutes) && tripMinutes >= 0) {
@@ -926,13 +1192,17 @@ export function buildHarvestOverview(
     completedTripCount: finalized.length,
     openTicketCount: open.length,
     potatoAcceptedKg,
+    potatoPeriodMovement: buildPotatoPeriodMovement(tickets, options.impurityTickets || [], options.period, filters, options.impurityAdjustments || []),
     currentPlotAcceptedKg,
+    currentPlotTotalAcceptedKg,
     currentPlotHarvestedAreaHa: null,
     currentPlotYieldTPerHa: null,
     currentPlotHarvestedAreaStatus: activeWeighbridgeSelection ? "no_closed_shift" : "no_selection",
     activeWeighbridgeSelection,
+    harvestPlots,
+    harvestFields,
     potatoDrivers: Array.from(potatoDriverMap.values())
-      .sort((a, b) => b.tripCount - a.tripCount || b.netWeightKg - a.netWeightKg || a.driverName.localeCompare(b.driverName, "ru")),
+      .sort((a, b) => b.netWeightKg - a.netWeightKg || b.tripCount - a.tripCount || a.driverName.localeCompare(b.driverName, "ru")),
     parties: Array.from(partyMap.values())
       .filter((party) => party.currentStockKg > 0 || party.receivedKg > 0 || party.openTicketCount > 0)
       .sort((a, b) => b.openTicketCount - a.openTicketCount || b.receivedKg - a.receivedKg || b.currentStockKg - a.currentStockKg),

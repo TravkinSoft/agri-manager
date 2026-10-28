@@ -25,7 +25,7 @@ export async function readCompanyFleet(db: ReturnType<typeof getServiceClient>, 
     const [repairs, assignments, traffic] = await Promise.all([
       readVehicleRepairs(db, companyId, vehicleIds),
       ids.length ? db.from("reference_specialists")
-        .select("id,personnel_type,status,archived,person:person_id(full_name,company_id,role_type,status,deleted_at)")
+        .select("id,personnel_type,status,archived,person:person_id(id,full_name,company_id,role_type,status,deleted_at)")
         .eq("company_id", companyId).in("id", ids) : { data: [], error: null },
       db.from("ptc_vehicle_states").select("vehicle_id,assigned,state,since")
         .eq("company_id", companyId).in("vehicle_id", vehicleIds),
@@ -43,6 +43,11 @@ export async function readCompanyFleet(db: ReturnType<typeof getServiceClient>, 
         companyId,
         vehicleAllowsMachineOperator(row),
       ),
+      driverId: (() => {
+        const assignment = driverAssignments.get(String(row.primary_responsible_personnel_id ?? "")) as any;
+        const person = Array.isArray(assignment?.person) ? assignment.person[0] : assignment?.person;
+        return person?.id ? String(person.id) : null;
+      })(),
       inRepair: repairs.get(String(row.id))?.inRepair ?? false,
       repairVersion: repairs.get(String(row.id))?.repairVersion ?? 0,
       repairChangedAt: repairs.get(String(row.id))?.changedAt ?? null,

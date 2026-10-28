@@ -49,6 +49,28 @@ check("previous operational day is exact 24 hour boundary", () => {
   const previous = resolveHarvestPeriod({ preset: "previous_day", now: new Date("2026-08-12T07:00:00Z"), operationalDayStartHour: 7 });
   assert.equal(new Date(previous.end).getTime() - new Date(previous.start).getTime(), 86_400_000);
 });
+check("older operational days keep exact working-day boundaries", () => {
+  const older = resolveHarvestPeriod({ preset: "current_day", dayOffset: 3, now: new Date("2026-08-12T07:00:00Z"), operationalDayStartHour: 7 });
+  assert.equal(older.start, "2026-08-09T02:00:00.000Z");
+  assert.equal(older.end, "2026-08-10T02:00:00.000Z");
+  assert.equal(older.preset, "custom");
+});
+check("champion periods resolve month, previous shift, and all time", () => {
+  const now = new Date("2026-08-12T07:00:00Z");
+  const month = resolveHarvestPeriod({ preset: "current_month", now, operationalDayStartHour: 7 });
+  assert.equal(month.start, "2026-08-01T02:00:00.000Z");
+  const previousShift = resolveHarvestPeriod({
+    preset: "previous_shift",
+    now,
+    previousShift: { status: "closed", opened_at: "2026-08-10T02:00:00.000Z", closed_at: "2026-08-11T01:00:00.000Z" },
+    operationalDayStartHour: 7,
+  });
+  assert.equal(previousShift.start, "2026-08-10T02:00:00.000Z");
+  assert.equal(previousShift.end, "2026-08-11T01:00:00.000Z");
+  const allTime = resolveHarvestPeriod({ preset: "all_time", now, operationalDayStartHour: 7 });
+  assert.equal(allTime.start, "1970-01-01T00:00:00.000Z");
+  assert.equal(allTime.label, "За всё время");
+});
 check("effective finalized contract", () => {
   assert.equal(isEffectiveFinalizedHarvestTicket(valid), true);
   assert.equal(isEffectiveFinalizedHarvestTicket(voided), false);
@@ -86,15 +108,58 @@ check("current plot mass requires the exact field, allocation, season, crop, var
     ...exactOne, id: "plot-exact-2", ticket_no: "PLOT-EXACT-2", net_weight_kg: 9_000,
     created_at: "2026-08-12T06:00:00Z", finalized_at: "2026-08-12T06:30:00Z", updated_at: "2026-08-12T06:30:00Z",
   });
+  const priorDayExact = ticket({
+    ...exactOne, id: "plot-exact-prior-day", ticket_no: "PLOT-EXACT-PRIOR-DAY", net_weight_kg: 6_000,
+    created_at: "2026-08-11T06:00:00Z", finalized_at: "2026-08-11T06:30:00Z", updated_at: "2026-08-11T06:30:00Z",
+  });
   const otherAllocation = ticket({ ...exactOne, id: "plot-other-allocation", ticket_no: "PLOT-OTHER", crop_structure_allocation_id: "allocation-11", net_weight_kg: 50_000 });
   const otherField = ticket({ ...exactOne, id: "plot-other-field", ticket_no: "PLOT-OTHER-FIELD", field_id: "field-10", net_weight_kg: 60_000 });
   const invalid = ticket({ ...exactOne, id: "plot-voided", ticket_no: "PLOT-VOIDED", is_voided: true, status: "voided", net_weight_kg: 70_000 });
-  const result = buildHarvestOverview([exactOne, exactTwo, otherAllocation, otherField, invalid], { period });
+  const result = buildHarvestOverview([exactOne, exactTwo, priorDayExact, otherAllocation, otherField, invalid], { period });
   assert.equal(result.potatoAcceptedKg, 127_000);
   assert.equal(result.currentPlotAcceptedKg, 17_000);
+  assert.equal(result.currentPlotTotalAcceptedKg, 23_000);
   assert.equal(result.currentPlotHarvestedAreaHa, null);
   assert.equal(result.currentPlotYieldTPerHa, null);
   assert.equal(result.currentPlotHarvestedAreaStatus, "no_closed_shift");
+});
+check("today plot rail keeps active and completed combine plots separate", () => {
+  const completedTicket = ticket({
+    id: "completed-plot-ticket", ticket_no: "COMPLETED-PLOT", field_id: "field-old", field_name_snapshot: "28",
+    crop_structure_allocation_id: "allocation-old", crop_name_snapshot: "Картофель", variety_name_snapshot: "Сорая",
+    net_weight_kg: 10_000, lines: potato.lines,
+  });
+  const activeTicket = ticket({
+    id: "active-plot-ticket", ticket_no: "ACTIVE-PLOT", field_id: "field-new", field_name_snapshot: "виноград",
+    crop_structure_allocation_id: "allocation-new", crop_name_snapshot: "Картофель", variety_name_snapshot: "Гала",
+    net_weight_kg: 12_000, lines: potato.lines,
+  });
+  const result = buildHarvestOverview([completedTicket, activeTicket], {
+    period,
+    harvestPlots: [
+      {
+        cropStructureAllocationId: "allocation-new", fieldId: "field-new", fieldName: "виноград", seasonId: "s1",
+        cropId: "c2", cropName: "Картофель", varietyId: "v2", varietyName: "Гала", reproductionId: "r2",
+        reproductionName: "Элита", areaHa: 54, completedAreaHa: 0, harvestedAreaHa: 8, areaPending: true, acceptedKg: 0, totalAcceptedKg: 0,
+        yieldTPerHa: null, status: "active", isCurrent: true, startedAt: period.start, lastChangedAt: period.end,
+      },
+      {
+        cropStructureAllocationId: "allocation-old", fieldId: "field-old", fieldName: "28", seasonId: "s1",
+        cropId: "c2", cropName: "Картофель", varietyId: "v2", varietyName: "Сорая", reproductionId: "r2",
+        reproductionName: "1", areaHa: 12, completedAreaHa: 8.34, harvestedAreaHa: 8.34, acceptedKg: 0, totalAcceptedKg: 0,
+        yieldTPerHa: null, status: "completed", isCurrent: false, startedAt: period.start, lastChangedAt: period.end,
+      },
+    ],
+  });
+  assert.equal(result.harvestPlots.length, 2);
+  assert.equal(result.harvestPlots[0].status, "active");
+  assert.equal(result.harvestPlots[0].acceptedKg, 12_000);
+  assert.equal(result.harvestPlots[0].totalAcceptedKg, 12_000);
+  assert.equal(result.harvestPlots[0].yieldTPerHa, null, "open shift must not reuse hectares from earlier shifts");
+  assert.equal(result.harvestPlots[1].status, "completed");
+  assert.equal(result.harvestPlots[1].acceptedKg, 10_000);
+  assert.equal(result.harvestPlots[1].totalAcceptedKg, 10_000);
+  assert.equal(result.harvestPlots[1].yieldTPerHa, 10 / 8.34);
 });
 check("latest potato weighbridge ticket selects the live field and allocation", () => {
   const earlier = ticket({
@@ -229,6 +294,7 @@ check("latest carrot ticket replaces the previous potato plot and counts only th
   assert.equal(result.activeWeighbridgeSelection?.cropName, "Морковь");
   assert.equal(result.activeWeighbridgeSelection?.cropStructureAllocationId, "allocation-carrot");
   assert.equal(result.currentPlotAcceptedKg, 14_000);
+  assert.equal(result.currentPlotTotalAcceptedKg, 14_000);
   assert.equal(result.potatoAcceptedKg, 1_000);
 });
 check("an open legacy combine shift suppresses the misleading latest-ticket plot", () => {
@@ -245,6 +311,7 @@ check("an open legacy combine shift suppresses the misleading latest-ticket plot
   const result = buildHarvestOverview([latest], { period, suppressInferredActiveSelection: true });
   assert.equal(result.activeWeighbridgeSelection, null);
   assert.equal(result.currentPlotAcceptedKg, 0);
+  assert.equal(result.currentPlotTotalAcceptedKg, 0);
   assert.equal(result.currentPlotHarvestedAreaStatus, "no_selection");
 });
 check("moisture is mass weighted", () => {
@@ -357,6 +424,57 @@ check("potato driver table groups only effective potato trips", () => {
     timedTripCount: 0,
   });
 });
+check("season champions include earlier working days and exclude earlier seasons", () => {
+  const seasonPeriod = resolveHarvestPeriod({ preset: "season", now: new Date("2026-08-12T07:00:00Z"), season: { start_date: "2026-08-01", year: 2026 }, operationalDayStartHour: 7 });
+  const rows = [
+    ticket({ ...potato, id: "earlier-day", driver_id: "earlier-driver", driver_name_snapshot: "Earlier driver", net_weight_kg: 9000, finalized_at: "2026-08-10T04:00:00Z" }),
+    ticket({ ...potato, id: "today", driver_id: "today-driver", driver_name_snapshot: "Today driver", net_weight_kg: 1000 }),
+    ticket({ ...potato, id: "before-season", driver_id: "old-driver", net_weight_kg: 50000, finalized_at: "2026-07-30T04:00:00Z" }),
+  ];
+  const season = buildHarvestOverview(rows, { period: seasonPeriod });
+  const day = buildHarvestOverview(rows, { period });
+  assert.deepEqual(season.potatoDrivers.map((driver) => driver.netWeightKg), [9000, 1000]);
+  assert.deepEqual(day.potatoDrivers.map((driver) => driver.netWeightKg), [1000]);
+});
+check("potato driver ranking uses total tonnes before trip count", () => {
+  const potatoLines = potato.lines;
+  const manyLightTrips = Array.from({ length: 3 }, (_, index) => ticket({
+    id: `many-light-${index}`,
+    ticket_no: `MANY-LIGHT-${index}`,
+    driver_id: "driver-many",
+    driver_name_snapshot: "Много рейсов",
+    crop_name_snapshot: "Картофель",
+    net_weight_kg: 2_000,
+    lines: potatoLines,
+  }));
+  const oneHeavyTrip = ticket({
+    id: "one-heavy",
+    ticket_no: "ONE-HEAVY",
+    driver_id: "driver-heavy",
+    driver_name_snapshot: "Больше тонн",
+    crop_name_snapshot: "Картофель",
+    net_weight_kg: 10_000,
+    lines: potatoLines,
+  });
+  const result = buildHarvestOverview([...manyLightTrips, oneHeavyTrip], { period });
+  assert.equal(result.potatoDrivers[0].driverId, "driver-heavy");
+  assert.equal(result.potatoDrivers[0].netWeightKg, 10_000);
+  assert.equal(result.potatoDrivers[1].tripCount, 3);
+});
+check("potato driver champions use clean potato mass after attributed soil", () => {
+  const cleanReceipt = ticket({
+    ...potato,
+    id: "clean-driver-receipt",
+    driver_id: "clean-driver",
+    driver_name_snapshot: "Чистый картофель",
+    net_weight_kg: 10_000,
+    accepted_weight_kg: 10_000,
+    harvest_clean_weight_kg: 7_250,
+  });
+  const result = buildHarvestOverview([cleanReceipt], { period });
+  assert.equal(result.potatoDrivers[0].netWeightKg, 7_250);
+  assert.equal(result.potatoDrivers[0].averageNetWeightKg, 7_250);
+});
 check("potato driver grouping reconciles legacy names, keeps anonymous trips separate, and uses the latest label", () => {
   const potatoLines = potato.lines;
   const rows = [
@@ -428,7 +546,7 @@ const mobileNav = readFileSync(resolve(root, "components/layout/mobile-bottom-na
 const dashboardPage = readFileSync(resolve(root, "app/(dashboard)/dashboard/page.tsx"), "utf8");
 const dashboardApi = readFileSync(resolve(root, "app/api/dashboard/harvest-summary/route.ts"), "utf8");
 const dashboardUi = readFileSync(resolve(root, "components/dashboard/harvest-dashboard.tsx"), "utf8");
-const potatoDriverUi = readFileSync(resolve(root, "components/dashboard/potato-driver-summary.tsx"), "utf8");
+const harvestSummarySource = readFileSync(resolve(root, "lib/dashboard/harvest-summary.ts"), "utf8");
 const fieldMapPolicy = readFileSync(resolve(root, "lib/fields-map/access-policy.ts"), "utf8");
 const warehousePage = readFileSync(resolve(root, "app/(dashboard)/warehouses/page.tsx"), "utf8");
 const warehouseAuth = readFileSync(resolve(root, "app/api/warehouses/_helpers.ts"), "utf8");
@@ -523,12 +641,18 @@ check("legal operator remains read-only at the database boundary", () => {
 check("dashboard API does not cap harvest at one thousand rows", () => assert.match(dashboardApi, /\.range\(from, from \+ pageSize - 1\)/));
 check("dashboard presents the live vegetable plot chain", () => {
   assert.match(dashboardUi, /Главные показатели уборки/);
-  assert.match(dashboardUi, /Сегодня принято картофеля/);
-  assert.match(dashboardUi, /С текущего участка/);
+  assert.match(dashboardUi, /Итог дня · картофель/);
+  assert.match(dashboardUi, /periodMovement\.netAfterRemovalsKg/);
+  assert.match(dashboardUi, /приход − вывоз примесей/);
+  assert.match(dashboardUi, /periodImpurityPercent/);
+  assert.match(dashboardUi, /% от нетто/);
+  assert.match(dashboardUi, /С выбранного участка · всего/);
   assert.match(dashboardUi, /На складе/);
   assert.match(dashboardUi, /Живая урожайность/);
-  assert.match(dashboardUi, /Текущее поле[\s\S]*Главные показатели уборки[\s\S]*Статусы машин PTC[\s\S]*PotatoDriverSummary/);
+  assert.match(dashboardUi, /Текущая работа[\s\S]*Главные показатели уборки[\s\S]*Статусы машин PTC/);
   assert.match(dashboardUi, /summary\?\.activeWeighbridgeSelection/);
+  assert.match(dashboardUi, /selectedField\?\.totalAcceptedKg\s*\?\? selectedPlot\?\.totalAcceptedKg\s*\?\? summary\?\.currentPlotTotalAcceptedKg/);
+  assert.match(dashboardUi, /mass\(plot\.totalAcceptedKg\)/);
   assert.match(dashboardUi, /const activeCrop = activeSelection\?\.cropName \|\| "Уборка"/);
   assert.match(dashboardUi, /Комбайнёр должен выбрать участок/);
   assert.doesNotMatch(dashboardUi, /traffic\?\.snapshot\.fieldName/);
@@ -536,41 +660,44 @@ check("dashboard presents the live vegetable plot chain", () => {
   assert.match(dashboardUi, /potatoParties/);
   assert.doesNotMatch(dashboardUi, /Поступление по культурам|Завершено рейсов/);
 });
-check("dashboard shows the live driver champions table after the unchanged PTC status block", () => {
-  assert.match(dashboardUi, /Статусы машин PTC[\s\S]*<PotatoDriverSummary rows=\{summary\.potatoDrivers\}/);
+check("dashboard omits driver champions and preserves the PTC report", () => {
+  assert.doesNotMatch(dashboardUi, /PotatoDriverSummary|driverSummary|refreshDrivers/);
   assert.match(dashboardUi, /\["agronomist", "director"\]\.includes\(profile\.role\)[\s\S]*?<TrafficShiftSummary/);
   assert.match(dashboardUi, /shiftReportOpen \? <div[\s\S]*?<TrafficShiftSummary/);
-  assert.match(potatoDriverUi, /Таблица чемпионов/);
-  assert.match(potatoDriverUi, /data-driver-id=\{row\.driverId \|\| row\.key\}/);
-  assert.match(potatoDriverUi, /duration: 400/);
-  assert.match(potatoDriverUi, /prefers-reduced-motion: reduce/);
-  assert.match(potatoDriverUi, /Самый быстрый/);
-  assert.match(potatoDriverUi, /талон будет напрямую связан с завершённым циклом PTC/);
+  assert.match(readFileSync(resolve(root, "components/dashboard/harvest-day-summary.tsx"), "utf8"), /Показать предыдущий рабочий день/);
 });
-check("yield calculator uses selected party stock and defaults to the field area", () => {
-  assert.match(dashboardUi, /selectedPartyStockKg \/ 1000 \/ hectares/);
-  assert.match(dashboardUi, /enteredHectares > 0 \? enteredHectares : fieldHectares/);
+check("yield calculator uses cumulative exact plot mass and confirmed area, never party stock", () => {
+  assert.match(dashboardUi, /selectedScopeTotalAcceptedKg \/ 1000 \/ hectares/);
+  assert.doesNotMatch(dashboardUi, /selectedPartyStockKg/);
+  assert.match(dashboardUi, /selectedPlot\?\.harvestedAreaHa/);
+  assert.match(dashboardUi, /selectedPlot\?\.areaPending \? null : selectedPlot\?\.harvestedAreaHa/);
   assert.match(dashboardUi, /Убрано, га/);
 });
 check("live yield uses exact accepted mass and shift hectares only when plot ownership is verified", () => {
-  assert.match(dashboardApi, /currentPlotAcceptedKg \/ 1000 \/ harvestedAreaHa/);
+  assert.match(dashboardApi, /currentPlotYieldTPerHa: plot\.yieldTPerHa/);
   assert.match(dashboardApi, /ptc_combine_field_segments/);
-  assert.match(dashboardApi, /Number\(row\.hectares_segment\)/);
-  assert.match(dashboardApi, /crop_structure_id", selection\.cropStructureAllocationId/);
+  assert.match(dashboardApi, /confirmedPlotHectares\(plotSegments, shifts, period\.end\)/);
+  assert.match(dashboardApi, /ptc_combine_shifts"\)\.select\("id,closed_at"\)/);
   assert.match(dashboardApi, /activeSelection: activePtcState\.selection/);
   assert.match(dashboardApi, /openShift && !openShift\.current_crop_structure_id[\s\S]*suppressTicketInference: true/);
   assert.match(dashboardApi, /suppressInferredActiveSelection: activePtcState\.suppressTicketInference/);
-  assert.match(dashboardUi, /Недостаточно данных/);
+  assert.doesNotMatch(dashboardUi, /Недостаточно данных/);
+  assert.match(dashboardUi, /Комбайнёр должен закрыть смену и указать убранные гектары/);
+  assert.match(harvestSummarySource, /!areaPending && !areaIssue && harvestedAreaHa/);
 });
-check("driver champions are potato-only and season-wide", () => {
-  assert.match(dashboardApi, /const seasonPeriod = resolveHarvestPeriod/);
-  assert.match(dashboardApi, /preset: "season"/);
-  assert.match(dashboardApi, /potatoDrivers: seasonDrivers/);
+check("dashboard background refresh excludes driver statistics", () => {
+  assert.doesNotMatch(dashboardApi, /potatoDrivers: seasonDrivers/);
   assert.match(dashboardApi, /ptc_trip_minutes/);
+  assert.match(dashboardUi, /includeDriverStats: false/);
+  assert.doesNotMatch(dashboardUi, /CHAMPION_PERIOD_QUERY|championPeriod/);
+  assert.match(dashboardUi, /useLiveRefresh[\s\S]*onRefresh: refreshDashboardLive/);
+  assert.doesNotMatch(dashboardUi, /HarvestDaySummary/);
+  assert.match(dashboardUi, /h-\[460px\][\s\S]*overflow-y-auto[\s\S]*\[scrollbar-width:none\]/);
+  assert.match(dashboardUi, /h-\[56dvh\][^\n]*lg:hidden/);
 });
-check("dashboard live state and timers follow the combine shift", () => {
-  assert.match(dashboardUi, /shiftIsOpen \? "Live" : "Offline"/);
-  assert.match(dashboardUi, /shiftIsOpen \? "Live" : "Offline"[\s\S]*?<span>·<\/span><span>\{activeCrop\}<\/span><span>·<\/span><span>\{clock/);
+check("dashboard header shows weighbridge, combine, crop, field, and hectares in order", () => {
+  assert.match(dashboardUi, /Весовая \{weighbridgeOnline \? "Online" : "Offline"\}[\s\S]*Комбайн \{combineOnline \? "Online" : "Offline"\}[\s\S]*Культура[\s\S]*Поле[\s\S]*Участок/);
+  assert.doesNotMatch(dashboardUi, /function clock\(|\{clock\(/);
   assert.doesNotMatch(dashboardUi, /Смена не открыта|PTC загружается/);
   assert.match(dashboardUi, /group === "offline" \? null/);
   assert.match(dashboardUi, /group === "empty" && !shiftIsOpen \? "0 мин"/);
@@ -580,7 +707,24 @@ check("dashboard temporarily hides lower operational lists", () => {
   assert.doesNotMatch(dashboardUi, />Последние рейсы</);
   assert.doesNotMatch(dashboardUi, />Размещение</);
 });
+check("dashboard omits the redundant tare waiting banner", () => {
+  assert.doesNotMatch(dashboardUi, /waitingTare|машин(?:а|ы)? жд(?:ё|у)т[^\n]*тары на весовой/);
+});
 check("live refresh uses existing weighbridge tables", () => assert.match(dashboardUi, /LIVE_REFRESH_TABLES\.weighbridge/));
 
+check("clean summary and driver champions both exclude attributed soil", () => {
+  const receipt = ticket({ ...potato, id: "clean-potato", net_weight_kg: 10000, harvest_clean_weight_kg: 8000 });
+  const clean = buildHarvestOverview([receipt], { period, warehouseRows: [] });
+  assert.equal(clean.potatoAcceptedKg, 8000);
+  assert.equal(clean.potatoDrivers.reduce((sum, row) => sum + row.netWeightKg, 0), 8000);
+});
+check("weighbridge exposes its shift close dialog without extra data entry", () => {
+  const weighbridgeUi = readFileSync(resolve(root, "app/(dashboard)/weighbridge/page.tsx"), "utf8");
+  assert.match(weighbridgeUi, /canUseOperatorSession && activeShift[\s\S]*?onClick=\{\(\) => setShiftDialogOpen\(true\)\}/);
+  assert.match(weighbridgeUi, /WeighbridgeShiftCloseDialog/);
+  const closeDialogUi = readFileSync(resolve(root, "components/weighbridge/shift-close-dialog.tsx"), "utf8");
+  assert.match(closeDialogUi, /Подтвердить и закрыть смену/);
+  assert.match(closeDialogUi, /WeighbridgeShiftReportView/);
+});
 console.log(`TZ265 PASS ${checks.length}/${checks.length}`);
 for (const name of checks) console.log(`PASS ${name}`);

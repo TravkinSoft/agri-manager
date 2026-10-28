@@ -2,11 +2,6 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Search } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  isImpuritySourceSelectionBlocked,
-  normalizeImpuritySourceSelection,
-} from "@/lib/weighbridge/impurity-source-selection";
 
 export type ImpuritySourcePickerOption = {
   key: string;
@@ -28,39 +23,61 @@ type ImpuritySourcePickerProps = {
 /** Every selection is saved in the workspace draft; there is no modal commit step. */
 export function ImpuritySourcePicker({
   options, value, onChange, disabled = false,
-  placeholder = "Выберите участки или партии урожая", optionsStatus = "ready",
+  placeholder = "Выберите партию урожая", optionsStatus = "ready",
 }: ImpuritySourcePickerProps) {
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState("");
   const listId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
   // Labels may outlive a refresh result; availability may not.
   const knownLabels = useRef(new Map<string, string>());
+  const knownDescriptions = useRef(new Map<string, string>());
   useEffect(() => {
     const retained = new Set([...value, ...options.map((option) => option.key)]);
     knownLabels.current.forEach((_label, key) => {
-      if (!retained.has(key)) knownLabels.current.delete(key);
+      if (!retained.has(key)) {
+        knownLabels.current.delete(key);
+        knownDescriptions.current.delete(key);
+      }
     });
-    options.forEach((option) => knownLabels.current.set(option.key, option.label));
+    options.forEach((option) => {
+      knownLabels.current.set(option.key, option.label);
+      if (option.description) knownDescriptions.current.set(option.key, option.description);
+      else knownDescriptions.current.delete(option.key);
+    });
   }, [options, value]);
   const optionByKey = useMemo(() => new Map(options.map((option) => [option.key, option])), [options]);
   const selected = Array.from(new Set(value));
   const unavailableKeys = selected.filter((key) => !optionByKey.has(key));
   const refreshing = optionsStatus === "loading" || optionsStatus === "refreshing" || optionsStatus === "idle";
-  const fieldDisabled = disabled && !selected.length;
+  const fieldDisabled = disabled;
   const labelFor = (key: string) => optionByKey.get(key)?.label || knownLabels.current.get(key) || "Ранее выбранная партия";
-  const summary = selected.length === 1 ? labelFor(selected[0]) : selected.length ? `Выбрано партий: ${selected.length}` : "";
+  const descriptionFor = (key: string) => optionByKey.get(key)?.description || knownDescriptions.current.get(key) || "";
+  const summary = selected.length === 1
+    ? [descriptionFor(selected[0]), labelFor(selected[0])].filter(Boolean).join(" · ")
+    : selected.length ? `Выбрано партий: ${selected.length} — выберите одну` : "";
   const normalizedQuery = query.trim().toLocaleLowerCase("ru");
-  const groupedOptions = useMemo(() => {
-    const groups = new Map<string, ImpuritySourcePickerOption[]>();
-    options.forEach((option) => {
-      if (normalizedQuery && ![option.label, option.description, option.groupLabel].filter(Boolean).join(" ").toLocaleLowerCase("ru").includes(normalizedQuery)) return;
-      const group = option.groupLabel?.trim() || "Без поля";
-      const items = groups.get(group) || [];
-      items.push(option);
-      groups.set(group, items);
-    });
-    return Array.from(groups.entries());
+  const filteredOptions = useMemo(() => {
+    return options.filter((option) => (
+      !normalizedQuery
+      || [option.label, option.description, option.groupLabel]
+        .filter(Boolean)
+        .join(" ")
+        .toLocaleLowerCase("ru")
+        .includes(normalizedQuery)
+    ));
   }, [options, normalizedQuery]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) return;
+      setExpanded(false);
+      setQuery("");
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [expanded]);
 
   const beginSearch = () => {
     if (fieldDisabled) return;
@@ -73,21 +90,14 @@ export function ImpuritySourcePicker({
     setQuery("");
   };
 
-  const toggle = (option: ImpuritySourcePickerOption) => {
+  const select = (option: ImpuritySourcePickerOption) => {
     if (disabled) return;
-    if (selected.includes(option.key)) {
-      onChange(selected.filter((key) => key !== option.key));
-      return;
-    }
-    const availableSelection = normalizeImpuritySourceSelection(selected, options);
-    if (isImpuritySourceSelectionBlocked(availableSelection, option, options)) return;
-    // A source used by the previous ticket can disappear after the canonical
-    // stock refresh. It must not disable every valid source for the next ticket.
-    onChange([...availableSelection, option.key]);
+    onChange([option.key]);
+    close();
   };
 
   return (
-    <div className="space-y-2" data-testid="impurity-source-picker">
+    <div ref={rootRef} className="relative" data-testid="impurity-source-picker">
       <div className={`flex min-h-11 w-full items-center gap-2 rounded-md border border-input bg-card px-3 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring ${fieldDisabled ? "cursor-not-allowed opacity-60" : ""}`}>
         <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <input
@@ -130,45 +140,33 @@ export function ImpuritySourcePicker({
         </button>
       </div>
       {expanded ? (
-        <div id={listId} role="group" aria-label="Выбор участков и партий урожая" className="space-y-2 pt-1">
-          <div className="travkin-scrollbar max-h-80 space-y-3 overflow-y-auto overscroll-contain pr-1">
+        <div id={listId} role="listbox" aria-label="Выбор партии урожая" className="travkin-scrollbar absolute z-30 mt-1 max-h-80 w-full overflow-y-auto overscroll-contain rounded-md border border-border bg-popover shadow-lg">
             {unavailableKeys.map((key) => (
-              <div key={key} className="flex items-center justify-between gap-2 rounded-md bg-amber-500/10 px-3 py-2 text-sm">
-                <span>{labelFor(key)} · {refreshing ? "проверяем остаток" : "нет в текущем списке"}</span>
-                <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(selected.filter((item) => item !== key))}>Убрать</Button>
+              <div key={key} className="border-b border-border bg-amber-500/10 px-3 py-2 text-sm text-foreground">
+                {labelFor(key)} · {refreshing ? "проверяем остаток" : "нет в текущем списке"}
               </div>
             ))}
-            {groupedOptions.map(([group, groupOptions]) => (
-              <section key={group} aria-label={group}>
-                <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{group}</div>
-                <div className="space-y-1">
-                  {groupOptions.map((option) => {
-                    const checked = selected.includes(option.key);
-                    const blocked = disabled || (!checked && isImpuritySourceSelectionBlocked(selected, option, options));
-                    return (
-                      <button
-                        key={option.key}
-                        type="button"
-                        role="checkbox"
-                        aria-checked={checked}
-                        disabled={blocked}
-                        className={`flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors ${checked ? "bg-primary/10 text-foreground" : "hover:bg-muted/60"} ${blocked ? "cursor-not-allowed opacity-45" : ""}`}
-                        onClick={() => toggle(option)}
-                      >
-                        <Check className={`h-4 w-4 shrink-0 text-primary ${checked ? "opacity-100" : "opacity-0"}`} aria-hidden="true" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-sm font-medium leading-snug">{option.label}</span>
-                          {option.description ? <span className="mt-0.5 block text-xs text-muted-foreground">{option.description}</span> : null}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
-            {!groupedOptions.length ? <p className="py-3 text-center text-sm text-muted-foreground">{refreshing ? "Загружаем партии…" : options.length ? "По вашему запросу ничего не найдено" : "На складе нет доступных источников"}</p> : null}
-          </div>
-          <Button type="button" variant="ghost" className="min-h-10 w-full" onClick={close}>Готово{selected.length ? ` · выбрано ${selected.length}` : ""}</Button>
+            {filteredOptions.map((option) => {
+              const checked = selected.includes(option.key);
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  role="option"
+                  aria-selected={checked}
+                  disabled={disabled}
+                  className={`flex min-h-12 w-full items-start gap-3 border-b border-border px-3 py-2 text-left transition-colors last:border-b-0 ${checked ? "bg-primary/10 text-foreground" : "hover:bg-muted/60"} ${disabled ? "cursor-not-allowed opacity-45" : ""}`}
+                  onClick={() => select(option)}
+                >
+                  <Check className={`mt-0.5 h-4 w-4 shrink-0 text-primary ${checked ? "opacity-100" : "opacity-0"}`} aria-hidden="true" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium leading-snug">{option.label}</span>
+                    {option.description ? <span className="mt-0.5 block text-xs text-muted-foreground">{option.description}</span> : null}
+                  </span>
+                </button>
+              );
+            })}
+            {!filteredOptions.length ? <p className="py-3 text-center text-sm text-muted-foreground">{refreshing ? "Загружаем партии…" : options.length ? "По вашему запросу ничего не найдено" : "На складе нет доступных партий"}</p> : null}
         </div>
       ) : null}
     </div>

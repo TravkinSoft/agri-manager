@@ -21,6 +21,7 @@ import {
   History,
   ScrollText,
   Truck,
+  Wrench,
 } from "lucide-react";
 import { useSidebar } from "@/lib/contexts/sidebar-context";
 import { useAuth } from "@/lib/contexts/auth-context";
@@ -29,6 +30,8 @@ import type { TranslationKey } from "@/lib/i18n/translations";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { TravkinLogo } from "@/components/layout/travkin-logo";
 import { SystemHealthBadge } from "@/components/operations/system-health-badge";
+import { showMainMenuRoute } from "@/lib/dashboard/summary-sections";
+import { canAccessPath } from "@/lib/auth/role-access";
 
 interface NavItem {
   labelKey: TranslationKey;
@@ -104,7 +107,6 @@ const WAREHOUSE_OPERATOR_NAV = WAREHOUSE_NAV;
 
 const WEIGHMAN_NAV: NavItem[] = [
   { labelKey: "weighbridge", href: "/weighbridge", icon: Scale },
-  { labelKey: "traffic", href: "/weighbridge/traffic", icon: Truck },
   { labelKey: "warehouses", href: "/warehouses", icon: Package },
   { labelKey: "ledger", href: "/ledger", icon: ScrollText },
 ];
@@ -153,7 +155,10 @@ export function Sidebar() {
   const { isCollapsed } = useSidebar();
   const { profile } = useAuth();
   const { t } = useLanguage();
-  const navigation = getNavigationByRole(profile?.role);
+  const baseNavigation = getNavigationByRole(profile?.role).filter(item => showMainMenuRoute(profile?.role, item.href));
+  const navigation: NavItem[] = canAccessPath(profile?.role, "/mtm")
+    ? [...baseNavigation, { labelKey: "mtm", href: "/mtm", icon: Wrench }]
+    : baseNavigation;
 
   return (
     <div
@@ -168,7 +173,7 @@ export function Sidebar() {
           isCollapsed ? "justify-center px-0" : "px-4"
         )}
       >
-        <TravkinLogo compact={isCollapsed} tiltMark />
+        <TravkinLogo compact={isCollapsed} />
       </div>
 
       <nav className="travkin-scrollbar flex-1 space-y-1 overflow-y-auto p-3">

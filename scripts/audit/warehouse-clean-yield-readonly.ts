@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { cleanHarvestMassByTicket } from "../../lib/warehouse/clean-harvest-mass";
 import { buildWarehouseFieldOrigins } from "../../lib/warehouse/field-origins";
+import { confirmedPlotHectares } from "../../lib/dashboard/harvest-plot-hectares";
 import { resolveHarvestLotTicketLineage, resolveEffectiveHarvestTicketCandidatesByBatch } from "../../lib/weighbridge/harvest-lot-lineage";
 
 async function main() {
@@ -16,22 +17,26 @@ async function main() {
       if (data.length < 1000) return rows;
     }
   }
-  const [lots, links, batches, tickets, ledger, areas, fields] = await Promise.all([
+  const [lots, links, batches, tickets, ledger, areas, fields, segments, shifts] = await Promise.all([
     all("harvest_lots", "id,lot_code", q => q.eq("status", "active")),
     all("harvest_lot_batches", "id,harvest_lot_id,inventory_batch_id,source_ticket_id"),
     all("inventory_batches", "id,parent_batch_id,source_ticket_id,warehouse_id"),
     all("tickets", "id,field_id,crop_structure_allocation_id,accepted_weight_kg,net_weight_kg,warehouse_to_id,op_type,status,is_finalized,is_voided,replacement_ticket_id", q => q.eq("op_type", "harvest_incoming")),
     all("stock_ledger_entries", "id,inventory_batch_id,batch_id_text,batch_id,reason_type,delta_qty_signed", q => q.ilike("reason_type", "%impurit%")),
     all("crop_structure", "id,field_id,area"), all("fields", "id,name"),
+    all("ptc_combine_field_segments", "id,shift_id,crop_structure_id,closed_at,hectares_segment"),
+    all("ptc_combine_shifts", "id,closed_at"),
   ]);
   const sources = resolveEffectiveHarvestTicketCandidatesByBatch(resolveHarvestLotTicketLineage(
     batches.map(row => ({ harvest_lot_id: "all", inventory_batch_id: row.id })), links, batches), tickets);
   const clean = cleanHarvestMassByTicket(tickets, sources, ledger);
   const names = new Map<string, string>(fields.map(row => [row.id, row.name]));
+  const cutoff = new Date().toISOString();
+  const confirmedAreas = new Map(areas.map(row => [String(row.id), confirmedPlotHectares(segments.filter(segment => segment.crop_structure_id === row.id), shifts, cutoff)]));
   const result = lots.map(lot => {
     const sourceIds = new Set(links.filter(row => row.harvest_lot_id === lot.id).flatMap(row => (sources.get(row.inventory_batch_id) || []).map(t => t.ticketId)));
     const rows = tickets.filter(row => sourceIds.has(row.id));
-    return { lot: lot.id, fields: buildWarehouseFieldOrigins(rows, areas, names, rows, clean) };
+    return { lot: lot.id, fields: buildWarehouseFieldOrigins(rows, areas, names, tickets, clean, confirmedAreas) };
   }).filter(row => row.fields.length);
   console.log(JSON.stringify({ readOnly: true, lotCount: result.length, result }, null, 2));
 }

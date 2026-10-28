@@ -264,7 +264,8 @@ async function main() {
     assert.match(page.text, /supportsSharedSelection: false/);
     assert.match(page.text, /supportsSharedSelection: true/);
     assert.match(page.text, /Партия без точной привязки/);
-    assert.match(page.text, /Точный участок · остаток показан по связанной партии/);
+    assert.match(page.text, /Единая партия участка/);
+    assert.match(page.text, /рейсов объединено/);
     assert.match(page.text, /hasExactImpuritySourceScope/);
     assert.match(page.text, /hasMultipleExactImpuritySources/);
     assert.match(page.text, /hasDuplicateImpurityCropStructureSources/);

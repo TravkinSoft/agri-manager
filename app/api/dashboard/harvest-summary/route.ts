@@ -7,6 +7,7 @@ import {
   resolveHarvestPeriod,
   type HarvestDashboardFilters,
   type HarvestOverview,
+  type HarvestPlotSummary,
   type HarvestPeriodPreset,
 } from "@/lib/dashboard/harvest-summary";
 import type { HarvestBatchSummary, WeighbridgeTicket } from "@/lib/types/weighbridge";
@@ -16,9 +17,13 @@ import {
 } from "@/lib/weighbridge/harvest-lot-lineage";
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { getServiceClient } from "@/lib/supabase/service";
+import { confirmedPlotHectares } from "@/lib/dashboard/harvest-plot-hectares";
+import type { ImpurityAdjustment } from "@/lib/weighbridge/impurity-adjustments";
+import { readCompleteStockRows } from "@/lib/warehouse/complete-read";
+import { projectSummaryYield } from "@/lib/dashboard/summary-presentation";
 
 const DASHBOARD_ROLES = ["global_admin", "company_admin", "agronomist", "director", "accountant", "legal_operator"] as const;
-const PERIOD_PRESETS = new Set<HarvestPeriodPreset>(["current_day", "previous_day", "current_shift", "last_24_hours", "season", "custom"]);
+const PERIOD_PRESETS = new Set<HarvestPeriodPreset>(["current_day", "previous_day", "previous_shift", "current_shift", "current_month", "last_24_hours", "season", "all_time", "custom"]);
 const LINEAGE_QUERY_CHUNK_SIZE = 200;
 const LINEAGE_QUERY_CONCURRENCY = 4;
 const LINEAGE_QUERY_PAGE_SIZE = 1000;
@@ -122,7 +127,7 @@ async function loadLotByTicketId(
   return lotByTicketIdFromLineage(lineage, ticketIds).lotByTicketId;
 }
 
-async function loadTickets(supabase: any, companyId: string): Promise<WeighbridgeTicket[]> {
+async function loadTickets(supabase: any, companyId: string, includeDriverStats = true, yieldOnly = false): Promise<WeighbridgeTicket[]> {
   const rows: any[] = [];
   const pageSize = 1000;
   for (let from = 0; ; from += pageSize) {
@@ -141,7 +146,7 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
       `)
       .eq("company_id", companyId)
       .eq("op_type", "harvest_incoming")
-      .order("created_at", { ascending: false })
+      .order("created_at", { ascending: false }).order("id", { ascending: false })
       .range(from, from + pageSize - 1);
     if (error) throw error;
     rows.push(...(data || []));
@@ -150,9 +155,9 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
 
   const fieldIds = Array.from(new Set(rows.map((row) => String(row.field_id || "")).filter(Boolean)));
   const allocationIds = Array.from(new Set(rows.map((row) => String(row.crop_structure_allocation_id || "")).filter(Boolean)));
-  const warehouseIds = Array.from(new Set(rows.flatMap((row) => [String(row.warehouse_to_id || ""), ...(row.lines || []).map((line: any) => String(line.warehouse_to_id || ""))]).filter(Boolean)));
-  const vehicleIds = Array.from(new Set(rows.map((row) => String(row.vehicle_id || "")).filter(Boolean)));
-  const driverIds = Array.from(new Set(rows.map((row) => String(row.driver_id || "")).filter(Boolean)));
+  const warehouseIds = yieldOnly ? [] : Array.from(new Set(rows.flatMap((row) => [String(row.warehouse_to_id || ""), ...(row.lines || []).map((line: any) => String(line.warehouse_to_id || ""))]).filter(Boolean)));
+  const vehicleIds = yieldOnly ? [] : Array.from(new Set(rows.map((row) => String(row.vehicle_id || "")).filter(Boolean)));
+  const driverIds = yieldOnly ? [] : Array.from(new Set(rows.map((row) => String(row.driver_id || "")).filter(Boolean)));
   const [{ data: fields, error: fieldsError }, { data: allocations, error: allocationsError }, { data: warehouses, error: warehousesError }, { data: vehicles, error: vehiclesError }, { data: machines, error: machinesError }, { data: people, error: peopleError }, { data: specialists, error: specialistsError }, { data: driverProfiles, error: driverProfilesError }] = await Promise.all([
     fieldIds.length ? supabase.from("fields").select("id,name").eq("company_id", companyId).in("id", fieldIds) : Promise.resolve({ data: [], error: null }),
     allocationIds.length ? supabase.from("crop_structure").select("id,field_id,area").eq("company_id", companyId).in("id", allocationIds) : Promise.resolve({ data: [], error: null }),
@@ -175,8 +180,14 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
   const specialistById = byId(specialists || []);
 
   const ticketIds = rows.map((row) => String(row.id));
-  const lotByTicketId = await loadLotByTicketId(supabase, companyId, ticketIds);
-  const ptcEventIds = uniqueIds(rows.map((row) => row.ptc_event_id));
+  const [lotByTicketId, impurityResult] = await Promise.all([
+    yieldOnly ? Promise.resolve(new Map<string, string>()) : loadLotByTicketId(supabase, companyId, ticketIds),
+    getServiceClient().rpc("harvest_impurities_by_receipt_v1", { p_company_id: companyId }),
+  ]);
+  if (impurityResult.error) throw impurityResult.error;
+  const impurityByTicketId = new Map<string, number>(Object.entries(impurityResult.data || {}).map(([id, kg]) => [id, Number(kg)]));
+  // Travel-time lookups belonged only to the removed leaderboard.
+  const ptcEventIds = includeDriverStats ? uniqueIds(rows.map((row) => row.ptc_event_id)) : [];
   const service = getServiceClient();
   const loadedPtcResult = ptcEventIds.length
     ? await service.from("ptc_events").select("id,vehicle_id,cycle,created_at").eq("company_id", companyId).in("id", ptcEventIds)
@@ -213,6 +224,7 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
     });
     return {
       ...row,
+      harvest_clean_weight_kg: Math.max(0, Number(row.accepted_weight_kg ?? row.net_weight_kg ?? 0) - (impurityByTicketId.get(String(row.id)) || 0)),
       driver_id: canonicalDriverId,
       ptc_trip_minutes: tripMinutesByEvent.get(String(row.ptc_event_id || "")) ?? null,
       harvest_lot_id: lotByTicketId.get(String(row.id)) || null,
@@ -236,6 +248,31 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
       })),
     };
   }) as WeighbridgeTicket[];
+}
+
+async function loadImpurityTickets(supabase: any, companyId: string): Promise<WeighbridgeTicket[]> {
+  const rows: WeighbridgeTicket[] = [];
+  // Keep correction roots, including those outside the requested period.
+  // A failed/partial read must fail the summary, never masquerade as zero removals.
+  for (let from = 0; ; from += LINEAGE_QUERY_PAGE_SIZE) {
+    const { data, error } = await supabase.from("tickets").select(`
+      id,op_type,status,is_finalized,is_voided,net_weight_kg,field_id,warehouse_from_id,
+      finalized_at,weighing_2_at,created_at,updated_at,correction_of_ticket_id,replacement_ticket_id,audit_json,
+      lines:ticket_lines(crop_id,variety_id,reproduction_id,crop:crop_id(name,name_ru,name_kz,name_en))
+    `).eq("company_id", companyId).eq("op_type", "weighbridge_impurities")
+      .order("created_at", { ascending: false }).order("id", { ascending: false })
+      .range(from, from + LINEAGE_QUERY_PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = (data || []).map((row: any) => ({
+      ...row,
+      lines: (row.lines || []).map((line: any) => ({
+        ...line,
+        crop_name: String(line.crop?.name_ru || line.crop?.name || line.crop?.name_kz || line.crop?.name_en || ""),
+      })),
+    })) as WeighbridgeTicket[];
+    rows.push(...page);
+    if (page.length < LINEAGE_QUERY_PAGE_SIZE) return rows;
+  }
 }
 
 async function loadWarehouseRows(
@@ -374,65 +411,162 @@ async function loadActivePtcPlotSelection(companyId: string): Promise<ActivePtcP
   };
 }
 
+async function loadHarvestPlotTimeline(
+  companyId: string,
+  period: { start: string; end: string },
+  activeSelection: HarvestOverview["activeWeighbridgeSelection"],
+  tickets: WeighbridgeTicket[],
+): Promise<HarvestPlotSummary[]> {
+  const db = getServiceClient();
+  const segmentRows = await loadInChunks<any>([companyId], () => db
+    .from("ptc_combine_field_segments")
+    .select("id,shift_id,crop_structure_id,field_id,planned_area_ha,opened_at,closed_at,close_reason,hectares_segment")
+    .eq("company_id", companyId)
+    .lt("opened_at", period.end)
+    .order("opened_at", { ascending: true }).order("id"));
+  const seedIds = uniqueIds([
+    ...segmentRows.map((row: any) => row.crop_structure_id),
+    activeSelection?.cropStructureAllocationId,
+    ...tickets.filter((ticket) => !ticket.is_voided && !ticket.replacement_ticket_id)
+      .map((ticket) => ticket.crop_structure_allocation_id),
+  ]);
+  if (!seedIds.length) return [];
+  const seeds = await loadInChunks<any>(seedIds, (ids) => db.from("crop_structure")
+      .select("id,field_id,season_id,crop_id,variety_id,reproduction_id,area")
+      .eq("company_id", companyId).in("id", ids).order("id"));
+  // Include every sibling plot, even before its first combine segment or receipt.
+  // Identity is field ID + season + crop, never the display name or reproduction.
+  const groupKey = (row: any) => JSON.stringify([row.field_id, row.season_id, row.crop_id]);
+  const seedGroups = new Set(seeds.map(groupKey));
+  const siblings = await loadInChunks<any>(uniqueIds(seeds.map((row) => row.field_id)), (ids) => db.from("crop_structure")
+    .select("id,field_id,season_id,crop_id,variety_id,reproduction_id,area")
+    .eq("company_id", companyId).in("field_id", ids).eq("archived", false).order("id"));
+  const structureRows = Array.from(new Map([...seeds, ...siblings.filter((row) => seedGroups.has(groupKey(row)))]
+    .map((row) => [String(row.id), row])).values());
+  const allocationIds = uniqueIds([...structureRows.map((row) => row.id), activeSelection?.cropStructureAllocationId]);
+  const [progress, shifts] = await Promise.all([
+    loadInChunks<any>(allocationIds, (ids) => db.from("ptc_field_progress")
+      .select("crop_structure_id,status,actual_completed_ha,updated_at")
+      .eq("company_id", companyId).in("crop_structure_id", ids).order("crop_structure_id")),
+    loadInChunks<{ id: string; closed_at: string | null }>(uniqueIds(segmentRows.map((row) => row.shift_id)), (ids) => db
+      .from("ptc_combine_shifts").select("id,closed_at").eq("company_id", companyId).in("id", ids).order("id")),
+  ]);
+  const fieldIds = uniqueIds(structureRows.map((row: any) => row.field_id));
+  const cropIds = uniqueIds(structureRows.map((row: any) => row.crop_id));
+  const varietyIds = uniqueIds(structureRows.map((row: any) => row.variety_id));
+  const reproductionIds = uniqueIds(structureRows.map((row: any) => row.reproduction_id));
+  const [fieldsResult, cropsResult, varietiesResult, reproductionsResult] = await Promise.all([
+    fieldIds.length ? db.from("fields").select("id,name,area").eq("company_id", companyId).in("id", fieldIds) : Promise.resolve({ data: [], error: null } as any),
+    cropIds.length ? db.from("crops").select("id,name,name_ru,name_kz,name_en").in("id", cropIds) : Promise.resolve({ data: [], error: null } as any),
+    varietyIds.length ? db.from("varieties").select("id,name,name_ru,name_kz,name_en").in("id", varietyIds) : Promise.resolve({ data: [], error: null } as any),
+    reproductionIds.length ? db.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code").in("id", reproductionIds) : Promise.resolve({ data: [], error: null } as any),
+  ]);
+  const referenceError = fieldsResult.error || cropsResult.error || varietiesResult.error || reproductionsResult.error;
+  if (referenceError) throw referenceError;
+
+  const byId = (rows: any[]) => new Map(rows.map((row) => [String(row.id), row]));
+  const structureById = byId(structureRows);
+  const fieldById = byId(fieldsResult.data || []);
+  const cropById = byId(cropsResult.data || []);
+  const varietyById = byId(varietiesResult.data || []);
+  const reproductionById = byId(reproductionsResult.data || []);
+  const progressByAllocation = new Map((progress || []).map((row: any) => [String(row.crop_structure_id), row]));
+  const localizedName = (row: any) => String(row?.name_ru || row?.name || row?.name_kz || row?.name_en || row?.code || "").trim() || null;
+  const segmentsByAllocation = new Map<string, any[]>();
+  for (const segment of segmentRows) {
+    const allocationId = String(segment.crop_structure_id || "");
+    if (!allocationId) continue;
+    const rows = segmentsByAllocation.get(allocationId) || [];
+    rows.push(segment);
+    segmentsByAllocation.set(allocationId, rows);
+  }
+
+  return allocationIds
+    .map((allocationId): HarvestPlotSummary | null => {
+      const structure = structureById.get(allocationId);
+      const fallback = activeSelection?.cropStructureAllocationId === allocationId ? activeSelection : null;
+      if (!structure && !fallback) return null;
+      const plotSegments = segmentsByAllocation.get(allocationId) || [];
+      const firstSegment = plotSegments[0] || null;
+      const lastSegment = plotSegments[plotSegments.length - 1] || null;
+      const progressRow = progressByAllocation.get(allocationId);
+      const isCurrent = activeSelection?.cropStructureAllocationId === allocationId;
+      const progressStatus = String(progressRow?.status || "");
+      const status: HarvestPlotSummary["status"] = progressStatus === "completed"
+        ? "completed"
+        : isCurrent || progressStatus === "active"
+          ? "active"
+          : "paused";
+      const { harvestedAreaHa, areaPending, combineShiftOpen } = confirmedPlotHectares(plotSegments, shifts, period.end);
+      const latestShiftSegments = plotSegments.filter((row: any) => row.shift_id === lastSegment?.shift_id);
+      const latestArea = confirmedPlotHectares(latestShiftSegments, shifts, period.end);
+      const latestShiftAreaHa = latestArea.areaPending ? null : latestArea.harvestedAreaHa;
+      const cropId = structure?.crop_id ? String(structure.crop_id) : fallback?.cropId || null;
+      const varietyId = structure?.variety_id ? String(structure.variety_id) : fallback?.varietyId || null;
+      const reproductionId = structure?.reproduction_id ? String(structure.reproduction_id) : fallback?.reproductionId || null;
+      const fieldId = structure?.field_id ? String(structure.field_id) : String(fallback?.fieldId || "");
+      const areaHa = Number(structure?.area ?? fallback?.areaHa);
+      const completedAreaHa = Number(progressRow?.actual_completed_ha);
+      const startedAt = String(firstSegment?.opened_at || fallback?.occurredAt || period.start);
+      const lastChangedAt = String(progressRow?.updated_at || lastSegment?.closed_at || lastSegment?.opened_at || fallback?.occurredAt || startedAt);
+      return {
+        cropStructureAllocationId: allocationId,
+        fieldId,
+        fieldName: String(fieldById.get(fieldId)?.name || fallback?.fieldName || "Поле не указано"),
+        seasonId: structure?.season_id ? String(structure.season_id) : fallback?.seasonId || null,
+        cropId,
+        cropName: localizedName(cropById.get(String(cropId || ""))) || fallback?.cropName || "Культура не указана",
+        varietyId,
+        varietyName: localizedName(varietyById.get(String(varietyId || ""))) || fallback?.varietyName || null,
+        reproductionId,
+        reproductionName: localizedName(reproductionById.get(String(reproductionId || ""))) || fallback?.reproductionName || null,
+        areaHa: Number.isFinite(areaHa) && areaHa > 0 ? areaHa : null,
+        fieldAreaHa: Number(fieldById.get(fieldId)?.area || 0) || null,
+        completedAreaHa: Number.isFinite(completedAreaHa) && completedAreaHa >= 0 ? completedAreaHa : null,
+        harvestedAreaHa,
+        areaPending,
+        latestShiftAreaHa,
+        combineShiftOpen,
+        acceptedKg: 0,
+        totalAcceptedKg: 0,
+        yieldTPerHa: null,
+        status,
+        isCurrent,
+        startedAt,
+        lastChangedAt,
+      };
+    })
+    .filter((row): row is HarvestPlotSummary => Boolean(row) && (!activeSelection?.seasonId || row?.seasonId === activeSelection.seasonId))
+    .sort((left, right) => Number(right.isCurrent) - Number(left.isCurrent) || Date.parse(right.lastChangedAt) - Date.parse(left.lastChangedAt));
+}
+
 function readFilters(request: NextRequest): HarvestDashboardFilters {
   const read = (key: string) => String(request.nextUrl.searchParams.get(key) || "").trim() || null;
   return { cropId: read("cropId"), varietyId: read("varietyId"), reproductionId: read("reproductionId"), fieldId: read("fieldId"), warehouseId: read("warehouseId") };
 }
 
 async function attachVerifiedCurrentPlotYield(
-  supabase: any,
-  companyId: string,
+  _supabase: any,
+  _companyId: string,
   summary: HarvestOverview,
 ): Promise<HarvestOverview> {
   const selection = summary.activeWeighbridgeSelection;
   if (!selection) return summary;
+  const plot = summary.harvestPlots.find((row) => row.cropStructureAllocationId === selection.cropStructureAllocationId);
+  if (plot) return {
+    ...summary,
+    currentPlotHarvestedAreaHa: plot.harvestedAreaHa,
+    currentPlotYieldTPerHa: plot.yieldTPerHa,
+    currentPlotHarvestedAreaStatus: plot.yieldTPerHa == null ? "no_closed_shift" : "verified",
+  };
 
-  let allocationQuery = supabase
-    .from("crop_structure")
-    .select("id,field_id,season_id,crop_id,variety_id,reproduction_id,area,archived")
-    .eq("company_id", companyId)
-    .eq("field_id", selection.fieldId)
-    .eq("archived", false);
-  if (selection.seasonId) allocationQuery = allocationQuery.eq("season_id", selection.seasonId);
-  const { data: allocations, error: allocationsError } = await allocationQuery;
-  if (allocationsError) throw allocationsError;
-
-  const activeAllocations = allocations || [];
-  const exactAllocation = activeAllocations.find((row: any) => String(row.id) === selection.cropStructureAllocationId);
-  const selectionIsExact = exactAllocation
-    && String(exactAllocation.crop_id || "") === String(selection.cropId || "")
-    && String(exactAllocation.variety_id || "") === String(selection.varietyId || "")
-    && String(exactAllocation.reproduction_id || "") === String(selection.reproductionId || "");
-  if (!selectionIsExact) {
-    return { ...summary, currentPlotHarvestedAreaStatus: "no_selection" };
-  }
-
-  const { data: segments, error: segmentsError } = await getServiceClient()
-    .from("ptc_combine_field_segments")
-    .select("id,crop_structure_id,closed_at,hectares_segment")
-    .eq("company_id", companyId)
-    .eq("crop_structure_id", selection.cropStructureAllocationId)
-    .not("closed_at", "is", null)
-    .gte("closed_at", summary.period.start)
-    .lt("closed_at", summary.period.end)
-    .order("closed_at", { ascending: true });
-  if (segmentsError) throw segmentsError;
-
-  // hectares_shift is the work done during each closed shift and may be summed
-  // for the current working day. hectares_field_total is a cumulative field
-  // checkpoint, so it is deliberately never used as this period's denominator.
-  const harvestedAreaHa = (segments || []).reduce((total: number, row: any) => {
-    const value = Number(row.hectares_segment);
-    return Number.isFinite(value) && value > 0 ? total + value : total;
-  }, 0);
-  if (!(harvestedAreaHa > 0)) {
-    return { ...summary, currentPlotHarvestedAreaStatus: "no_closed_shift" };
-  }
+  // The timeline is the only hectares authority: it checks both segment AND
+  // parent-shift closure. Never fall back to planned area or a partial shift.
   return {
     ...summary,
-    currentPlotHarvestedAreaHa: harvestedAreaHa,
-    currentPlotYieldTPerHa: summary.currentPlotAcceptedKg / 1000 / harvestedAreaHa,
-    currentPlotHarvestedAreaStatus: "verified",
+    currentPlotHarvestedAreaHa: null,
+    currentPlotYieldTPerHa: null,
+    currentPlotHarvestedAreaStatus: "no_closed_shift",
   };
 }
 
@@ -443,39 +577,55 @@ export async function GET(request: NextRequest) {
       serverProfileRead: true,
     });
     const section = String(request.nextUrl.searchParams.get("section") || "summary");
+    const includeDriverStats = request.nextUrl.searchParams.get("includeDriverStats") !== "false";
     const filters = readFilters(request);
+    if (section === "yield") {
+      // Same canonical receipt/soil/hectare calculation, without warehouse stock,
+      // shift previews, vehicle/driver metadata or the removed leaderboard.
+      const serverTime = new Date().toISOString();
+      const period = { ...resolveHarvestPeriod({ preset: "all_time", now: new Date(serverTime) }), end: serverTime };
+      const [tickets, active] = await Promise.all([loadTickets(supabase, companyId, false, true), loadActivePtcPlotSelection(companyId)]);
+      const harvestPlots = await loadHarvestPlotTimeline(companyId, period, active.selection, tickets);
+      const summary = buildHarvestOverview(tickets, { period, harvestPlots, activeSelection: active.selection,
+        suppressInferredActiveSelection: active.suppressTicketInference, includeDriverStats: false });
+      return NextResponse.json(projectSummaryYield(companyId, serverTime, summary), { headers: { "Cache-Control": "no-store" } });
+    }
     if (section === "warehouses") {
       const rows = buildWarehouseHarvestRows(await loadWarehouseRows(supabase, getServiceClient(), companyId), filters);
       return NextResponse.json({ rows, source: "v_harvest_lot_stock_v2" });
     }
 
-    const [tickets, seasonResult, shiftResult, companyResult] = await Promise.all([
-      loadTickets(supabase, companyId),
+    const [tickets, seasonResult, shiftResult, companyResult, shiftHistoryResult, impurityTickets, adjustmentsResult] = await Promise.all([
+      loadTickets(supabase, companyId, includeDriverStats),
       supabase.from("seasons").select("id,year,start_date,end_date").eq("company_id", companyId).eq("archived", false).order("year", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("weighbridge_shifts").select("id,status,opened_at,closed_at").eq("company_id", companyId).eq("status", "open").order("opened_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("companies").select("id,name,operational_day_start_hour").eq("id", companyId).maybeSingle(),
+      getServiceClient().from("weighbridge_shifts").select("id,status,opened_at,closed_at,summary_json").eq("company_id", companyId).order("opened_at", { ascending: false }).limit(7),
+      loadImpurityTickets(supabase, companyId),
+      readCompleteStockRows<ImpurityAdjustment>((from, to) => getServiceClient().from("weighbridge_impurity_adjustments")
+        .select("id,shift_id,accounting_at,created_at,document_no,warehouse_id,crop_structure_id,field_id,crop_id,variety_id,reproduction_id,quantity_kg,reason,reversed_at")
+        .eq("company_id", companyId).is("reversed_at", null).order("id", { ascending: true }).range(from, to)),
     ]);
-    if (seasonResult.error || shiftResult.error || companyResult.error) throw seasonResult.error || shiftResult.error || companyResult.error;
+    if (seasonResult.error || shiftResult.error || companyResult.error || shiftHistoryResult.error || adjustmentsResult.error) throw seasonResult.error || shiftResult.error || companyResult.error || shiftHistoryResult.error || adjustmentsResult.error;
     const presetRaw = String(request.nextUrl.searchParams.get("period") || "current_day") as HarvestPeriodPreset;
     const preset = PERIOD_PRESETS.has(presetRaw) ? presetRaw : "current_day";
+    const requestedDayOffset = Number(request.nextUrl.searchParams.get("dayOffset") || 0);
+    const dayOffset = Number.isFinite(requestedDayOffset) ? requestedDayOffset : 0;
     const period = resolveHarvestPeriod({
       preset,
+      dayOffset,
       customStart: request.nextUrl.searchParams.get("start"),
       customEnd: request.nextUrl.searchParams.get("end"),
       season: seasonResult.data,
       shift: shiftResult.data,
+      previousShift: (shiftHistoryResult.data || []).find((shift: any) => shift.status === "closed" && shift.closed_at) || null,
       operationalDayStartHour: Number(companyResult.data?.operational_day_start_hour ?? 7),
     });
-    const seasonPeriod = resolveHarvestPeriod({
-      preset: "season",
-      season: seasonResult.data,
-      operationalDayStartHour: Number(companyResult.data?.operational_day_start_hour ?? 7),
-    });
-
     const [loadedWarehouseRows, activePtcState] = await Promise.all([
       loadWarehouseRows(supabase, getServiceClient(), companyId),
       loadActivePtcPlotSelection(companyId),
     ]);
+    const harvestPlots = await loadHarvestPlotTimeline(companyId, period, activePtcState.selection, tickets);
     const filterWarehouseRows = buildWarehouseHarvestRows(loadedWarehouseRows);
     if (section === "filters") {
       return NextResponse.json({
@@ -493,11 +643,14 @@ export async function GET(request: NextRequest) {
         filters,
         warehouseRows,
         activeSelection: activePtcState.selection,
+        harvestPlots,
         suppressInferredActiveSelection: activePtcState.suppressTicketInference,
+        impurityTickets,
+        includeDriverStats,
+        impurityAdjustments: adjustmentsResult.data || [],
       }),
     );
-    const seasonDrivers = buildHarvestOverview(tickets, { period: seasonPeriod }).potatoDrivers;
-    const summary = { ...periodSummary, potatoDrivers: seasonDrivers };
+    const summary = { ...periodSummary, weighbridgeShifts: shiftHistoryResult.data || [] };
     if (section === "bootstrap") {
       return NextResponse.json({
         summary: { ...summary, source: SUMMARY_SOURCE },

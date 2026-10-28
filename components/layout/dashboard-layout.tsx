@@ -11,6 +11,8 @@ import { canAccessPath, getDefaultPathForRole } from "@/lib/auth/role-access";
 import { AssistantShellProvider } from "@/components/assistant/assistant-shell-provider";
 import { canUseAssistantShell } from "@/lib/assistant/shell";
 import { MobileBottomNav } from "./mobile-bottom-nav";
+import { showMainMenuRoute } from "@/lib/dashboard/summary-sections";
+import { OperatorHeartbeat } from "@/components/dashboard/operator-heartbeat";
 import {
   normalizeAgronomistLastRoute,
   readAgronomistLastRoute,
@@ -91,7 +93,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     if (loading || !profile?.role || !pathname) return;
     const route = Object.keys(ADJACENT_ROUTE_PREFETCH).find((candidate) => pathname === candidate || pathname.startsWith(`${candidate}/`));
     if (!route) return;
-    const targets = ADJACENT_ROUTE_PREFETCH[route].filter((target) => canAccessPath(profile.role, target));
+    const targets = ADJACENT_ROUTE_PREFETCH[route].filter((target) => showMainMenuRoute(profile.role, target) && canAccessPath(profile.role, target));
     const prefetch = () => targets.forEach((target) => router.prefetch(target));
     const idleWindow = window as Window & {
       requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
@@ -117,6 +119,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider>
+      <OperatorHeartbeat />
       <AssistantShellProvider>
         <div className={`travkin-shell tf-manor-shell flex ${isTraffic || isDashboard ? "h-[100dvh] min-h-0 overflow-hidden md:h-screen" : "min-h-screen"}`}>
           <div className="tf-desktop-sidebar hidden md:flex md:h-screen md:shrink-0">

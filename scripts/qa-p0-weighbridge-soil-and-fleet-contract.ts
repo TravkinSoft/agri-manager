@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 const read = (path: string) => readFileSync(path, "utf8");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
 const impurityPicker = read("components/weighbridge/impurity-source-picker.tsx");
+const weighbridgeService = read("lib/services/weighbridge.ts");
 const batchesRoute = read("app/api/weighbridge/harvest-batches/route.ts");
 const ticketsRoute = read("app/api/weighbridge/tickets/route.ts");
 const finalizeRoute = read("app/api/weighbridge/tickets/[id]/finalize/route.ts");
@@ -27,6 +28,14 @@ check("soil picker requests only the selected warehouse", () => {
   assert.match(page, /refreshHarvestBatches\(\{ warehouseId: form\.warehouseFromId \}\)/);
 });
 
+check("legacy Windows browsers keep the aggregate-lot query string", () => {
+  assert.doesNotMatch(weighbridgeService, /query\.size/);
+  assert.match(weighbridgeService, /function withSearchParams[\s\S]*?const queryString = query\.toString\(\)[\s\S]*?queryString \? `\$\{path\}\?\$\{queryString\}` : path/);
+  assert.match(weighbridgeService, /if \(options\?\.aggregateLots\) query\.set\("view", "lots"\)/);
+  assert.match(weighbridgeService, /if \(options\?\.summaryOnly\) query\.set\("detail", "summary"\)/);
+  assert.match(weighbridgeService, /withSearchParams\("\/api\/weighbridge\/harvest-batches", query\)/);
+});
+
 check("warehouse changes cannot reuse another warehouse result", () => {
   assert.match(page, /harvestBatchesRequestKeyRef\.current === requestKey/);
   assert.match(page, /harvestBatchesGenerationRef\.current \+= 1;[\s\S]*?harvestBatchesAbortRef\.current\?\.abort\(\)/);
@@ -43,8 +52,8 @@ check("loading and read errors are never mislabeled as an empty warehouse", () =
   assert.match(page, /setHarvestBatchOptionsStatus\("ready"\)/);
   assert.match(page, /setHarvestBatchOptionsStatus\(fallbackRows\.length \? "stale" : "error"\)/);
   assert.match(page, /Не удалось загрузить партии урожая\. Нажмите «Повторить»/);
-  assert.match(impurityPicker, /!groupedOptions\.length/);
-  assert.match(impurityPicker, /На складе нет доступных источников/);
+  assert.match(impurityPicker, /!filteredOptions\.length/);
+  assert.match(impurityPicker, /На складе нет доступных партий/);
   assert.doesNotMatch(page, /На складе нет принятых партий урожая/);
 });
 
@@ -67,14 +76,18 @@ check("server summary reads positive aggregate stock by warehouse", () => {
 check("soil lot labels use ticket field names without exposing technical lot codes", () => {
   assert.match(batchesRoute, /\.select\("harvest_lot_id,inventory_batch_id,source_ticket_id"\)/);
   assert.match(batchesRoute, /\.select\("id,product_id,display_name,source_ticket_id,source_field_id,/);
-  assert.match(batchesRoute, /\.in\("id", chunk\)\)\.catch\(\(\) => \[\]\)/);
+  assert.match(batchesRoute, /loadInChunks<any>\([\s\S]*?\.in\("id", chunk\)\)/);
   assert.match(batchesRoute, /fieldsResult\.error \? \[\] : fieldsResult\.data \|\| \[\]/);
   assert.match(batchesRoute, /sourceTicketsById[\s\S]*?summarizeAggregateHarvestLotFields[\s\S]*?fieldName: fieldOrigin\.fieldName/);
   const pickerStart = page.indexOf("const impuritySourceOptions");
   const pickerEnd = page.indexOf("const impuritySourceOptionByKey", pickerStart);
   const picker = pickerStart >= 0 && pickerEnd > pickerStart ? page.slice(pickerStart, pickerEnd) : "";
-  assert.match(picker, /label: `Вся партия · \$\{buildHarvestLotOptionLabel\(batch\)\}`/);
+  assert.match(picker, /label: `Вся партия · \$\{buildHarvestLotOptionLabel\(\{ \.\.\.batch, includeMass: false \}\)\}`/);
   assert.match(picker, /fieldName,[\s\S]*?cropName,[\s\S]*?varietyName/);
+  assert.match(batchesRoute, /availableKg,[\s\S]*?tripCount: potentialPairBatches\.length/);
+  assert.match(picker, /description: `Остаток партии: \$\{formatWeightTonnes\(availableKg\)\}`/);
+  assert.doesNotMatch(picker, /рейсов объединено|Единая партия участка/);
+  assert.match(picker, /cleanMassKg: availableKg/);
   assert.doesNotMatch(picker, /label:[^\n]*batch\.batchCode/);
 });
 
@@ -101,12 +114,15 @@ check("finalization uses the atomic impurity allocation path", () => {
   assert.match(migration, /security_invoker = true/);
 });
 
-check("weighbridge exposes both direct vehicles and company machines without PTC proxies", () => {
-  assert.match(resourcesRoute, /from\("reference_machines"\)/);
-  assert.match(resourcesRoute, /\.is\("source_machine_id", null\)/);
-  assert.match(operatorSessionRoute, /from\("reference_machines"\)/);
+check("weighbridge vehicle picker exposes only active PTC fleet rows", () => {
+  assert.doesNotMatch(resourcesRoute, /from\("reference_machines"\)/);
+  assert.match(resourcesRoute, /filter\(isPtcEligibleReferenceVehicle\)/);
+  assert.match(operatorSessionRoute, /\.eq\("ptc_enabled", true\)/);
+  assert.match(operatorSessionRoute, /filter\(isPtcEligibleReferenceVehicle\)/);
+  assert.match(resourcesRoute, /const ptcStateDb = getServiceClient\(\)/);
+  assert.match(resourcesRoute, /ptcStateDb[\s\S]*?\.from\("ptc_vehicle_states"\)/);
+  assert.match(operatorSessionRoute, /getServiceClient\(\)[\s\S]*?\.from\("ptc_vehicle_states"\)/);
   assert.match(page, /source: "reference_vehicles" \| "reference_machines"/);
-  assert.match(page, /vehicle\.source === "reference_vehicles" \|\| vehicle\.source === "reference_machines"/);
   assert.match(page, /vehicle_source: selectedVehicle\?\.source \|\| "reference_vehicles"/);
 });
 

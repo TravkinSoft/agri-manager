@@ -606,6 +606,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (signedInRole === "agronomist") {
         return { defaultPath: readAgronomistLastRoute(signedInUserId) || "/dashboard" };
       }
+      if (signedInRole === "mechanic_operator" || signedInRole === "vegetable_brigadier") {
+        return { defaultPath: "/traffic-operator" };
+      }
     }
     return { defaultPath: "/dashboard" };
   };

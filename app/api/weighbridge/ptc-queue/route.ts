@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { WEIGHBRIDGE_READ_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 import { getServiceClient } from "@/lib/supabase/service";
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
+import { loadCurrentPtcDrivers } from "@/lib/weighbridge/ptc-current-driver";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,9 +30,14 @@ export async function GET(request: NextRequest) {
       .eq("company_id", companyId)
       .eq("to_state", "loaded")
       .in("vehicle_id", vehicleIds)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false });
     if (eventsError) throw eventsError;
-    const eventByTrip = new Map((loadedEvents || []).map((event: any) => [`${event.vehicle_id}:${event.cycle}`, event]));
+    const eventByTrip = new Map<string, any>();
+    for (const event of loadedEvents || []) {
+      const key = `${event.vehicle_id}:${event.cycle}`;
+      if (!eventByTrip.has(key)) eventByTrip.set(key, event);
+    }
     const events = states.flatMap((state) => {
       const event = eventByTrip.get(`${state.vehicle_id}:${state.cycle}`);
       return event ? [event] : [];
@@ -41,13 +47,14 @@ export async function GET(request: NextRequest) {
     const eventIds = events.map((event: any) => String(event.id));
     const [ticketsResult, vehiclesResult, peopleResult, fieldsResult, structuresResult] = await Promise.all([
       db.from("tickets").select("ptc_event_id").eq("company_id", companyId).in("ptc_event_id", eventIds).neq("is_voided", true),
-      db.from("reference_vehicles").select("id,name,custom_name,full_name,brand,model,plate_number,license_plate,source_raw_name").eq("company_id", companyId).in("id", vehicleIds),
+      db.from("reference_vehicles").select("id,name,custom_name,full_name,brand,model,plate_number,license_plate,source_raw_name,type,fleet_type,primary_responsible_personnel_id").eq("company_id", companyId).in("id", vehicleIds),
       db.from("company_people").select("id,full_name").eq("company_id", companyId).in("id", events.map((event: any) => event.driver_id).filter(Boolean)),
       db.from("fields").select("id,name").eq("company_id", companyId).in("id", events.map((event: any) => event.field_id).filter(Boolean)),
       db.from("crop_structure").select("id,field_id,crop_id,variety_id,reproduction_id,area").eq("company_id", companyId).in("id", events.map((event: any) => event.crop_structure_id).filter(Boolean)),
     ]);
     const error = ticketsResult.error || vehiclesResult.error || peopleResult.error || fieldsResult.error || structuresResult.error;
     if (error) throw error;
+    const currentDrivers = await loadCurrentPtcDrivers(db, companyId, vehiclesResult.data || []);
     const used = new Set((ticketsResult.data || []).map((ticket: any) => String(ticket.ptc_event_id)));
     const map = (rows: any[]) => new Map((rows || []).map((row) => [String(row.id), row]));
     const vehicleById = map(vehiclesResult.data || []);
@@ -71,6 +78,7 @@ export async function GET(request: NextRequest) {
     const queue = events.filter((event: any) => !used.has(String(event.id))).map((event: any) => {
       const vehicle = vehicleById.get(String(event.vehicle_id));
       const identity = resolveTransportIdentity(vehicle || {});
+      const currentDriver = currentDrivers.get(String(event.vehicle_id));
       const structure = structureById.get(String(event.crop_structure_id || ""));
       return {
         ptcEventId: String(event.id),
@@ -78,8 +86,8 @@ export async function GET(request: NextRequest) {
         loadedAt: String(event.created_at),
         vehicleId: String(event.vehicle_id),
         vehicleLabel: [identity.name, identity.plate].filter(Boolean).join(" · ") || "Машина",
-        driverId: event.driver_id ? String(event.driver_id) : null,
-        driverName: String(personById.get(String(event.driver_id || ""))?.full_name || ""),
+        driverId: currentDriver?.id || (event.driver_id ? String(event.driver_id) : null),
+        driverName: currentDriver?.name || String(personById.get(String(event.driver_id || ""))?.full_name || ""),
         fieldId: event.field_id ? String(event.field_id) : null,
         fieldName: String(fieldById.get(String(event.field_id || ""))?.name || ""),
         cropStructureId: event.crop_structure_id ? String(event.crop_structure_id) : null,

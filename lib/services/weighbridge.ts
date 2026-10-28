@@ -1,6 +1,8 @@
 import type { ActiveHarvestRoute, HarvestBatchSummary, ImpuritySourceScopeInput, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket, WeighingInput } from "@/lib/types/weighbridge";
 import { buildClientAuthHeaders, fetchWithClientAuth } from "@/lib/supabase/client-auth";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
+import { isWeighbridgeShiftReport, type WeighbridgeShiftReport } from "@/lib/weighbridge/shift-report";
+import type { TicketHistoryFilters, TicketHistoryShift } from "@/lib/weighbridge/ticket-history-filters";
 import {
   normalizeWeighbridgeTransportPickerData,
   type WeighbridgeTransportPickerData,
@@ -25,6 +27,11 @@ async function parseJsonOrThrow(response: Response) {
   return payload;
 }
 
+function withSearchParams(path: string, query: URLSearchParams) {
+  const queryString = query.toString();
+  return queryString ? `${path}?${queryString}` : path;
+}
+
 export async function listTickets(
   companyId?: string,
   _userId?: string,
@@ -34,7 +41,7 @@ export async function listTickets(
   const query = new URLSearchParams();
   if (companyId) query.set("companyId", companyId);
   if (options?.workspace) query.set("workspace", "true");
-  const url = `/api/weighbridge/tickets${query.size ? `?${query.toString()}` : ""}`;
+  const url = withSearchParams("/api/weighbridge/tickets", query);
   const response = await fetch(url, {
     method: "GET",
     cache: "no-store",
@@ -48,7 +55,7 @@ export async function listTickets(
 export async function listTicketHistoryPage(
   companyId?: string,
   _userId?: string,
-  options?: { cursor?: string | null; limit?: number; signal?: AbortSignal }
+  options?: { cursor?: string | null; limit?: number; signal?: AbortSignal; filters?: TicketHistoryFilters }
 ): Promise<{ tickets: WeighbridgeTicket[]; hasMore: boolean; nextCursor: string | null }> {
   const headers = await buildClientAuthHeaders("none");
   const query = new URLSearchParams({
@@ -57,6 +64,12 @@ export async function listTicketHistoryPage(
   });
   if (companyId) query.set("companyId", companyId);
   if (options?.cursor) query.set("historyCursor", options.cursor);
+  const filters = options?.filters;
+  if (filters?.shiftId) query.set("historyShiftId", filters.shiftId);
+  if (filters?.from) query.set("historyFrom", filters.from);
+  if (filters?.to) query.set("historyTo", filters.to);
+  if (filters?.operation) query.set("historyOperation", filters.operation);
+  if (filters?.status) query.set("historyStatus", filters.status);
   const response = await fetch(`/api/weighbridge/tickets?${query.toString()}`, {
     method: "GET",
     cache: "no-store",
@@ -73,6 +86,15 @@ export async function listTicketHistoryPage(
     hasMore: Boolean(payload.historyHasMore && nextCursor),
     nextCursor,
   };
+}
+
+export async function listTicketHistoryShifts(companyId: string, options?: { cursor?: string | null; signal?: AbortSignal }): Promise<{ shifts: TicketHistoryShift[]; nextCursor: string | null }> {
+  const query = new URLSearchParams({ companyId });
+  if (options?.cursor) query.set("cursor", options.cursor);
+  const response = await fetch(`/api/weighbridge/tickets/history-shifts?${query}`, {
+    method: "GET", cache: "no-store", headers: await buildClientAuthHeaders("none"), signal: options?.signal,
+  });
+  return parseJsonOrThrow(response);
 }
 
 export async function listWeighbridgeWorkspaceTickets(
@@ -109,7 +131,7 @@ export async function getWeighbridgeBootstrap(
   const query = new URLSearchParams();
   if (companyId) query.set("companyId", companyId);
   if (options?.includeSummary) query.set("summary", "true");
-  const url = `/api/weighbridge/bootstrap${query.size ? `?${query.toString()}` : ""}`;
+  const url = withSearchParams("/api/weighbridge/bootstrap", query);
   const response = await fetch(url, {
     method: "GET",
     cache: "no-store",
@@ -124,7 +146,7 @@ export async function getReconciliationControls(companyId?: string) {
   const headers = await buildClientAuthHeaders("none");
   const query = new URLSearchParams();
   if (companyId) query.set("companyId", companyId);
-  const response = await fetch(`/api/weighbridge/reconciliation-controls${query.size ? `?${query}` : ""}`, {
+  const response = await fetch(withSearchParams("/api/weighbridge/reconciliation-controls", query), {
     method: "GET",
     cache: "no-store",
     credentials: "include",
@@ -142,7 +164,7 @@ export async function saveReconciliationControl(input: {
   const headers = await buildClientAuthHeaders("json");
   const query = new URLSearchParams();
   if (input.companyId) query.set("companyId", input.companyId);
-  const response = await fetch(`/api/weighbridge/reconciliation-controls${query.size ? `?${query}` : ""}`, {
+  const response = await fetch(withSearchParams("/api/weighbridge/reconciliation-controls", query), {
     method: "PUT",
     cache: "no-store",
     credentials: "include",
@@ -202,7 +224,7 @@ export async function listHarvestBatchSummaries(
   if (options?.summaryOnly) query.set("detail", "summary");
   if (options?.originsOnly) query.set("detail", "origins");
   if (options?.lotId) query.set("lotId", options.lotId);
-  const url = `/api/weighbridge/harvest-batches${query.size ? `?${query.toString()}` : ""}`;
+  const url = withSearchParams("/api/weighbridge/harvest-batches", query);
   const response = await fetch(url, { method: "GET", cache: "no-store", headers, signal: options?.signal });
   const payload = await parseJsonOrThrow(response);
   return (payload.batches || []) as HarvestBatchSummary[];
@@ -286,14 +308,13 @@ export async function getActiveShift(companyId?: string, _userId?: string) {
 }
 
 export async function getWeighbridgeOperatorState(
-  companyId?: string,
+  _companyId?: string,
   options?: { signal?: AbortSignal; includeWorkspace?: boolean }
 ): Promise<WeighbridgeOperatorState> {
   const headers = await buildClientAuthHeaders("none");
   const query = new URLSearchParams();
-  if (companyId) query.set("companyId", companyId);
   if (options?.includeWorkspace) query.set("workspace", "true");
-  const url = `/api/weighbridge/operator-session${query.size ? `?${query.toString()}` : ""}`;
+  const url = withSearchParams("/api/weighbridge/operator-session", query);
   const response = await fetch(url, { method: "GET", cache: "no-store", headers, signal: options?.signal });
   return parseJsonOrThrow(response) as Promise<WeighbridgeOperatorState>;
 }
@@ -331,10 +352,19 @@ export async function openShift(companyId?: string, _actorUserId?: string, openi
   return parseJsonOrThrow(response);
 }
 
+export async function getWeighbridgeShiftPreview(companyId: string, shiftId: string, signal?: AbortSignal): Promise<WeighbridgeShiftReport> {
+  const headers = await buildClientAuthHeaders("none");
+  const query = new URLSearchParams({ companyId, shiftId, preview: "true" });
+  const response = await fetch(`/api/weighbridge/shifts?${query}`, { cache: "no-store", headers, signal });
+  const payload = await parseJsonOrThrow(response);
+  if (!isWeighbridgeShiftReport(payload.report) || payload.report.shiftId !== shiftId) throw new Error("Не удалось подтвердить полный отчёт смены. Обновите страницу.");
+  return payload.report;
+}
+
 export async function closeShift(
   companyId?: string,
   _actorUserId?: string,
-  params?: { closingNote?: string; handoverNote?: string; force?: boolean }
+  params?: { closingNote?: string; handoverNote?: string; force?: boolean; shiftId?: string; reviewToken?: string }
 ) {
   const headers = await buildClientAuthHeaders("json");
   const response = await fetch("/api/weighbridge/shifts", {
@@ -343,6 +373,8 @@ export async function closeShift(
     body: JSON.stringify({
       companyId,
       closingNote: params?.closingNote,
+      shiftId: params?.shiftId,
+      reviewToken: params?.reviewToken,
       handoverNote: params?.handoverNote,
       force: Boolean(params?.force),
     }),
@@ -391,6 +423,18 @@ export async function startTicketCorrection(ticketId: string, reason: string) {
   return parseJsonOrThrow(response);
 }
 
+export async function correctSharedImpurityWeights(ticketId: string, input: {
+  gross_weight_kg: number; tare_weight_kg: number;
+  expected_gross_weight_kg: number; expected_tare_weight_kg: number;
+  reason: string; idempotency_key: string;
+}) {
+  const response = await fetchWithClientAuth(`/api/weighbridge/tickets/${ticketId}/correction`, {
+    method: "POST",
+    body: JSON.stringify({ action: "shared_weights", ...input }),
+  }, "json");
+  return parseJsonOrThrow(response);
+}
+
 export async function finalizeTicketCorrection(ticketId: string) {
   const headers = await buildClientAuthHeaders("json");
   const response = await fetch(`/api/weighbridge/tickets/${ticketId}/correction`, {
@@ -431,9 +475,8 @@ export async function createTicket(
   return parseJsonOrThrow(response);
 }
 
-export type WeighbridgeFinalizeInput = {
-  tare_weight_kg?: number;
-  gross_weight_kg?: number;
+export type HarvestFinalizeInput = {
+  tare_weight_kg: number;
   moisture_percent?: number | null;
   deduction_kg?: number | null;
   deduction_percent?: number | null;
@@ -442,20 +485,18 @@ export type WeighbridgeFinalizeInput = {
   idempotency_key?: string;
 };
 
-export type HarvestFinalizeInput = WeighbridgeFinalizeInput;
-
 export async function finalizeTicket(
   ticketId: string,
   _actorUserId: string,
-  input?: WeighbridgeFinalizeInput
+  harvest?: HarvestFinalizeInput
 ) {
   const headers: Record<string, string> = {};
-  if (input?.idempotency_key) headers["Idempotency-Key"] = input.idempotency_key;
+  if (harvest?.idempotency_key) headers["Idempotency-Key"] = harvest.idempotency_key;
   const response = await fetchWithClientAuth(`/api/weighbridge/tickets/${ticketId}/finalize`, {
     method: "POST",
     headers,
     credentials: "include",
-    body: JSON.stringify(input || {}),
+    body: JSON.stringify(harvest || {}),
   }, "json");
   return parseJsonOrThrow(response);
 }

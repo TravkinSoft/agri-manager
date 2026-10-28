@@ -115,7 +115,7 @@ export async function GET(
         .eq("company_id", companyId)
         .eq("entity_type", "weighbridge_ticket")
         .eq("entity_id", id)
-        .in("action", ["open_ticket_corrected", "ticket_correction_started", "ticket_replaced"])
+        .in("action", ["open_ticket_corrected", "ticket_correction_started", "ticket_replaced", "shared_impurity_weight_corrected"])
         .order("when_at", { ascending: false }),
       ticket.correction_of_ticket_id
         ? supabase.from("tickets").select("id,ticket_no,status").eq("company_id", companyId).eq("id", ticket.correction_of_ticket_id).maybeSingle()

@@ -73,6 +73,8 @@ export interface TrafficCombineShift {
   hectaresShift: number | null;
   hectaresFieldTotal: number | null;
   cropStructureId?: string | null;
+  /** Exact open plot segment; omitted only for non-harvester/old snapshots. */
+  segmentId?: string | null;
   status: "open" | "closed";
 }
 export interface TrafficCombineBreakdown {
@@ -210,7 +212,7 @@ export function visibleVehicles(
 // interval until they finish that physical stage. On repair exit, the same
 // toggle starts a fresh operational interval and returned empty vehicles sort
 // to the tail until their next cargo transition updates `since`.
-export function trafficStatusSince(vehicle: TrafficVehicle, role: TrafficRole): string {
+export function trafficStatusSince(vehicle: Pick<TrafficVehicle, "since" | "repairChangedAt" | "inRepair">, role: TrafficRole): string {
   const repairChangedAt = vehicle.repairChangedAt;
   if (!repairChangedAt) return vehicle.since;
   const repairAt = Date.parse(repairChangedAt);

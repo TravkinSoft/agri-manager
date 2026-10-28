@@ -47,6 +47,10 @@ const ID = {
 
 const SESSION_TOKEN = "qa-p0-shared-impurity-session";
 
+// SQL patch migrations compare pg_get_functiondef with LF-normalized needles.
+// Git's Windows CRLF checkout must not change their test input semantics.
+const readSql = async (path: string) => (await readFile(path, "utf8")).replace(/\r\n/g, "\n");
+
 const rows = async (db: PGlite, sql: string, params: unknown[] = []) =>
   (await db.query(sql, params)).rows as Row[];
 
@@ -56,9 +60,13 @@ const scalar = async <T = unknown>(db: PGlite, sql: string, params: unknown[] = 
 const asAuthenticated = async <T>(db: PGlite, run: () => Promise<T>) => {
   await db.exec("set role authenticated");
   try {
-    return await run();
-  } finally {
+    const result = await run();
     await db.exec("reset role");
+    return result;
+  } catch (error) {
+    // Preserve the original SQL error when an explicit test transaction aborted.
+    await db.exec("reset role").catch(() => undefined);
+    throw error;
   }
 };
 
@@ -79,7 +87,7 @@ async function findSharedImpurityMigration() {
   for (const fileName of await readdir(migrationDirectory)) {
     if (!fileName.endsWith(".sql")) continue;
     const path = join(migrationDirectory, fileName);
-    const sql = await readFile(path, "utf8");
+    const sql = await readSql(path);
     if (
       sql.includes("P0 shared impurity pool V1")
       && sql.includes("create_weighbridge_shared_impurity_pool_ticket_v1")
@@ -98,7 +106,7 @@ async function findExactSourceMigration() {
   for (const fileName of await readdir(migrationDirectory)) {
     if (!fileName.endsWith(".sql")) continue;
     const path = join(migrationDirectory, fileName);
-    const sql = await readFile(path, "utf8");
+    const sql = await readSql(path);
     if (sql.includes("P0 exact impurity source scope V1")) candidates.push({ path, sql });
   }
   assert.equal(candidates.length, 1, "exactly one exact-source extension migration must exist");
@@ -111,7 +119,7 @@ async function findMemberSettlementMigration() {
   for (const fileName of await readdir(migrationDirectory)) {
     if (!fileName.endsWith(".sql")) continue;
     const path = join(migrationDirectory, fileName);
-    const sql = await readFile(path, "utf8");
+    const sql = await readSql(path);
     if (sql.includes("P0 shared impurity member settlement V2")) candidates.push({ path, sql });
   }
   assert.equal(candidates.length, 1, "exactly one member-settlement migration must exist");
@@ -124,7 +132,7 @@ async function findSourceReleaseMigration() {
   for (const fileName of await readdir(migrationDirectory)) {
     if (!fileName.endsWith(".sql")) continue;
     const path = join(migrationDirectory, fileName);
-    const sql = await readFile(path, "utf8");
+    const sql = await readSql(path);
     if (sql.includes("SHARED_IMPURITY_V3_SETTLED_SOURCE_NOT_RELEASED")) candidates.push({ path, sql });
   }
   assert.equal(candidates.length, 1, "exactly one settled-source release migration must exist");
@@ -137,7 +145,7 @@ async function findFinalizeScaleMigration() {
   for (const fileName of await readdir(migrationDirectory)) {
     if (!fileName.endsWith(".sql")) continue;
     const path = join(migrationDirectory, fileName);
-    const sql = await readFile(path, "utf8");
+    const sql = await readSql(path);
     if (sql.includes("SHARED_IMPURITY_V4_PATCH_VERIFICATION_FAILED")) {
       candidates.push({ path, sql });
     }
@@ -152,7 +160,7 @@ async function findShiftHandoverMigration() {
   for (const fileName of await readdir(migrationDirectory)) {
     if (!fileName.endsWith(".sql")) continue;
     const path = join(migrationDirectory, fileName);
-    const sql = await readFile(path, "utf8");
+    const sql = await readSql(path);
     if (sql.includes("SHARED_IMPURITY_V5_PATCH_VERIFICATION_FAILED")) {
       candidates.push({ path, sql });
     }
@@ -707,9 +715,10 @@ async function bootstrap(db: PGlite) {
         raise exception 'void actor mismatch';
       end if;
       for v_base in
-        select * from public.stock_ledger_entries
+        select e.* from public.stock_ledger_entries e
         where ticket_id = p_ticket_id and not coalesce(is_storno, false)
-        order by id
+          and not exists (select 1 from public.stock_ledger_entries r where r.storno_of_entry_id=e.id)
+        order by e.id
       loop
         insert into public.stock_ledger_entries(
           company_id, ticket_id, processing_id, product_id, crop_id,
@@ -917,6 +926,10 @@ async function main() {
     await db.exec(sourceReleaseMigration.sql);
     await db.exec(finalizeScaleMigration.sql);
     await db.exec(shiftHandoverMigration.sql);
+    await db.exec("create type public.ledger_direction as enum ('in','out')");
+    await db.exec('alter table public.ticket_lines add column gross_line_weight_kg numeric, add column tare_line_weight_kg numeric');
+    await db.exec('alter table public.tickets add column manual_correction_reason text');
+    await db.exec(await readSql(join(process.cwd(), 'supabase/migrations/20260923200957_shared_impurity_weight_correction_v1.sql')));
     await check("settled-source release migration compiles after member settlement", () => undefined);
 
     await check("legacy single-lot RPC definition remains byte-for-byte unchanged and callable", async () => {
@@ -1329,6 +1342,126 @@ async function main() {
       `, [created.ticket_id])), -15);
     });
 
+    await check("weight correction changes only the stock delta, preserves dates and survives replay/void", async () => {
+      await db.exec('begin');
+      try {
+        const before = (await rows(db, 'select ticket_no,shift_id,created_at,finalized_at from public.tickets where id=$1', [created.ticket_id]))[0];
+        const correct = (gross: number, tare: number, oldGross: number, oldTare: number, key: string) => asAuthenticated(db, () => scalar<Row>(db,
+          'select public.correct_shared_impurity_ticket_weights_v1($1,$2,$3,$4,$5,$6,$7,$8)',
+          [created.ticket_id, SESSION_TOKEN, gross, tare, oldGross, oldTare, 'QA gross correction', key]));
+        const key = '49000000-0000-4000-8000-000000009001';
+        const first = await correct(30, 10, 25, 10, key);
+        assert.equal(first.ok, true);
+        assert.equal(Number(first.stock_delta_kg), -5);
+        const after = (await rows(db, 'select ticket_no,shift_id,created_at,finalized_at from public.tickets where id=$1', [created.ticket_id]))[0];
+        assert.deepEqual(after, before);
+        assert.equal(Number(await scalar(db, 'select sum(delta_qty_signed) from public.stock_ledger_entries where ticket_id=$1',[created.ticket_id])), -20);
+        assert.deepEqual((await rows(db, 'select allocated_impurity_kg::text kg from public.weighbridge_shared_impurity_members where group_id=$1 order by crop_structure_id',[created.pool_id])).map(r => Number(r.kg)), [12,8]);
+        const ledgerCount = await scalar(db, 'select count(*) from public.stock_ledger_entries');
+        assert.equal((await correct(30, 10, 25, 10, key)).replayed, true);
+        assert.equal(await scalar(db, 'select count(*) from public.stock_ledger_entries'), ledgerCount);
+        await db.exec('savepoint wrong_key');
+        await expectDatabaseError(() => correct(31,10,25,10,key), /SHARED_WEIGHT_KEY_REUSED/);
+        await db.exec('rollback to savepoint wrong_key');
+        await db.exec('savepoint conflict');
+        await expectDatabaseError(() => correct(31,10,25,10,'49000000-0000-4000-8000-000000009002'), /SHARED_WEIGHT_CONFLICT/);
+        await db.exec('rollback to savepoint conflict');
+        assert.equal(Number((await correct(20,10,30,10,'49000000-0000-4000-8000-000000009003')).stock_delta_kg), 10);
+        assert.equal(Number(await scalar(db, 'select net_weight_kg from public.tickets where id=$1',[created.ticket_id])), 10);
+        // Canonical storno still checks every old/replacement pair after two revisions.
+        await asAuthenticated(db, () => scalar(db, 'select public.void_ticket_with_storno_v2($1,$2,$3)', [created.ticket_id,ID.actor,'QA corrected ticket void']));
+        assert.equal(Number(await scalar(db, 'select sum(delta_qty_signed) from public.stock_ledger_entries where ticket_id=$1',[created.ticket_id])),0);
+        assert.equal(Number(await scalar(db, 'select current_quantity from public.inventory_batches where id=$1',[ID.batchA])),120);
+      } finally { await db.exec('rollback'); }
+    });
+
+    await check("weight correction denies expired session, foreign company, wrong role, closed shift and stale input without writes", async () => {
+      for (const [setup, expected] of [
+        [`update private.weighbridge_operator_sessions set expires_at=now()-interval '1 second'`, /SHARED_WEIGHT_SESSION_EXPIRED/],
+        [`update public.profiles set company_id=null where id='${ID.actor}'`, /SHARED_WEIGHT_FORBIDDEN|SHARED_WEIGHT_NOT_FOUND/],
+        [`update public.profiles set role='agronomist' where id='${ID.actor}'`, /SHARED_WEIGHT_FORBIDDEN/],
+        [`update public.weighbridge_shifts set status='closed'`, /SHARED_WEIGHT_SESSION_EXPIRED/],
+      ] as const) {
+        await db.exec('begin');
+        try {
+          await db.exec(setup);
+          await expectDatabaseError(() => asAuthenticated(db, () => scalar(db,
+            'select public.correct_shared_impurity_ticket_weights_v1($1,$2,30,10,25,10,$3,$4)',
+            [created.ticket_id, SESSION_TOKEN, 'QA access', '49000000-0000-4000-8000-000000009010'])), expected);
+        } finally { await db.exec('rollback'); }
+      }
+      assert.equal(Number(await scalar(db, 'select net_weight_kg from public.tickets where id=$1',[created.ticket_id])),15);
+      assert.equal(Number(await scalar(db, 'select count(*) from private.weighbridge_impurity_weight_revisions')),0);
+    });
+
+    await check("weight correction protects a closed original shift even with a new open PIN session", async () => {
+      await db.exec('begin');
+      try {
+        await db.exec(`insert into public.weighbridge_shifts(id,company_id,status,operator_person_id)
+          values('49000000-0000-4000-8000-000000009030','${ID.company}','closed','${ID.operator}')`);
+        await db.query('update public.tickets set shift_id=$1 where id=$2', ['49000000-0000-4000-8000-000000009030',created.ticket_id]);
+        await expectDatabaseError(() => asAuthenticated(db,()=>scalar(db,
+          'select public.correct_shared_impurity_ticket_weights_v1($1,$2,30,10,25,10,$3,$4)',
+          [created.ticket_id,SESSION_TOKEN,'QA closed report','49000000-0000-4000-8000-000000009031'])),/SHARED_WEIGHT_ACCOUNTING_SHIFT_CLOSED/);
+      } finally { await db.exec('rollback'); }
+    });
+
+    await check("extra soil cannot consume stock already assigned to processing; decrease still returns stock", async () => {
+      await db.exec('begin');
+      try {
+        await db.exec(`insert into private.qa_processing_allocations values(gen_random_uuid(),'${ID.company}','${ID.warehouse}','${ID.batchA}',110)`);
+        await db.exec('savepoint reserved');
+        await expectDatabaseError(() => asAuthenticated(db,()=>scalar(db,
+          'select public.correct_shared_impurity_ticket_weights_v1($1,$2,30,10,25,10,$3,$4)',
+          [created.ticket_id,SESSION_TOKEN,'QA processing lock','49000000-0000-4000-8000-000000009040'])),/SHARED_WEIGHT_STOCK_COMMITTED/);
+        await db.exec('rollback to savepoint reserved');
+        assert.equal(Number(await scalar(db,'select count(*) from private.weighbridge_impurity_weight_revisions')),0);
+        const result=await asAuthenticated(db,()=>scalar<Row>(db,
+          'select public.correct_shared_impurity_ticket_weights_v1($1,$2,20,10,25,10,$3,$4)',
+          [created.ticket_id,SESSION_TOKEN,'QA return stock','49000000-0000-4000-8000-000000009041']));
+        assert.equal(Number(result.stock_delta_kg),5);
+      } finally { await db.exec('rollback'); }
+    });
+
+    await check("revision tables and helper are private; only authenticated can execute the checked RPC", async () => {
+      assert.equal(await scalar(db,"select has_function_privilege('anon','public.correct_shared_impurity_ticket_weights_v1(uuid,text,numeric,numeric,numeric,numeric,text,uuid)','execute')"),false);
+      assert.equal(await scalar(db,"select has_function_privilege('authenticated','public.correct_shared_impurity_ticket_weights_v1(uuid,text,numeric,numeric,numeric,numeric,text,uuid)','execute')"),true);
+      for(const role of ['authenticated','anon','service_role']) {
+        assert.equal(await scalar(db,`select has_table_privilege('${role}','private.weighbridge_impurity_weight_revisions','insert')`),false);
+        assert.equal(await scalar(db,`select has_function_privilege('${role}','private.shared_impurity_weight_balances_v1(uuid)','execute')`),false);
+      }
+    });
+
+    await check("rounding, zero allocation, zero pool remainder and tare-only corrections preserve stock", async () => {
+      await db.exec('begin');
+      try {
+        const correct = (g: number,t: number,og: number,ot: number,n: number) => asAuthenticated(db, () => scalar<Row>(db,
+          'select public.correct_shared_impurity_ticket_weights_v1($1,$2,$3,$4,$5,$6,$7,$8)',
+          [created.ticket_id,SESSION_TOKEN,g,t,og,ot,'QA rounding',`49000000-0000-4000-8000-${String(n).padStart(12,'0')}`]));
+        await correct(10.001,10,25,10,9111);
+        assert.deepEqual((await rows(db,'select allocated_impurity_kg::text kg from public.weighbridge_shared_impurity_members where group_id=$1 order by crop_structure_id',[created.pool_id])).map(r=>Number(r.kg)),[0.001,0]);
+        await correct(210,10,10.001,10,9112);
+        assert.equal(Number(await scalar(db,'select current_quantity from public.inventory_batches where id=$1',[ID.batchA])),0);
+        assert.equal(await scalar(db,'select pool_split_out_ledger_entry_id from public.weighbridge_shared_impurity_groups where id=$1',[created.pool_id]),null);
+        await correct(210,195,210,10,9113);
+        assert.equal(Number(await scalar(db,'select sum(delta_qty_signed) from public.stock_ledger_entries where ticket_id=$1',[created.ticket_id])),-15);
+        await asAuthenticated(db,()=>scalar(db,'select public.void_ticket_with_storno_v2($1,$2,$3)',[created.ticket_id,ID.actor,'QA void rounded revision']));
+      } finally { await db.exec('rollback'); }
+    });
+
+    await check("late database failure rolls back ticket, all ledger entries, allocations and revision audit", async () => {
+      await db.exec(`create function private.qa_fail_weight_update() returns trigger language plpgsql as $$ begin raise exception 'QA_INJECTED_FAILURE'; end $$;
+        create trigger qa_fail_weight_update before update of gross_weight_kg on public.tickets for each row execute function private.qa_fail_weight_update()`);
+      const countBefore = await scalar(db,'select count(*) from public.stock_ledger_entries');
+      await expectDatabaseError(() => asAuthenticated(db,()=>scalar(db,
+        'select public.correct_shared_impurity_ticket_weights_v1($1,$2,30,10,25,10,$3,$4)',
+        [created.ticket_id,SESSION_TOKEN,'QA rollback','49000000-0000-4000-8000-000000009020'])),/QA_INJECTED_FAILURE/);
+      assert.equal(await scalar(db,'select count(*) from public.stock_ledger_entries'),countBefore);
+      assert.equal(Number(await scalar(db,'select count(*) from private.weighbridge_impurity_weight_revisions')),0);
+      assert.equal(Number(await scalar(db,'select impurity_weight_kg from public.weighbridge_shared_impurity_groups where id=$1',[created.pool_id])),15);
+      await db.exec('drop trigger qa_fail_weight_update on public.tickets; drop function private.qa_fail_weight_update()');
+    });
+
     await check("source batches keep separate clean balances and the technical pool becomes zero", async () => {
       const balances = await rows(db, `
         select id::text, current_quantity::text, current_weight_kg::text, mass_kg::text
@@ -1666,6 +1799,16 @@ async function main() {
         from public.weighbridge_shared_impurity_source_batches
         where group_id=$1::uuid
       `, [scaleCreated.pool_id])), 400);
+      const correctionStarted = performance.now();
+      const scaleCorrection = await asAuthenticated(db,()=>scalar<Row>(db,
+        'select public.correct_shared_impurity_ticket_weights_v1($1,$2,510,100,500,100,$3,$4)',
+        [scaleCreated.ticket_id,SESSION_TOKEN,'QA 208-source correction','49000000-0000-4000-8000-000000009050']));
+      const correctionMs = performance.now()-correctionStarted;
+      assert.equal(scaleCorrection.ok,true);
+      assert.ok(correctionMs<8_000,`208-source correction took ${correctionMs.toFixed(0)}ms`);
+      assert.equal(Number(await scalar(db,'select sum(allocated_impurity_kg) from public.weighbridge_shared_impurity_source_batches where group_id=$1',[scaleCreated.pool_id])),410);
+      assert.equal(Number(await scalar(db,'select sum(delta_qty_signed) from public.stock_ledger_entries where ticket_id=$1',[scaleCreated.ticket_id])),-410);
+      console.log(`208-source correction: ${correctionMs.toFixed(0)}ms (local fixture, not production timing)`);
     });
 
     await check("same operator closes an open ticket after shift handover", async () => {
@@ -1824,6 +1967,72 @@ async function main() {
       } finally {
         await legacyDb.close();
       }
+    });
+
+    await check("two open soil tickets for the SAME lot/plot in DIFFERENT warehouses close independently", async () => {
+      const isolated = new PGlite();
+      try {
+        await bootstrap(isolated);
+        await seed(isolated);
+        for (const source of [migration, exactSourceMigration, memberSettlementMigration, sourceReleaseMigration, finalizeScaleMigration, shiftHandoverMigration]) {
+          await isolated.exec(source.sql);
+        }
+        const wh2 = "49000000-0000-4000-8000-000000000101";
+        const batch2 = "49000000-0000-4000-8000-000000000102";
+        await isolated.query(`
+          insert into public.warehouses(id,company_id,name,place_type,warehouse_type)
+          values ($1::uuid,$2::uuid,'Ангар','WAREHOUSE','crop');
+        `, [wh2, ID.company]);
+        await isolated.query(`
+          insert into public.inventory_batches
+          select (jsonb_populate_record(null::public.inventory_batches,
+            to_jsonb(b) || jsonb_build_object('id',$1::text,'warehouse_id',$2::text,'batch_code','HANGAR-SAME-LOT'))).*
+          from public.inventory_batches b where b.id=$3::uuid;
+        `, [batch2, wh2, ID.batchA]);
+        await isolated.query(`
+          insert into public.harvest_lot_batches(company_id,harvest_lot_id,inventory_batch_id,crop_structure_id)
+          values ($1::uuid,$2::uuid,$3::uuid,$4::uuid);
+        `, [ID.company, ID.lotA, batch2, ID.structureA]);
+        await isolated.query(`
+          insert into public.stock_ledger_entries
+          select (jsonb_populate_record(null::public.stock_ledger_entries,
+            to_jsonb(e) || jsonb_build_object('id',gen_random_uuid(),'warehouse_id',$1::text,
+              'inventory_batch_id',$2::text,'batch_id',$2::text,'batch_id_text',$2::text))).*
+          from public.stock_ledger_entries e where e.inventory_batch_id=$3::uuid;
+        `, [wh2, batch2, ID.batchA]);
+        const create = (warehouse: string, vehicle: string, driver: string) => asAuthenticated(isolated, () => scalar<Row>(isolated, `
+          select public.create_weighbridge_shared_impurity_pool_ticket_v1(
+            $1::uuid,$2::uuid,$3::jsonb,$4::uuid,$5::uuid,25,'soil_and_trash',
+            'Independent warehouse QA',$6::text,gen_random_uuid())
+        `, [ID.company, warehouse, JSON.stringify([{harvest_lot_id:ID.lotA,crop_structure_id:ID.structureA}]), vehicle, driver, SESSION_TOKEN]));
+        const first = await create(ID.warehouse, ID.vehicle, ID.driver);
+        const second = await create(wh2, ID.vehicle2, ID.driver2);
+        assert.equal(first.ok, true);
+        assert.equal(second.ok, true);
+        assert.equal(Number(first.source_total_kg), 120);
+        assert.equal(Number(second.source_total_kg), 120);
+        assert.notEqual(first.pool_id, second.pool_id);
+        const quantity = async (id: string) => Number(await scalar(isolated,
+          "select current_quantity from public.inventory_batches where id=$1::uuid", [id]));
+        const finish = (ticket: unknown, tare: number) => asAuthenticated(isolated, () => scalar<Row>(isolated, `
+          select public.finalize_weighbridge_shared_impurity_pool_ticket_v1(
+            $1::uuid,$2::text,$3::numeric,false,gen_random_uuid())
+        `, [ticket, SESSION_TOKEN, tare]));
+        assert.equal((await finish(first.ticket_id, 10)).ok, true);
+        assert.equal(await quantity(ID.batchA), 105);
+        assert.equal(await quantity(batch2), 120, "first close must not debit the hangar");
+        assert.equal((await finish(second.ticket_id, 5)).ok, true);
+        assert.equal(await quantity(ID.batchA), 105, "second close must not debit storage");
+        assert.equal(await quantity(batch2), 100);
+        assert.equal(await quantity(ID.batchB), 80, "unselected plot must remain untouched");
+        for (const [ticket, warehouse, debit] of [[first.ticket_id,ID.warehouse,-15],[second.ticket_id,wh2,-20]]) {
+          const ledger = await rows(isolated, `
+            select warehouse_id::text, sum(delta_qty_signed)::text as delta
+            from public.stock_ledger_entries where ticket_id=$1::uuid group by warehouse_id
+          `, [ticket]);
+          assert.deepEqual(ledger.map(row=>({warehouse:row.warehouse_id,delta:Number(row.delta)})), [{warehouse,delta:debit}]);
+        }
+      } finally { await isolated.close(); }
     });
 
     console.log(`P0 SHARED IMPURITY PGLITE ${passed}/${passed} PASS`);

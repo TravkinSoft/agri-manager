@@ -177,7 +177,10 @@ async function main() {
   const sessionRoute = readFileSync("app/api/traffic/session/route.ts", "utf8");
   check(/410/.test(sessionRoute) && !/cookies\s*\.|\.from\(/.test(sessionRoute), true);
   const loginPage = readFileSync("app/traffic-operator/page.tsx", "utf8");
-  check(loginPage.includes("supabase.auth.signInWithPassword"), true);
+  check(loginPage.includes("supabase.auth.signInWithPassword"), false);
+  check(loginPage.includes('router.replace("/auth/login")'), true);
+  check(loginPage.includes('trafficRequest("/api/auth/actor"'), true);
+  check(loginPage.includes("getDefaultPathForRole(role)"), true);
   check(loginPage.includes("supabase.auth.signOut"), true);
   check(!loginPage.includes("/api/traffic/session"), true);
   check(hook.includes("Missing authorization token"), true);

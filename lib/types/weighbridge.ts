@@ -224,6 +224,8 @@ export interface WeighbridgeTicket {
   gross_weight_kg?: number | null;
   tare_weight_kg?: number | null;
   net_weight_kg?: number | null;
+  /** Read-only dashboard projection; never persisted into a ticket. */
+  harvest_clean_weight_kg?: number | null;
   physical_net_kg?: number | null;
   explicit_deductions_kg?: number | null;
   accepted_weight_kg?: number | null;
@@ -286,6 +288,8 @@ export interface HarvestBatchCropStructureSource {
   reproductionId?: string | null;
   reproductionName?: string | null;
   areaHa?: number | null;
+  availableKg?: number | null;
+  tripCount?: number | null;
 }
 
 export interface HarvestBatchSummary {
@@ -355,6 +359,9 @@ export interface HarvestBatchSummary {
     cleanWeightKg?: number | null;
     areaHa?: number | null;
     yieldTPerHa?: number | null;
+    harvestedAreaHa?: number | null;
+    yieldCleanWeightKg?: number | null;
+    yieldStatus?: "confirmed" | "awaiting_shift" | "missing_area" | "area_exceeds_plan" | "uncertain_mass";
     enteredProcessingKg?: number | null;
     tripCount: number;
   }>;

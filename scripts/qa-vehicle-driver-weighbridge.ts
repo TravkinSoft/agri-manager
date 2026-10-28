@@ -6,6 +6,7 @@ import vm from "node:vm";
 import ts from "typescript";
 import * as transport from "../lib/weighbridge/transport";
 import * as driverNames from "../lib/vehicles/driver-name";
+import * as vehicleEligibility from "../lib/traffic/vehicle-eligibility";
 import { sanitizeClientTicketAuditJson } from "../lib/weighbridge/ticket-audit";
 import {
   preferredDriverForVehicle,
@@ -41,14 +42,17 @@ function check(name: string, run: () => void) {
   console.log(`PASS ${checks} ${name}`);
 }
 
-check("canonical current person outranks historical ticket driver and specialist FK", () => {
-  assert.equal(preferredDriverForVehicle(driverParams), "current-person");
+check("latest completed ticket driver outranks a stale directory assignment", () => {
+  assert.equal(preferredDriverForVehicle(driverParams), "historical-person");
 });
-check("busy assigned person never falls back to historical driver", () => {
-  assert.equal(preferredDriverForVehicle({ ...driverParams, openAssignments: open }), "");
+check("busy historical driver is not auto-selected", () => {
+  assert.equal(preferredDriverForVehicle({
+    ...driverParams,
+    openAssignments: [{ ...open[0], driverId: "historical-person" }],
+  }), "");
 });
-check("unresolved or inactive permanent person does not resurrect ticket history", () => {
-  assert.equal(preferredDriverForVehicle({ ...driverParams, drivers: [drivers[1]] }), "");
+check("active ticket history remains usable when a stale directory driver is absent", () => {
+  assert.equal(preferredDriverForVehicle({ ...driverParams, drivers: [drivers[1]] }), "historical-person");
 });
 check("historical suggestion remains available for unassigned vehicles", () => {
   assert.equal(preferredDriverForVehicle({ ...driverParams, vehicle: vehicles[1] }), "historical-person");
@@ -56,8 +60,8 @@ check("historical suggestion remains available for unassigned vehicles", () => {
 check("history never selects an unavailable driver", () => {
   assert.equal(preferredDriverForVehicle({ ...driverParams, vehicle: vehicles[1], drivers: [] }), "");
 });
-check("ambiguous assigned drivers require an explicit choice", () => {
-  assert.equal(preferredDriverForVehicle({ ...driverParams, drivers: drivers.map((driver) => ({ ...driver, assignedVehicleIds: ["vehicle-1"] })) }), "");
+check("ticket history resolves an ambiguous stale directory assignment", () => {
+  assert.equal(preferredDriverForVehicle({ ...driverParams, drivers: drivers.map((driver) => ({ ...driver, assignedVehicleIds: ["vehicle-1"] })) }), "historical-person");
 });
 check("reverse suggestion prefers permanent vehicle", () => {
   assert.equal(preferredVehicleForDriver(vehicleParams), "vehicle-1");
@@ -219,9 +223,11 @@ async function checkCurrentResourceAssignmentBridges() {
     reference_vehicles: bridges.map((_, index) => ({
       id: `vehicle-${index}`, company_id: "company", name: index === 1 ? "МТЗ" : "KAMAZ",
       type: index === 1 ? "tractor" : "truck", fleet_type: index === 1 ? "tractor" : "truck",
-      primary_responsible_personnel_id: `bridge-${index}`, source_machine_id: null, is_active: true, archived: false,
+      ptc_enabled: true, primary_responsible_personnel_id: `bridge-${index}`, source_machine_id: null,
+      is_active: true, archived: false,
     })),
-    reference_machines: [], profiles: [], fields: [], warehouses: [],
+    ptc_vehicle_states: [{ company_id: "company", vehicle_id: "vehicle-0", assigned: true }],
+    profiles: [], fields: [], warehouses: [],
   };
   const db = {
     from(table: string) {
@@ -248,7 +254,9 @@ async function checkCurrentResourceAssignmentBridges() {
       resolveWeighbridgeSession: async () => ({ companyId: "company", supabase: db }),
       asSessionErrorResponse: () => null,
     },
+    "@/lib/supabase/service": { getServiceClient: () => db },
     "@/lib/weighbridge/transport": transport,
+    "@/lib/traffic/vehicle-eligibility": vehicleEligibility,
     "@/lib/vehicles/driver-name": driverNames,
   };
   const loaded = { exports: {} as any };
@@ -317,11 +325,14 @@ async function checkInitialWorkspaceAssignmentBridges() {
       return { data: { operator_state: {}, initial_workspace: payload }, error: null };
     },
     from(table: string) {
-      if (table === "reference_machines") {
+      if (table === "reference_vehicles" || table === "ptc_vehicle_states") {
         const query: any = {
           select() { return query; }, eq() { return query; }, order() { return query; },
           then(done: (value: unknown) => unknown, failed: (reason: unknown) => unknown) {
-            return Promise.resolve({ data: [], error: null }).then(done, failed);
+            const data = table === "reference_vehicles"
+              ? payload.vehicles.map((vehicle) => ({ ...vehicle, ptc_enabled: true }))
+              : [];
+            return Promise.resolve({ data, error: null }).then(done, failed);
           },
         };
         return query;
@@ -352,15 +363,18 @@ async function checkInitialWorkspaceAssignmentBridges() {
     "@/app/api/weighbridge/_auth": {
       WEIGHBRIDGE_OPERATOR_COOKIE: "fixture-only",
       asSessionErrorResponse: () => null,
-      resolveWeighbridgeSession: async () => { throw new Error("POST is outside this QA"); },
+      resolveWeighbridgeSession: async () => ({ companyId: "company", supabase: db }),
     },
     "@/lib/auth/server-session": {
       SessionAuthError: class extends Error {},
       getUserScopedClientFromRequest: async () => db,
     },
+    "@/lib/supabase/service": { getServiceClient: () => db },
     "@/lib/utils/qa-data": { hasQaDataMarker: () => false },
     "@/lib/weighbridge/transport": transport,
+    "@/lib/traffic/vehicle-eligibility": vehicleEligibility,
     "@/lib/vehicles/driver-name": driverNames,
+    "@/lib/weighbridge/operator-access-mode": { WEIGHBRIDGE_PIN_REQUIRED: true },
   };
   const loaded = { exports: {} as any };
   vm.runInNewContext(ts.transpileModule(read("app/api/weighbridge/operator-session/route.ts"), {

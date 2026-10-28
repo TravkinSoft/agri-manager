@@ -137,7 +137,7 @@ assert.match(dashboardSummaryReaderHelper, /allowedRoles: \["agronomist", "direc
 const server = readFileSync("lib/traffic/shift-summary-server.ts", "utf8");
 assert.match(server, /const EVENT_PAGE_SIZE = 500/); checks += 1;
 assert.match(server, /\.gte\("created_at", openedAt\)[\s\S]*\.lte\("created_at", closedAt\)/); checks += 1;
-assert.match(server, /select\("id,vehicle_id,actor_user_id,from_state,to_state,cycle,created_at"\)/); checks += 1;
+assert.match(server, /select\("id,vehicle_id,actor_user_id,from_state,to_state,cycle,created_at,replaces_event_id"\)/); checks += 1;
 assert.match(server, /select\("id,operator_user_id,operator_name,field_id,opened_at,closed_at,hectares_shift,hectares_field_total"\)/); checks += 1;
 assert.match(server, /\.order\("created_at", \{ ascending: true \}\)[\s\S]*\.order\("id", \{ ascending: true \}\)/); checks += 1;
 assert.match(server, /const MAX_SHIFT_DURATION_MS = 36 \* 60 \* 60 \* 1_000/); checks += 1;

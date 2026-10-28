@@ -4,13 +4,15 @@ import {
   asSessionErrorResponse,
   resolveWeighbridgeSession,
 } from "@/app/api/weighbridge/_auth";
-import {
-  SessionAuthError,
-  getUserScopedClientFromRequest,
-} from "@/lib/auth/server-session";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { vehicleAllowsMachineOperator } from "@/lib/vehicles/driver-name";
-import { isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
+import {
+  isTrailerTransport,
+  resolveTransportIdentity,
+} from "@/lib/weighbridge/transport";
+import { isPtcEligibleReferenceVehicle } from "@/lib/traffic/vehicle-eligibility";
+import { getServiceClient } from "@/lib/supabase/service";
+import { WEIGHBRIDGE_PIN_REQUIRED } from "@/lib/weighbridge/operator-access-mode";
 
 const OPERATOR_SESSION_ROLES = ["global_admin", "company_admin", "director", "weighman"] as const;
 const WEIGHBRIDGE_PERSONNEL_ROLES = new Set(["driver", "mechanic_operator"]);
@@ -52,13 +54,16 @@ function jsonWithOperatorCookie(payload: Record<string, any>) {
 function normalizeInitialWorkspace(
   payload: Record<string, any> | null | undefined,
   assignmentBridges: Record<string, any>[] = [],
-  machineSourceRows: Record<string, any>[] = [],
+  ptcVehicleSourceRows: Record<string, any>[] = [],
+  ptcStateRows: Record<string, any>[] = [],
   resourceErrors: Record<string, string>[] = [],
 ) {
   if (!payload) return null;
-  const rawVehicles = (Array.isArray(payload.vehicles) ? payload.vehicles : [])
-    .filter((row: any) => !row?.source_machine_id);
-  const vehicleRows = rawVehicles.map((row: any) => {
+  const rawVehicles = Array.isArray(payload.vehicles) ? payload.vehicles : [];
+  const ptcAssignedVehicleIds = new Set(
+    ptcStateRows.map((row: any) => String(row.vehicle_id || "")).filter(Boolean),
+  );
+  const mapVehicleRow = (row: any) => {
     const transportModel = Array.isArray(row.transport_model)
       ? row.transport_model[0]
       : row.transport_model;
@@ -73,32 +78,17 @@ function normalizeInitialWorkspace(
       fleetType: String(row.fleet_type || ""),
       transportCategory: String(transportModel?.category || ""),
       source: "reference_vehicles" as const,
+      sourceMachineId: row.source_machine_id ? String(row.source_machine_id) : null,
+      ptcAssigned: ptcAssignedVehicleIds.has(String(row.id)),
       primaryPersonnelId: row.primary_responsible_personnel_id
         ? String(row.primary_responsible_personnel_id)
         : null,
     };
-  });
-  const machineRows = machineSourceRows.map((row: any) => {
-    const globalModel = Array.isArray(row.global_model)
-      ? row.global_model[0]
-      : row.global_model;
-    const identity = resolveTransportIdentity({
-      ...row,
-      plate: row.license_plate,
-    });
-    return {
-      id: String(row.id),
-      name: identity.name,
-      model: String(globalModel?.full_name || row.full_name || row.model || row.name || ""),
-      plate: identity.plate,
-      searchTerms: identity.searchTerms,
-      type: String(row.type || row.machinery_type || ""),
-      fleetType: String(row.machinery_type || row.type || ""),
-      transportCategory: String(globalModel?.category || row.category || ""),
-      source: "reference_machines" as const,
-      primaryPersonnelId: null,
-    };
-  });
+  };
+  const allVehicleRows = rawVehicles.map(mapVehicleRow);
+  const vehicleRows = ptcVehicleSourceRows
+    .filter(isPtcEligibleReferenceVehicle)
+    .map(mapVehicleRow);
 
   const legacyDrivers = Array.isArray(payload.legacyDrivers) ? payload.legacyDrivers : [];
   const people = Array.isArray(payload.people) ? payload.people : [];
@@ -193,9 +183,9 @@ function normalizeInitialWorkspace(
         .filter((row: any) => !hasQaDataMarker(String(row.name || ""))),
       destinations: (Array.isArray(payload.destinations) ? payload.destinations : [])
         .filter((row: any) => !hasQaDataMarker(String(row.name || ""))),
-      vehicles: [...vehicleRows.filter((row) => !isTrailerTransport(row)), ...machineRows]
+      vehicles: vehicleRows
         .sort((a, b) => a.name.localeCompare(b.name, "ru")),
-      trailers: vehicleRows.filter((row) => isTrailerTransport(row)),
+      trailers: allVehicleRows.filter((row) => isTrailerTransport(row)),
       drivers,
       driverNames,
       combineOperators,
@@ -215,17 +205,54 @@ export async function GET(request: NextRequest) {
   try {
     const requestedCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
     const includeWorkspace = request.nextUrl.searchParams.get("workspace") === "true";
-    if (!requestedCompanyId) {
-      throw new SessionAuthError("Company is required", 400);
-    }
-    const supabase = await getUserScopedClientFromRequest(request);
+    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: OPERATOR_SESSION_ROLES,
+      requestedCompanyId,
+    });
     const token = request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || null;
     const rpcStartedAt = performance.now();
-    const { data, error } = await supabase.rpc("weighbridge_initial_workspace_v1", {
-      p_company_id: requestedCompanyId,
+    let { data, error } = await supabase.rpc("weighbridge_initial_workspace_v1", {
+      p_company_id: companyId,
       p_session_token: token,
       p_include_workspace: includeWorkspace,
     });
+    let recoveredOperatorSession = false;
+    if (error) {
+      console.error("[weighbridge/operator-session] initial workspace RPC failed", {
+        companyId,
+        includeWorkspace,
+        hasOperatorCookie: Boolean(token),
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
+
+      // A damaged/revoked workstation cookie must never strand the terminal on
+      // an error screen. Retry only as a locked terminal, through the same
+      // permission-checked RPC. This does not unlock the weighbridge or bypass
+      // PIN: it only restores the operator picker and clears the bad cookie.
+      if (token && error.code !== "42501") {
+        const fallback = await supabase.rpc("weighbridge_initial_workspace_v1", {
+          p_company_id: companyId,
+          p_session_token: null,
+          p_include_workspace: false,
+        });
+        if (!fallback.error) {
+          data = fallback.data;
+          error = null;
+          recoveredOperatorSession = true;
+        } else {
+          console.error("[weighbridge/operator-session] locked-state recovery failed", {
+            companyId,
+            code: fallback.error.code,
+            message: fallback.error.message,
+            details: fallback.error.details,
+            hint: fallback.error.hint,
+          });
+        }
+      }
+    }
     const rpcMs = performance.now() - rpcStartedAt;
     if (error) return NextResponse.json({ error: error.message }, { status: error.code === "42501" ? 403 : 400 });
     const payload = (data || {}) as Record<string, any>;
@@ -243,22 +270,37 @@ export async function GET(request: NextRequest) {
       ? supabase
         .from("reference_specialists")
         .select("id,person_id,personnel_type,status,archived")
-        .eq("company_id", requestedCompanyId)
+        .eq("company_id", companyId)
         .in("id", assignmentBridgeIds)
       : Promise.resolve({ data: [], error: null });
-    const machinesStartedAt = performance.now();
-    const machinePromise = initialWorkspace
+    const fleetStartedAt = performance.now();
+    const ptcVehiclesPromise = initialWorkspace
       ? supabase
-        .from("reference_machines")
-        .select("id,name,full_name,brand,model,series,license_plate,source_raw_name,type,category,machinery_type,status,is_active,archived,global_model:global_machine_model_id(full_name,category)")
-        .eq("company_id", requestedCompanyId)
+        .from("reference_vehicles")
+        .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name,source_clean_name,import_source,inventory_number,type,fleet_type,ptc_enabled,primary_responsible_personnel_id,source_machine_id,is_active,archived,transport_model:transport_model_id(full_name,category)")
+        .eq("company_id", companyId)
+        .eq("ptc_enabled", true)
         .eq("is_active", true)
         .eq("archived", false)
         .order("name", { ascending: true })
       : Promise.resolve({ data: [], error: null });
-    const [bridgeResult, machineResult] = await Promise.all([bridgePromise, machinePromise]);
+    // ptc_vehicle_states intentionally has no authenticated SELECT policy.
+    // Session/company access is resolved above, so read only this protected,
+    // company-scoped projection with the server client.
+    const ptcStatesPromise = initialWorkspace
+      ? getServiceClient()
+        .from("ptc_vehicle_states")
+        .select("vehicle_id,assigned")
+        .eq("company_id", companyId)
+        .eq("assigned", true)
+      : Promise.resolve({ data: [], error: null });
+    const [bridgeResult, ptcVehiclesResult, ptcStatesResult] = await Promise.all([
+      bridgePromise,
+      ptcVehiclesPromise,
+      ptcStatesPromise,
+    ]);
     const bridgesMs = performance.now() - bridgesStartedAt;
-    const machinesMs = performance.now() - machinesStartedAt;
+    const fleetMs = performance.now() - fleetStartedAt;
     if (bridgeResult.error) {
       return NextResponse.json(
         { error: "Не удалось проверить актуальные привязки водителей." },
@@ -266,31 +308,54 @@ export async function GET(request: NextRequest) {
       );
     }
     const assignmentBridges = (bridgeResult.data || []) as Record<string, any>[];
-    const initialMachines = (machineResult.data || []) as Record<string, any>[];
-    const initialResourceErrors = machineResult.error
-      ? [{
-          resource: "reference_machines",
-          code: "WB_RESOURCES_MACHINES",
-          message: "Не удалось загрузить тракторы и технику. Остальные данные сохранены.",
-        }]
-      : [];
+    const ptcVehicles = (ptcVehiclesResult.data || []) as Record<string, any>[];
+    const ptcStates = (ptcStatesResult.data || []) as Record<string, any>[];
+    const initialResourceErrors = [
+      ...(ptcVehiclesResult.error ? [{
+        resource: "reference_vehicles",
+        code: "WB_RESOURCES_VEHICLES",
+        message: "Не удалось загрузить парк PTC. Остальные данные сохранены.",
+      }] : []),
+      ...(ptcStatesResult.error ? [{
+        resource: "ptc_vehicle_states",
+        code: "WB_RESOURCES_PTC_STATES",
+        message: "Не удалось обновить быстрый список машин на линии. Полный парк PTC загружен.",
+      }] : []),
+    ];
     const response = NextResponse.json({
       ...(payload.operator_state || {}),
       initial_workspace: normalizeInitialWorkspace(
         initialWorkspace,
         assignmentBridges,
-        initialMachines,
+        ptcVehicles,
+        ptcStates,
         initialResourceErrors,
       ),
     });
     response.headers.set(
       "Server-Timing",
-      `initial_workspace_rpc;dur=${rpcMs.toFixed(1)}, assignment_bridges;dur=${bridgesMs.toFixed(1)}, machines;dur=${machinesMs.toFixed(1)}, total;dur=${(performance.now() - startedAt).toFixed(1)}`
+      `initial_workspace_rpc;dur=${rpcMs.toFixed(1)}, assignment_bridges;dur=${bridgesMs.toFixed(1)}, ptc_fleet;dur=${fleetMs.toFixed(1)}, total;dur=${(performance.now() - startedAt).toFixed(1)}`
     );
+    // A revoked, expired, or unknown operator cookie must not linger on a
+    // workstation after the server has already returned the canonical locked
+    // state. The next unlock will issue a fresh HttpOnly cookie.
+    if (token && !Boolean(payload.operator_state?.unlocked)) {
+      response.cookies.set(WEIGHBRIDGE_OPERATOR_COOKIE, "", { ...cookieOptions, maxAge: 0 });
+    }
+    if (recoveredOperatorSession) response.headers.set("X-Weighbridge-Session-Recovered", "1");
     return response;
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
-    if (sessionError) return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    if (sessionError) {
+      console.error("[weighbridge/operator-session] bootstrap rejected", {
+        status: sessionError.status,
+        message: sessionError.error,
+      });
+      return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
+    console.error("[weighbridge/operator-session] bootstrap crashed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }
@@ -321,22 +386,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Неизвестное действие операторской сессии." }, { status: 400 });
     }
 
-    const rpcName = action === "handover"
-      ? "handover_weighbridge_shift_v1"
-      : "open_or_unlock_weighbridge_shift_v1";
-    const args = action === "handover"
+    const rpcName = !WEIGHBRIDGE_PIN_REQUIRED
+      ? "temporary_select_weighbridge_operator_without_pin_v1"
+      : action === "handover"
+        ? "handover_weighbridge_shift_v1"
+        : "open_or_unlock_weighbridge_shift_v1";
+    const args = !WEIGHBRIDGE_PIN_REQUIRED
       ? {
           p_company_id: companyId,
           p_person_id: String(body?.personId || ""),
-          p_pin: String(body?.pin || ""),
-          p_handover_note: String(body?.note || "").trim() || null,
+          p_note: String(body?.note || "").trim() || null,
         }
-      : {
-          p_company_id: companyId,
-          p_person_id: String(body?.personId || ""),
-          p_pin: String(body?.pin || ""),
-          p_opening_note: String(body?.note || "").trim() || null,
-        };
+      : action === "handover"
+        ? {
+            p_company_id: companyId,
+            p_person_id: String(body?.personId || ""),
+            p_pin: String(body?.pin || ""),
+            p_handover_note: String(body?.note || "").trim() || null,
+          }
+        : {
+            p_company_id: companyId,
+            p_person_id: String(body?.personId || ""),
+            p_pin: String(body?.pin || ""),
+            p_opening_note: String(body?.note || "").trim() || null,
+          };
     const rpcStartedAt = performance.now();
     const { data, error } = await supabase.rpc(rpcName, args);
     const rpcMs = performance.now() - rpcStartedAt;

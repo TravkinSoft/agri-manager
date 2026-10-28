@@ -4,6 +4,7 @@ export interface FleetVehicle {
   brand?: string | null;
   plate: string | null;
   driver: string | null;
+  driverId?: string | null;
   inRepair?: boolean;
   repairVersion?: number;
   repairChangedAt?: string | null;

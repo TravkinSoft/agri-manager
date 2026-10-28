@@ -1,16 +1,16 @@
-const CACHE_VERSION = "travkinflow-v9-static-manor";
+const CACHE_VERSION = "travkinflow-v10-brand-tilt45";
 const STATIC_CACHE = `${CACHE_VERSION}:static`;
 
 const STATIC_ASSETS = [
   "/manifest.webmanifest",
-  "/brand/v1/travkinflow-logo-154a0d68.png",
+  "/brand/tilt45-v1/wordmark.png",
   "/brand/v1/travkinflow-symbol-006f2efc.png",
-  "/brand/v1/icons/favicon-32-compact-v2.png",
-  "/brand/v1/icons/icon-192-compact-v2.png",
-  "/brand/v1/icons/icon-512-compact-v2.png",
-  "/brand/v1/icons/maskable-192-compact-v2.png",
-  "/brand/v1/icons/maskable-512-compact-v2.png",
-  "/brand/v1/icons/apple-touch-icon-180-compact-v2.png",
+  "/brand/tilt45-v1/icons/favicon-32-compact-v2.png",
+  "/brand/tilt45-v1/icons/icon-192-compact-v2.png",
+  "/brand/tilt45-v1/icons/icon-512-compact-v2.png",
+  "/brand/tilt45-v1/icons/maskable-192-compact-v2.png",
+  "/brand/tilt45-v1/icons/maskable-512-compact-v2.png",
+  "/brand/tilt45-v1/icons/apple-touch-icon-180-compact-v2.png",
 ];
 const STATIC_ASSET_PATHS = new Set(STATIC_ASSETS);
 
@@ -162,8 +162,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(title, {
       body: payload.body || "Новое событие оборота машин",
-      icon: "/brand/v1/icons/icon-192-compact-v2.png",
-      badge: "/brand/v1/icons/favicon-32-compact-v2.png",
+      icon: "/brand/tilt45-v1/icons/icon-192-compact-v2.png",
+      badge: "/brand/tilt45-v1/icons/favicon-32-compact-v2.png",
       tag: `travkinflow-${notificationId}`,
       renotify: true,
       silent: false,

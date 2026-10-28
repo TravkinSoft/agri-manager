@@ -453,32 +453,32 @@
     color: var(--travkin-text-muted);
   }
 
-  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .bg-white,
-  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .bg-slate-50,
-  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .bg-slate-100 {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .bg-white,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .bg-slate-50,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .bg-slate-100 {
     background-color: var(--manor-paper) !important;
   }
 
-  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .text-slate-900,
-  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .text-slate-800,
-  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .text-slate-700 {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .text-slate-900,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .text-slate-800,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .text-slate-700 {
     color: var(--manor-walnut) !important;
   }
 
-  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .text-slate-600,
-  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .text-slate-500,
-  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .text-slate-400 {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .text-slate-600,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .text-slate-500,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .text-slate-400 {
     color: var(--manor-text-muted) !important;
   }
 
-  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .border-slate-100,
-  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .border-slate-200,
-  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .border-slate-300 {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .border-slate-100,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .border-slate-200,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .border-slate-300 {
     border-color: var(--manor-line) !important;
   }
 
-  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .hover\:bg-slate-100:hover,
-  :is([data-theme="estate-register"], [data-theme="warm-manor"]) .travkin-shell .hover\:bg-slate-50:hover {
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .hover\:bg-slate-100:hover,
+  :is([data-theme="estate-register"], [data-theme="warm-manor"], [data-theme="estate-graphite"]) .travkin-shell .hover\:bg-slate-50:hover {
     background-color: var(--manor-paper-recessed) !important;
   }
 

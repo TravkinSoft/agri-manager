@@ -56,6 +56,7 @@ function performSwipe(card: any, options: {
     setPointerCapture: (pointerId: number) => captured.add(pointerId),
     hasPointerCapture: (pointerId: number) => captured.has(pointerId),
     releasePointerCapture: (pointerId: number) => captured.delete(pointerId),
+    animate: () => ({ finished: Promise.resolve(), cancel: () => undefined }),
   };
   const event = (pointerId: number, x: number, y: number, isPrimary = true) => ({
     pointerId,
@@ -92,10 +93,14 @@ function harness(role: model.TrafficRole, input = vehicles, options: {
   canManage?: boolean;
   fleet?: FleetVehicle[];
   released?: boolean;
+  shiftOpen?: boolean;
 } = {}) {
   const snapshot: model.TrafficSnapshot = {
     role, companyId: "company-a", personName: "", enabled: true, fieldId: null, fieldName: null, serverTime: "2026-09-04T10:08:00Z",
     vehicles: model.visibleVehicles(input, role), events: [],
+    combineShift: options.shiftOpen === false
+      ? { id: "qa-shift", operatorName: "QA", status: "closed", openedAt: "2026-09-04T07:00:00Z", closedAt: "2026-09-04T10:00:00Z", cropStructureId: "qa-plot", hectaresShift: 3, hectaresFieldTotal: 3 }
+      : { id: "qa-shift", operatorName: "QA", status: "open", openedAt: "2026-09-04T07:00:00Z", closedAt: null, cropStructureId: "qa-plot", hectaresShift: null, hectaresFieldTotal: null },
   };
   const state: any[] = [], refs: any[] = [], calls: any[] = [], commits: any[] = [], managedVehicles: string[] = [];
   const requests: ReturnType<typeof deferred<model.TrafficCommit>>[] = [];
@@ -156,13 +161,14 @@ function harness(role: model.TrafficRole, input = vehicles, options: {
     },
   };
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
-    { module: loaded, exports: loaded.exports, document: {
+    { module: loaded, exports: loaded.exports, getComputedStyle: () => ({ transform: "none" }), document: {
         visibilityState: "visible",
         addEventListener: () => undefined,
         removeEventListener: () => undefined,
       }, window: {
         setInterval: () => 1,
         clearInterval: () => undefined,
+        matchMedia: () => ({ matches: false }),
         addEventListener: () => undefined,
         removeEventListener: () => undefined,
         confirm: (message: string) => {
@@ -323,11 +329,23 @@ async function main() {
 
     const legacySwipe = harness("harvester", [vehicles[1]], { released: false });
     const belowLegacyThreshold = cardNodes(legacySwipe.render())[0];
-    performSwipe(belowLegacyThreshold, { width: 200, dx: 83 });
+    performSwipe(belowLegacyThreshold, { width: 200, dx: 139 });
+    await flush();
     check(legacySwipe.calls.length, 0);
     const exactLegacyThreshold = harness("harvester", [vehicles[1]], { released: false });
-    performSwipe(cardNodes(exactLegacyThreshold.render())[0], { width: 200, dx: 84 });
+    performSwipe(cardNodes(exactLegacyThreshold.render())[0], { width: 200, dx: 140 });
+    await flush();
     check(exactLegacyThreshold.calls.length, 1);
+  }
+
+  {
+    const closedHarvester = harness("harvester", [vehicles[1]], { shiftOpen: false });
+    const closedTree = closedHarvester.render();
+    const closedCard = cardNodes(closedTree)[0];
+    check(Boolean(closedCard), true);
+    check(closedCard.props.disabled, true);
+    check(words(closedCard).includes("Свайп вправо"), false);
+    check(nodes(closedTree).some(node => String(node.props?.["data-testid"] || "").startsWith("traffic-swipe-track-")), false);
   }
 
   const movingManager = harness("manager", [vehicles[1]]);
@@ -471,15 +489,15 @@ async function main() {
   check(swipedCard.props["aria-keyshortcuts"], "ArrowRight Enter Space");
   check(swipedCard.props.className.includes("touch-pan-y"), true);
   check(nodes(swipedTree).some(node => node.props?.["data-testid"] === "traffic-swipe-track-car-1"), true);
-  const completedPointer = performSwipe(swipedCard, { dx: 120 });
+  const completedPointer = performSwipe(swipedCard, { dx: 210 });
   swipedCard.props.onPointerUp(completedPointer); // duplicate delivery is inert
   await flush();
   check(swiped.calls.length, 1);
   check(swiped.confirmPrompts.length, 0);
   check(swiped.calls[0][2].target, "loaded");
   for (const boundary of [
-    { width: 200, below: 103, exact: 104 },
-    { width: 600, below: 159, exact: 160 },
+    { width: 200, below: 139, exact: 140 },
+    { width: 600, below: 419, exact: 420 },
   ]) {
     const below = harness("harvester", [vehicles[1]]);
     performSwipe(cardNodes(below.render())[0], { width: boundary.width, dx: boundary.below });

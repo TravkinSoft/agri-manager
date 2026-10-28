@@ -18,6 +18,7 @@ type Vehicle = {
   type: string;
   searchTerms?: string[];
   primaryPersonnelId?: string | null;
+  ptcAssigned?: boolean;
 };
 
 type Driver = {
@@ -86,6 +87,8 @@ export function TransportDriverSelects({
     const recentOrder = new Map(recentVehicleIds.map((id, index) => [id, index]));
     return [...vehicles]
       .sort((a, b) => {
+        const linePriority = Number(Boolean(b.ptcAssigned)) - Number(Boolean(a.ptcAssigned));
+        if (linePriority !== 0) return linePriority;
         const aRecent = recentOrder.get(a.id);
         const bRecent = recentOrder.get(b.id);
         if (aRecent != null || bRecent != null) return (aRecent ?? 999) - (bRecent ?? 999);
@@ -97,7 +100,11 @@ export function TransportDriverSelects({
           value: vehicle.id,
           label: vehicleTitle(vehicle),
           status: assignment ? "Ждёт тару" : undefined,
-          group: recentOrder.has(vehicle.id) ? "Недавно использованные" : "Остальные",
+          group: vehicle.ptcAssigned
+            ? "На линии"
+            : recentOrder.has(vehicle.id)
+              ? "Недавно использованные"
+              : "Не на линии",
           keywords: [vehicle.name, vehicle.model, vehicle.plate, vehicle.type, ...(vehicle.searchTerms || [])].concat([
             formatVehiclePlate(vehicle.plate),
             String(vehicle.plate || "").replace(/[^\p{L}\p{N}]+/gu, "").slice(-4),

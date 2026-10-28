@@ -23,7 +23,10 @@ const ticketPatch = read("app/api/weighbridge/tickets/[id]/route.ts");
 const finalize = read("app/api/weighbridge/tickets/[id]/finalize/route.ts");
 const correction = read("app/api/weighbridge/tickets/[id]/correction/route.ts");
 const voidRoute = read("app/api/weighbridge/tickets/[id]/void/route.ts");
+const operatorSessionRoute = read("app/api/weighbridge/operator-session/route.ts");
 const migration = read("supabase/migrations/20260818190000_weighbridge_pin_gate_shift_lifecycle_v1.sql");
+const temporaryAccessMode = read("lib/weighbridge/operator-access-mode.ts");
+const temporaryAccessMigration = read("supabase/migrations/20260917201210_temporary_weighbridge_operator_without_pin_v1.sql");
 
 const operatorDialog = page.slice(page.indexOf("open={operatorDialogVisible}"), page.indexOf("open={shiftDialogOpen}"));
 const businessLoadEffect = page.slice(
@@ -60,7 +63,38 @@ check("PIN gate rejects outside interaction", () => assert.match(operatorDialog,
 check("PIN gate has no cancel action", () => assert.doesNotMatch(operatorDialog, />Отмена</));
 check("PIN gate offers explicit page exit", () => assert.match(operatorDialog, /href="\/dashboard"[\s\S]*?Выйти из Весовой/));
 check("wrong PIN remains locked and clears PIN", () => assert.match(page, /wrongPin[\s\S]*?setOperatorPin\(""\)[\s\S]*?setOperatorError\(wrongPin \? "Неверный PIN"/));
-check("network error remains fail closed", () => assert.match(page, /setOperatorSessionStatus\("error"\)[\s\S]*?Не удалось проверить PIN\. Повторите/));
+check("initial access error remains fail closed without claiming PIN was checked", () => {
+  assert.match(page, /setOperatorSessionStatus\("error"\)[\s\S]*?Не удалось загрузить доступ к Весовой\. Повторите проверку\./);
+  const verificationBlock = page.slice(page.indexOf("const verifyOperatorSession"), page.indexOf("const refreshLiveData"));
+  assert.doesNotMatch(verificationBlock, /Не удалось проверить PIN/);
+});
+check("server removes stale operator cookie after canonical lock", () => {
+  assert.match(operatorSessionRoute, /if \(token && !Boolean\(payload\.operator_state\?\.unlocked\)\)/);
+  assert.match(operatorSessionRoute, /response\.cookies\.set\(WEIGHBRIDGE_OPERATOR_COOKIE, "", \{ \.\.\.cookieOptions, maxAge: 0 \}\)/);
+});
+check("failed cookie bootstrap recovers only into the locked PIN picker", () => {
+  assert.match(operatorSessionRoute, /if \(token && error\.code !== "42501"\)/);
+  assert.match(operatorSessionRoute, /p_session_token: null,[\s\S]*?p_include_workspace: false/);
+  assert.match(operatorSessionRoute, /X-Weighbridge-Session-Recovered/);
+  assert.match(operatorSessionRoute, /initial workspace RPC failed[\s\S]*?code: error\.code[\s\S]*?hint: error\.hint/);
+});
+check("operator bootstrap derives company from the authenticated actor", () => {
+  assert.match(operatorSessionRoute, /resolveWeighbridgeSession\(request,[\s\S]*?allowedRoles: OPERATOR_SESSION_ROLES/);
+  assert.match(service, /getWeighbridgeOperatorState\([\s\S]*?_companyId\?[\s\S]*?const query = new URLSearchParams\(\)/);
+});
+check("temporary mode keeps operator selection but disables PIN input", () => {
+  assert.match(temporaryAccessMode, /WEIGHBRIDGE_PIN_REQUIRED = false/);
+  assert.match(operatorDialog, /<Label>Весовщик<\/Label>/);
+  assert.match(operatorDialog, /eligibleOperators\.length && WEIGHBRIDGE_PIN_REQUIRED[\s\S]*?<Label>PIN<\/Label>/);
+  assert.match(operatorDialog, /Временно выберите весовщика без PIN/);
+});
+check("temporary selection remains authenticated and company scoped", () => {
+  assert.match(temporaryAccessMigration, /resolve_actor_context_from_session_v1/);
+  assert.match(temporaryAccessMigration, /Cross-company access denied/);
+  assert.match(temporaryAccessMigration, /role_type = 'weighbridge_operator'/);
+  assert.match(temporaryAccessMigration, /revoke all[\s\S]*?from public, anon/);
+  assert.match(temporaryAccessMigration, /grant execute[\s\S]*?to authenticated/);
+});
 check("stale GET is generation guarded", () => assert.match(page, /generation !== operatorRequestGenerationRef\.current/));
 check("stale GET is aborted before PIN POST", () => assert.match(page, /const submitOperatorAction[\s\S]*?invalidateOperatorSessionRequest\(\)[\s\S]*?unlockWeighbridgeOperator/));
 check("business load waits for canonical unlock", () => {
@@ -106,5 +140,5 @@ check("manual close uses canonical reason", () => assert.match(shifts, /close_re
 check("operator access disable closes shift and revokes sessions", () => assert.match(migration, /close_weighbridge_shift_on_operator_access_disabled_v1[\s\S]*?close_reason = 'admin_revoked'[\s\S]*?status = 'revoked'/));
 check("shift expiry revokes all operator sessions", () => assert.match(migration, /where shift_id = v_shift\.id and status = 'active'/));
 
-assert.equal(passed, 37);
-console.log(`P0 weighbridge PIN gate regression PASS: ${passed}/37`);
+assert.equal(passed, 42);
+console.log(`P0 weighbridge PIN gate regression PASS: ${passed}/42`);

@@ -55,6 +55,7 @@ export function failed(error: unknown) {
     return noStore({ error: "Проверьте заполненные поля" }, 400);
   const message = error instanceof Error ? error.message : "";
   const known: Record<string, [number, string]> = {
+    PTC_OPEN_TICKET_WAITING_TARE: [409, "Талон ещё открыт. Машина станет пустой после подтверждённого закрытия талона на весовой"],
     FLEET_REPAIR_FORBIDDEN: [403, "Нет доступа к ремонту этой машины"],
     FLEET_REPAIR_INVALID: [400, "Обновите карточку машины"],
     FLEET_REPAIR_VEHICLE_UNAVAILABLE: [404, "Машина недоступна в этой компании"],
@@ -230,7 +231,7 @@ async function readTrafficAnalyticsEvents(
   for (let from = 0; ; from += pageSize) {
     const result = await db
       .from("ptc_events")
-      .select("id,vehicle_id,from_state,to_state,cycle,created_at")
+      .select("id,vehicle_id,from_state,to_state,cycle,created_at,replaces_event_id")
       .eq("company_id", companyId)
       .gte("created_at", startedAt)
       .lte("created_at", endedAt)
@@ -239,7 +240,8 @@ async function readTrafficAnalyticsEvents(
       .range(from, from + pageSize - 1);
     if (result.error) throw result.error;
     const page = (result.data ?? []) as Array<TrafficAnalyticsEvent & { id: string }>;
-    rows.push(...page.map(({ vehicle_id, from_state, to_state, cycle, created_at }) => ({
+    rows.push(...page.map(({ id, replaces_event_id, vehicle_id, from_state, to_state, cycle, created_at }) => ({
+      id, replaces_event_id,
       vehicle_id,
       from_state,
       to_state,

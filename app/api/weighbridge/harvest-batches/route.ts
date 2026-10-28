@@ -25,6 +25,7 @@ import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { getServiceClient } from "@/lib/supabase/service";
 import { buildWarehouseFieldOrigins } from "@/lib/warehouse/field-origins";
 import { cleanHarvestMassByTicket, type ImpurityEntry } from "@/lib/warehouse/clean-harvest-mass";
+import { confirmedPlotHectares } from "@/lib/dashboard/harvest-plot-hectares";
 
 import {
   collapseOperationDocuments,
@@ -835,6 +836,9 @@ async function loadAggregateHarvestLotSummaries(
                 !batchIsSharedImpuritySelectable(candidate.batch, candidate.sourceTicketId)
               ))
             ) return null;
+            const availableKg = potentialPairBatches.reduce((total, candidate) => (
+              total + Number(exactBalanceByBatchId.get(String(candidate.batch?.id || "")) || 0)
+            ), 0);
             const sourceCrop = cropsById.get(String(structure.crop_id || lot.crop_id || ""));
             const sourceVariety = varietiesById.get(String(structure.variety_id || lot.variety_id || ""));
             const sourceReproduction = reproductionsById.get(String(structure.reproduction_id || lot.reproduction_id || ""));
@@ -851,6 +855,11 @@ async function loadAggregateHarvestLotSummaries(
               reproductionId: structure.reproduction_id ? String(structure.reproduction_id) : null,
               reproductionName: localizedName(sourceReproduction, "ru", ["name", "code"]) || "",
               areaHa: Number(structure.area || 0) || null,
+              availableKg,
+              // One inventory batch is one accepted trip. Keep the full
+              // lineage on the server, but expose one logical picker row per
+              // crop-structure source instead of one row per trip.
+              tripCount: potentialPairBatches.length,
             };
           })
           .filter(Boolean)
@@ -1055,29 +1064,69 @@ async function loadAggregateHarvestLots(
     .in("id", chunk)
     .order("id", { ascending: true }));
   const structureIds = ids(ticketRows.map(row => row.crop_structure_allocation_id));
+  // Yield describes the source plot, not the fraction of its crop remaining in
+  // this lot/warehouse. Match the complete plot receipt cohort to its hectares.
+  const yieldTicketRows = await loadInChunks<any>(structureIds, chunk => harvestStockSupabase.from("tickets")
+    .select("id,op_type,field_id,crop_structure_allocation_id,accepted_weight_kg,net_weight_kg,status,is_finalized,is_voided,replacement_ticket_id")
+    .eq("company_id", companyId).eq("op_type", "harvest_incoming")
+    .eq("status", "finalized").eq("is_finalized", true).eq("is_voided", false)
+    .is("replacement_ticket_id", null).in("crop_structure_allocation_id", chunk).order("id"));
+  const cleanTicketRows = Array.from(new Map([...ticketRows, ...yieldTicketRows].map(row => [String(row.id), row])).values());
   // Read impurity deductions on the original batches and their descendants in
   // every warehouse. Current stock would incorrectly deduct sales/transfers.
-  const relatedBatches = await loadInChunks<any>(ticketIds, chunk => harvestStockSupabase.from("inventory_batches")
+  const relatedBatches = await loadInChunks<any>(ids(cleanTicketRows.map(row => row.id)), chunk => harvestStockSupabase.from("inventory_batches")
     .select("id,parent_batch_id,source_ticket_id").eq("company_id", companyId).in("source_ticket_id", chunk).order("id"));
+  // Transfers may retain only parent_batch_id, not source_ticket_id.
+  const descendantIds = new Set(ids([...relatedBatches, ...directBatchRows, ...ancestorBatchRows].map(row => row.id)));
+  let parentIds = Array.from(descendantIds);
+  while (parentIds.length) {
+    const children = await loadInChunks<any>(parentIds, chunk => harvestStockSupabase.from("inventory_batches")
+      .select("id,parent_batch_id,source_ticket_id").eq("company_id", companyId).in("parent_batch_id", chunk).order("id"));
+    const fresh = children.filter(row => !descendantIds.has(String(row.id)));
+    fresh.forEach(row => descendantIds.add(String(row.id)));
+    relatedBatches.push(...fresh);
+    parentIds = ids(fresh.map(row => row.id));
+  }
   const impurityBatchIds = ids([...Array.from(seenBatchIds), ...relatedBatches.map(row => row.id)]);
+  const impurityOutputs = await loadInChunks<any>(impurityBatchIds, chunk => harvestStockSupabase.from("batch_transformation_outputs")
+    .select("transformation_id,output_batch_id").eq("company_id", companyId).in("output_batch_id", chunk).order("output_batch_id"));
+  const impurityInputs = await loadInChunks<any>(ids(impurityOutputs.map(row => row.transformation_id)), chunk => harvestStockSupabase.from("batch_transformation_inputs")
+    .select("transformation_id,batch_id,input_weight_kg").eq("company_id", companyId).in("transformation_id", chunk).order("batch_id"));
+  const inputBatches = await loadInChunks<any>(ids(impurityInputs.map(row => row.batch_id)).filter(id => !descendantIds.has(id)), chunk => harvestStockSupabase.from("inventory_batches")
+    .select("id,parent_batch_id,source_ticket_id").eq("company_id", companyId).in("id", chunk).order("id"));
+  const impurityTransformationLinks = impurityOutputs.flatMap(output => impurityInputs
+    .filter(input => input.transformation_id === output.transformation_id)
+    .map(input => ({ output_batch_id: output.output_batch_id, input_batch_id: input.batch_id, input_weight_kg: input.input_weight_kg })));
   const impuritySelect = "id,inventory_batch_id,batch_id_text,batch_id,reason_type,delta_qty_signed";
   const impurityQuery = () => harvestStockSupabase.from("stock_ledger_entries")
     .select(impuritySelect).eq("company_id", companyId).ilike("reason_type", "%impurit%");
-  const [structures, impurityByBatch, impurityByText, impurityByLegacy] = await Promise.all([
+  const [structures, impurityByBatch, impurityByText, impurityByLegacy, areaSegments] = await Promise.all([
     loadInChunks<any>(structureIds, chunk => supabase.from("crop_structure")
       .select("id,field_id,area").eq("company_id", companyId).in("id", chunk).order("id")),
     loadInChunks<ImpurityEntry>(impurityBatchIds, chunk => impurityQuery().in("inventory_batch_id", chunk).order("id")),
     loadInChunks<ImpurityEntry>(impurityBatchIds, chunk => impurityQuery().is("inventory_batch_id", null).in("batch_id_text", chunk).order("id")),
     loadInChunks<ImpurityEntry>(impurityBatchIds, chunk => impurityQuery().is("inventory_batch_id", null).is("batch_id_text", null).in("batch_id", chunk).order("id")),
+    loadInChunks<any>(structureIds, chunk => harvestStockSupabase.from("ptc_combine_field_segments")
+      .select("id,shift_id,crop_structure_id,closed_at,hectares_segment")
+      .eq("company_id", companyId).in("crop_structure_id", chunk).order("id")),
   ]);
+  const areaShifts = await loadInChunks<any>(ids(areaSegments.map(row => row.shift_id)), chunk => harvestStockSupabase.from("ptc_combine_shifts")
+    .select("id,closed_at").eq("company_id", companyId).in("id", chunk).order("id"));
+  const areaCutoff = new Date().toISOString();
+  const confirmedAreas = new Map(structureIds.map(id => [id, confirmedPlotHectares(
+    areaSegments.filter(row => String(row.crop_structure_id) === id), areaShifts, areaCutoff,
+  )]));
   const names = new Map<string, string>((fieldsResult.data || []).map((row: any) => [String(row.id), String(row.name)]));
   const candidates = resolveEffectiveHarvestTicketCandidatesByBatch(lineage, ticketRows);
   const impurityLineage = resolveHarvestLotTicketLineage(
     impurityBatchIds.map(id => ({ inventory_batch_id: id, harvest_lot_id: "origin" })),
-    [...links, ...ancestorLinkRows], [...directBatchRows, ...ancestorBatchRows, ...relatedBatches], transformationInputLinks,
+    [...links, ...ancestorLinkRows], [...directBatchRows, ...ancestorBatchRows, ...relatedBatches, ...inputBatches],
+    [...transformationInputLinks, ...impurityTransformationLinks],
   );
-  const cleanMassByTicket = cleanHarvestMassByTicket(ticketRows,
-    resolveEffectiveHarvestTicketCandidatesByBatch(impurityLineage, ticketRows),
+  const cleanMassByTicket = cleanHarvestMassByTicket(cleanTicketRows,
+    // Keep other inputs visible as ambiguity; filtering them out would attribute
+    // a mixed deduction entirely to the selected plot.
+    new Map(impurityLineage.map(row => [row.inventoryBatchId, row.candidates])),
     [...impurityByBatch, ...impurityByText, ...impurityByLegacy]);
   const originsByLotWarehouse = new Map<string, ReturnType<typeof buildWarehouseFieldOrigins>>();
   {
@@ -1091,7 +1140,7 @@ async function loadAggregateHarvestLots(
         const originIds = new Set(localMembers.flatMap(row => (candidates.get(row.inventoryBatchId) || []).map(item => item.ticketId)));
         const yieldRows = ticketRows.filter(row => lotTicketIds.has(String(row.id)));
         const sourceRows = yieldRows.filter(row => originIds.has(String(row.id)) || String(row.warehouse_to_id) === String(stock.warehouse_id));
-        originsByLotWarehouse.set(`${lot.id}:${stock.warehouse_id}`, buildWarehouseFieldOrigins(sourceRows, structures, names, yieldRows, cleanMassByTicket));
+        originsByLotWarehouse.set(`${lot.id}:${stock.warehouse_id}`, buildWarehouseFieldOrigins(sourceRows, structures, names, yieldTicketRows, cleanMassByTicket, confirmedAreas));
       });
     });
   }
@@ -1975,7 +2024,9 @@ export async function GET(request: NextRequest) {
       const operationLine = sourceLine?.operation_line_id
         ? operationLineById.get(String(sourceLine.operation_line_id))
         : null;
-      const harvestedAreaHa = Number(operationLine?.actual_area_ha || operationLine?.planned_area_ha || 0) || null;
+      // A legacy single batch does not establish which share of an operation's
+      // hectares produced it. Do not invent a yield from planned or full area.
+      const harvestedAreaHa = null;
       const metrics = calculateHarvestBatchMetrics(receivedKg, removedKg, harvestedAreaHa);
       const warehouseId = String(incoming[0]?.warehouse_to_id || "");
       const warehouse = warehouseById.get(warehouseId);
