@@ -1,8 +1,8 @@
 {
-  "crons": [
-    {
-      "path": "/api/cron/ptc-idle-alerts",
-      "schedule": "* * * * *"
-    }
-  ]
+  "installCommand": "npm ci",
+  "buildCommand": "next build",
+  "git": {
+    "deploymentEnabled": false
+  },
+  "crons": []
 }
