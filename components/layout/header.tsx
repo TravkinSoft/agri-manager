@@ -465,6 +465,11 @@ export function Header() {
                 <DropdownMenuSeparator className="bg-[var(--manor-line)] lg:hidden" />
               </>
             ) : null}
+            {canAccessPath(profile?.role, "/mtm") && activeUserCompanyId ? (
+              <DropdownMenuItem onClick={() => router.push("/mtm")} className="min-h-[48px] cursor-pointer md:hidden">
+                {t("mtm")}
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuLabel className="md:hidden">Язык</DropdownMenuLabel>
             {profile?.role !== "fleet_manager" && MOBILE_LANGUAGES.map((item) => (
               <DropdownMenuItem
