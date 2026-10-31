@@ -84,6 +84,7 @@ import {
   getOperationTemplateAvailability,
   getPurposeDefinitionsForOperation,
   getTankMixComponentDefinition,
+  inferMaterialTypeByProductType,
   isPotatoCropContext,
   normalizeIrrigationType,
   resolveCanonicalOperationType,
@@ -350,17 +351,6 @@ function createOperationIdempotencyKey(): string {
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return `operation-create-${randomPart}`;
-}
-
-function inferMaterialTypeByProductType(productType: string | null | undefined): OperationMaterialType {
-  const normalized = String(productType || "").trim().toLowerCase();
-  if (normalized.includes("seed")) return "seed";
-  if (normalized.includes("fertil")) return "fertilizer";
-  if (normalized.includes("additive") || normalized.includes("adjuvant")) return "adjuvant";
-  if (normalized.includes("pesticide") || normalized.includes("growth_regulator")) return "pesticide";
-  if (normalized.includes("fuel")) return "fuel";
-  if (normalized.includes("organic")) return "organic";
-  return "fertilizer";
 }
 
 function productMetadataText(product: ProductOption | undefined): string {

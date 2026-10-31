@@ -484,6 +484,20 @@ export const TANK_MIX_COMPONENT_DEFINITIONS: TankMixComponentDefinition[] = [
   { slug: "other", label: "Другое", storageMaterialType: "other", defaultUnit: "kg", productRequired: true },
 ];
 
+export function inferMaterialTypeByProductType(productType: string | null | undefined): OperationMaterialType {
+  const normalized = String(productType || "").trim().toLowerCase();
+  // MTM goods retain their product identity and use the existing generic
+  // operation-material kind; selecting a part must not label it fertilizer.
+  if (normalized === "material") return "other";
+  if (normalized.includes("seed")) return "seed";
+  if (normalized.includes("fertil")) return "fertilizer";
+  if (normalized.includes("additive") || normalized.includes("adjuvant")) return "adjuvant";
+  if (normalized.includes("pesticide") || normalized.includes("growth_regulator")) return "pesticide";
+  if (normalized.includes("fuel")) return "fuel";
+  if (normalized.includes("organic")) return "organic";
+  return "fertilizer";
+}
+
 export const FERTILIZER_APPLICATION_METHODS: Array<{
   slug: FertilizerApplicationMethod;
   label: string;
