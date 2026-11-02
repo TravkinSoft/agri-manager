@@ -110,10 +110,6 @@ export function canAccessPath(role: AppRole, pathname: string): boolean {
   const path = String(pathname || "").toLowerCase();
   if (!path || path === "/") return true;
 
-  if (path === "/mtm" || path.startsWith("/mtm/")) {
-    return ["global_admin", "company_admin", "warehouse", "warehouse_operator", "mechanic_operator", "fleet_manager", "agronomist", "director", "accountant"].includes(String(role || ""));
-  }
-
   if (role === "global_admin") return true;
 
   if (role === "fleet_manager") {

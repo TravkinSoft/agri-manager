@@ -22,7 +22,6 @@ import {
   Tractor,
   Users,
   Truck,
-  Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/contexts/auth-context";
@@ -48,11 +47,6 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
       return [
         { labelKey: "fleet", href: "/fleet", icon: Truck, kind: "route" },
         { labelKey: "traffic", href: "/traffic", icon: History, kind: "route" },
-      ];
-    case "mechanic_operator":
-      return [
-        { labelKey: "traffic", href: "/traffic-operator", icon: Truck, kind: "route" },
-        { labelKey: "mtm", href: "/mtm", icon: Wrench, kind: "route" },
       ];
     case "global_admin":
       return [
@@ -112,7 +106,6 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
         { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
         { labelKey: "stock_movements", href: "/warehouses/transactions", icon: History, kind: "route" },
         DASHBOARD_ITEM,
-        MORE_ITEM,
       ];
     case "warehouse_operator":
       return [
@@ -120,7 +113,6 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
         { labelKey: "issue_requests", href: "/warehouses/requests", icon: CheckSquare, kind: "route" },
         { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
         { labelKey: "stock_movements", href: "/warehouses/transactions", icon: History, kind: "route" },
-        MORE_ITEM,
       ];
     case "weighman":
       return [
@@ -142,7 +134,6 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
 
 function getMoreRouteCandidates(role?: string | null): BottomItem[] {
   const shared: BottomItem[] = [
-    { labelKey: "mtm", href: "/mtm", icon: Wrench, kind: "route" },
     { labelKey: "fleet", href: "/fleet", icon: Truck, kind: "route" },
     { labelKey: "traffic", href: "/traffic", icon: Truck, kind: "route" },
     { labelKey: "weather", href: "/weather-lab", icon: CloudSun, kind: "route" },
@@ -171,7 +162,7 @@ function getRoleFilteredItems(role?: string | null): BottomItem[] {
       (item) => item.kind === "more" || canAccessPath(normalizedRole, item.href || "")
     );
   }
-  const routeLimit = ["agronomist", "director", "accountant", "warehouse", "warehouse_operator"].includes(String(normalizedRole)) ? 5 : 4;
+  const routeLimit = ["agronomist", "director", "accountant"].includes(String(normalizedRole)) ? 5 : 4;
   return getMobileRouteCandidates(role)
     .filter((item) => item.kind === "more" || (showMainMenuRoute(normalizedRole, item.href || "") && canAccessPath(normalizedRole, item.href || "")))
     .slice(0, routeLimit);

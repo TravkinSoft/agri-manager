@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { protectLegacyProductReads } from "./catalog-read-boundary";
 
 export function getServiceClient(): SupabaseClient {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -8,11 +9,11 @@ export function getServiceClient(): SupabaseClient {
     throw new Error("Supabase service credentials are not configured");
   }
 
-  return createClient(supabaseUrl, serviceKey, {
+  return protectLegacyProductReads(createClient(supabaseUrl, serviceKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
     },
-  });
+  }));
 }
 

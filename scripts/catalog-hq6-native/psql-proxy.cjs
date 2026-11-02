@@ -1,0 +1,5 @@
+const {Client}=require(require('node:path').resolve(__dirname,'../output/catalog-hq6-native/driver/node_modules/pg'));
+// Test-only client: fixed loopback endpoint, no env URL or external credential support.
+const client=new Client({host:'127.0.0.1',port:55439,user:'postgres',database:'postgres',application_name:process.env.PGAPPNAME||'hq6_fixture'});
+let input='';process.stdin.setEncoding('utf8');process.stdin.on('data',c=>input+=c);
+process.stdin.on('end',async()=>{try{await client.connect();const check=(await client.query("select current_setting('data_directory') as dir, host(inet_server_addr()) as addr")).rows[0];if(check.addr!=='127.0.0.1'||!check.dir.replaceAll('\\','/').endsWith('/synthetic-data'))throw Error('Not the owned synthetic loopback cluster');const result=await client.query(input);for(const r of Array.isArray(result)?result:[result])for(const row of r.rows||[])console.log(Object.values(row).map(v=>v===true?'t':v===false?'f':v===null?'':typeof v==='object'?JSON.stringify(v):String(v)).join('|'));}catch(e){console.error(e.message);process.exitCode=1;}finally{await client.end();}});
